@@ -1,0 +1,7 @@
+.git
+.venv
+.codex
+outputs
+tests
+examples
+**/__pycache__

@@ -1,0 +1,4 @@
+interface:
+  display_name: "小说漫剧总导演"
+  short_description: "把小说章节稳定转换为资产一致、音画可验收的竖屏漫剧"
+  default_prompt: "Use $novel-comic-drama-director to turn this novel chapter into a production-ready manga-drama episode with reusable assets, bounded planning, reference audio, subtitles, and ASR gates."

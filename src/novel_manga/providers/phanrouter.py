@@ -1,0 +1,304 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import math
+import os
+import shlex
+import subprocess
+import tempfile
+import time
+import wave
+from pathlib import Path
+
+import httpx
+
+from ..config import Settings
+from ..util import atomic_write_json, retry
+from .base import ImageResult, MediaProvider
+
+
+class PhanRouterMediaProvider(MediaProvider):
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.client = httpx.Client(timeout=settings.request_timeout)
+        self.headers = {"Authorization": f"Bearer {settings.phanrouter_api_key}"}
+
+    def _download(self, url: str, output: Path, max_bytes: int = 512 * 1024 * 1024) -> None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        partial = output.with_suffix(output.suffix + ".partial")
+        with self.client.stream("GET", url, follow_redirects=True) as response:
+            response.raise_for_status()
+            total = 0
+            with partial.open("wb") as stream:
+                for chunk in response.iter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError(f"remote artifact exceeds {max_bytes} bytes")
+                    stream.write(chunk)
+        os.replace(partial, output)
+
+    @staticmethod
+    def _task_data(payload: dict) -> dict:
+        result = payload.get("Result") or payload.get("data") or payload
+        return result if isinstance(result, dict) else payload
+
+    def _poll_image_url(self, task_id: str) -> str:
+        deadline = time.monotonic() + self.settings.poll_timeout
+        while time.monotonic() < deadline:
+            response = self.client.get(
+                f"{self.settings.phanrouter_base_url.rstrip('/')}/v3/images/generations/{task_id}",
+                headers=self.headers,
+            )
+            response.raise_for_status()
+            data = self._task_data(response.json())
+            status = str(data.get("status", "")).lower()
+            if status in {"succeeded", "success"}:
+                url = data.get("url")
+                if not url:
+                    raise ValueError("successful image task returned no URL")
+                return str(url)
+            if status in {"failed", "failure", "cancelled"}:
+                raise RuntimeError(f"image generation failed: {data}")
+            time.sleep(5)
+        raise TimeoutError(f"image task timed out: {task_id}")
+
+    def _restore_image_url(self, image: ImageResult) -> str:
+        if image.public_url:
+            return image.public_url
+        task_path = image.path.with_suffix(image.path.suffix + ".task.json")
+        if not task_path.is_file():
+            raise ValueError("PhanRouter image task metadata is missing; cannot restore provider reference")
+        task_id = json.loads(task_path.read_text(encoding="utf-8")).get("task_id")
+        if not task_id:
+            raise ValueError("PhanRouter image task metadata has no task_id")
+        return self._poll_image_url(str(task_id))
+
+    def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult:
+        payload: dict[str, object] = {
+            "model": self.settings.image_model,
+            "prompt": prompt,
+            "aspectRatio": "9:16",
+            "resolution": "2K",
+            "thinking": "high",
+        }
+        if reference:
+            payload["base64File"] = base64.b64encode(reference.read_bytes()).decode("ascii")
+
+        def submit() -> httpx.Response:
+            response = self.client.post(
+                f"{self.settings.phanrouter_base_url.rstrip('/')}/v3/images/generations",
+                headers=self.headers, json=payload,
+            )
+            response.raise_for_status()
+            return response
+
+        task_path = output.with_suffix(output.suffix + ".task.json")
+        if task_path.exists():
+            import json
+            task_id = json.loads(task_path.read_text(encoding="utf-8")).get("task_id")
+        else:
+            task_id = retry(submit).json().get("task_id")
+            if task_id:
+                atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
+        if not task_id:
+            raise ValueError("image API returned no task_id")
+        try:
+            url = self._poll_image_url(str(task_id))
+        except RuntimeError:
+            task_path.unlink(missing_ok=True)
+            raise
+        self._download(url, output, max_bytes=64 * 1024 * 1024)
+        return ImageResult(path=output, public_url=url)
+
+    @staticmethod
+    def _reference_audio_content(reference_audio: Path) -> tuple[dict, str]:
+        if not reference_audio.is_file():
+            raise FileNotFoundError(reference_audio)
+        if reference_audio.suffix.lower() not in {".wav", ".mp3"}:
+            raise ValueError("Seedance reference audio must be WAV or MP3")
+        audio_bytes = reference_audio.read_bytes()
+        mime = "audio/wav" if reference_audio.suffix.lower() == ".wav" else "audio/mpeg"
+
+        # Seedance rejects very short reference-audio clips. Pad only the API
+        # reference to 2.05 seconds; the original TTS file remains unchanged
+        # and is still used for final muxing and subtitle timing.
+        duration: float | None = None
+        if reference_audio.suffix.lower() == ".wav":
+            try:
+                with wave.open(str(reference_audio), "rb") as stream:
+                    duration = stream.getnframes() / max(1, stream.getframerate())
+            except (EOFError, wave.Error):
+                duration = None
+        if duration is not None and duration < 2.0:
+            with tempfile.TemporaryDirectory(prefix="novel-ref-audio-") as directory:
+                padded = Path(directory) / "reference.wav"
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", "-v", "error", "-i", str(reference_audio),
+                        "-af", "apad", "-t", "2.05", "-ar", "24000", "-ac", "1",
+                        "-c:a", "pcm_s16le", str(padded),
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                audio_bytes = padded.read_bytes()
+            mime = "audio/wav"
+        if len(audio_bytes) > 15 * 1024 * 1024:
+            raise ValueError("Seedance reference audio exceeds 15 MiB")
+        digest = hashlib.sha256(audio_bytes).hexdigest()
+        data_url = f"data:{mime};base64,{base64.b64encode(audio_bytes).decode('ascii')}"
+        return (
+            {
+                "type": "audio_url",
+                "audio_url": {"url": data_url},
+                "role": "reference_audio",
+            },
+            digest,
+        )
+
+    def _video_payload(
+        self,
+        prompt: str,
+        image_url: str,
+        duration: float,
+        reference_audio: Path | None,
+    ) -> tuple[dict, str | None]:
+        content = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": image_url}, "role": "reference_image"},
+        ]
+        reference_audio_sha256 = None
+        if reference_audio is not None:
+            audio_content, reference_audio_sha256 = self._reference_audio_content(reference_audio)
+            content.append(audio_content)
+        return (
+            {
+                "model": self.settings.video_model,
+                "content": content,
+                "ratio": "9:16",
+                "resolution": "720p",
+                "duration": max(4, min(14, math.ceil(duration))),
+                "generate_audio": reference_audio is not None,
+            },
+            reference_audio_sha256,
+        )
+
+    def create_video(
+        self,
+        prompt: str,
+        image: ImageResult,
+        output: Path,
+        duration: float,
+        reference_audio: Path | None = None,
+    ) -> Path:
+        image_url = self._restore_image_url(image)
+        payload, reference_audio_sha256 = self._video_payload(
+            prompt, image_url, duration, reference_audio
+        )
+        request_sha256 = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+        def submit() -> httpx.Response:
+            response = self.client.post(
+                f"{self.settings.phanrouter_base_url.rstrip('/')}/api/v3/contents/generations/tasks",
+                headers=self.headers, json=payload,
+            )
+            response.raise_for_status()
+            return response
+
+        task_path = output.with_suffix(output.suffix + ".task.json")
+        if task_path.exists():
+            cached = json.loads(task_path.read_text(encoding="utf-8"))
+            if cached.get("request_sha256") != request_sha256:
+                raise RuntimeError(f"cached video task request does not match current request: {task_path}")
+            task_id = cached.get("task_id")
+        else:
+            task_id = retry(submit).json().get("task_id")
+            if task_id:
+                atomic_write_json(
+                    task_path,
+                    {
+                        "task_id": task_id,
+                        "kind": "video",
+                        "request_sha256": request_sha256,
+                        "reference_audio_sha256": reference_audio_sha256,
+                        "generate_audio": reference_audio is not None,
+                    },
+                )
+        if not task_id:
+            raise ValueError("video API returned no task_id")
+        deadline = time.monotonic() + self.settings.poll_timeout
+        while time.monotonic() < deadline:
+            response = self.client.get(
+                f"{self.settings.phanrouter_base_url.rstrip('/')}/api/v3/contents/generations/tasks/{task_id}",
+                headers=self.headers,
+            )
+            response.raise_for_status()
+            data = self._task_data(response.json())
+            status = str(data.get("status", "")).lower()
+            if status in {"succeeded", "success"}:
+                url = data.get("url") or data.get("video_url")
+                if not url:
+                    raise ValueError("successful video task returned no URL")
+                self._download(str(url), output)
+                return output
+            if status in {"failed", "failure", "cancelled"}:
+                task_path.unlink(missing_ok=True)
+                raise RuntimeError(f"video generation failed: {data}")
+            time.sleep(5)
+        raise TimeoutError(f"video task timed out: {task_id}")
+
+    def synthesize(
+        self,
+        text: str,
+        output: Path,
+        *,
+        voice: str | None = None,
+        instructions: str | None = None,
+    ) -> Path:
+        if self.settings.tts_command:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            command = shlex.split(self.settings.tts_command) + [
+                "--text", text,
+                "--voice", voice or self.settings.tts_voice,
+                "--output", str(output),
+            ]
+            if instructions:
+                command.extend(["--instructions", instructions])
+            subprocess.run(command, check=True, capture_output=True, text=True)
+            if not output.is_file() or output.stat().st_size == 0:
+                raise RuntimeError("NOVEL_TTS_COMMAND did not create a non-empty output")
+            return output
+        if self.settings.local_tts_python and self.settings.local_tts_model_dir:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            helper = Path(__file__).resolve().parents[1] / "local_tts_cli.py"
+            subprocess.run([
+                str(self.settings.local_tts_python), str(helper),
+                "--model-dir", str(self.settings.local_tts_model_dir),
+                "--model-file", self.settings.local_tts_model_file,
+                "--sid", str(int(voice) if voice and voice.isdigit() else self.settings.local_tts_sid),
+                "--output", str(output), "--speed", "1.12", text,
+            ], check=True, capture_output=True, text=True)
+            return output
+        base = str(self.settings.tts_base_url).rstrip("/")
+        response = self.client.post(
+            f"{base}/audio/speech",
+            headers={"Authorization": f"Bearer {self.settings.tts_api_key}"},
+            json={
+                "model": self.settings.tts_model,
+                "voice": voice or self.settings.tts_voice,
+                "input": text,
+                "response_format": "wav",
+                "speed": 1.12,
+                **({"instructions": instructions} if instructions else {}),
+            },
+        )
+        response.raise_for_status()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        partial = output.with_suffix(output.suffix + ".partial")
+        partial.write_bytes(response.content)
+        os.replace(partial, output)
+        return output

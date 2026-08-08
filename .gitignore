@@ -1,0 +1,11 @@
+.venv/
+.venv-qwen/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.codex/*
+!.codex/skills/
+!.codex/skills/**
+outputs/
+*.log
+*.partial
