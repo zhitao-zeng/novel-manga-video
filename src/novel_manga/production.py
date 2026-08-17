@@ -846,6 +846,13 @@ def compile_production_plan(
                 forced_mode=camera_mode,
                 forced_motivation=camera_motivation,
             )
+            intent_contract = (
+                f"【镜头戏剧意图】功能={shot.shot_intent.dramatic_function}；"
+                f"权力关系={shot.shot_intent.power_relation}；"
+                f"目标情绪={shot.shot_intent.emotion_target}；"
+                f"观众焦点={shot.shot_intent.viewer_focus}；"
+                f"留存节点={shot.shot_intent.retention_beat_id or '未绑定'}。"
+            )
             if turn.speaking:
                 speaker = character_specs[turn.speaker_name]
                 actor_identity = _character_identity(speaker)
@@ -860,6 +867,7 @@ def compile_production_plan(
                     keyframe_contract
                     +
                     f"系列风格指纹 {bible.style_fingerprint}。视觉风格：{bible.visual_style}。"
+                    f"{intent_contract}"
                     f"参考图只锁定唯一角色身份、服装和画风：{actor_identity}；"
                     "不要复制参考图中的静态姿势、画面位置或摄影机构图。"
                     f"场景明确为{shot.location or assets.locations[0].name}，背景适度虚化。"
@@ -884,6 +892,7 @@ def compile_production_plan(
                     emotion=turn.emotion,
                     performance_plan=performance_plan,
                     camera_plan=camera_plan,
+                    shot_intent=shot.shot_intent,
                     audio_plan=shot.audio_plan,
                 )
             else:
@@ -899,6 +908,7 @@ def compile_production_plan(
                     keyframe_contract
                     +
                     f"系列风格指纹 {bible.style_fingerprint}。参考板只锁定场景、角色身份、服装、色彩和光线；"
+                    f"{intent_contract}"
                     "不要复制参考板中的静态姿势和摄影机构图。"
                     f"分镜视觉约束：{shot.visual_prompt}。"
                     f"当前叙事信息是“{turn.text}”，只用人物行为、道具和场景状态表达，"
@@ -922,6 +932,7 @@ def compile_production_plan(
                     composition_prompt=composition,
                     performance_plan=performance_plan,
                     camera_plan=camera_plan,
+                    shot_intent=shot.shot_intent,
                     audio_plan=shot.audio_plan,
                 )
             units.append(
@@ -952,6 +963,7 @@ def compile_production_plan(
                     camera_plan=camera_plan,
                     visual_strategy=shot.visual_strategy,
                     keyframe_reasons=shot.keyframe_reasons,
+                    shot_intent=shot.shot_intent,
                     audio_plan=shot.audio_plan,
                     audio_path=f"work/turn_audio/{unit_id}.wav",
                     keyframe_path=f"work/keyframes/{unit_id}.jpeg",
@@ -968,6 +980,7 @@ def compile_production_plan(
                 narrative_job=shot.scene_job,
                 location_asset_id=location_id,
                 source_quote=shot.source_quote,
+                shot_intent=shot.shot_intent,
                 unit_ids=unit_ids,
             )
         )

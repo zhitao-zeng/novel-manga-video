@@ -36,6 +36,7 @@ from .models import (
     ScriptQualityReport,
     ScriptExpansion,
     SeriesState,
+    ShowrunnerPlan,
     Shot,
     StoryBible,
 )
@@ -62,6 +63,7 @@ STYLE = (
 DIAGNOSIS_TOKEN_BUDGET = 6000
 SCRIPT_TOKEN_BUDGET = 14000
 REVIEW_TOKEN_BUDGET = 4000
+SHOWRUNNER_TOKEN_BUDGET = 6000
 SERIES_STATE_TOKEN_BUDGET = 5000
 SCRIPT_EXPANSION_TOKEN_BUDGET = 6000
 
@@ -634,7 +636,40 @@ class OpenAICompatiblePlanner(Planner):
                     update={"characters": characters, "turns": turns, "location": location}
                 )
             )
-        return plan.model_copy(update={"shots": shots})
+        showrunner = plan.showrunner_plan
+        if showrunner is not None:
+            information_states = []
+            for fact in showrunner.information_states:
+                awareness = [
+                    item.model_copy(
+                        update={
+                            "character_name": self._canonical_character_name(
+                                item.character_name, canonical_names
+                            )
+                        }
+                    )
+                    for item in fact.character_awareness
+                ]
+                information_states.append(
+                    fact.model_copy(update={"character_awareness": awareness})
+                )
+            deltas = [
+                delta.model_copy(
+                    update={
+                        "character_name": self._canonical_character_name(
+                            delta.character_name, canonical_names
+                        )
+                    }
+                )
+                for delta in showrunner.character_state_deltas
+            ]
+            showrunner = showrunner.model_copy(
+                update={
+                    "information_states": information_states,
+                    "character_state_deltas": deltas,
+                }
+            )
+        return plan.model_copy(update={"shots": shots, "showrunner_plan": showrunner})
 
     def _ground_quotes(self, plan: EpisodePlan, source: str, bible: StoryBible) -> EpisodePlan:
         plan = self._canonicalize_characters(plan, bible)
@@ -698,6 +733,36 @@ class OpenAICompatiblePlanner(Planner):
         canonical_names = {character.name for character in bible.characters}
         canonical_locations = set(bible.locations)
         issues: list[dict[str, object]] = []
+        if plan.showrunner_plan is not None:
+            for fact_index, fact in enumerate(plan.showrunner_plan.information_states):
+                unknown_awareness = sorted(
+                    {
+                        item.character_name
+                        for item in fact.character_awareness
+                        if item.character_name not in canonical_names
+                    }
+                )
+                if unknown_awareness:
+                    issues.append({
+                        "field": (
+                            f"showrunner_plan.information_states.{fact_index}."
+                            "character_awareness"
+                        ),
+                        "message": "must use StoryBible character names",
+                        "unknown": unknown_awareness,
+                    })
+            for delta_index, delta in enumerate(
+                plan.showrunner_plan.character_state_deltas
+            ):
+                if delta.character_name not in canonical_names:
+                    issues.append({
+                        "field": (
+                            f"showrunner_plan.character_state_deltas.{delta_index}."
+                            "character_name"
+                        ),
+                        "message": "must use a StoryBible character name",
+                        "unknown": delta.character_name,
+                    })
         for shot in plan.shots:
             shot_quote = re.sub(r"\s+", "", shot.source_quote)
             if not shot_quote or shot_quote not in normalized_source:
@@ -756,6 +821,207 @@ class OpenAICompatiblePlanner(Planner):
         if issues:
             raise ValueError(json.dumps({"domain_errors": issues}, ensure_ascii=False))
         return plan
+
+    def _validate_showrunner_data(
+        self,
+        data: dict,
+        episode: Episode,
+        diagnosis: ChapterDiagnosis,
+        bible: StoryBible,
+    ) -> ShowrunnerPlan:
+        showrunner = ShowrunnerPlan.model_validate(data)
+        canonical_names = [character.name for character in bible.characters]
+        information_states = []
+        for fact in showrunner.information_states:
+            awareness = [
+                item.model_copy(
+                    update={
+                        "character_name": self._canonical_character_name(
+                            item.character_name, canonical_names
+                        )
+                    }
+                )
+                for item in fact.character_awareness
+            ]
+            information_states.append(
+                fact.model_copy(update={"character_awareness": awareness})
+            )
+        deltas = [
+            delta.model_copy(
+                update={
+                    "character_name": self._canonical_character_name(
+                        delta.character_name, canonical_names
+                    )
+                }
+            )
+            for delta in showrunner.character_state_deltas
+        ]
+        showrunner = showrunner.model_copy(
+            update={
+                "planning_mode": "planner",
+                "information_states": information_states,
+                "character_state_deltas": deltas,
+            }
+        )
+        source = re.sub(r"\s+", "", episode.source_text)
+        event_ids = {event.event_id for event in diagnosis.events}
+        fact_ids = {fact.fact_id for fact in showrunner.information_states}
+        beat_ids = {beat.beat_id for beat in showrunner.retention.beats}
+        issues: list[dict[str, object]] = []
+
+        def grounded(value: str) -> bool:
+            return bool(value and re.sub(r"\s+", "", value) in source)
+
+        starts = [beat.target_start_ratio for beat in showrunner.retention.beats]
+        points = [0.0, *starts, 1.0]
+        max_gap = max(
+            (right - left for left, right in zip(points, points[1:])),
+            default=1.0,
+        )
+        if max_gap > showrunner.retention.max_attention_gap_ratio + 0.01:
+            issues.append({
+                "field": "retention.beats",
+                "message": "retention beats leave a middle attention gap above budget",
+                "max_gap_ratio": round(max_gap, 6),
+            })
+        functions = {beat.function for beat in showrunner.retention.beats}
+        if not {"hook", "question", "cliffhanger"} <= functions or not functions & {
+            "payoff",
+            "reversal",
+        }:
+            issues.append({
+                "field": "retention.beats",
+                "message": "must include hook, question, payoff or reversal, and cliffhanger",
+            })
+        if not any(
+            beat.function == "hook" and beat.target_start_ratio <= 0.05
+            for beat in showrunner.retention.beats
+        ):
+            issues.append({"field": "retention.beats", "message": "hook must start in first 5%"})
+        if not any(
+            beat.function == "cliffhanger" and beat.target_start_ratio >= 0.8
+            for beat in showrunner.retention.beats
+        ):
+            issues.append({
+                "field": "retention.beats",
+                "message": "cliffhanger must start in final 20%",
+            })
+        for index, beat in enumerate(showrunner.retention.beats):
+            if beat.shot_indexes:
+                issues.append({
+                    "field": f"retention.beats.{index}.shot_indexes",
+                    "message": "must stay empty until screenplay shots exist",
+                })
+            if not grounded(beat.source_quote):
+                issues.append({
+                    "field": f"retention.beats.{index}.source_quote",
+                    "message": "must be an exact current-chapter excerpt",
+                })
+            if not beat.event_ids or not set(beat.event_ids) <= event_ids:
+                issues.append({
+                    "field": f"retention.beats.{index}.event_ids",
+                    "message": "must reference diagnosed current-chapter events",
+                })
+            if set(beat.new_information_fact_ids) - fact_ids:
+                issues.append({
+                    "field": f"retention.beats.{index}.new_information_fact_ids",
+                    "message": "references unknown information fact ids",
+                })
+        if not showrunner.information_states:
+            issues.append({
+                "field": "information_states",
+                "message": "at least one explicit viewer/character information state is required",
+            })
+        for index, fact in enumerate(showrunner.information_states):
+            if not grounded(fact.source_quote) or not set(fact.source_event_ids) <= event_ids:
+                issues.append({
+                    "field": f"information_states.{index}",
+                    "message": "fact must be grounded in diagnosed current-chapter evidence",
+                })
+            if fact.reveal_beat_id and fact.reveal_beat_id not in beat_ids:
+                issues.append({
+                    "field": f"information_states.{index}.reveal_beat_id",
+                    "message": "references an unknown retention beat",
+                })
+            unknown = sorted(
+                {
+                    item.character_name
+                    for item in fact.character_awareness
+                    if item.character_name not in canonical_names
+                }
+            )
+            if unknown:
+                issues.append({
+                    "field": f"information_states.{index}.character_awareness",
+                    "message": "must use StoryBible character names",
+                    "unknown": unknown,
+                })
+        for index, delta in enumerate(showrunner.character_state_deltas):
+            if (
+                delta.character_name not in canonical_names
+                or not grounded(delta.source_quote)
+                or not set(delta.event_ids) <= event_ids
+                or delta.before == delta.after
+            ):
+                issues.append({
+                    "field": f"character_state_deltas.{index}",
+                    "message": "delta needs a canonical character, real before/after change, events, and source evidence",
+                })
+        expected_delta_events = {
+            event.event_id
+            for event in diagnosis.events
+            if event.state_change and event.characters
+        }
+        covered_delta_events = {
+            event_id
+            for delta in showrunner.character_state_deltas
+            for event_id in delta.event_ids
+        }
+        if expected_delta_events - covered_delta_events:
+            issues.append({
+                "field": "character_state_deltas",
+                "message": "must cover diagnosed character state changes",
+                "missing_event_ids": sorted(expected_delta_events - covered_delta_events),
+            })
+        if issues:
+            raise ValueError(json.dumps({"domain_errors": issues}, ensure_ascii=False))
+        return showrunner
+
+    def _plan_showrunner(
+        self,
+        episode: Episode,
+        diagnosis: ChapterDiagnosis,
+        bible: StoryBible,
+        previous_state: SeriesState | None,
+    ) -> ShowrunnerPlan:
+        schema = ShowrunnerPlan.model_json_schema()
+        system = (
+            "你是商业竖屏短剧的Showrunner，只做分镜之前的观众、信息和人物状态决策，不写具体镜头提示词。"
+            "只使用当前章与上一集已确认状态，不得引用后文。planning_mode=planner。"
+            "retention使用4-8个0-1相对时间节点，包含前5%的hook、question、至少一次payoff或reversal、"
+            "后20%的cliffhanger；相邻节点不得超过max_attention_gap_ratio。此阶段还没有镜头编号，"
+            "shot_indexes必须留空；每个节点只绑定event_ids、逐字source_quote、观众问题、承诺、新信息和情绪变化。"
+            "information_states逐条记录事实真假、观众认知、各角色认知或误解、信息差用途和揭示节点。"
+            "character_state_deltas只记录当前章确实改变的社会地位、关系、力量、情绪、信心或服装；"
+            "before与after不得相同，永久脸型发型不属于剧情状态。所有事实必须有当前章逐字证据。严格输出JSON。"
+        )
+        user = (
+            f"当前集：{episode.index} {episode.source_title}\n"
+            f"章节诊断：{diagnosis.model_dump_json()}\n"
+            f"上一集状态：{previous_state.model_dump_json() if previous_state else '{}'}\n"
+            f"故事圣经：{bible.model_dump_json()}\n当前章原文：{episode.source_text}\n"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+        return _bounded_validate(
+            "plan_showrunner",
+            self.settings.planner_max_revisions,
+            lambda repair: self._json(
+                system, user, repair, token_budget=SHOWRUNNER_TOKEN_BUDGET
+            ),
+            lambda data: self._validate_showrunner_data(
+                data, episode, diagnosis, bible
+            ),
+        )
 
     def plan_episode(self, novel: NovelDocument, episode: Episode, bible: StoryBible) -> EpisodePlan:
         schema = EpisodePlan.model_json_schema()
@@ -860,6 +1126,12 @@ class OpenAICompatiblePlanner(Planner):
             "发生了什么、为什么发生、造成什么后果、人物为何这样反应。"
             "检查旁白是否超过dramaturgy.narration_budget_ratio；能用动作、对白、反应、道具或环境结果表达的信息，"
             "不得继续写成解释性旁白。"
+            "检查showrunner_plan：留存节点从hook、question、escalation到payoff/reversal和cliffhanger连续分布，"
+            "相邻节点不得留下超过retention.max_attention_gap_ratio的中段空窗；每个information_state必须回答"
+            "观众知道什么、角色知道或误解什么，并有当前章逐字证据；character_state_delta只记录当前章真正改变的"
+            "社会地位、关系、力量、情绪、信心或服装状态，不得把永久长相当作剧情状态。"
+            "检查每镜shot_intent是否绑定留存节点、观众焦点和信息事实；audio_beats必须由台词、动作、揭示或反应触发，"
+            "不得机械地每隔几秒堆冲击音。"
             "每个turn应是一口气可自然说完、只承载一个核心事实、动作或反应的完整语义句；通常12-36字，"
             "超过60字才因TTS与镜头时长风险判为blocking。不得为了两行字幕把一句话切碎。"
             "长镜头可以连续承载多个语义turn，不能因拆台词而要求增加切镜。"
@@ -969,7 +1241,10 @@ class OpenAICompatiblePlanner(Planner):
             "你是连续剧状态管理员。根据当前章已经发生的事实更新完整series_state快照。"
             "新事实必须附当前章精确原文和当前集编号；历史事实必须原样继承上一状态，"
             "不得把推测写成confirmed，不得写入后文秘密。服装、位置、伤势、知识、关系、"
-            "道具和未解悬念只在当前章有依据时改变。严格输出JSON。"
+            "社会地位、力量、信心、道具和未解悬念只在当前章有依据时改变。"
+            "将showrunner_plan.character_state_deltas提交到对应characters状态，将当前集information_states"
+            "转为带source_episode证据的跨集information_states；同一事实后续只更新知情者或认知状态，不重复造事实。"
+            "严格输出JSON。"
         )
         user = (
             f"当前集编号：{episode.index}\n当前章节：{episode.source_title}\n"
@@ -1007,6 +1282,16 @@ class OpenAICompatiblePlanner(Planner):
             draft_root / "chapter_diagnosis.json",
             diagnosis.model_dump(mode="json"),
         )
+        showrunner = (
+            self._plan_showrunner(episode, diagnosis, bible, previous_state)
+            if self.settings.creative_profile == SHORT_DRAMA_PROFILE
+            else None
+        )
+        if showrunner is not None:
+            atomic_write_json(
+                draft_root / "showrunner_plan.json",
+                showrunner.model_dump(mode="json"),
+            )
         schema = EpisodePlan.model_json_schema()
         source_chars = len(re.sub(r"\s+", "", episode.source_text))
         policy = script_policy(
@@ -1027,6 +1312,9 @@ class OpenAICompatiblePlanner(Planner):
             "cold_open必须在0-3秒呈现当前章内最易读的受压结果、关系异常、关键道具或行动后果，"
             "cold_open_source_quote逐字来自当前章，前两镜实际呈现；如果预览后段事件，随后回到原因，"
             "并在正常因果位置再次完整兑现。不得提前给出后文章节答案。"
+            "Showrunner已经独立完成留存、信息差和人物状态决策；必须按输入中的showrunner_plan安排事件和镜头，"
+            "不得在剧本阶段重写其事实、时间节点或人物状态。showrunner_plan字段可原样复制，程序会依据event_ids"
+            "确定性绑定最终shot_indexes。不得为了填留存节点虚构刺激。"
             f"有效剧本目标为{size_guidance}。每个shot必须填写event_ids，"
             "每个章节事件必须写入adaptation_ledger，critical事件不得removed。"
             "supporting事件可compressed或merged，texture事件可removed；不要为覆盖原文把所有句子都发声。"
@@ -1043,10 +1331,14 @@ class OpenAICompatiblePlanner(Planner):
             "移动镜头不超过约三分之一、强调运镜不超过约十分之一，不得连续两镜都明显运镜；"
             "运镜动机只允许空间揭示、明确位移、视点变化或权力/情绪转折；普通对白和反应保持固定机位。"
             "同场景锁定行动轴、人物左右和视线方向。"
+            "每镜shot_intent必须解释dramatic_function、power_relation、emotion_target、viewer_focus，"
+            "并绑定retention_beat_id；承担信息揭示的镜头引用information_fact_ids。先有语义意图，再选择景别和机位。"
             "visual_strategy必须明确：单人普通对白/反应用direct-assets，无人物空镜用scene-only；"
             "多人精确站位、人物道具交互、结果揭示、高潮反转和封面级构图用story-keyframe，"
             "并在keyframe_reasons记录原因。audio_plan中speech_strategy当前统一locked以保证原文台词准确；"
             "TTS只负责真正发声的turn，ambience、music_cue和sfx_events写场景声音意图，不得把音效写成旁白。"
+            "audio_beats使用0-1相对位置，按静音、环境、冲击、音乐起落、低频、心跳、音效、duck或release组织；"
+            "每个声音变化必须写明台词、动作、揭示或反应触发，并绑定本镜留存节点，不得机械铺满整镜。"
             "不要重复Schema说明，不要在字段中写长篇方法论。"
             "对于长章节，每个连续shot通常承载1-3个语义turn，只表达一个明确视觉或情绪beat；"
             "优先讲清关键因果，不用文学性外貌铺陈或摘要旁白凑字数；"
@@ -1056,6 +1348,7 @@ class OpenAICompatiblePlanner(Planner):
         base_user = (
             f"小说：{novel.title}\n当前章节：{episode.source_title}\n"
             f"章节诊断：{diagnosis.model_dump_json()}\n"
+            f"独立Showrunner计划：{showrunner.model_dump_json() if showrunner else '{}'}\n"
             f"上一集状态：{previous_state.model_dump_json() if previous_state else '{}'}\n"
             f"故事圣经：{bible.model_dump_json()}\n当前章原文：{episode.source_text}\n"
             f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
@@ -1073,6 +1366,8 @@ class OpenAICompatiblePlanner(Planner):
             atomic_write_json(draft_root / f"draft_{draft_number:02d}.json", data)
             try:
                 plan = self._validate_episode_data(data, episode, bible)
+                if showrunner is not None:
+                    plan = plan.model_copy(update={"showrunner_plan": showrunner})
                 plan = apply_creative_direction(
                     plan,
                     diagnosis,
@@ -1253,7 +1548,7 @@ class CommandPlanner(Planner):
         previous_state: SeriesState | None = None,
     ) -> EpisodePlanningBundle:
         common = {
-            "contract": "novel-manga-planner/v3",
+            "contract": "novel-manga-planner/v4",
             "novel_id": novel.novel_id,
             "episode": episode.model_dump(mode="json"),
             "story_bible": bible.model_dump(mode="json"),
@@ -1278,6 +1573,33 @@ class CommandPlanner(Planner):
             ),
         )
         normalizer = object.__new__(OpenAICompatiblePlanner)
+        showrunner = (
+            _bounded_validate(
+                "plan_showrunner",
+                self.max_revisions,
+                lambda repair: self._invoke(
+                    "plan_showrunner",
+                    {
+                        **common,
+                        "chapter_diagnosis": diagnosis.model_dump(mode="json"),
+                        "schema": ShowrunnerPlan.model_json_schema(),
+                        "requirements": {
+                            "planning_mode": "planner",
+                            "shot_indexes_must_be_empty": True,
+                            "source_grounded_retention": True,
+                            "information_states_required": True,
+                            "character_state_deltas_for_diagnosed_changes": True,
+                        },
+                        **({"repair": repair} if repair else {}),
+                    },
+                ),
+                lambda data: normalizer._validate_showrunner_data(
+                    data, episode, diagnosis, bible
+                ),
+            )
+            if self.creative_profile == SHORT_DRAMA_PROFILE
+            else None
+        )
         repair: dict | None = None
         last_report: ScriptQualityReport | None = None
         for revision in range(self.max_revisions + 1):
@@ -1286,6 +1608,9 @@ class CommandPlanner(Planner):
                 {
                     **common,
                     "chapter_diagnosis": diagnosis.model_dump(mode="json"),
+                    "showrunner_plan": (
+                        showrunner.model_dump(mode="json") if showrunner else {}
+                    ),
                     "schema": EpisodePlan.model_json_schema(),
                     "requirements": {
                         "all_critical_events_mapped": True,
@@ -1299,6 +1624,24 @@ class CommandPlanner(Planner):
                             self.creative_profile == SHORT_DRAMA_PROFILE
                         ),
                         "narration_budget_required": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "supplied_showrunner_plan_required_unchanged": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "retention_beats_required": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "information_states_required": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "character_state_deltas_for_diagnosed_changes": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "shot_intent_required": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "triggered_audio_beats_required": (
                             self.creative_profile == SHORT_DRAMA_PROFILE
                         ),
                         "ending_at_current_chapter_boundary": True,
@@ -1315,6 +1658,8 @@ class CommandPlanner(Planner):
             )
             try:
                 plan = normalizer._validate_episode_data(data, episode, bible)
+                if showrunner is not None:
+                    plan = plan.model_copy(update={"showrunner_plan": showrunner})
                 plan = apply_creative_direction(
                     plan,
                     diagnosis,

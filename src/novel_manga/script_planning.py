@@ -21,7 +21,7 @@ from .models import (
 from .creative_direction import SHORT_DRAMA_PROFILE
 
 
-SCRIPT_POLICY_REVISION = "novel-manga-script-v5-semantic-utterance"
+SCRIPT_POLICY_REVISION = "novel-manga-script-v6-showrunner"
 # A turn is a complete TTS breath/meaning group, not one subtitle page.  The
 # renderer paginates and times subtitles independently after audio alignment.
 SHORT_DRAMA_TURN_TARGET_MAX = 36
@@ -519,6 +519,205 @@ def evaluate_script_quality(
                 "相邻镜头不得连续使用明显运镜；运镜必须由揭示、位移或权力变化触发",
                 shot_indexes=sorted({index for right in adjacent_moves for index in (right - 1, right)}),
             )
+
+    retention_beat_coverage = 0.0
+    max_attention_gap_ratio = 1.0
+    information_fact_grounding = 0.0
+    character_delta_grounding = 0.0
+    shot_intent_coverage = 0.0
+    audio_beat_coverage = 0.0
+    if plan.creative_profile == SHORT_DRAMA_PROFILE:
+        showrunner = plan.showrunner_plan
+        if showrunner is None:
+            block(
+                "showrunner_plan_missing",
+                "短剧模式必须先生成留存、信息差和人物状态决策，再进入分镜执行",
+            )
+        else:
+            event_ids = set(events)
+            shot_indexes = {shot.index for shot in plan.shots}
+            fact_ids = {fact.fact_id for fact in showrunner.information_states}
+            beat_ids = {beat.beat_id for beat in showrunner.retention.beats}
+            valid_beats = 0
+            for beat in showrunner.retention.beats:
+                grounded = _ground_quote(beat.source_quote, episode.source_text) is not None
+                known_events = bool(beat.event_ids) and set(beat.event_ids) <= event_ids
+                known_shots = bool(beat.shot_indexes) and set(beat.shot_indexes) <= shot_indexes
+                known_facts = set(beat.new_information_fact_ids) <= fact_ids
+                if grounded and known_events and known_shots and known_facts:
+                    valid_beats += 1
+                else:
+                    block(
+                        "retention_beat_not_grounded",
+                        f"留存节点{beat.beat_id}必须引用当前章事件、有效镜头和逐字原文证据",
+                        shot_indexes=[index for index in beat.shot_indexes if index in shot_indexes],
+                        event_ids=[event_id for event_id in beat.event_ids if event_id in event_ids],
+                    )
+            retention_beat_coverage = (
+                valid_beats / len(showrunner.retention.beats)
+                if showrunner.retention.beats
+                else 0.0
+            )
+            starts = [beat.target_start_ratio for beat in showrunner.retention.beats]
+            points = [0.0, *starts, 1.0]
+            max_attention_gap_ratio = max(
+                (right - left for left, right in zip(points, points[1:])),
+                default=1.0,
+            )
+            if max_attention_gap_ratio > showrunner.retention.max_attention_gap_ratio + 0.01:
+                block(
+                    "attention_gap_too_large",
+                    f"相邻留存节点最大间隔{max_attention_gap_ratio:.1%}超过预算"
+                    f"{showrunner.retention.max_attention_gap_ratio:.1%}；中段存在注意力空窗",
+                )
+            functions = {beat.function for beat in showrunner.retention.beats}
+            if not {"hook", "question", "cliffhanger"} <= functions:
+                block(
+                    "retention_functions_missing",
+                    "留存计划至少需要hook、question和cliffhanger节点",
+                )
+            if not functions & {"payoff", "reversal"}:
+                block(
+                    "payoff_missing",
+                    "留存计划必须包含至少一次有原文依据的payoff或reversal",
+                )
+            hook_beats = [beat for beat in showrunner.retention.beats if beat.function == "hook"]
+            if not hook_beats or not any(
+                beat.target_start_ratio <= 0.05
+                and set(beat.shot_indexes) & {shot.index for shot in plan.shots[:2]}
+                for beat in hook_beats
+            ):
+                block(
+                    "retention_hook_misaligned",
+                    "hook必须落在前5%并映射前两镜",
+                    shot_indexes=[shot.index for shot in plan.shots[:2]],
+                )
+            cliff_beats = [
+                beat for beat in showrunner.retention.beats if beat.function == "cliffhanger"
+            ]
+            if not cliff_beats or not any(
+                beat.target_start_ratio >= 0.8
+                and plan.shots[-1].index in beat.shot_indexes
+                for beat in cliff_beats
+            ):
+                block(
+                    "retention_cliffhanger_misaligned",
+                    "cliffhanger必须落在后20%并映射最后一镜",
+                    shot_indexes=[plan.shots[-1].index],
+                )
+
+            valid_facts = 0
+            for fact in showrunner.information_states:
+                if (
+                    _ground_quote(fact.source_quote, episode.source_text) is not None
+                    and set(fact.source_event_ids) <= event_ids
+                    and (not fact.reveal_beat_id or fact.reveal_beat_id in beat_ids)
+                ):
+                    valid_facts += 1
+                else:
+                    block(
+                        "information_fact_not_grounded",
+                        f"信息状态{fact.fact_id}必须绑定当前章事实、事件和揭示节点",
+                        event_ids=[
+                            event_id
+                            for event_id in fact.source_event_ids
+                            if event_id in event_ids
+                        ],
+                    )
+            information_fact_grounding = (
+                valid_facts / len(showrunner.information_states)
+                if showrunner.information_states
+                else 0.0
+            )
+            if not showrunner.information_states:
+                block(
+                    "information_graph_empty",
+                    "短剧模式必须显式记录至少一个观众与角色的信息状态",
+                )
+
+            valid_deltas = 0
+            for delta in showrunner.character_state_deltas:
+                changed = delta.before != delta.after
+                grounded = _ground_quote(delta.source_quote, episode.source_text) is not None
+                known_events = set(delta.event_ids) <= event_ids
+                if changed and grounded and known_events:
+                    valid_deltas += 1
+                else:
+                    block(
+                        "character_state_delta_not_grounded",
+                        f"人物{delta.character_name}的状态变化必须有前后差异和当前章证据",
+                        event_ids=[
+                            event_id for event_id in delta.event_ids if event_id in event_ids
+                        ],
+                    )
+            expected_delta_events = {
+                event.event_id
+                for event in diagnosis.events
+                if event.state_change and event.characters
+            }
+            covered_delta_events = {
+                event_id
+                for delta in showrunner.character_state_deltas
+                for event_id in delta.event_ids
+            }
+            missing_delta_events = sorted(expected_delta_events - covered_delta_events)
+            if missing_delta_events:
+                block(
+                    "character_state_delta_missing",
+                    "章节诊断已声明人物状态变化，但Showrunner未记录状态增量",
+                    event_ids=missing_delta_events,
+                )
+            delta_denominator = max(
+                len(showrunner.character_state_deltas), len(expected_delta_events)
+            )
+            character_delta_grounding = (
+                valid_deltas / delta_denominator if delta_denominator else 1.0
+            )
+
+            intended_shots = [
+                shot
+                for shot in plan.shots
+                if shot.shot_intent.retention_beat_id in beat_ids
+                and set(shot.shot_intent.information_fact_ids) <= fact_ids
+            ]
+            shot_intent_coverage = len(intended_shots) / len(plan.shots) if plan.shots else 0.0
+            if len(intended_shots) != len(plan.shots):
+                block(
+                    "shot_intent_incomplete",
+                    "每个镜头必须绑定一个有效留存节点，信息镜头还必须引用有效事实ID",
+                    shot_indexes=[
+                        shot.index for shot in plan.shots if shot not in intended_shots
+                    ],
+                )
+
+            directed_audio_shots = [
+                shot
+                for shot in plan.shots
+                if shot.audio_plan.audio_beats
+                and all(
+                    beat.retention_beat_id in beat_ids
+                    for beat in shot.audio_plan.audio_beats
+                )
+            ]
+            audio_beat_coverage = (
+                len(directed_audio_shots) / len(plan.shots) if plan.shots else 0.0
+            )
+            if len(directed_audio_shots) != len(plan.shots):
+                block(
+                    "audio_beat_plan_incomplete",
+                    "每个短剧镜头必须有按触发执行的相对音频节拍",
+                    shot_indexes=[
+                        shot.index for shot in plan.shots if shot not in directed_audio_shots
+                    ],
+                )
+            if showrunner.planning_mode == "inferred_fallback":
+                issues.append(
+                    ScriptReviewIssue(
+                        code="showrunner_inferred_fallback",
+                        severity="warning",
+                        message="当前Showrunner计划由确定性回退生成；可生产但应优先由规划模型给出信息差与人物状态决策",
+                    )
+                )
     current_source = _normalized(episode.source_text)
     historical_characters = {
         character.name for character in (previous_state.characters if previous_state else [])
@@ -564,6 +763,12 @@ def evaluate_script_quality(
         narration_budget_ratio=round(narration_budget, 6),
         cold_open_grounded=cold_open_grounded,
         camera_move_ratio=round(camera_move_ratio, 6),
+        retention_beat_coverage=round(retention_beat_coverage, 6),
+        max_attention_gap_ratio=round(max_attention_gap_ratio, 6),
+        information_fact_grounding=round(information_fact_grounding, 6),
+        character_delta_grounding=round(character_delta_grounding, 6),
+        shot_intent_coverage=round(shot_intent_coverage, 6),
+        audio_beat_coverage=round(audio_beat_coverage, 6),
         issues=issues,
     )
 
@@ -586,6 +791,7 @@ def deterministic_series_state(
         characters=prior_characters,
         relationships=previous_state.relationships if previous_state else [],
         props=previous_state.props if previous_state else [],
+        information_states=(previous_state.information_states if previous_state else []),
         open_loops=previous_state.open_loops if previous_state else [],
         resolved_loops=previous_state.resolved_loops if previous_state else [],
         potential_foreshadowing=previous_state.potential_foreshadowing if previous_state else [],
@@ -607,6 +813,7 @@ def _state_facts(state: SeriesState | None) -> set[tuple[int, str, str]]:
         facts.extend(character.known_information)
     facts.extend(item.evidence for item in state.relationships)
     facts.extend(item.evidence for item in state.props)
+    facts.extend(item.evidence for item in state.information_states)
     facts.extend(item.evidence for item in state.open_loops)
     facts.extend(item.evidence for item in state.resolved_loops)
     if state.previous_episode_end:

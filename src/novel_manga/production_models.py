@@ -6,6 +6,7 @@ from .models import (
     CameraPlan,
     PerformancePlan,
     SceneAudioPlan,
+    ShotIntent,
     TurnDelivery,
     VisualStrategy,
 )
@@ -61,6 +62,7 @@ class RuntimeUnit(BaseModel):
     camera_plan: CameraPlan | None = None
     visual_strategy: VisualStrategy = VisualStrategy.AUTO
     keyframe_reasons: list[str] = Field(default_factory=list)
+    shot_intent: ShotIntent = Field(default_factory=ShotIntent)
     audio_plan: SceneAudioPlan = Field(default_factory=SceneAudioPlan)
     audio_path: str
     keyframe_path: str
@@ -81,6 +83,7 @@ class RuntimeShot(BaseModel):
     narrative_job: str
     location_asset_id: str
     source_quote: str
+    shot_intent: ShotIntent = Field(default_factory=ShotIntent)
     unit_ids: list[str] = Field(min_length=1)
 
 

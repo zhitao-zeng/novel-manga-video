@@ -243,6 +243,24 @@ def build_visual_groups(
                 for event in unit.audio_plan.sfx_events
             )
         )
+        shot_intents = list(
+            dict.fromkeys(
+                f"{unit.shot_id}功能={unit.shot_intent.dramatic_function}，"
+                f"权力关系={unit.shot_intent.power_relation}，"
+                f"目标情绪={unit.shot_intent.emotion_target}，"
+                f"观众焦点={unit.shot_intent.viewer_focus}，"
+                f"留存节点={unit.shot_intent.retention_beat_id or '未绑定'}"
+                for unit in units
+            )
+        )
+        audio_timeline = list(
+            dict.fromkeys(
+                f"{unit.shot_id}@{beat.position_ratio:.0%} {beat.cue_type}："
+                f"{beat.cue}，触发={beat.trigger}"
+                for unit in units
+                for beat in unit.audio_plan.audio_beats
+            )
+        )
         visible_speaker = next((unit for unit in units if unit.speaking), None)
         framing_instruction = (
             visible_speaker.composition_prompt
@@ -309,6 +327,7 @@ def build_visual_groups(
         keyframe_prompt = (
             f"{keyframe_contract}系列风格指纹 {plan.style_fingerprint}。{style_direction}"
             "这是连续长镜头的唯一动作起始帧，不是拼贴图。"
+            f"【镜头戏剧意图】{'；'.join(shot_intents)}。"
             f"剧情画面：{'；'.join(visuals)}。{spatial_anchor}"
             "参考母版只锁定角色身份、服装、场景建筑、材质、色彩、光照和行动轴；"
             "绝对不要照抄参考母版的大全景、静态姿势或全员站位画面，必须从行动轴同侧重新取景。"
@@ -321,6 +340,7 @@ def build_visual_groups(
         motion_prompt = (
             "这是一个完整连续表演镜头，不是多张静态图片串联，也不是蒙太奇。"
             f"按顺序完成剧情动作：{'；'.join(actions or visuals)}。"
+            + f"【镜头戏剧意图】{'；'.join(shot_intents)}。"
             + (
                 f"【分镜表演计划】{'；'.join(performance_plans)}。"
                 if performance_plans
@@ -344,8 +364,9 @@ def build_visual_groups(
                 + (f"环境底：{'；'.join(ambience)}。" if ambience else "")
                 + (f"音乐提示：{'；'.join(music_cues)}。" if music_cues else "")
                 + (f"同步音效：{'、'.join(sfx_events)}。" if sfx_events else "")
+                + (f"相对音频节拍：{'；'.join(audio_timeline)}。" if audio_timeline else "")
                 + "不得遮住、替换或重复锁定人声；对白出现时背景自动压低。"
-                if ambience or music_cues or sfx_events
+                if ambience or music_cues or sfx_events or audio_timeline
                 else ""
             )
             + f"{spatial_anchor}"
@@ -727,6 +748,7 @@ class EpisodeProductionRuntime:
             emotion=unit.emotion,
             performance_plan=unit.performance_plan,
             camera_plan=unit.camera_plan,
+            shot_intent=unit.shot_intent,
             audio_plan=unit.audio_plan,
             duration=directed_seconds,
         )

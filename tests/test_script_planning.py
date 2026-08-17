@@ -257,3 +257,32 @@ def test_series_state_rejects_new_fact_without_current_chapter_evidence(tmp_path
         assert "not grounded" in str(error)
     else:
         raise AssertionError("ungrounded future fact must be rejected")
+
+
+def test_series_state_carries_cross_episode_information_with_evidence(tmp_path: Path) -> None:
+    source = tmp_path / "story.txt"
+    source.write_text("第一章 门外\n林晚关上了门。", encoding="utf-8")
+    episode = read_novel(source, novel_id="information", title="测试").episodes[0]
+    state = SeriesState.model_validate(
+        {
+            "current_episode": 1,
+            "information_states": [
+                {
+                    "fact_key": "door_closed",
+                    "statement": "林晚已经关门",
+                    "viewer_awareness": "knows",
+                    "character_awareness": {"林晚": "knows", "门外人": "unaware"},
+                    "dramatic_use": "viewer_leads",
+                    "evidence": {
+                        "statement": "林晚已经关门",
+                        "source_episode": 1,
+                        "source_quote": "林晚关上了门。",
+                    },
+                }
+            ],
+        }
+    )
+
+    validated = validate_series_state(state, episode, None)
+
+    assert validated.information_states[0].character_awareness["门外人"] == "unaware"

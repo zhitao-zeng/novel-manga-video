@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import re
 
-from .models import CameraBeat, CameraPlan, MotionBeat, PerformancePlan, SceneAudioPlan
+from .models import (
+    CameraBeat,
+    CameraPlan,
+    MotionBeat,
+    PerformancePlan,
+    SceneAudioPlan,
+    ShotIntent,
+)
 
 
 PUNCTUATION = "，。！？；：、…,.!?;:"
@@ -256,6 +263,7 @@ def build_sd_prompt(
     emotion: str | None = None,
     performance_plan: PerformancePlan | None = None,
     camera_plan: CameraPlan | None = None,
+    shot_intent: ShotIntent | None = None,
     audio_plan: SceneAudioPlan | None = None,
     duration: float = 6.0,
 ) -> str:
@@ -286,9 +294,15 @@ def build_sd_prompt(
             )
             if item
         )
-        if non_speech:
+        audio_timeline = "；".join(
+            f"{beat.position_ratio:.0%}处{beat.cue_type}：{beat.cue}，由“{beat.trigger}”触发"
+            for beat in audio_plan.audio_beats
+        )
+        if non_speech or audio_timeline:
             sound_direction = (
-                f"【非语言声音设计】{non_speech}。这些声音不得遮住、替换或重复参考人声；"
+                (f"【非语言声音设计】{non_speech}。" if non_speech else "")
+                + (f"【相对音频节拍】{audio_timeline}。" if audio_timeline else "")
+                + "这些声音不得遮住、替换或重复参考人声；"
                 + ("对白出现时背景自动压低。" if audio_plan.ducking else "背景保持克制。")
             )
     composition = composition_prompt or "固定单人正脸或四分之三近景"
@@ -301,6 +315,16 @@ def build_sd_prompt(
     directing = compile_directing_prompt(
         performance_plan, camera_plan, duration=duration
     )
+    intent_direction = ""
+    if shot_intent is not None:
+        intent_direction = (
+            f"【镜头戏剧意图】功能={shot_intent.dramatic_function}；"
+            f"权力关系={shot_intent.power_relation}；"
+            f"目标情绪={shot_intent.emotion_target}；"
+            f"观众只需优先读到={shot_intent.viewer_focus}；"
+            f"留存节点={shot_intent.retention_beat_id or '未绑定'}。"
+            "景别、视角、表演和声音只服务这个目的，不得添加无关动作。"
+        )
     camera_is_locked = camera_plan.mode == "locked"
     camera_freedom = (
         "摄影机严格保持锁定机位，人物可以改变姿态和画内位置，但不得改变行动轴、左右关系或原始机位。"
@@ -316,6 +340,7 @@ def build_sd_prompt(
         f"{camera_freedom}"
         "不得变脸，不得新增人物，不出现文字、字幕、气泡、水印或标识。"
         f"{audio_instruction}"
+        f"{intent_direction}"
         f"{sound_direction}"
     )
     camera_direction = (

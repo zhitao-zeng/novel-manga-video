@@ -1,6 +1,6 @@
 # Novel Manga Video
 
-短剧化改编、人物设计、自适应关键帧、生图 / Seedance 提示词和声音分工见
+短剧化改编、Showrunner 留存/信息差/人物状态、人物设计、自适应关键帧、生图 / Seedance 提示词和声音分工见
 [`docs/short-drama-methodology.md`](docs/short-drama-methodology.md)。
 
 把 `txt / markdown / docx / pdf` 小说转为 9:16 国漫画风漫剧。生产控制器是普通 Python 程序，不依赖
@@ -48,6 +48,7 @@ API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能�
 
 ```text
 小说 → 按原文章节分集 → 题材发动机 + 戏剧问题 + 结果前置冷开场
+     → ShowrunnerPlan（留存曲线 + 信息差 + 人物状态增量）
      → 一次完成全书系列圣经和各章审稿方案
      → 单人角色资产 + 无人物场景资产（全书复用）
      → scene → shot → PerformancePlan + CameraPlan + AudioPlan → turn
@@ -86,6 +87,12 @@ API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能�
   `locked`，只有明确的人物位移、空间揭示、情绪/权力转折才允许一次克制的短轨迹。全集移动镜头不超过约
   三分之一、强调运镜不超过约十分之一，相邻镜头不得连续明显运镜；连续视觉组最终只保留一份摄影机计划。
   运行时按真实参考音频长度重新分配表演时间段。
+- 每集在分镜执行前形成 `ShowrunnerPlan`：4–8 个相对留存节点覆盖 hook、question、payoff/reversal 和
+  cliffhanger；信息状态明确观众与各角色分别知道或误解什么；人物状态增量只记录有当前章证据的社会地位、
+  关系、力量、情绪、信心和服装变化。门禁拒绝中段注意力空窗、无证据信息和无实际变化的状态增量。
+- 每镜 `ShotIntent` 先声明戏剧功能、权力关系、目标情绪、观众焦点及留存节点，再决定景别、构图、关键帧和
+  运镜；`AudioBeat` 以 0–1 相对位置记录由台词、动作、揭示或反应触发的静音、环境、冲击、音乐起落、duck
+  和收束。它们进入视频提示和审计，但非语言声音的最终混音仍需媒体后端或后续素材执行器。
 - 参考图只锚定人物身份、服装、环境和画风，不锁定静态姿势、人物画面位置或原始机位；关键帧生成的是
   “动作发生前一瞬”，为后续人物表演保留构图空间。摄影机始终留在同一行动轴一侧；同场对话中角色的
   左右位置和视线方向由稳定角色槽位决定，不随镜号随机交换。
@@ -100,7 +107,7 @@ API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能�
 - 生产成功必须同时通过媒体、字幕结构、字幕像素烧录和逐句 ASR 门禁。
 - 输出固定为 1080×1920、25/30 fps、H.264/AAC MP4，以及 1080×1920 JPEG 封面和结束画面。
 
-运行 `novel-manga contract` 可取得 `StoryBible`、`ChapterDiagnosis`、`EpisodePlan`、
+运行 `novel-manga contract` 可取得 `StoryBible`、`ChapterDiagnosis`、内含 `ShowrunnerPlan` 的 `EpisodePlan`、
 `ScriptQualityReport`、`SeriesState` 和完整生产计划 JSON Schema，交给任意模型或外部编排器使用。
 
 只验证规划模型、不调用生图、生视频或 TTS 时，使用 `plan`：
@@ -120,15 +127,15 @@ uv run novel-manga plan /input/novel.txt \
 
 输出包含 `story_bible.json`、逐集 `episode_NNN_diagnosis.json`、`episode_NNN_plan.json`、
 `episode_NNN_script_quality.json`、`episode_NNN_series_state.json` 和不含凭据的
-`planning_manifest.json`。OpenAI-compatible 后端按“章节事实诊断 → 剧本 → 独立审稿 → 连续性状态更新”
-四阶段运行；命令和确定性后端也必须经过同一组事件覆盖、篇幅、因果和章末边界硬门禁。
+`planning_manifest.json`。OpenAI-compatible 后端按“章节事实诊断 → 独立 Showrunner → 剧本 → 独立审稿 → 连续性状态更新”
+五阶段运行；命令规划后端使用同一五阶段契约，确定性后端生成带 warning 的保守 Showrunner 回退；所有后端都必须经过同一组事件覆盖、篇幅、因果和章末边界硬门禁。
 模型输出不合格时，控制器把结构化错误反馈给模型并限次修订；默认最多修订 2 次，通过
 `NOVEL_PLANNER_MAX_REVISIONS=0..2` 配置。达到上限仍不合格会在任何 TTS、生图或生视频调用前失败。
 
 对于超过 3000 个有效字的章节，默认门禁要求至少 800 字左右的有效剧本、18 个 Turn、16 个镜头；
 章节诊断为 dense 时要求至少 20 个 Turn。所有 critical 事件必须映射到分镜和改编账本，结尾必须落在
-当前章最后的关键高潮或结果。`series_state` 中新增或改变的事实必须携带当前章原文证据，防止把后文秘密
-写入当前集。
+当前章最后的关键高潮或结果。`series_state` 中新增或改变的事实及跨集信息状态必须携带当前章原文证据，
+防止把后文秘密写入当前集。
 
 媒体生成前可独立执行引用与说话人校验：
 
@@ -218,11 +225,11 @@ export NOVEL_VOICE_MAP_JSON='{"narrator":"mature_male","林晚":"warm_female"}'
 
 ```text
 $NOVEL_PLANNER_COMMAND \
-  --operation build_bible|diagnose_episode|plan_episode|review_episode|update_series_state \
+  --operation build_bible|diagnose_episode|plan_showrunner|plan_episode|review_episode|update_series_state \
   --input request.json --output response.json
 ```
 
-`build_bible` 保留兼容的 v2 请求；逐章编剧阶段使用 `contract=novel-manga-planner/v3`，请求携带当前章、
+`build_bible` 保留兼容的 v2 请求；逐章编剧阶段使用 `contract=novel-manga-planner/v4`，请求携带当前章、
 上一集状态、故事圣经、当前阶段要求和 JSON Schema。响应必须严格符合对应 Schema。若校验失败，后续请求
 增加 `repair={revision,previous_response,validation_errors}`。命令适配器只需包装任意本地大模型或远程模型，
 阶段编排、重试上限和媒体阻断由 Python 控制器负责。

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -37,6 +38,7 @@ def parser() -> argparse.ArgumentParser:
         choices=(
             "build_bible",
             "diagnose_episode",
+            "plan_showrunner",
             "plan_episode",
             "review_episode",
             "update_series_state",
@@ -95,6 +97,54 @@ def main() -> None:
                     }
                 ],
             }
+        elif args.operation == "plan_showrunner":
+            episode = request["episode"]
+            source = episode["source_text"]
+            beat_functions = ["hook", "question", "escalation", "payoff", "cliffhanger"]
+            payload = {
+                "planning_mode": "planner",
+                "retention": {
+                    "target_duration_seconds": 30,
+                    "max_attention_gap_ratio": 0.25,
+                    "beats": [
+                        {
+                            "beat_id": f"beat_{index:03d}",
+                            "function": function,
+                            "target_start_ratio": (index - 1) * 0.2,
+                            "target_end_ratio": min(1, (index - 1) * 0.2 + 0.18),
+                            "audience_question": "门外是谁？",
+                            "promise": "当前章内揭示林晚为何阻止开门",
+                            "new_information_fact_ids": ["fact_001"] if index == 1 else [],
+                            "emotional_shift": "危险逐步逼近",
+                            "event_ids": ["event_001"],
+                            "shot_indexes": [],
+                            "source_quote": source,
+                        }
+                        for index, function in enumerate(beat_functions, 1)
+                    ],
+                    "ending_open_loop": "门外人身份仍未揭晓",
+                },
+                "information_states": [
+                    {
+                        "fact_id": "fact_001",
+                        "statement": "林晚阻止开门",
+                        "truth_status": "confirmed",
+                        "viewer_awareness": "knows",
+                        "character_awareness": [
+                            {
+                                "character_name": "林晚",
+                                "awareness": "knows",
+                                "belief": "门外存在风险",
+                            }
+                        ],
+                        "dramatic_use": "viewer_leads",
+                        "source_event_ids": ["event_001"],
+                        "source_quote": source,
+                        "reveal_beat_id": "beat_001",
+                    }
+                ],
+                "character_state_deltas": [],
+            }
         elif args.operation == "review_episode":
             plan = request["episode_plan"]
             turns = [turn for shot in plan["shots"] for turn in shot["turns"]]
@@ -140,6 +190,27 @@ def main() -> None:
             }
         else:
             source = request["episode"]["source_text"]
+            dialogue_match = re.search(r"[“\"]([^”\"]+)[”\"]", source)
+            dialogue = dialogue_match.group(1) if dialogue_match else "不要开门。"
+            turns = [
+                {
+                    "role": "林晚",
+                    "speaker_name": "林晚",
+                    "text": dialogue,
+                    "speaking": True,
+                    "source_quote": source,
+                }
+            ]
+            if request.get("creative_profile") != "short-drama-adaptive-v1":
+                turns.append(
+                    {
+                        "role": "narrator",
+                        "speaker_name": "旁白",
+                        "text": "她挡在门前。",
+                        "speaking": False,
+                        "source_quote": source,
+                    }
+                )
             payload = {
                 "video_title": request["episode"]["source_title"],
                 "hook": "不要开门",
@@ -194,22 +265,7 @@ def main() -> None:
                             ],
                             "end_position": "林晚右前方稳定近景",
                         },
-                        "turns": [
-                            {
-                                "role": "林晚",
-                                "speaker_name": "林晚",
-                                "text": "不要开门。",
-                                "speaking": True,
-                                "source_quote": source,
-                            },
-                            {
-                                "role": "narrator",
-                                "speaker_name": "旁白",
-                                "text": "她挡在门前。",
-                                "speaking": False,
-                                "source_quote": source,
-                            },
-                        ],
+                        "turns": turns,
                     }
                 ],
                 "adaptation_ledger": [

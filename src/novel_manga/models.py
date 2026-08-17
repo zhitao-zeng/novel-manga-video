@@ -160,7 +160,7 @@ class ScriptReviewIssue(BaseModel):
 
 
 class ScriptQualityReport(BaseModel):
-    policy_revision: str = "novel-manga-script-v3"
+    policy_revision: str = "novel-manga-script-v6-showrunner"
     passed: bool
     script_char_count: int = Field(ge=0)
     shot_count: int = Field(ge=0)
@@ -179,6 +179,12 @@ class ScriptQualityReport(BaseModel):
     narration_budget_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
     cold_open_grounded: bool = True
     camera_move_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    retention_beat_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
+    max_attention_gap_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+    information_fact_grounding: float = Field(default=0.0, ge=0.0, le=1.0)
+    character_delta_grounding: float = Field(default=0.0, ge=0.0, le=1.0)
+    shot_intent_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
+    audio_beat_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
     issues: list[ScriptReviewIssue] = Field(default_factory=list)
 
 
@@ -196,6 +202,11 @@ class CharacterEpisodeState(BaseModel):
     physical_state: str = "正常"
     emotional_state: str = "未明确"
     current_goal: str = "未明确"
+    social_status: str = "未明确"
+    relationship_state: str = "未明确"
+    power_level: str = "未明确"
+    confidence_state: str = "未明确"
+    costume_state: str = "沿用角色资产"
     evidence: GroundedStateFact
     known_information: list[GroundedStateFact] = Field(default_factory=list)
 
@@ -231,6 +242,34 @@ class EpisodeEndState(BaseModel):
     evidence: GroundedStateFact
 
 
+class SeriesInformationState(BaseModel):
+    """Cross-episode knowledge state with evidence that survives event-id reuse."""
+
+    fact_key: str
+    statement: str = Field(min_length=1, max_length=300)
+    viewer_awareness: str = Field(pattern=r"^(knows|suspects|misled|unaware)$")
+    character_awareness: dict[str, str] = Field(default_factory=dict)
+    dramatic_use: str = Field(
+        pattern=(
+            r"^(viewer_leads|character_leads|simultaneous_reveal|"
+            r"misunderstanding|withheld)$"
+        )
+    )
+    evidence: GroundedStateFact
+
+    @model_validator(mode="after")
+    def validate_character_awareness(self) -> "SeriesInformationState":
+        allowed = {"knows", "suspects", "misled", "unaware"}
+        invalid = {
+            name: awareness
+            for name, awareness in self.character_awareness.items()
+            if awareness not in allowed
+        }
+        if invalid:
+            raise ValueError(f"invalid character awareness values: {invalid}")
+        return self
+
+
 class SeriesState(BaseModel):
     """Compact dynamic memory carried from episode N to episode N+1."""
 
@@ -240,6 +279,7 @@ class SeriesState(BaseModel):
     characters: list[CharacterEpisodeState] = Field(default_factory=list)
     relationships: list[RelationshipState] = Field(default_factory=list)
     props: list[PropState] = Field(default_factory=list)
+    information_states: list[SeriesInformationState] = Field(default_factory=list)
     open_loops: list[StoryLoop] = Field(default_factory=list)
     resolved_loops: list[StoryLoop] = Field(default_factory=list)
     potential_foreshadowing: list[GroundedStateFact] = Field(default_factory=list)
@@ -334,6 +374,21 @@ class CameraPlan(BaseModel):
         return self
 
 
+class AudioBeat(BaseModel):
+    """A relative, trigger-bound sound event inside one shot."""
+
+    position_ratio: float = Field(ge=0.0, le=1.0)
+    cue_type: str = Field(
+        pattern=(
+            r"^(silence|ambience|impact|music_rise|music_cut|bass_drop|"
+            r"heartbeat|sfx|duck|release)$"
+        )
+    )
+    cue: str = Field(min_length=1, max_length=160)
+    trigger: str = Field(min_length=1, max_length=160)
+    retention_beat_id: str = ""
+
+
 class SceneAudioPlan(BaseModel):
     """Editorial sound intent; TTS remains limited to actual speech."""
 
@@ -346,7 +401,128 @@ class SceneAudioPlan(BaseModel):
     music_cue: str = ""
     ambience: str = ""
     sfx_events: list[str] = Field(default_factory=list)
+    audio_beats: list[AudioBeat] = Field(default_factory=list, max_length=8)
     ducking: bool = True
+
+    @model_validator(mode="after")
+    def validate_audio_beat_order(self) -> "SceneAudioPlan":
+        positions = [beat.position_ratio for beat in self.audio_beats]
+        if positions != sorted(positions):
+            raise ValueError("audio beats must be ordered by position_ratio")
+        return self
+
+
+class CharacterAwareness(BaseModel):
+    character_name: str
+    awareness: str = Field(pattern=r"^(knows|suspects|misled|unaware)$")
+    belief: str = Field(default="", max_length=240)
+
+
+class InformationState(BaseModel):
+    """Who knows one source-grounded fact and how that gap creates drama."""
+
+    fact_id: str = Field(pattern=r"^fact_\d{3}$")
+    statement: str = Field(min_length=1, max_length=300)
+    truth_status: str = Field(pattern=r"^(confirmed|potential|misread)$")
+    viewer_awareness: str = Field(pattern=r"^(knows|suspects|misled|unaware)$")
+    character_awareness: list[CharacterAwareness] = Field(default_factory=list)
+    dramatic_use: str = Field(
+        pattern=(
+            r"^(viewer_leads|character_leads|simultaneous_reveal|"
+            r"misunderstanding|withheld)$"
+        )
+    )
+    source_event_ids: list[str] = Field(min_length=1)
+    source_quote: str = Field(min_length=1, max_length=500)
+    reveal_beat_id: str = ""
+
+
+class CharacterDramaticState(BaseModel):
+    social_status: str = "未明确"
+    relationship_state: str = "未明确"
+    power_level: str = "未明确"
+    emotional_state: str = "未明确"
+    confidence_state: str = "未明确"
+    costume_state: str = "沿用角色资产"
+
+
+class CharacterStateDelta(BaseModel):
+    """A current-episode state transition, separate from permanent identity assets."""
+
+    character_name: str
+    event_ids: list[str] = Field(min_length=1)
+    before: CharacterDramaticState
+    after: CharacterDramaticState
+    source_quote: str = Field(min_length=1, max_length=500)
+    visual_consequence: str = Field(min_length=1, max_length=240)
+    performance_consequence: str = Field(min_length=1, max_length=240)
+
+
+class RetentionBeat(BaseModel):
+    beat_id: str = Field(pattern=r"^beat_\d{3}$")
+    function: str = Field(
+        pattern=r"^(hook|question|pressure|escalation|payoff|reversal|cliffhanger)$"
+    )
+    target_start_ratio: float = Field(ge=0.0, le=1.0)
+    target_end_ratio: float = Field(ge=0.0, le=1.0)
+    audience_question: str = Field(min_length=1, max_length=240)
+    promise: str = Field(min_length=1, max_length=240)
+    new_information_fact_ids: list[str] = Field(default_factory=list)
+    emotional_shift: str = Field(min_length=1, max_length=200)
+    event_ids: list[str] = Field(min_length=1)
+    shot_indexes: list[int] = Field(default_factory=list)
+    source_quote: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "RetentionBeat":
+        if self.target_end_ratio < self.target_start_ratio:
+            raise ValueError("retention beat end ratio must not precede its start ratio")
+        return self
+
+
+class RetentionPlan(BaseModel):
+    target_duration_seconds: float = Field(default=60.0, ge=10.0, le=300.0)
+    max_attention_gap_ratio: float = Field(default=0.25, gt=0.0, le=0.5)
+    beats: list[RetentionBeat] = Field(min_length=4, max_length=8)
+    ending_open_loop: str = Field(min_length=1, max_length=240)
+
+    @model_validator(mode="after")
+    def validate_retention_order(self) -> "RetentionPlan":
+        ids = [beat.beat_id for beat in self.beats]
+        if len(ids) != len(set(ids)):
+            raise ValueError("retention beat ids must be unique")
+        starts = [beat.target_start_ratio for beat in self.beats]
+        if starts != sorted(starts):
+            raise ValueError("retention beats must be ordered by target_start_ratio")
+        return self
+
+
+class ShowrunnerPlan(BaseModel):
+    """Commercial short-drama decisions made before shot execution."""
+
+    planning_mode: str = Field(
+        default="planner", pattern=r"^(planner|inferred_fallback)$"
+    )
+    retention: RetentionPlan
+    information_states: list[InformationState] = Field(default_factory=list, max_length=12)
+    character_state_deltas: list[CharacterStateDelta] = Field(
+        default_factory=list, max_length=12
+    )
+
+
+class ShotIntent(BaseModel):
+    dramatic_function: str = Field(
+        default="advance",
+        pattern=(
+            r"^(establish|advance|pressure|withhold|reveal|payoff|reaction|"
+            r"transition|cliffhanger)$"
+        ),
+    )
+    power_relation: str = "未明确"
+    emotion_target: str = "保持关注"
+    information_fact_ids: list[str] = Field(default_factory=list)
+    viewer_focus: str = "当前主要动作与反应"
+    retention_beat_id: str = ""
 
 
 class EpisodeDramaturgy(BaseModel):
@@ -381,6 +557,7 @@ class Shot(BaseModel):
     camera_plan: CameraPlan | None = None
     visual_strategy: VisualStrategy = VisualStrategy.AUTO
     keyframe_reasons: list[str] = Field(default_factory=list)
+    shot_intent: ShotIntent = Field(default_factory=ShotIntent)
     audio_plan: SceneAudioPlan = Field(default_factory=SceneAudioPlan)
 
 
@@ -393,6 +570,7 @@ class EpisodePlan(BaseModel):
     adaptation_ledger: list[AdaptationLedgerItem] = Field(default_factory=list)
     creative_profile: str = "faithful-chronological-v1"
     dramaturgy: EpisodeDramaturgy | None = None
+    showrunner_plan: ShowrunnerPlan | None = None
 
     @model_validator(mode="after")
     def validate_shot_order(self) -> "EpisodePlan":

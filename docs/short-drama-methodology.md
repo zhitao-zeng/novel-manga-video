@@ -74,6 +74,29 @@ cliffhanger             最后一问
 narration_budget_ratio  题材旁白预算
 ```
 
+### 4.1 Showrunner 决策层
+
+`EpisodeDramaturgy` 回答“这一集讲什么”，`ShowrunnerPlan` 进一步回答“观众为什么继续看、谁知道什么、人物发生了什么变化”。它必须先于镜头执行产生：
+
+```text
+RetentionPlan
+  4–8 个相对时间节点：hook → question → escalation → payoff/reversal → cliffhanger
+  每个节点绑定当前章事件、镜头、逐字证据、观众问题、承诺和情绪变化
+
+InformationState
+  一个事实的真假状态、观众认知、各角色认知或误解、信息差用途和揭示节点
+
+CharacterStateDelta
+  人物本集前后发生变化的社会地位、关系、力量、情绪、信心和服装状态
+  永久脸型、发型、体型不属于剧情状态
+```
+
+留存节点使用 0–1 相对时间而不是写死第 5、15、30 秒，适配不同集长。默认最大注意力空窗为全片的 25%；冷开场落在前 5%，集尾悬念落在后 20%。每个刺激都必须引用当前章事实，不能为了密度制造原文没有的羞辱、身份或反转。
+
+规划失败时，确定性后端会生成 `planning_mode=inferred_fallback` 的保守计划并留下 warning；正式规划模型应输出 `planning_mode=planner`。质量门禁会拒绝无证据信息、无实际变化的人物状态、过大的中段留存空窗，以及未绑定留存节点的镜头和音频节拍。
+
+OpenAI-compatible 与命令规划后端使用独立五阶段流程：章节事实诊断 → Showrunner → 剧本 → 独立审稿 → 连续性状态提交。Showrunner 阶段尚无镜头编号，只规划事件级留存、信息和状态，`shot_indexes` 必须为空；剧本形成后，控制器根据 `event_ids` 确定性绑定镜头编号，避免让一个巨型 Prompt 同时决定商业节奏和所有摄影细节。
+
 删除旁白时依次判断：
 
 1. 能直接演出来：写进动作；
@@ -102,6 +125,8 @@ voice_profile_id    稳定声音身份
 ```
 
 不同角色要形成视觉和表演反差：主角、权力角色、喜剧角色、支持者不应共享同一种脸、配色、姿态和情绪幅度。
+
+永久身份资产与逐集剧情状态分开保存。`CharacterEpisodeState` 记录当前位置、目标、伤势、社会地位、关系位置、力量、情绪、信心和服装；`CharacterStateDelta` 只记录当前集有原文证据的变化。只有剧本通过门禁后，变化才提交到下一集的 `SeriesState`。信息差也以带集号和原文证据的 `SeriesInformationState` 跨集保存，避免一次失败规划污染后续连续性。
 
 ## 6. 生图资产策略
 
@@ -179,6 +204,9 @@ voice_profile_id    稳定声音身份
 
 生成9:16连续单镜头。
 
+镜头戏剧意图：本镜承担公开结果揭示；权力关系是主角被群体压低；
+观众焦点只放在测试结果和主角克制反应；绑定冷开场留存节点。
+
 开场：主角先看向测试装置，嘴巴闭合。
 触发：听见周围议论，视线下沉，右手缓慢握紧。
 主要动作：按参考音频开口；下颌克制，前半压住情绪，最后才抬眼。
@@ -221,6 +249,17 @@ TTS 只用于语言，不生成脚步、风声、笑声、音乐等非语言声�
 
 `SceneAudioPlan` 记录表演意图、语速、能量、停顿、音乐、环境、拟音和 ducking。当前生产交付仍以锁定 TTS 为准，因为现有 API 不保证分离人声、音乐和拟音；不能把模型完整音轨直接叠在 TTS 上，否则会产生双重人声。后续如 API 返回可验证的完整原生音轨或分轨，可增加“ASR 通过则整段保留，失败则整段回退”的模式。
 
+每个镜头还记录相对 `AudioBeat`，例如：
+
+```text
+0%   ambience  建立广场低声议论
+18%  impact    石碑结果真正可读时触发短促冲击
+42%  duck      锁定台词开始时压低背景
+90%  release   人物反应落定后留一拍
+```
+
+节拍由台词、动作、揭示或反应触发，而不是机械地每隔几秒放音效。目前这些节拍进入视频导演提示、生产计划、缓存身份和审计记录；仓库尚未提供素材库/音乐模型的可验证最终混音器，所以非语言声音是否进入交付音轨仍取决于媒体后端能力。
+
 ## 10. 《斗破苍穹》第一章示例
 
 这里只展示结构，不复制原文全文。
@@ -258,12 +297,22 @@ export NOVEL_INTRO_SECONDS=4
 
 - `EpisodePlan.creative_profile`
 - `EpisodePlan.dramaturgy`
+- `EpisodePlan.showrunner_plan.retention`
+- `EpisodePlan.showrunner_plan.information_states`
+- `EpisodePlan.showrunner_plan.character_state_deltas`
+- `Shot.shot_intent`
 - `Shot.visual_strategy`
 - `Shot.keyframe_reasons`
 - `Shot.audio_plan`
 - `ScriptQualityReport.narration_ratio`
 - `ScriptQualityReport.cold_open_grounded`
 - `ScriptQualityReport.camera_move_ratio`
+- `ScriptQualityReport.retention_beat_coverage`
+- `ScriptQualityReport.max_attention_gap_ratio`
+- `ScriptQualityReport.information_fact_grounding`
+- `ScriptQualityReport.character_delta_grounding`
+- `ScriptQualityReport.shot_intent_coverage`
+- `ScriptQualityReport.audio_beat_coverage`
 - 视频请求清单中的 `visual_input_strategy` 与 `keyframe_source`
 
 ## 12. 当前限制
@@ -271,5 +320,6 @@ export NOVEL_INTRO_SECONDS=4
 - 无法仅凭成片确认参考账号实际输入了多少人物图、场景图、关键帧或音频；
 - PhanRouter SD2.5 当前适配器不支持多张独立参考图，API 模式仍需关键帧回退；
 - 当前最终混音仍使用锁定对白轨，模型原生拟音和音乐不会作为生产交付音轨；
+- `AudioBeat` 已进入规划、提示和审计，但尚没有绑定授权素材库或声音模型的最终混音执行器；
 - 本地 H3 的人物 + 场景直出是低成本路径，但多人物、道具交互和结果揭示仍需关键帧；
 - 自动门禁能限制旁白、运镜和关键帧使用，却不能代替人工判断一个冲突是否真正有吸引力。

@@ -57,8 +57,15 @@ def _planner(args: argparse.Namespace) -> None:
             "只诊断当前 episode：按原文顺序列出关键事件、起止状态、因果链和章节边界。"
             "所有 source_quote 必须是当前章节逐字连续原文，禁止使用未来章节信息。"
         ),
+        "plan_showrunner": (
+            "在写分镜前独立规划观众留存、信息差和人物状态变化。retention使用4-8个相对时间节点，"
+            "包含hook、question、payoff或reversal以及cliffhanger；此阶段shot_indexes必须为空。"
+            "information_states明确观众和角色分别知道、误解或不知道什么；character_state_deltas"
+            "只记录当前章有证据的社会地位、关系、力量、情绪、信心或服装变化。不得写具体镜头提示词。"
+        ),
         "plan_episode": (
-            "把当前章节诊断编译为可观看的漫剧剧本和分镜。覆盖全部 critical 事件，开场不剧透结局，"
+            "按已经独立生成的showrunner_plan，把当前章节诊断编译为可观看的漫剧剧本和分镜。"
+            "覆盖全部 critical 事件，开场不剧透结局，"
             "结尾停在本章边界。台词、人物关系和因果忠于原文；每个 turn 仅一个声音来源。"
             "每个镜头必须同时给出 PerformancePlan 与 CameraPlan：触发—动作—反应—情绪转折，"
             "以及摄影机的真实三维轨迹、构图和视差；不能只写静态状态或数字推镜。"
@@ -189,6 +196,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=(
             "build_bible",
             "diagnose_episode",
+            "plan_showrunner",
             "plan_episode",
             "review_episode",
             "update_series_state",

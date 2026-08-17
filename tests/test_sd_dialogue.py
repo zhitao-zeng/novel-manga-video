@@ -8,7 +8,15 @@ import httpx
 from PIL import Image
 
 from novel_manga.config import Settings
-from novel_manga.models import CameraBeat, CameraPlan, MotionBeat, PerformancePlan
+from novel_manga.models import (
+    AudioBeat,
+    CameraBeat,
+    CameraPlan,
+    MotionBeat,
+    PerformancePlan,
+    SceneAudioPlan,
+    ShotIntent,
+)
 from novel_manga.providers.base import ImageResult
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from novel_manga.sd_dialogue import (
@@ -63,6 +71,41 @@ def test_reference_audio_prompt_removes_silent_instruction_and_requires_exact_sy
     assert "静音期间嘴巴保持自然闭合" in prompt
     assert "人声结束后立即闭嘴" in prompt
     assert "不生成声音" not in prompt
+
+
+def test_prompt_consumes_shot_intent_and_triggered_audio_timeline() -> None:
+    prompt = build_sd_prompt(
+        "narrator",
+        "石碑显出斗之力三段。",
+        "人群在结果出现后停止议论。",
+        use_reference_audio=True,
+        shot_intent=ShotIntent(
+            dramatic_function="reveal",
+            power_relation="主角被公开压低",
+            emotion_target="先压迫再产生疑问",
+            information_fact_ids=["fact_001"],
+            viewer_focus="石碑结果与萧炎的克制反应",
+            retention_beat_id="beat_001",
+        ),
+        audio_plan=SceneAudioPlan(
+            ambience="测试广场低声议论",
+            audio_beats=[
+                AudioBeat(
+                    position_ratio=0.2,
+                    cue_type="impact",
+                    cue="结果出现时短促冲击",
+                    trigger="石碑显出三段",
+                    retention_beat_id="beat_001",
+                )
+            ],
+        ),
+    )
+
+    assert "功能=reveal" in prompt
+    assert "主角被公开压低" in prompt
+    assert "石碑结果与萧炎的克制反应" in prompt
+    assert "20%处impact" in prompt
+    assert "石碑显出三段" in prompt
 
 
 def test_dialogue_prompt_uses_supplied_locked_identity_description() -> None:

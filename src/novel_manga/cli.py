@@ -12,6 +12,7 @@ from .models import (
     EpisodePlan,
     ScriptQualityReport,
     SeriesState,
+    ShowrunnerPlan,
     StoryBible,
 )
 from .pipeline import NovelPipeline
@@ -84,11 +85,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "contract":
             print(json.dumps({
                 "contract": "novel-manga-production/v1",
-                "planner_contract": "novel-manga-planner/v3",
+                "planner_contract": "novel-manga-planner/v4",
                 "codex_required": False,
                 "planner_operations": [
                     "build_bible",
                     "diagnose_episode",
+                    "plan_showrunner",
                     "plan_episode",
                     "review_episode",
                     "update_series_state",
@@ -100,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 "story_bible_schema": StoryBible.model_json_schema(),
                 "chapter_diagnosis_schema": ChapterDiagnosis.model_json_schema(),
+                "showrunner_plan_schema": ShowrunnerPlan.model_json_schema(),
                 "episode_plan_schema": EpisodePlan.model_json_schema(),
                 "script_quality_schema": ScriptQualityReport.model_json_schema(),
                 "series_state_schema": SeriesState.model_json_schema(),
