@@ -15,6 +15,14 @@ class ImageResult:
 
 
 class MediaProvider(ABC):
+    def enter_stage(self, stage: str) -> None:
+        """Prepare one model family for a batch of related requests.
+
+        Hosted and mock providers intentionally use this no-op. A local
+        single-GPU adapter may override it to unload the previous checkpoint
+        and load the model family needed by ``stage``.
+        """
+
     @abstractmethod
     def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult: ...
 
@@ -26,6 +34,7 @@ class MediaProvider(ABC):
         output: Path,
         duration: float,
         reference_audio: Path | None = None,
+        additional_images: tuple[Path, ...] = (),
     ) -> Path: ...
 
     @abstractmethod
@@ -36,6 +45,7 @@ class MediaProvider(ABC):
         *,
         voice: str | None = None,
         instructions: str | None = None,
+        speed: float | None = None,
     ) -> Path: ...
 
 

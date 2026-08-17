@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import math
 import os
@@ -9,10 +10,10 @@ import shlex
 import subprocess
 import tempfile
 import time
-import wave
 from pathlib import Path
 
 import httpx
+from PIL import Image, ImageOps
 
 from ..config import Settings
 from ..util import atomic_write_json, retry
@@ -23,7 +24,14 @@ class PhanRouterMediaProvider(MediaProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
         self.client = httpx.Client(timeout=settings.request_timeout)
-        self.headers = {"Authorization": f"Bearer {settings.phanrouter_api_key}"}
+        self.video_headers = {
+            "Authorization": f"Bearer {settings.phanrouter_api_key}"
+        }
+        self.image_headers = {
+            "Authorization": (
+                f"Bearer {settings.phanrouter_image_api_key or settings.phanrouter_api_key}"
+            )
+        }
 
     def _download(self, url: str, output: Path, max_bytes: int = 512 * 1024 * 1024) -> None:
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -49,7 +57,7 @@ class PhanRouterMediaProvider(MediaProvider):
         while time.monotonic() < deadline:
             response = self.client.get(
                 f"{self.settings.phanrouter_base_url.rstrip('/')}/v3/images/generations/{task_id}",
-                headers=self.headers,
+                headers=self.image_headers,
             )
             response.raise_for_status()
             data = self._task_data(response.json())
@@ -67,6 +75,22 @@ class PhanRouterMediaProvider(MediaProvider):
     def _restore_image_url(self, image: ImageResult) -> str:
         if image.public_url:
             return image.public_url
+        if self.settings.inline_reference_images:
+            if not image.path.is_file():
+                raise FileNotFoundError(image.path)
+            with Image.open(image.path) as source:
+                normalized = ImageOps.exif_transpose(source).convert("RGB")
+                normalized = ImageOps.fit(
+                    normalized,
+                    (720, 1280),
+                    method=Image.Resampling.LANCZOS,
+                )
+                encoded = io.BytesIO()
+                normalized.save(encoded, format="JPEG", quality=82, optimize=True)
+            payload = encoded.getvalue()
+            if len(payload) > 10 * 1024 * 1024:
+                raise ValueError("Seedance inline reference image exceeds 10 MiB")
+            return f"data:image/jpeg;base64,{base64.b64encode(payload).decode('ascii')}"
         task_path = image.path.with_suffix(image.path.suffix + ".task.json")
         if not task_path.is_file():
             raise ValueError("PhanRouter image task metadata is missing; cannot restore provider reference")
@@ -76,6 +100,12 @@ class PhanRouterMediaProvider(MediaProvider):
         return self._poll_image_url(str(task_id))
 
     def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult:
+        if self.settings.image_model in {
+            "doubao-seedream-5.0-lite",
+            "doubao-seedream-4.5",
+        }:
+            return self._create_seedream_image(prompt, output, reference)
+
         payload: dict[str, object] = {
             "model": self.settings.image_model,
             "prompt": prompt,
@@ -89,7 +119,7 @@ class PhanRouterMediaProvider(MediaProvider):
         def submit() -> httpx.Response:
             response = self.client.post(
                 f"{self.settings.phanrouter_base_url.rstrip('/')}/v3/images/generations",
-                headers=self.headers, json=payload,
+                headers=self.image_headers, json=payload,
             )
             response.raise_for_status()
             return response
@@ -112,6 +142,61 @@ class PhanRouterMediaProvider(MediaProvider):
         self._download(url, output, max_bytes=64 * 1024 * 1024)
         return ImageResult(path=output, public_url=url)
 
+    def _create_seedream_image(
+        self,
+        prompt: str,
+        output: Path,
+        reference: Path | None = None,
+    ) -> ImageResult:
+        payload: dict[str, object] = {
+            "model": self.settings.image_model,
+            "prompt": prompt,
+            "n": 1,
+            "size": "1080x1920",
+            "watermark": False,
+        }
+        if reference is not None:
+            if not reference.is_file():
+                raise FileNotFoundError(reference)
+            with Image.open(reference) as source:
+                normalized = ImageOps.exif_transpose(source).convert("RGB")
+                encoded = io.BytesIO()
+                normalized.save(encoded, format="JPEG", quality=92, optimize=True)
+            payload["image"] = (
+                "data:image/jpeg;base64,"
+                + base64.b64encode(encoded.getvalue()).decode("ascii")
+            )
+
+        def submit() -> httpx.Response:
+            response = self.client.post(
+                f"{self.settings.phanrouter_base_url.rstrip('/')}/v1/images/generations",
+                headers=self.image_headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            return response
+
+        response = retry(submit)
+        data = response.json().get("data")
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            raise ValueError("Seedream image API returned no data")
+        url = data[0].get("url")
+        if not url:
+            raise ValueError("Seedream image API returned no URL")
+        self._download(str(url), output, max_bytes=64 * 1024 * 1024)
+        atomic_write_json(
+            output.with_suffix(output.suffix + ".task.json"),
+            {
+                "kind": "image",
+                "model": self.settings.image_model,
+                "endpoint": "/v1/images/generations",
+                "request_sha256": hashlib.sha256(
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                ).hexdigest(),
+            },
+        )
+        return ImageResult(path=output, public_url=str(url))
+
     @staticmethod
     def _reference_audio_content(reference_audio: Path) -> tuple[dict, str]:
         if not reference_audio.is_file():
@@ -127,9 +212,24 @@ class PhanRouterMediaProvider(MediaProvider):
         duration: float | None = None
         if reference_audio.suffix.lower() == ".wav":
             try:
-                with wave.open(str(reference_audio), "rb") as stream:
-                    duration = stream.getnframes() / max(1, stream.getframerate())
-            except (EOFError, wave.Error):
+                probe = subprocess.run(
+                    [
+                        "ffprobe",
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "default=noprint_wrappers=1:nokey=1",
+                        str(reference_audio),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                duration = float(probe.stdout.strip())
+            except (OSError, ValueError, subprocess.SubprocessError):
                 duration = None
         if duration is not None and duration < 2.0:
             with tempfile.TemporaryDirectory(prefix="novel-ref-audio-") as directory:
@@ -179,8 +279,10 @@ class PhanRouterMediaProvider(MediaProvider):
                 "content": content,
                 "ratio": "9:16",
                 "resolution": "720p",
-                "duration": max(4, min(14, math.ceil(duration))),
+                "duration": max(4, min(30, math.ceil(duration))),
                 "generate_audio": reference_audio is not None,
+                "watermark": False,
+                "output_format": "mp4",
             },
             reference_audio_sha256,
         )
@@ -192,7 +294,12 @@ class PhanRouterMediaProvider(MediaProvider):
         output: Path,
         duration: float,
         reference_audio: Path | None = None,
+        additional_images: tuple[Path, ...] = (),
     ) -> Path:
+        if additional_images:
+            raise ValueError(
+                "separate reusable video assets are supported only by the local MiniMax H3 adapter"
+            )
         image_url = self._restore_image_url(image)
         payload, reference_audio_sha256 = self._video_payload(
             prompt, image_url, duration, reference_audio
@@ -204,9 +311,15 @@ class PhanRouterMediaProvider(MediaProvider):
         def submit() -> httpx.Response:
             response = self.client.post(
                 f"{self.settings.phanrouter_base_url.rstrip('/')}/api/v3/contents/generations/tasks",
-                headers=self.headers, json=payload,
+                headers=self.video_headers, json=payload,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as error:
+                detail = response.text.strip().replace("\n", " ")[:1000]
+                raise RuntimeError(
+                    f"Seedance task submission returned HTTP {response.status_code}: {detail}"
+                ) from error
             return response
 
         task_path = output.with_suffix(output.suffix + ".task.json")
@@ -223,6 +336,8 @@ class PhanRouterMediaProvider(MediaProvider):
                     {
                         "task_id": task_id,
                         "kind": "video",
+                        "model": self.settings.video_model,
+                        "output_format": "mp4",
                         "request_sha256": request_sha256,
                         "reference_audio_sha256": reference_audio_sha256,
                         "generate_audio": reference_audio is not None,
@@ -234,7 +349,7 @@ class PhanRouterMediaProvider(MediaProvider):
         while time.monotonic() < deadline:
             response = self.client.get(
                 f"{self.settings.phanrouter_base_url.rstrip('/')}/api/v3/contents/generations/tasks/{task_id}",
-                headers=self.headers,
+                headers=self.video_headers,
             )
             response.raise_for_status()
             data = self._task_data(response.json())
@@ -258,6 +373,7 @@ class PhanRouterMediaProvider(MediaProvider):
         *,
         voice: str | None = None,
         instructions: str | None = None,
+        speed: float | None = None,
     ) -> Path:
         if self.settings.tts_command:
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -268,6 +384,8 @@ class PhanRouterMediaProvider(MediaProvider):
             ]
             if instructions:
                 command.extend(["--instructions", instructions])
+            if speed is not None:
+                command.extend(["--speed", f"{speed:.3f}"])
             subprocess.run(command, check=True, capture_output=True, text=True)
             if not output.is_file() or output.stat().st_size == 0:
                 raise RuntimeError("NOVEL_TTS_COMMAND did not create a non-empty output")
@@ -292,7 +410,7 @@ class PhanRouterMediaProvider(MediaProvider):
                 "voice": voice or self.settings.tts_voice,
                 "input": text,
                 "response_format": "wav",
-                "speed": 1.12,
+                "speed": speed or 1.12,
                 **({"instructions": instructions} if instructions else {}),
             },
         )

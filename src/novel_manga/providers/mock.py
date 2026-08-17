@@ -50,6 +50,7 @@ class MockMediaProvider(MediaProvider):
         output: Path,
         duration: float,
         reference_audio: Path | None = None,
+        additional_images: tuple[Path, ...] = (),
     ) -> Path:
         output.parent.mkdir(parents=True, exist_ok=True)
         frames = max(1, round(duration * self.settings.fps))
@@ -73,6 +74,7 @@ class MockMediaProvider(MediaProvider):
         *,
         voice: str | None = None,
         instructions: str | None = None,
+        speed: float | None = None,
     ) -> Path:
         output.parent.mkdir(parents=True, exist_ok=True)
         try:

@@ -21,12 +21,21 @@ def test_export_planning_bundle_uses_no_media_provider(tmp_path: Path) -> None:
 
     manifest_path = Path(result["manifest"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["contract"] == "novel-manga-planning/v2"
+    assert manifest["contract"] == "novel-manga-planning/v3"
     assert manifest["episode_count"] == 1
     assert manifest["planner"]["backend"] == "deterministic"
     assert manifest["planner"]["credentials_persisted"] is False
     assert (manifest_path.parent / manifest["story_bible"]).is_file()
     assert (manifest_path.parent / manifest["episodes"][0]["plan"]).is_file()
+    assert (manifest_path.parent / manifest["episodes"][0]["diagnosis"]).is_file()
+    assert (manifest_path.parent / manifest["episodes"][0]["script_quality"]).is_file()
+    assert (manifest_path.parent / manifest["episodes"][0]["updated_series_state"]).is_file()
+    quality = json.loads(
+        (manifest_path.parent / manifest["episodes"][0]["script_quality"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert quality["passed"] is True
 
 
 def test_openai_planner_requires_endpoint_and_key() -> None:

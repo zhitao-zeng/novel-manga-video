@@ -6,10 +6,21 @@ import shutil
 import time
 from pathlib import Path
 
-from .admission import ADMISSION_POLICY_REVISION, admission_backend_identity
+from .admission import (
+    ADMISSION_POLICY_REVISION,
+    admission_backend_identity,
+)
 from .config import Settings
 from .ingest import read_novel
-from .models import EpisodePlan, EpisodeStatus, StoryBible, SubmissionManifest, VideoRecord
+from .models import (
+    EpisodePlanningBundle,
+    EpisodePlan,
+    EpisodeStatus,
+    SeriesState,
+    StoryBible,
+    SubmissionManifest,
+    VideoRecord,
+)
 from .production import SeriesAssetFactory
 from .production_models import SeriesAssetManifest
 from .production_runtime import EpisodeProductionRuntime
@@ -68,7 +79,7 @@ class NovelPipeline:
             ),
             "llm_model": self.settings.llm_model,
             "planner_max_revisions": self.settings.planner_max_revisions,
-            "planning_policy_revision": "novel-manga-plan-v2-bounded-repair",
+            "planning_policy_revision": "novel-manga-plan-v3-script-quality",
         }
 
     @staticmethod
@@ -102,36 +113,85 @@ class NovelPipeline:
                 return bible
             self._archive_stale(path, str(saved.get("request_sha256", "unknown")))
             self._archive_stale(meta, str(saved.get("request_sha256", "unknown")))
+        self.providers.media.enter_stage("planner")
         bible = self.providers.planner.build_bible(novel)
         atomic_write_json(path, bible.model_dump(mode="json"))
         atomic_write_json(meta, {**identity_payload, "request_sha256": identity, "artifact_sha256": self._file_digest(path), "origin": "generated"})
         return bible
 
-    def _load_or_build_plan(self, novel, episode, bible: StoryBible, path: Path) -> EpisodePlan:
+    def _load_or_build_plan(
+        self,
+        novel,
+        episode,
+        bible: StoryBible,
+        episode_dir: Path,
+        previous_state: SeriesState | None,
+    ) -> EpisodePlanningBundle:
+        path = episode_dir / "episode_plan.json"
+        diagnosis_path = episode_dir / "chapter_diagnosis.json"
+        quality_path = episode_dir / "script_quality_report.json"
+        state_path = episode_dir / "updated_series_state.json"
         meta = path.with_suffix(path.suffix + ".request.json")
         identity_payload = {
             **self._planner_identity(),
             "episode_index": episode.index,
             "source_sha256": hashlib.sha256(episode.source_text.encode("utf-8")).hexdigest(),
             "style_fingerprint": bible.style_fingerprint,
+            "previous_state_sha256": self._digest(
+                previous_state.model_dump(mode="json") if previous_state else {}
+            ),
         }
         identity = self._digest(identity_payload)
-        if path.exists():
-            plan = EpisodePlan.model_validate_json(path.read_text(encoding="utf-8"))
+        companions = (diagnosis_path, quality_path, state_path)
+        if path.exists() and all(item.exists() for item in companions):
+            bundle = EpisodePlanningBundle(
+                diagnosis=json.loads(diagnosis_path.read_text(encoding="utf-8")),
+                plan=json.loads(path.read_text(encoding="utf-8")),
+                quality_report=json.loads(quality_path.read_text(encoding="utf-8")),
+                updated_series_state=json.loads(state_path.read_text(encoding="utf-8")),
+            )
             if not meta.exists():
-                atomic_write_json(meta, {**identity_payload, "request_sha256": identity, "artifact_sha256": self._file_digest(path), "origin": "preexisting-unversioned"})
-                return plan
+                raise ValueError(
+                    f"audited episode plan is missing request provenance: {meta}"
+                )
             saved = json.loads(meta.read_text(encoding="utf-8"))
             if saved.get("request_sha256") == identity:
-                if saved.get("artifact_sha256") != self._file_digest(path):
-                    atomic_write_json(meta, {**identity_payload, "request_sha256": identity, "artifact_sha256": self._file_digest(path), "origin": "manual-override"})
-                return plan
+                if not bundle.quality_report.passed:
+                    raise ValueError("cached episode plan failed the script quality gate")
+                return bundle
             self._archive_stale(path, str(saved.get("request_sha256", "unknown")))
             self._archive_stale(meta, str(saved.get("request_sha256", "unknown")))
-        plan = self.providers.planner.plan_episode(novel, episode, bible)
-        atomic_write_json(path, plan.model_dump(mode="json"))
-        atomic_write_json(meta, {**identity_payload, "request_sha256": identity, "artifact_sha256": self._file_digest(path), "origin": "generated"})
-        return plan
+            for companion in companions:
+                self._archive_stale(companion, str(saved.get("request_sha256", "unknown")))
+        elif path.exists() or any(item.exists() for item in companions):
+            stale_identity = "incomplete-v3-bundle"
+            for artifact in (path, meta, *companions):
+                self._archive_stale(artifact, stale_identity)
+        self.providers.media.enter_stage("planner")
+        bundle = self.providers.planner.plan_episode_bundle(
+            novel, episode, bible, previous_state
+        )
+        if not bundle.quality_report.passed:
+            raise ValueError("script quality gate failed before media production")
+        atomic_write_json(diagnosis_path, bundle.diagnosis.model_dump(mode="json"))
+        atomic_write_json(path, bundle.plan.model_dump(mode="json"))
+        atomic_write_json(quality_path, bundle.quality_report.model_dump(mode="json"))
+        atomic_write_json(
+            state_path, bundle.updated_series_state.model_dump(mode="json")
+        )
+        atomic_write_json(
+            meta,
+            {
+                **identity_payload,
+                "request_sha256": identity,
+                "artifact_sha256": self._file_digest(path),
+                "diagnosis_sha256": self._file_digest(diagnosis_path),
+                "quality_report_sha256": self._file_digest(quality_path),
+                "series_state_sha256": self._file_digest(state_path),
+                "origin": "generated-v3-audited",
+            },
+        )
+        return bundle
 
     def generate(self, source: str | Path, novel_id: str, title: str | None = None) -> SubmissionManifest:
         started = time.monotonic()
@@ -141,15 +201,6 @@ class NovelPipeline:
         novel_dir.mkdir(parents=True, exist_ok=True)
 
         bible = self._load_or_build_bible(novel, novel_dir)
-        series_assets_path = novel_dir / "series_assets" / "manifest.json"
-        if series_assets_path.exists():
-            cached_assets = SeriesAssetManifest.model_validate_json(
-                series_assets_path.read_text(encoding="utf-8")
-            )
-            if cached_assets.style_fingerprint != bible.style_fingerprint:
-                self._archive_stale(series_assets_path, cached_assets.style_fingerprint)
-        series_assets = self.asset_factory.build(novel_dir / "series_assets", bible)
-
         records = [
             VideoRecord(
                 video_id=f"{novel.novel_id}_{episode.index}",
@@ -170,6 +221,13 @@ class NovelPipeline:
         )
         self._write_manifest(novel_dir, manifest)
 
+        # Plan every chapter while the planner owns the single GPU.  The old
+        # per-episode loop repeatedly switched planner -> image -> audio ->
+        # video -> planner and made the offline backend needlessly reload a
+        # 27B model.  Hosted providers see the same ordering through a no-op
+        # stage hook, so both deployment modes retain one controller path.
+        previous_state: SeriesState | None = None
+        planned_episodes: dict[int, EpisodePlan] = {}
         for episode, record in zip(novel.episodes, records, strict=True):
             episode_dir = novel_dir / record.video_id
             episode_dir.mkdir(parents=True, exist_ok=True)
@@ -186,6 +244,7 @@ class NovelPipeline:
                     "subtitle_burn_in",
                     "speech_content",
                 }
+                state_path = episode_dir / "updated_series_state.json"
                 if (
                     prior_qc.get("schema_version") == 2
                     and prior_qc.get("policy_revision") == ADMISSION_POLICY_REVISION
@@ -197,9 +256,19 @@ class NovelPipeline:
                     and prior_qc.get("style_fingerprint") == bible.style_fingerprint
                     and prior_qc.get("backend_identity") == admission_backend_identity(self.settings)
                     and required_checks <= set(prior_qc.get("checks", {}))
+                    and state_path.is_file()
                 ):
                     record.status = EpisodeStatus.SUCCEEDED
                     record.error = None
+                    previous_state = SeriesState.model_validate_json(
+                        state_path.read_text(encoding="utf-8")
+                    )
+                    plan_path = episode_dir / "episode_plan.json"
+                    if plan_path.is_file():
+                        cached_plan = EpisodePlan.model_validate_json(
+                            plan_path.read_text(encoding="utf-8")
+                        )
+                        record.video_title = cached_plan.video_title
                     continue
 
             findings = scan_source(episode.source_text)
@@ -217,10 +286,65 @@ class NovelPipeline:
             record.status = EpisodeStatus.RUNNING
             self._write_manifest(novel_dir, manifest)
             try:
-                plan = self._load_or_build_plan(
-                    novel, episode, bible, episode_dir / "episode_plan.json"
+                planning = self._load_or_build_plan(
+                    novel, episode, bible, episode_dir, previous_state
+                )
+                plan = planning.plan
+                previous_state = planning.updated_series_state
+                atomic_write_json(
+                    novel_dir / "series_state.json",
+                    previous_state.model_dump(mode="json"),
                 )
                 record.video_title = plan.video_title
+                planned_episodes[episode.index] = plan
+            except Exception as error:
+                record.status = EpisodeStatus.FAILED
+                record.error = f"{type(error).__name__}: {error}"[:1000]
+            finally:
+                self._write_manifest(novel_dir, manifest)
+
+        series_assets: SeriesAssetManifest | None = None
+        if planned_episodes:
+            series_assets_path = novel_dir / "series_assets" / "manifest.json"
+            if series_assets_path.exists():
+                cached_assets = SeriesAssetManifest.model_validate_json(
+                    series_assets_path.read_text(encoding="utf-8")
+                )
+                if cached_assets.style_fingerprint != bible.style_fingerprint:
+                    self._archive_stale(
+                        series_assets_path, cached_assets.style_fingerprint
+                    )
+            try:
+                series_assets = self.asset_factory.build(
+                    novel_dir / "series_assets", bible
+                )
+            except Exception as error:
+                for episode, record in zip(novel.episodes, records, strict=True):
+                    if episode.index in planned_episodes:
+                        record.status = EpisodeStatus.FAILED
+                        record.error = (
+                            f"series asset generation failed: "
+                            f"{type(error).__name__}: {error}"
+                        )[:1000]
+                self._write_manifest(novel_dir, manifest)
+                planned_episodes.clear()
+
+        # The media pass consumes only audited plans.  API and offline modes
+        # differ solely in the provider adapter used by the shared runtime.
+        for episode, record in zip(novel.episodes, records, strict=True):
+            plan = planned_episodes.get(episode.index)
+            if plan is None:
+                continue
+            if series_assets is None:
+                raise RuntimeError("planned episodes exist without series assets")
+            episode_dir = novel_dir / record.video_id
+            final_video = episode_dir / f"{record.video_id}.mp4"
+            cover = episode_dir / f"{record.video_id}_cover.jpeg"
+            ending = episode_dir / f"{record.video_id}_ending.jpeg"
+            record.status = EpisodeStatus.RUNNING
+            record.error = None
+            self._write_manifest(novel_dir, manifest)
+            try:
                 qc = self.episode_runtime.run(
                     novel_dir=novel_dir,
                     episode_dir=episode_dir,

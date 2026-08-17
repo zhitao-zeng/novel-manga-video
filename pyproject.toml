@@ -4,16 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "novel-manga-video"
-version = "0.4.0"
+version = "0.12.0"
 description = "Novel document to consistent vertical manga-drama videos"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "fastapi>=0.116,<1",
   "httpx>=0.27,<1",
   "Pillow>=10,<13",
   "pydantic>=2.8,<3",
   "pypdf>=5,<7",
   "python-docx>=1.1,<2",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn>=0.35,<1",
 ]
 
 [project.optional-dependencies]

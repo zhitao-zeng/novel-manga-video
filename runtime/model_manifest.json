@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "optional_models": [
+    "tts-qwen"
+  ],
+  "models": {
+    "planner": "/models/qwen3.5-27b-awq",
+    "image-base": "/models/z-image-turbo",
+    "image-edit": "/models/qwen-image-edit-2511",
+    "video": "/models/minimax-h3",
+    "tts": "/models/voxcpm2",
+    "tts-qwen": "/models/qwen3-tts-customvoice",
+    "asr": "/models/qwen3-asr",
+    "aligner": "/models/qwen3-forced-aligner-0.6b"
+  },
+  "runtime_sources": {
+    "comfyui": {
+      "revision": "6f7cd7fceaaf60d2669b554936394a7412c6fde5",
+      "license": "GPL-3.0",
+      "patch": "headless-template-gallery-warning"
+    },
+    "minimax_h3_audio_drive": {
+      "license": "AGPL-3.0",
+      "source": "/app/runtime/comfyui_custom_nodes/novel_manga_h3_audio_drive"
+    }
+  }
+}

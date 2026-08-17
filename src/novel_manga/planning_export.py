@@ -6,11 +6,18 @@ from pathlib import Path
 
 from .config import Settings
 from .ingest import read_novel
-from .models import EpisodePlan, StoryBible
+from .models import (
+    ChapterDiagnosis,
+    EpisodePlan,
+    ScriptQualityReport,
+    SeriesState,
+    StoryBible,
+)
 from .planner import OpenAICompatiblePlanner
 from .production import compile_production_plan
 from .production_models import AssetRecord, SeriesAssetManifest
 from .providers import build_planner
+from .script_planning import evaluate_script_quality, validate_series_state
 from .util import atomic_write_json
 
 
@@ -41,10 +48,19 @@ def export_planning_bundle(
     atomic_write_json(bible_path, bible.model_dump(mode="json"))
 
     episode_rows = []
+    previous_state: SeriesState | None = None
     for episode in novel.episodes:
-        plan = planner.plan_episode(novel, episode, bible)
+        bundle = planner.plan_episode_bundle(novel, episode, bible, previous_state)
+        plan = bundle.plan
+        previous_state = bundle.updated_series_state
         plan_path = root / f"episode_{episode.index:03d}_plan.json"
+        diagnosis_path = root / f"episode_{episode.index:03d}_diagnosis.json"
+        quality_path = root / f"episode_{episode.index:03d}_script_quality.json"
+        state_path = root / f"episode_{episode.index:03d}_series_state.json"
         atomic_write_json(plan_path, plan.model_dump(mode="json"))
+        atomic_write_json(diagnosis_path, bundle.diagnosis.model_dump(mode="json"))
+        atomic_write_json(quality_path, bundle.quality_report.model_dump(mode="json"))
+        atomic_write_json(state_path, previous_state.model_dump(mode="json"))
         episode_rows.append(
             {
                 "index": episode.index,
@@ -53,13 +69,19 @@ def export_planning_bundle(
                 "source_text_sha256": _sha256_text(episode.source_text),
                 "plan": plan_path.name,
                 "plan_sha256": _sha256_file(plan_path),
+                "diagnosis": diagnosis_path.name,
+                "diagnosis_sha256": _sha256_file(diagnosis_path),
+                "script_quality": quality_path.name,
+                "script_quality_sha256": _sha256_file(quality_path),
+                "updated_series_state": state_path.name,
+                "updated_series_state_sha256": _sha256_file(state_path),
                 "shot_count": len(plan.shots),
                 "turn_count": sum(len(shot.turns) for shot in plan.shots),
             }
         )
 
     manifest = {
-        "contract": "novel-manga-planning/v2",
+        "contract": "novel-manga-planning/v3",
         "novel_id": novel.novel_id,
         "novel_title": novel.title,
         "chaptered": novel.chaptered,
@@ -80,6 +102,11 @@ def export_planning_bundle(
         "story_bible_sha256": _sha256_file(bible_path),
         "episodes": episode_rows,
     }
+    if previous_state is not None:
+        latest_state = root / "series_state.json"
+        atomic_write_json(latest_state, previous_state.model_dump(mode="json"))
+        manifest["series_state"] = latest_state.name
+        manifest["series_state_sha256"] = _sha256_file(latest_state)
     manifest_path = root / "planning_manifest.json"
     atomic_write_json(manifest_path, manifest)
     return {**manifest, "output_directory": str(root), "manifest": str(manifest_path)}
@@ -187,12 +214,38 @@ def compile_planning_bundle(
 
     assets = _planned_assets(bible)
     results = []
+    previous_state: SeriesState | None = None
     for episode, row in zip(novel.episodes, manifest["episodes"], strict=True):
         if row["source_text_sha256"] != _sha256_text(episode.source_text):
             raise ValueError(f"episode {episode.index} source hash does not match planning bundle")
         plan = EpisodePlan.model_validate_json(
             (root / row["plan"]).read_text(encoding="utf-8")
         )
+        diagnosis = ChapterDiagnosis.model_validate_json(
+            (root / row["diagnosis"]).read_text(encoding="utf-8")
+        )
+        stored_quality = ScriptQualityReport.model_validate_json(
+            (root / row["script_quality"]).read_text(encoding="utf-8")
+        )
+        quality = evaluate_script_quality(
+            plan,
+            diagnosis,
+            episode,
+            qualitative=stored_quality,
+            previous_state=previous_state,
+        )
+        if not quality.passed:
+            raise ValueError(
+                f"episode {episode.index} failed script quality gate before compilation"
+            )
+        state = validate_series_state(
+            SeriesState.model_validate_json(
+                (root / row["updated_series_state"]).read_text(encoding="utf-8")
+            ),
+            episode,
+            previous_state,
+        )
+        previous_state = state
         production = compile_production_plan(
             f"{novel.novel_id}_{episode.index}", episode, plan, bible, assets
         )

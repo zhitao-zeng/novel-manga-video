@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from .config import Settings
-from .sd_dialogue import timed_subtitle_pages
+from .sd_dialogue import PUNCTUATION, timed_subtitle_pages
 from .util import media_duration
 
 
@@ -74,6 +74,21 @@ def measured_speech_bounds(audio: Path) -> tuple[float, float]:
     return round(start, 6), round(end, 6)
 
 
+def merge_punctuation_only_events(events: list[dict]) -> list[dict]:
+    """Attach aligner-created punctuation pages to the preceding subtitle."""
+    repaired: list[dict] = []
+    for source in events:
+        event = dict(source)
+        text = str(event.get("text", ""))
+        visible = text.replace(r"\N", "")
+        if repaired and visible and all(char in PUNCTUATION for char in visible):
+            repaired[-1]["text"] = str(repaired[-1]["text"]) + visible
+            repaired[-1]["end"] = event["end"]
+            continue
+        repaired.append(event)
+    return repaired
+
+
 class RuntimeEvidenceBackends:
     """Provider-neutral command adapters for subtitle alignment and ASR evidence."""
 
@@ -100,7 +115,7 @@ class RuntimeEvidenceBackends:
                 self.settings.align_command,
                 ["--unit-id", unit_id, "--audio", str(audio), "--text", text],
             )
-            events = result.get("events", [])
+            events = merge_punctuation_only_events(result.get("events", []))
             reconstructed = "".join(str(event.get("text", "")).replace(r"\N", "") for event in events)
             if normalize_text(reconstructed) != normalize_text(text):
                 raise ValueError(f"aligner changed locked text for {unit_id}")

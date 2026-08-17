@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import defaultdict
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from .av_quality import (
     STATUS_PASSED,
     ass_layout,
     evaluate_asr,
+    evaluate_delivered_audio_energy,
     evaluate_subtitle_burn_in,
 )
 from .config import Settings
@@ -16,7 +18,8 @@ from .production_models import ProductionPlan
 from .sd_dialogue import PUNCTUATION
 
 
-ADMISSION_POLICY_REVISION = "novel-manga-av-v1.5-no-lip-review"
+ADMISSION_POLICY_REVISION = "novel-manga-av-v1.6-long-shot-audio-energy"
+CAMERA_POLICY_REVISION = "motivated-camera-v1"
 
 
 def admission_backend_identity(settings: Settings) -> dict:
@@ -26,6 +29,18 @@ def admission_backend_identity(settings: Settings) -> dict:
     return {
         "align_command_sha256": digest(settings.align_command),
         "asr_command_sha256": digest(settings.asr_command),
+        "video_model": settings.video_model,
+        "video_command_sha256": digest(settings.video_command),
+        "tts_model": settings.tts_model,
+        "tts_command_sha256": digest(settings.tts_command),
+        "voice_map_sha256": hashlib.sha256(
+            json.dumps(
+                settings.voice_map, ensure_ascii=False, sort_keys=True
+            ).encode("utf-8")
+        ).hexdigest(),
+        "reference_audio_workflow": "direct-no-lip-review-v1",
+        "camera_policy_revision": CAMERA_POLICY_REVISION,
+        "render_policy_revision": "transparent-outline-subs-story-art-endpoints-v2",
     }
 
 
@@ -105,11 +120,13 @@ def evaluate_episode_admission(
         aggregate_cer_max=settings.max_asr_cer,
         turn_cer_max=settings.max_turn_cer,
     )
+    audio_energy = evaluate_delivered_audio_energy(asr_report)
     checks = {
         "media_qc": {"status": STATUS_PASSED if media_qc.get("passed") else STATUS_FAILED, "report": media_qc},
         "subtitle_structure": subtitle,
         "subtitle_burn_in": burn_in,
         "speech_content": speech,
+        "delivered_audio_energy": audio_energy,
     }
     evidence_passed = all(check["status"] == STATUS_PASSED for check in checks.values())
     submission_eligible = settings.admission_mode == "production" and settings.provider != "mock"

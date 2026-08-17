@@ -16,8 +16,37 @@ import httpx
 from pydantic import ValidationError
 
 from .config import Settings
-from .models import Character, Episode, EpisodePlan, NovelDocument, ScriptTurn, Shot, StoryBible
+from .models import (
+    CameraBeat,
+    CameraPlan,
+    Character,
+    ChapterDiagnosis,
+    Episode,
+    EpisodePlanningBundle,
+    EpisodePlan,
+    MotionBeat,
+    NovelDocument,
+    PerformancePlan,
+    ScriptTurn,
+    ScriptQualityReport,
+    ScriptExpansion,
+    SeriesState,
+    Shot,
+    StoryBible,
+)
 from .safety import safe_visual_prompt
+from .script_planning import (
+    bind_deterministic_events,
+    deterministic_chapter_diagnosis,
+    deterministic_series_state,
+    evaluate_script_quality,
+    normalize_chronological_plan,
+    script_policy,
+    source_evidence_units,
+    validate_chapter_diagnosis,
+    validate_series_state,
+)
+from .util import atomic_write_json
 
 
 STYLE = (
@@ -25,7 +54,43 @@ STYLE = (
     "人物五官稳定，服饰连续，竖屏中近景构图，禁止真人照片、3D和欧美卡通混入"
 )
 
+DIAGNOSIS_TOKEN_BUDGET = 6000
+SCRIPT_TOKEN_BUDGET = 14000
+REVIEW_TOKEN_BUDGET = 4000
+SERIES_STATE_TOKEN_BUDGET = 5000
+SCRIPT_EXPANSION_TOKEN_BUDGET = 6000
+
 ValidatedT = TypeVar("ValidatedT")
+
+
+def _loads_json_object(value: str) -> dict:
+    """Parse model JSON with bounded repairs for punctuation-only defects."""
+
+    match = re.search(r"\{.*\}", value, re.S)
+    if not match:
+        raise ValueError("LLM did not return a JSON object")
+    candidate = match.group(0)
+    for _ in range(12):
+        try:
+            data = json.loads(candidate)
+            if not isinstance(data, dict):
+                raise ValueError("LLM JSON root must be an object")
+            return data
+        except json.JSONDecodeError as error:
+            if error.msg == "Expecting ',' delimiter":
+                previous = candidate[: error.pos].rstrip()
+                following = candidate[error.pos :].lstrip()
+                if previous and following and previous[-1] in '}\"]0123456789e' and following[0] in '{[\"':
+                    candidate = candidate[: error.pos] + "," + candidate[error.pos :]
+                    continue
+            if error.msg == "Expecting property name enclosed in double quotes":
+                previous = candidate[: error.pos].rstrip()
+                if previous.endswith(","):
+                    comma = candidate.rfind(",", 0, error.pos)
+                    candidate = candidate[:comma] + candidate[comma + 1 :]
+                    continue
+            raise
+    raise ValueError("LLM JSON exceeded the bounded punctuation repair budget")
 
 
 def _validation_feedback(error: ValueError) -> list[dict[str, object]]:
@@ -188,6 +253,33 @@ class Planner(ABC):
     @abstractmethod
     def plan_episode(self, novel: NovelDocument, episode: Episode, bible: StoryBible) -> EpisodePlan: ...
 
+    def plan_episode_bundle(
+        self,
+        novel: NovelDocument,
+        episode: Episode,
+        bible: StoryBible,
+        previous_state: SeriesState | None = None,
+    ) -> EpisodePlanningBundle:
+        """Backward-compatible audited wrapper for deterministic/command planners."""
+
+        diagnosis = deterministic_chapter_diagnosis(episode)
+        plan = bind_deterministic_events(self.plan_episode(novel, episode, bible), diagnosis)
+        report = evaluate_script_quality(
+            plan, diagnosis, episode, previous_state=previous_state
+        )
+        if not report.passed:
+            raise ValueError(
+                "script quality gate failed: "
+                + json.dumps(report.model_dump(mode="json"), ensure_ascii=False)
+            )
+        state = deterministic_series_state(episode, diagnosis, previous_state)
+        return EpisodePlanningBundle(
+            diagnosis=diagnosis,
+            plan=plan,
+            quality_report=report,
+            updated_series_state=state,
+        )
+
 
 class DeterministicPlanner(Planner):
     def build_bible(self, novel: NovelDocument) -> StoryBible:
@@ -262,16 +354,67 @@ class DeterministicPlanner(Planner):
                 f"{bible.visual_style}。{bible.palette}。剧情：{sentence}。"
                 f"角色设定：{'；'.join(c.name + c.appearance + c.wardrobe for c in bible.characters[:3])}"
             )
+            turns = _script_turns(sentence, [character.name for character in bible.characters])
+            has_dialogue = any(turn.speaking for turn in turns)
+            performance_plan = PerformancePlan(
+                objective=f"用连续动作讲清“{sentence[:60]}”，不是动态照片",
+                start_state="人物处于事件开始前一瞬，视线、手部和身体重心仍有动作空间",
+                motion_beats=[
+                    MotionBeat(
+                        phase="opening",
+                        trigger="事件或台词开始",
+                        action="眼睛先移动，头部随后转向目标，肩膀和上身稍后跟随",
+                        reaction="身体重心随观察或说话方向发生变化",
+                    ),
+                    MotionBeat(
+                        phase="development",
+                        trigger="人物确认当前事件",
+                        action=f"完成与剧情直接相关的动作：{sentence[:100]}",
+                        reaction="手部动作带动身体响应，道具、头发和衣物体现惯性",
+                    ),
+                    MotionBeat(
+                        phase="resolution",
+                        trigger="本镜信息表达完成",
+                        action="动作减速并停在能承接下一镜的位置",
+                        reaction="呼吸和次级运动自然收束",
+                    ),
+                ],
+                end_state="人物完成本镜动作，事件结果和最终表情清楚可读",
+            )
+            camera_plan = CameraPlan(
+                mode="locked",
+                motivation="默认由人物表演承担画面动态，稳定人物和场景空间关系",
+                action_axis=f"{location}首次建立的人物视线或运动轴同侧",
+                screen_direction="保持人物左右位置、视线和运动方向连续",
+                start_position="竖屏中近景，画面包含前景、中景和远景层次",
+                camera_beats=[
+                    CameraBeat(
+                        phase="opening",
+                        trajectory="锁定机位，摄影机全程保持静止",
+                        framing="通过人物视线、手势、姿态和画内走位保持动态",
+                        parallax=f"不制造摄影机视差，{location}前中远景保持固定",
+                    ),
+                    CameraBeat(
+                        phase="resolution",
+                        trajectory="继续锁定机位，让动作结果和表情停留一拍",
+                        framing="不推拉、不横移、不环绕，读清动作结果",
+                        parallax="背景结构和人物屏幕位置保持稳定",
+                    ),
+                ],
+                end_position="与起始位置相同的稳定机位",
+            )
             shots.append(Shot(
                 index=index,
                 narration=narration,
                 subtitle=narration,
                 visual_prompt=visual,
-                motion_prompt="轻微推镜，人物自然眨眼与细微表情变化，保持脸部和服装稳定",
+                motion_prompt="固定机位，人物通过视线、手势和身体重心完成有因果的表演，保持脸部和服装稳定",
                 characters=character_names,
                 location=location,
                 source_quote=source_quote,
-                turns=_script_turns(sentence, [character.name for character in bible.characters]),
+                turns=turns,
+                performance_plan=performance_plan,
+                camera_plan=camera_plan,
             ))
         title_hint = episode.source_title if episode.source_title else shots[0].subtitle[:12]
         return EpisodePlan(
@@ -287,7 +430,14 @@ class OpenAICompatiblePlanner(Planner):
         self.settings = settings
         self.client = httpx.Client(timeout=settings.request_timeout)
 
-    def _json(self, system: str, user: str, repair: dict | None = None) -> dict:
+    def _json(
+        self,
+        system: str,
+        user: str,
+        repair: dict | None = None,
+        *,
+        token_budget: int | None = None,
+    ) -> dict:
         base = str(self.settings.llm_base_url).rstrip("/")
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         if repair:
@@ -304,22 +454,28 @@ class OpenAICompatiblePlanner(Planner):
                     + json.dumps(repair["validation_errors"], ensure_ascii=False)
                 ),
             })
+        payload = {
+            "model": self.settings.llm_model,
+            "temperature": 0.2,
+            "max_tokens": min(
+                self.settings.llm_max_tokens,
+                token_budget or self.settings.llm_max_tokens,
+            ),
+            "response_format": {"type": "json_object"},
+            "messages": messages,
+        }
+        if self.settings.llm_disable_thinking:
+            # vLLM/Qwen accepts this OpenAI-compatible extension.  Keep it
+            # opt-in so hosted OpenAI-compatible providers are unaffected.
+            payload["chat_template_kwargs"] = {"enable_thinking": False}
         response = self.client.post(
             f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
-            json={
-                "model": self.settings.llm_model,
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-                "messages": messages,
-            },
+            json=payload,
         )
         response.raise_for_status()
         content = response.json()["choices"][0]["message"]["content"]
-        match = re.search(r"\{.*\}", content, re.S)
-        if not match:
-            raise ValueError("LLM did not return a JSON object")
-        return json.loads(match.group(0))
+        return _loads_json_object(content)
 
     def build_bible(self, novel: NovelDocument) -> StoryBible:
         schema = StoryBible.model_json_schema()
@@ -335,7 +491,9 @@ class OpenAICompatiblePlanner(Planner):
         return _bounded_validate(
             "build_bible",
             self.settings.planner_max_revisions,
-            lambda repair: self._json(system, user, repair),
+            lambda repair: self._json(
+                system, user, repair, token_budget=DIAGNOSIS_TOKEN_BUDGET
+            ),
             lambda data: _validate_story_bible(data, novel),
         )
 
@@ -365,6 +523,56 @@ class OpenAICompatiblePlanner(Planner):
                 matches.append(canonical)
         return matches[0] if len(matches) == 1 else name
 
+    @staticmethod
+    def _is_anonymous_crowd(name: str) -> bool:
+        return bool(
+            re.fullmatch(
+                r"(?:路人|族人|人群|围观者|旁人|少年|少女|弟子|群众)[甲乙丙丁戊己庚辛壬癸一二三四五六七八九十\d]*",
+                re.sub(r"\s+", "", name),
+            )
+        )
+
+    @staticmethod
+    def _location_key(name: str) -> str:
+        value = re.sub(r"\s+", "", name)
+        value = re.sub(r"[江河溪湖海]", "水", value)
+        return re.sub(r"[的之]", "", value)
+
+    @classmethod
+    def _canonical_location_name(cls, name: str, canonical_names: list[str]) -> str:
+        if not name or name in canonical_names:
+            return name
+        key = cls._location_key(name)
+        matches = [
+            canonical
+            for canonical in canonical_names
+            if key in cls._location_key(canonical)
+            or cls._location_key(canonical) in key
+        ]
+        return matches[0] if len(matches) == 1 else name
+
+    @staticmethod
+    def _dialogue_source_span(text: str, source: str) -> str | None:
+        """Find one contiguous source span containing ordered quoted speech.
+
+        Novel dialogue is often interrupted by tags such as “他说道”.  A TTS
+        turn may join those adjacent quotes while its evidence span keeps the
+        intervening prose, preserving an exact source trace.
+        """
+
+        target = re.sub(r"\s+", "", text)
+        quoted = list(re.finditer(r"[“\"]([^”\"]+)[”\"]", source))
+        for start in range(len(quoted)):
+            joined = ""
+            for end in range(start, min(start + 3, len(quoted))):
+                joined += re.sub(r"\s+", "", quoted[end].group(1))
+                if joined == target:
+                    span = source[quoted[start].start() : quoted[end].end()]
+                    return span if len(span) <= 500 else None
+                if len(joined) > len(target):
+                    break
+        return None
+
     def _canonicalize_characters(self, plan: EpisodePlan, bible: StoryBible) -> EpisodePlan:
         canonical_names = [character.name for character in bible.characters]
         shots = []
@@ -373,14 +581,36 @@ class OpenAICompatiblePlanner(Planner):
             for turn in shot.turns:
                 if turn.speaking:
                     speaker = self._canonical_character_name(turn.speaker_name, canonical_names)
-                    turns.append(turn.model_copy(update={"speaker_name": speaker, "role": speaker}))
+                    if speaker not in canonical_names and self._is_anonymous_crowd(speaker):
+                        turns.append(
+                            turn.model_copy(
+                                update={
+                                    "speaker_name": "旁白",
+                                    "role": "narrator",
+                                    "speaking": False,
+                                    "emotion": f"画外群声·{turn.emotion}",
+                                }
+                            )
+                        )
+                    else:
+                        turns.append(
+                            turn.model_copy(update={"speaker_name": speaker, "role": speaker})
+                        )
                 else:
                     turns.append(turn)
-            characters = [
-                self._canonical_character_name(character, canonical_names)
-                for character in shot.characters
-            ]
-            shots.append(shot.model_copy(update={"characters": characters, "turns": turns}))
+            characters = []
+            for character in shot.characters:
+                canonical = self._canonical_character_name(character, canonical_names)
+                if canonical not in canonical_names and self._is_anonymous_crowd(canonical):
+                    continue
+                if canonical not in characters:
+                    characters.append(canonical)
+            location = self._canonical_location_name(shot.location, bible.locations)
+            shots.append(
+                shot.model_copy(
+                    update={"characters": characters, "turns": turns, "location": location}
+                )
+            )
         return plan.model_copy(update={"shots": shots})
 
     def _ground_quotes(self, plan: EpisodePlan, source: str, bible: StoryBible) -> EpisodePlan:
@@ -399,11 +629,30 @@ class OpenAICompatiblePlanner(Planner):
             grounded_turns = []
             for turn in shot.turns:
                 turn_quote = re.sub(r"\s+", "", turn.source_quote)
-                grounded_turns.append(turn.model_copy(update={
-                    "source_quote": turn.source_quote
+                turn_source_quote = (
+                    turn.source_quote
                     if turn_quote and turn_quote in normalized_source
-                    else quote,
-                }))
+                    else quote
+                )
+                if turn.speaking and re.sub(r"\s+", "", turn.text) not in re.sub(
+                    r"\s+", "", turn_source_quote
+                ):
+                    dialogue_span = self._dialogue_source_span(turn.text, source)
+                    if dialogue_span is not None:
+                        turn_source_quote = dialogue_span
+                    else:
+                        # Never present an adaptation line as verbatim character
+                        # dialogue. It remains usable as grounded narration.
+                        turn = turn.model_copy(
+                            update={
+                                "role": "narrator",
+                                "speaker_name": "旁白",
+                                "speaking": False,
+                            }
+                        )
+                grounded_turns.append(
+                    turn.model_copy(update={"source_quote": turn_source_quote})
+                )
             grounded.append(shot.model_copy(update={
                 "source_quote": quote,
                 "visual_prompt": safe_visual_prompt(shot.visual_prompt),
@@ -417,7 +666,11 @@ class OpenAICompatiblePlanner(Planner):
         episode: Episode,
         bible: StoryBible,
     ) -> EpisodePlan:
-        plan = self._canonicalize_characters(EpisodePlan.model_validate(data), bible)
+        plan = self._ground_quotes(
+            self._canonicalize_characters(EpisodePlan.model_validate(data), bible),
+            episode.source_text,
+            bible,
+        )
         normalized_source = re.sub(r"\s+", "", episode.source_text)
         canonical_names = {character.name for character in bible.characters}
         canonical_locations = set(bible.locations)
@@ -442,6 +695,19 @@ class OpenAICompatiblePlanner(Planner):
                     "message": "must use a StoryBible location",
                     "unknown": shot.location,
                 })
+            if shot.performance_plan is None:
+                issues.append({
+                    "field": f"shots.{shot.index}.performance_plan",
+                    "message": "is required and must describe causal action beats",
+                })
+            if shot.camera_plan is None:
+                issues.append({
+                    "field": f"shots.{shot.index}.camera_plan",
+                    "message": (
+                        "is required and must choose locked, motivated_subtle, or "
+                        "motivated_emphasis with a narrative motivation and stable action axis"
+                    ),
+                })
             for turn_index, turn in enumerate(shot.turns):
                 turn_quote = re.sub(r"\s+", "", turn.source_quote)
                 if not turn_quote or turn_quote not in normalized_source:
@@ -455,14 +721,18 @@ class OpenAICompatiblePlanner(Planner):
                         "message": "visible speaker must use a StoryBible character name",
                         "unknown": turn.speaker_name,
                     })
-                if turn.speaking and re.sub(r"\s+", "", turn.text) not in turn_quote:
+                if (
+                    turn.speaking
+                    and re.sub(r"\s+", "", turn.text) not in turn_quote
+                    and self._dialogue_source_span(turn.text, turn.source_quote) is None
+                ):
                     issues.append({
                         "field": f"shots.{shot.index}.turns.{turn_index}.text",
                         "message": "visible dialogue must occur verbatim inside source_quote",
                     })
         if issues:
             raise ValueError(json.dumps({"domain_errors": issues}, ensure_ascii=False))
-        return self._ground_quotes(plan, episode.source_text, bible)
+        return plan
 
     def plan_episode(self, novel: NovelDocument, episode: Episode, bible: StoryBible) -> EpisodePlan:
         schema = EpisodePlan.model_json_schema()
@@ -478,8 +748,17 @@ class OpenAICompatiblePlanner(Planner):
             f"前4秒片头后立即进入冲突或悬念。原文有效字数约{source_chars}，{size_guidance}；"
             "不得为凑镜头或字数重复情节、虚构事件或拆碎同一句话。"
             "每个镜头设置 turns：旁白 role=narrator、speaking=false；人物对白 role 和 speaker_name 均使用角色原名、"
-            "speaking=true，并逐字保留对白。一个 turn 只能有一个可见说话人；字幕严格等于 turn.text。"
-            "每个镜头总文本15-80个汉字，最多两行分页；"
+            "speaking=true、delivery_mode=visible_dialogue，并逐字保留对白；内心声或画外对白使用角色原名、"
+            "speaking=false，并分别设置delivery_mode=inner_voice或offscreen_dialogue。"
+            "一个turn是一口气可自然说完的完整语义句，通常12-36字，硬上限60字；"
+            "不得为了字幕长度拆碎句子。字幕在音频对齐后独立分页，每页最多两行且仍逐字来自turn.text。"
+            "一个连续镜头通常承载1-3个语义turn；短剧节奏来自信息、动作和情绪变化，不来自机械断句或增加切镜；"
+            "每个镜头必须填写 performance_plan：动作起点、1-4个有触发和反应的 motion_beats、动作终点；"
+            "必须填写camera_plan.mode、motivation、action_axis和screen_direction。默认mode=locked，"
+            "由人物表演承担动态；只有人物明确位移、信息揭示或情绪/权力转折才使用motivated_subtle，"
+            "章节高潮或关键反转才少量使用motivated_emphasis。每镜最多一条短轨迹，完成后停住；"
+            "同场对话始终在行动轴同侧，人物左右和视线方向不得无故交换。"
+            "参考图只锁人物身份、服装、环境和画风，不能锁静态姿势、构图或机位。"
             "覆盖本章开端、发展、高潮和结尾。source_quote 必须逐字摘自本章。画面健康克制，无色情、政治和血腥。"
             "严格输出 JSON。"
         )
@@ -493,6 +772,336 @@ class OpenAICompatiblePlanner(Planner):
             lambda repair: self._json(system, user, repair),
             lambda data: self._validate_episode_data(data, episode, bible),
         )
+
+    def _diagnose_episode(
+        self,
+        episode: Episode,
+        bible: StoryBible,
+        previous_state: SeriesState | None,
+    ) -> ChapterDiagnosis:
+        schema = ChapterDiagnosis.model_json_schema()
+        evidence_bank = "\n".join(
+            f"E{index:03d}\t{row}"
+            for index, row in enumerate(source_evidence_units(episode.source_text), 1)
+        )
+        system = (
+            "你是逐章漫剧改编的事实编辑。只分析当前章节，不得推测或使用后续章节。"
+            "把章节提炼为按原文顺序排列的关键事件表，关键事件必须覆盖开端、人物建立、"
+            "冲突发展、因果转折、高潮和章末结果。每个事件引用当前章的精确原文，"
+            "hook_source_quote和每个event.source_quote都必须从SOURCE_EVIDENCE中选择一整行逐字复制，"
+            "不得概括、缩写、拼接或修改标点；description才用于概括事件。"
+            "causes只能引用更早的事件。未知用途细节标为potential_foreshadowing，不得擅自删除。"
+            "previous_state只用于连续性，不得当作本集新增剧情。严格输出JSON。"
+        )
+        user = (
+            f"当前章节：{episode.source_title}\n当前章原文：{episode.source_text}\n"
+            f"SOURCE_EVIDENCE（source_quote只能逐字复制其中一整行）：\n{evidence_bank}\n"
+            f"系列设定：{bible.model_dump_json()}\n"
+            f"上一集状态：{previous_state.model_dump_json() if previous_state else '{}'}\n"
+            "事件数量按语义决定，通常12-30个；不要把每一句描写都机械列成事件。"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+        return _bounded_validate(
+            "diagnose_episode",
+            self.settings.planner_max_revisions,
+            lambda repair: self._json(
+                system, user, repair, token_budget=DIAGNOSIS_TOKEN_BUDGET
+            ),
+            lambda data: validate_chapter_diagnosis(
+                ChapterDiagnosis.model_validate(data), episode, bible
+            ),
+        )
+
+    def _review_episode(
+        self,
+        episode: Episode,
+        diagnosis: ChapterDiagnosis,
+        plan: EpisodePlan,
+        previous_state: SeriesState | None,
+    ) -> ScriptQualityReport:
+        schema = ScriptQualityReport.model_json_schema()
+        system = (
+            "你是独立的漫剧剧本审稿人，不负责美化分镜。检查剧本是否忠于当前章、"
+            "是否先铺垫再兑现、主要人物是否在承担冲突前完成身份和立场建立、"
+            "开头是否提前泄露章末答案、结尾是否停在当前章边界，以及是否使用后文剧情。"
+            "请站在从未读过原著的观众角度，确认能回答：主要人物是谁、人物关系是什么、"
+            "发生了什么、为什么发生、造成什么后果、人物为何这样反应。"
+            "每个turn应是一口气可自然说完、只承载一个核心事实、动作或反应的完整语义句；通常12-36字，"
+            "超过60字才因TTS与镜头时长风险判为blocking。不得为了两行字幕把一句话切碎。"
+            "长镜头可以连续承载多个语义turn，不能因拆台词而要求增加切镜。"
+            "只要存在缺失关键因果、突兀结论、人物动机不明、提前剧透或未来剧情，"
+            "passed必须为false并给blocking issue。"
+            "计数值可按输入填写，程序会重新计算。严格输出JSON。"
+        )
+        user = (
+            f"当前章原文：{episode.source_text}\n"
+            f"章节诊断：{diagnosis.model_dump_json()}\n"
+            f"上一集状态：{previous_state.model_dump_json() if previous_state else '{}'}\n"
+            f"待审剧本：{plan.model_dump_json()}\n"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+        qualitative = _bounded_validate(
+            "review_episode",
+            self.settings.planner_max_revisions,
+            lambda repair: self._json(
+                system, user, repair, token_budget=REVIEW_TOKEN_BUDGET
+            ),
+            ScriptQualityReport.model_validate,
+        )
+        return evaluate_script_quality(
+            plan,
+            diagnosis,
+            episode,
+            qualitative=qualitative,
+            previous_state=previous_state,
+        )
+
+    def _expand_script_turns(
+        self,
+        episode: Episode,
+        bible: StoryBible,
+        plan: EpisodePlan,
+        required_chars: int,
+    ) -> EpisodePlan:
+        schema = ScriptExpansion.model_json_schema()
+        current_chars = sum(
+            len(re.sub(r"\s+", "", turn.text))
+            for shot in plan.shots
+            for turn in shot.turns
+        )
+        compact_shots = [
+            {
+                "shot_index": shot.index,
+                "event_ids": shot.event_ids,
+                "characters": shot.characters,
+                "source_quote": shot.source_quote,
+                "turns": [turn.model_dump(mode="json") for turn in shot.turns],
+            }
+            for shot in plan.shots
+        ]
+        system = (
+            "你是漫剧台词编辑。只补写现有镜头的turns，不得修改镜头顺序、事件、人物关系或结局。"
+            "旁白可忠实转述原文；人物可见对白必须逐字来自对应source_quote。"
+            "优先为信息过薄的镜头增加必要动作、心理和因果连接，不重复已经说过的内容。"
+            "每个turn只讲一个核心事实、动作或反应，同时必须保持自然完整的语义与呼吸，通常12-36字，硬上限60字。"
+            "不得为字幕分页切碎完整句；字幕由音频对齐层另行分页。"
+            "同一shot通常用1-3个语义turn承载一个连续表演beat，必要时可更多，但不要增加shot或切镜。"
+            "每个shot总turns.text按实际动作时长决定，不为字数填充。只返回需要替换的shot_index和完整turns数组。"
+            "严格输出JSON。"
+        )
+        user = (
+            f"当前有效字数：{current_chars}；最低目标：{required_chars}；建议目标："
+            f"{required_chars + 100}。\n当前章原文：{episode.source_text}\n"
+            f"角色标准名：{json.dumps([item.name for item in bible.characters], ensure_ascii=False)}\n"
+            f"待补写镜头：{json.dumps(compact_shots, ensure_ascii=False)}\n"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+        expansion = _bounded_validate(
+            "expand_script_turns",
+            1,
+            lambda repair: self._json(
+                system,
+                user,
+                repair,
+                token_budget=SCRIPT_EXPANSION_TOKEN_BUDGET,
+            ),
+            ScriptExpansion.model_validate,
+        )
+        patches = {patch.shot_index: patch.turns for patch in expansion.shots}
+        unknown = sorted(set(patches) - {shot.index for shot in plan.shots})
+        if unknown:
+            raise ValueError(f"script expansion uses unknown shot indexes: {unknown}")
+        expanded = plan.model_copy(
+            update={
+                "shots": [
+                    shot.model_copy(update={"turns": patches.get(shot.index, shot.turns)})
+                    for shot in plan.shots
+                ]
+            }
+        )
+        return self._validate_episode_data(expanded.model_dump(mode="json"), episode, bible)
+
+    def _update_series_state(
+        self,
+        episode: Episode,
+        bible: StoryBible,
+        diagnosis: ChapterDiagnosis,
+        plan: EpisodePlan,
+        previous_state: SeriesState | None,
+    ) -> SeriesState:
+        schema = SeriesState.model_json_schema()
+        system = (
+            "你是连续剧状态管理员。根据当前章已经发生的事实更新完整series_state快照。"
+            "新事实必须附当前章精确原文和当前集编号；历史事实必须原样继承上一状态，"
+            "不得把推测写成confirmed，不得写入后文秘密。服装、位置、伤势、知识、关系、"
+            "道具和未解悬念只在当前章有依据时改变。严格输出JSON。"
+        )
+        user = (
+            f"当前集编号：{episode.index}\n当前章节：{episode.source_title}\n"
+            f"当前章原文：{episode.source_text}\n系列设定：{bible.model_dump_json()}\n"
+            f"上一状态：{previous_state.model_dump_json() if previous_state else '{}'}\n"
+            f"章节诊断：{diagnosis.model_dump_json()}\n已审核剧本：{plan.model_dump_json()}\n"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+        return _bounded_validate(
+            "update_series_state",
+            self.settings.planner_max_revisions,
+            lambda repair: self._json(
+                system, user, repair, token_budget=SERIES_STATE_TOKEN_BUDGET
+            ),
+            lambda data: validate_series_state(
+                SeriesState.model_validate(data), episode, previous_state
+            ),
+        )
+
+    def plan_episode_bundle(
+        self,
+        novel: NovelDocument,
+        episode: Episode,
+        bible: StoryBible,
+        previous_state: SeriesState | None = None,
+    ) -> EpisodePlanningBundle:
+        diagnosis = self._diagnose_episode(episode, bible, previous_state)
+        draft_root = (
+            self.settings.output_root.resolve()
+            / novel.novel_id
+            / "script_drafts"
+            / f"episode_{episode.index:03d}"
+        )
+        atomic_write_json(
+            draft_root / "chapter_diagnosis.json",
+            diagnosis.model_dump(mode="json"),
+        )
+        schema = EpisodePlan.model_json_schema()
+        source_chars = len(re.sub(r"\s+", "", episode.source_text))
+        if source_chars <= 1200:
+            size_guidance = "约450-750字、8-14个turn；极短章节按实际内容缩放"
+        elif source_chars <= 3000:
+            size_guidance = "约700-1100字、至少12个turn"
+        else:
+            size_guidance = "约900-1400字、至少18个turn和16个镜头"
+        shot_requirement = (
+            "必须恰好生成18个shot，index连续为1-18"
+            if source_chars > 3000
+            else "镜头数必须达到size_guidance下限"
+        )
+        system = (
+            "你是连续竖屏漫剧的逐章编剧。当前章完整对应当前一集，不得拆集、合并下一章、"
+            "借用后文事件或提前揭晓章末答案。先保证人物、因果和冲突完整，再设计动作和运镜。"
+            "扩写表演而不扩写剧情；压缩重复解释而不删除关键因果。默认保持原文顺序；"
+            "如用冷开场，只能做3-5秒无答案预览，随后回到原文顺序。"
+            "video_title、hook和前两镜只能使用章节前四分之一已知信息；hook只提出异常或问题，"
+            "严禁写出章节后半程的破坏、死亡、身份揭晓、真相或最终行动。"
+            f"有效剧本目标为{size_guidance}。每个shot必须填写event_ids，"
+            "每个章节事件必须写入adaptation_ledger，critical事件不得removed。"
+            "旁白负责连接动作和必要心理信息，对白负责人物立场和冲突；不要把整章写成摘要旁白。"
+            "使用口语化短剧节拍：每个turn只交付一个核心事实、动作或反应，但必须是一口气自然说完的完整语义句，"
+            "通常12-36字，硬上限60字；字幕在音频对齐后独立切页，严禁为字幕长度把一句话拆碎；"
+            "需要讲因果时按触发→事实→后果→人物反应排列，不得只写模糊情绪。"
+            "每个turn只允许一个声音角色；可见对白逐字来自source_quote并设置visible_dialogue；"
+            "原文中的内心声和画外对白可用角色音色，但speaking必须为false并设置inner_voice或offscreen_dialogue。"
+            f"输出要紧凑：{shot_requirement}；每镜performance_plan用1-2个短motion_beats；"
+            "camera_plan默认locked并用1-2个短camera_beats，只有明确叙事动机才选择移动模式；"
+            "移动镜头不超过约三分之一、强调运镜不超过约十分之一，不得连续两镜都明显运镜；"
+            "同场景锁定行动轴、人物左右和视线方向；不要重复Schema说明，不要在字段中写长篇方法论。"
+            "对于长章节，每个连续shot通常承载1-3个语义turn，只表达一个明确视觉或情绪beat；"
+            "全集turns.text目标700-1000字，优先讲清关键因果，不用文学性外貌铺陈凑字数；"
+            "字数只统计turns.text，narration、subtitle、visual_prompt不计入有效剧本字数。"
+            "标题只能概括本章起始悬念，hook不得包含‘破碎、砸毁、不是现代人、凶手、真相’等章末答案。"
+            "前10秒建立人物、异常和即时问题，章末反转必须先铺垫后兑现。严格输出JSON。"
+        )
+        base_user = (
+            f"小说：{novel.title}\n当前章节：{episode.source_title}\n"
+            f"章节诊断：{diagnosis.model_dump_json()}\n"
+            f"上一集状态：{previous_state.model_dump_json() if previous_state else '{}'}\n"
+            f"故事圣经：{bible.model_dump_json()}\n当前章原文：{episode.source_text}\n"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+        repair: dict | None = None
+        last_report: ScriptQualityReport | None = None
+        for revision in range(self.settings.planner_max_revisions + 1):
+            draft_number = revision + 1
+            data = self._json(
+                system,
+                base_user,
+                repair,
+                token_budget=SCRIPT_TOKEN_BUDGET,
+            )
+            atomic_write_json(draft_root / f"draft_{draft_number:02d}.json", data)
+            try:
+                plan = self._validate_episode_data(data, episode, bible)
+                plan = normalize_chronological_plan(plan, diagnosis, episode)
+                atomic_write_json(
+                    draft_root / f"draft_{draft_number:02d}_normalized.json",
+                    plan.model_dump(mode="json"),
+                )
+                deterministic = evaluate_script_quality(
+                    plan, diagnosis, episode, previous_state=previous_state
+                )
+                issue_codes = {issue.code for issue in deterministic.issues}
+                if not deterministic.passed and issue_codes <= {
+                    "script_too_short",
+                    "too_few_turns",
+                }:
+                    required_chars = script_policy(
+                        len(re.sub(r"\s+", "", episode.source_text)),
+                        diagnosis.density,
+                    ).min_script_chars
+                    plan = self._expand_script_turns(
+                        episode, bible, plan, required_chars
+                    )
+                    atomic_write_json(
+                        draft_root / f"draft_{draft_number:02d}_expanded.json",
+                        plan.model_dump(mode="json"),
+                    )
+                    deterministic = evaluate_script_quality(
+                        plan, diagnosis, episode, previous_state=previous_state
+                    )
+                    atomic_write_json(
+                        draft_root / f"draft_{draft_number:02d}_expanded_validation.json",
+                        deterministic.model_dump(mode="json"),
+                    )
+                if not deterministic.passed:
+                    raise ValueError(deterministic.model_dump_json())
+                report = self._review_episode(episode, diagnosis, plan, previous_state)
+                last_report = report
+                atomic_write_json(
+                    draft_root / f"draft_{draft_number:02d}_validation.json",
+                    report.model_dump(mode="json"),
+                )
+                if report.passed:
+                    state = self._update_series_state(
+                        episode, bible, diagnosis, plan, previous_state
+                    )
+                    return EpisodePlanningBundle(
+                        diagnosis=diagnosis,
+                        plan=plan,
+                        quality_report=report,
+                        updated_series_state=state,
+                    )
+                raise ValueError(report.model_dump_json())
+            except (ValidationError, ValueError) as error:
+                validation_path = draft_root / f"draft_{draft_number:02d}_validation.json"
+                if not validation_path.exists():
+                    atomic_write_json(
+                        validation_path,
+                        {
+                            "passed": False,
+                            "stage": "deterministic_validation",
+                            "errors": _validation_feedback(error),
+                        },
+                    )
+                if revision >= self.settings.planner_max_revisions:
+                    break
+                repair = {
+                    "revision": revision + 1,
+                    "previous_response": data,
+                    "validation_errors": _validation_feedback(error),
+                }
+        detail = last_report.model_dump_json() if last_report else json.dumps(
+            repair or {}, ensure_ascii=False
+        )
+        raise ValueError(f"script quality gate remained invalid: {detail}")
 
 
 class CommandPlanner(Planner):
@@ -559,6 +1168,13 @@ class CommandPlanner(Planner):
                 "exact_turn_text": True,
                 "source_quotes_required": True,
                 "first_story_beat_within_seconds": 10,
+                "performance_plan_required": True,
+                "camera_plan_required": True,
+                "camera_mode_default": "locked",
+                "camera_move_requires_motivation": True,
+                "one_camera_trajectory_per_shot": True,
+                "dialogue_action_axis_locked": True,
+                "reference_only_anchors_identity_costume_environment_style": True,
             },
         }
         normalizer = object.__new__(OpenAICompatiblePlanner)
@@ -571,3 +1187,129 @@ class CommandPlanner(Planner):
             ),
             lambda data: normalizer._validate_episode_data(data, episode, bible),
         )
+
+    def plan_episode_bundle(
+        self,
+        novel: NovelDocument,
+        episode: Episode,
+        bible: StoryBible,
+        previous_state: SeriesState | None = None,
+    ) -> EpisodePlanningBundle:
+        common = {
+            "contract": "novel-manga-planner/v3",
+            "novel_id": novel.novel_id,
+            "episode": episode.model_dump(mode="json"),
+            "story_bible": bible.model_dump(mode="json"),
+            "previous_state": previous_state.model_dump(mode="json") if previous_state else {},
+            "chapter_only": True,
+            "future_chapters_allowed": False,
+        }
+        diagnosis = _bounded_validate(
+            "diagnose_episode",
+            self.max_revisions,
+            lambda repair: self._invoke(
+                "diagnose_episode",
+                {
+                    **common,
+                    "schema": ChapterDiagnosis.model_json_schema(),
+                    **({"repair": repair} if repair else {}),
+                },
+            ),
+            lambda data: validate_chapter_diagnosis(
+                ChapterDiagnosis.model_validate(data), episode, bible
+            ),
+        )
+        normalizer = object.__new__(OpenAICompatiblePlanner)
+        repair: dict | None = None
+        last_report: ScriptQualityReport | None = None
+        for revision in range(self.max_revisions + 1):
+            data = self._invoke(
+                "plan_episode",
+                {
+                    **common,
+                    "chapter_diagnosis": diagnosis.model_dump(mode="json"),
+                    "schema": EpisodePlan.model_json_schema(),
+                    "requirements": {
+                        "all_critical_events_mapped": True,
+                        "adaptation_ledger_required": True,
+                        "causal_chain_complete": True,
+                        "opening_must_not_spoil_resolution": True,
+                        "ending_at_current_chapter_boundary": True,
+                        "one_visible_speaker_per_turn": True,
+                        "performance_plan_required": True,
+                        "camera_plan_required": True,
+                        "camera_mode_default": "locked",
+                        "camera_move_requires_motivation": True,
+                        "one_camera_trajectory_per_shot": True,
+                        "dialogue_action_axis_locked": True,
+                    },
+                    **({"repair": repair} if repair else {}),
+                },
+            )
+            try:
+                plan = normalizer._validate_episode_data(data, episode, bible)
+                deterministic = evaluate_script_quality(
+                    plan, diagnosis, episode, previous_state=previous_state
+                )
+                if not deterministic.passed:
+                    raise ValueError(deterministic.model_dump_json())
+                qualitative = _bounded_validate(
+                    "review_episode",
+                    self.max_revisions,
+                    lambda review_repair: self._invoke(
+                        "review_episode",
+                        {
+                            **common,
+                            "chapter_diagnosis": diagnosis.model_dump(mode="json"),
+                            "episode_plan": plan.model_dump(mode="json"),
+                            "schema": ScriptQualityReport.model_json_schema(),
+                            **({"repair": review_repair} if review_repair else {}),
+                        },
+                    ),
+                    ScriptQualityReport.model_validate,
+                )
+                report = evaluate_script_quality(
+                    plan,
+                    diagnosis,
+                    episode,
+                    qualitative=qualitative,
+                    previous_state=previous_state,
+                )
+                last_report = report
+                if not report.passed:
+                    raise ValueError(report.model_dump_json())
+                state = _bounded_validate(
+                    "update_series_state",
+                    self.max_revisions,
+                    lambda state_repair: self._invoke(
+                        "update_series_state",
+                        {
+                            **common,
+                            "chapter_diagnosis": diagnosis.model_dump(mode="json"),
+                            "episode_plan": plan.model_dump(mode="json"),
+                            "schema": SeriesState.model_json_schema(),
+                            **({"repair": state_repair} if state_repair else {}),
+                        },
+                    ),
+                    lambda value: validate_series_state(
+                        SeriesState.model_validate(value), episode, previous_state
+                    ),
+                )
+                return EpisodePlanningBundle(
+                    diagnosis=diagnosis,
+                    plan=plan,
+                    quality_report=report,
+                    updated_series_state=state,
+                )
+            except (ValidationError, ValueError) as error:
+                if revision >= self.max_revisions:
+                    break
+                repair = {
+                    "revision": revision + 1,
+                    "previous_response": data,
+                    "validation_errors": _validation_feedback(error),
+                }
+        detail = last_report.model_dump_json() if last_report else json.dumps(
+            repair or {}, ensure_ascii=False
+        )
+        raise ValueError(f"command planner script quality gate remained invalid: {detail}")

@@ -86,6 +86,39 @@ def evaluate_asr(
     }
 
 
+def evaluate_delivered_audio_energy(
+    report: dict | None,
+    *,
+    minimum_peak_db: float = -35.0,
+) -> dict:
+    """Reject final-video turn extracts that contain effectively no audible speech."""
+    if report is None:
+        return {"status": STATUS_INCONCLUSIVE, "detail": "delivered audio report is missing"}
+    turns = report.get("turns", [])
+    missing = [str(row.get("unit_id", "unknown")) for row in turns if row.get("max_volume_db") is None]
+    silent = [
+        {
+            "unit_id": str(row.get("unit_id", "unknown")),
+            "max_volume_db": float(row["max_volume_db"]),
+            "mean_volume_db": row.get("mean_volume_db"),
+        }
+        for row in turns
+        if row.get("max_volume_db") is not None
+        and float(row["max_volume_db"]) < minimum_peak_db
+    ]
+    if not turns or missing:
+        status = STATUS_INCONCLUSIVE
+    else:
+        status = STATUS_FAILED if silent else STATUS_PASSED
+    return {
+        "status": status,
+        "minimum_peak_db": minimum_peak_db,
+        "turn_count": len(turns),
+        "missing_measurements": missing,
+        "silent_turns": silent,
+    }
+
+
 def _gray_frame(path: Path, seconds: float, *, width: int = 270, height: int = 480) -> bytes:
     result = subprocess.run(
         [

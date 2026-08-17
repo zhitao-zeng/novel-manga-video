@@ -63,6 +63,8 @@ def canonicalize_plan_to_bible(plan: EpisodePlan, bible: StoryBible) -> EpisodeP
 def _reuse_score(target: PlanUnit, source: PlanUnit) -> tuple[int, str] | None:
     if target.turn.speaking != source.turn.speaking:
         return None
+    if target.turn.delivery_mode != source.turn.delivery_mode:
+        return None
     target_text = normalize_reuse_text(target.turn.text)
     source_text = normalize_reuse_text(source.turn.text)
     target_quote = normalize_reuse_text(target.source_quote)
@@ -77,7 +79,12 @@ def _reuse_score(target: PlanUnit, source: PlanUnit) -> tuple[int, str] | None:
         return (100 + int(quote_equal) * 10, "exact_visible_dialogue")
 
     if target_text == source_text:
-        return (90 + int(quote_equal) * 10, "exact_narration")
+        if target.turn.role != "narrator" and not _speakers_compatible(
+            target.turn.speaker_name, source.turn.speaker_name
+        ):
+            return None
+        kind = "exact_narration" if target.turn.role == "narrator" else "exact_nonvisible_dialogue"
+        return (90 + int(quote_equal) * 10, kind)
     text_contained = bool(
         target_text
         and source_text

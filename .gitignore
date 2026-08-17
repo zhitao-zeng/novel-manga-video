@@ -9,3 +9,6 @@ __pycache__/
 outputs/
 *.log
 *.partial
+docker/wheels/*.whl
+delivery/
+vendor/

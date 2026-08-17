@@ -40,7 +40,7 @@ def provider() -> PhanRouterMediaProvider:
             provider="phanrouter",
             phanrouter_api_key=os.environ["PHANROUTER_API_KEY"],
             image_model=os.getenv("PHANROUTER_IMAGE_MODEL", "gpt-image-2"),
-            video_model=os.getenv("PHANROUTER_VIDEO_MODEL", "sd2.0"),
+            video_model=os.getenv("PHANROUTER_VIDEO_MODEL", "sd2.5"),
             request_timeout=180.0,
             poll_timeout=1200.0,
         )
@@ -122,7 +122,7 @@ def main() -> None:
         "schema_version": 1,
         "reason": "visible speaker identity correction",
         "speaker_name": args.speaker_name,
-        "model": os.getenv("PHANROUTER_VIDEO_MODEL", "sd2.0"),
+        "model": os.getenv("PHANROUTER_VIDEO_MODEL", "sd2.5"),
         "unit_count": len(rows),
         "workers": args.workers,
         "units": sorted(rows, key=lambda row: row["unit_id"]),

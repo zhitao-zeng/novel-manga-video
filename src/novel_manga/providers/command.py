@@ -14,6 +14,16 @@ class CommandMediaProvider(MediaProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
 
+    def enter_stage(self, stage: str) -> None:
+        if not self.settings.model_lifecycle_command:
+            return
+        subprocess.run(
+            shlex.split(self.settings.model_lifecycle_command) + ["--stage", stage],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
     @staticmethod
     def _run(command: str | None, arguments: list[str], output: Path) -> None:
         if not command:
@@ -30,6 +40,10 @@ class CommandMediaProvider(MediaProvider):
 
     def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult:
         arguments = ["--prompt", prompt, "--width", str(self.settings.width), "--height", str(self.settings.height)]
+        if self.settings.local_image_prompt_policy:
+            arguments.extend(
+                ["--prompt-policy", self.settings.local_image_prompt_policy]
+            )
         if reference:
             arguments.extend(["--reference", str(reference)])
         self._run(self.settings.image_command, arguments, output)
@@ -42,6 +56,7 @@ class CommandMediaProvider(MediaProvider):
         output: Path,
         duration: float,
         reference_audio: Path | None = None,
+        additional_images: tuple[Path, ...] = (),
     ) -> Path:
         arguments = [
             "--prompt", prompt,
@@ -53,6 +68,8 @@ class CommandMediaProvider(MediaProvider):
         ]
         if reference_audio:
             arguments.extend(["--reference-audio", str(reference_audio)])
+        for additional_image in additional_images:
+            arguments.extend(["--additional-image", str(additional_image)])
         self._run(self.settings.video_command, arguments, output)
         return output
 
@@ -63,9 +80,12 @@ class CommandMediaProvider(MediaProvider):
         *,
         voice: str | None = None,
         instructions: str | None = None,
+        speed: float | None = None,
     ) -> Path:
         arguments = ["--text", text, "--voice", voice or self.settings.tts_voice]
         if instructions:
             arguments.extend(["--instructions", instructions])
+        if speed is not None:
+            arguments.extend(["--speed", f"{speed:.3f}"])
         self._run(self.settings.tts_command, arguments, output)
         return output

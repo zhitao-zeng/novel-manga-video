@@ -14,6 +14,7 @@ def main() -> int:
     parser.add_argument("--text", required=True)
     parser.add_argument("--voice", required=True)
     parser.add_argument("--instructions")
+    parser.add_argument("--speed", type=float)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     cache = Path(os.environ["NOVEL_QWEN_TTS_CACHE_DIR"])
