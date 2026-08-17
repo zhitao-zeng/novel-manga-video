@@ -11,6 +11,18 @@ def _optional_float(name: str) -> float | None:
     return float(value) if value is not None and value.strip() else None
 
 
+def _default_font_path() -> Path:
+    candidates = (
+        Path("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"),
+        Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+        Path("/System/Library/Fonts/STHeiti Medium.ttc"),
+    )
+    return next((path for path in candidates if path.is_file()), candidates[0])
+
+
+DEFAULT_FONT_PATH = _default_font_path()
+
+
 @dataclass(frozen=True)
 class Settings:
     provider: str = "mock"
@@ -21,7 +33,7 @@ class Settings:
     intro_seconds: float = 4.0
     outro_seconds: float = 4.0
     output_root: Path = Path("outputs")
-    font_path: Path = Path("/usr/share/fonts/truetype/wqy/wqy-microhei.ttc")
+    font_path: Path = DEFAULT_FONT_PATH
     bgm_path: Path | None = None
     phanrouter_base_url: str = "https://cloud.phanthy.com/phanrouter"
     phanrouter_api_key: str | None = None
@@ -33,6 +45,7 @@ class Settings:
     image_command: str | None = None
     local_image_prompt_policy: str | None = None
     local_visual_strategy: str = "keyframe"
+    creative_profile: str = "faithful-chronological-v1"
     video_command: str | None = None
     model_lifecycle_command: str | None = None
     inline_reference_images: bool = False
@@ -106,8 +119,10 @@ class Settings:
             admission_mode=admission_mode or os.getenv(
                 "NOVEL_ADMISSION_MODE", "preview" if provider == "mock" else "production"
             ),
+            intro_seconds=float(os.getenv("NOVEL_INTRO_SECONDS", "0")),
+            outro_seconds=float(os.getenv("NOVEL_OUTRO_SECONDS", "4")),
             output_root=Path(output_root),
-            font_path=Path(os.getenv("NOVEL_FONT_PATH", str(cls.font_path))),
+            font_path=Path(os.getenv("NOVEL_FONT_PATH", str(DEFAULT_FONT_PATH))),
             bgm_path=Path(bgm_path) if bgm_path else None,
             phanrouter_base_url=os.getenv("PHANROUTER_BASE_URL", cls.phanrouter_base_url),
             phanrouter_api_key=os.getenv("PHANROUTER_API_KEY"),
@@ -130,9 +145,12 @@ class Settings:
                 else None
             ),
             local_visual_strategy=(
-                os.getenv("NOVEL_LOCAL_VISUAL_STRATEGY", "keyframe")
+                os.getenv("NOVEL_LOCAL_VISUAL_STRATEGY", "adaptive")
                 if provider == "command"
-                else "keyframe"
+                else os.getenv("NOVEL_LOCAL_VISUAL_STRATEGY", "adaptive")
+            ),
+            creative_profile=os.getenv(
+                "NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"
             ),
             video_command=os.getenv("NOVEL_VIDEO_COMMAND"),
             model_lifecycle_command=os.getenv("NOVEL_MODEL_LIFECYCLE_COMMAND"),
@@ -187,10 +205,17 @@ class Settings:
     def validate(self) -> None:
         if self.fps not in (25, 30):
             raise ValueError("fps must be 25 or 30")
-        if not self.font_path.is_file():
-            raise ValueError(f"subtitle/card font not found: {self.font_path}")
         if self.admission_mode not in {"preview", "production"}:
             raise ValueError("admission_mode must be preview or production")
+        if self.intro_seconds < 0 or self.outro_seconds < 0:
+            raise ValueError("intro_seconds and outro_seconds must be non-negative")
+        if self.creative_profile not in {
+            "faithful-chronological-v1",
+            "short-drama-adaptive-v1",
+        }:
+            raise ValueError(
+                "NOVEL_CREATIVE_PROFILE must be faithful-chronological-v1 or short-drama-adaptive-v1"
+            )
         if self.planner_backend not in {"auto", "deterministic", "openai-compatible", "command"}:
             raise ValueError("NOVEL_PLANNER_BACKEND is invalid")
         if not 0 <= self.planner_max_revisions <= 2:
@@ -227,11 +252,12 @@ class Settings:
                 "NOVEL_LOCAL_IMAGE_PROMPT_POLICY must be legacy, native-v1, native-v2, native-v3, native-v4, or native-v5"
             )
         if self.local_visual_strategy not in {
+            "adaptive",
             "keyframe",
             "h3-direct-single-character",
         }:
             raise ValueError(
-                "NOVEL_LOCAL_VISUAL_STRATEGY must be keyframe or h3-direct-single-character"
+                "NOVEL_LOCAL_VISUAL_STRATEGY must be adaptive, keyframe, or h3-direct-single-character"
             )
         video_backend_identity = "".join(
             character
@@ -308,3 +334,5 @@ class Settings:
                     "production admission requires executable evidence backends: "
                     + ", ".join(missing_quality)
                 )
+        if not self.font_path.is_file():
+            raise ValueError(f"subtitle/card font not found: {self.font_path}")

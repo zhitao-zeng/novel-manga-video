@@ -13,7 +13,7 @@ from pathlib import Path
 from .admission import evaluate_episode_admission
 from .config import Settings
 from .face_consistency import evaluate_face_consistency
-from .models import Episode, EpisodePlan, StoryBible
+from .models import Episode, EpisodePlan, StoryBible, VisualStrategy
 from .production import SeriesAssetFactory, compile_production_plan, sha256_file, sha256_text
 from .production_models import (
     ProductionPlan,
@@ -195,6 +195,19 @@ def build_visual_groups(
             dict.fromkeys(asset_id for unit in units for asset_id in unit.character_asset_ids)
         )
         direct_video_character_ids = _direct_video_character_ids(units)
+        keyframe_reasons = list(
+            dict.fromkeys(
+                reason for unit in units for reason in unit.keyframe_reasons
+            )
+        )
+        if any(unit.visual_strategy == VisualStrategy.STORY_KEYFRAME for unit in units):
+            visual_strategy = VisualStrategy.STORY_KEYFRAME
+        elif direct_video_character_ids:
+            visual_strategy = VisualStrategy.DIRECT_ASSETS
+        elif not character_ids:
+            visual_strategy = VisualStrategy.SCENE_ONLY
+        else:
+            visual_strategy = VisualStrategy.AUTO
         visuals = list(dict.fromkeys(unit.visual_prompt for unit in units))
         actions = list(
             dict.fromkeys(
@@ -209,6 +222,27 @@ def build_visual_groups(
             for unit in units
             if not unit.speaking and unit.role != "narrator"
         ]
+        ambience = list(
+            dict.fromkeys(
+                unit.audio_plan.ambience
+                for unit in units
+                if unit.audio_plan.ambience
+            )
+        )
+        music_cues = list(
+            dict.fromkeys(
+                unit.audio_plan.music_cue
+                for unit in units
+                if unit.audio_plan.music_cue
+            )
+        )
+        sfx_events = list(
+            dict.fromkeys(
+                event
+                for unit in units
+                for event in unit.audio_plan.sfx_events
+            )
+        )
         visible_speaker = next((unit for unit in units if unit.speaking), None)
         framing_instruction = (
             visible_speaker.composition_prompt
@@ -265,8 +299,15 @@ def build_visual_groups(
             if plan.visual_style or plan.palette
             else ""
         )
+        keyframe_contract = (
+            "【剧情锚点关键帧】原因："
+            + "、".join(keyframe_reasons or ["连续镜头关键构图"])
+            + "。"
+            if visual_strategy == VisualStrategy.STORY_KEYFRAME
+            else "【自适应视觉回退帧】仅在视频后端不能直接使用系列人物与空场资产时生成。"
+        )
         keyframe_prompt = (
-            f"系列风格指纹 {plan.style_fingerprint}。{style_direction}"
+            f"{keyframe_contract}系列风格指纹 {plan.style_fingerprint}。{style_direction}"
             "这是连续长镜头的唯一动作起始帧，不是拼贴图。"
             f"剧情画面：{'；'.join(visuals)}。{spatial_anchor}"
             "参考母版只锁定角色身份、服装、场景建筑、材质、色彩、光照和行动轴；"
@@ -298,8 +339,18 @@ def build_visual_groups(
                 if nonvisible_character_voice
                 else ""
             )
+            + (
+                "【非语言声音设计】"
+                + (f"环境底：{'；'.join(ambience)}。" if ambience else "")
+                + (f"音乐提示：{'；'.join(music_cues)}。" if music_cues else "")
+                + (f"同步音效：{'、'.join(sfx_events)}。" if sfx_events else "")
+                + "不得遮住、替换或重复锁定人声；对白出现时背景自动压低。"
+                if ambience or music_cues or sfx_events
+                else ""
+            )
             + f"{spatial_anchor}"
-            "每1到2秒发生有因果的动作变化，但不得切换场景或突然重构图；"
+            "只有在台词、视线目标、道具状态或对方反应形成明确触发时才发生动作变化；"
+            "一个节拍只保留一个主要动作，完成后允许短暂停顿，不得用无意义小动作填满时长；"
             "整组只执行上面唯一的摄影机计划，不得叠加其他推拉、横移、环绕、升降或数字缩放。"
             "眼睛先于头部，头部先于肩膀，衣发稍后响应；动作有停顿、加速和减速。"
             "参考图只锁定身份、服装、环境和画风，不锁定静态姿势；不得改变人物年龄、服饰和相对站位。"
@@ -323,6 +374,8 @@ def build_visual_groups(
                 keyframe_path=f"work/visual_group_keyframes/{group_id}.jpeg",
                 raw_video_path=f"work/visual_group_video/{group_id}.mp4",
                 segment_path=f"work/visual_group_segments/{group_id}.mp4",
+                visual_strategy=visual_strategy,
+                keyframe_reasons=keyframe_reasons,
             )
         )
     return groups
@@ -556,6 +609,7 @@ class EpisodeProductionRuntime:
                     "text": unit.text,
                     "voice": unit.voice,
                     "emotion": unit.emotion,
+                    "audio_plan": unit.audio_plan.model_dump(mode="json"),
                     "delivery_mode": unit.delivery_mode,
                     "tts_model": self.settings.tts_model,
                     "tts_command": self.settings.tts_command,
@@ -611,8 +665,14 @@ class EpisodeProductionRuntime:
             )
             if not attempt_path.is_file():
                 instructions = (
-                    f"标准普通话，语速自然偏快但清晰。逐字准确朗读：{unit.text}。"
-                    f"人物和专有名词必须准确；角色语气：{unit.emotion}。"
+                    f"标准普通话，逐字准确朗读：{unit.text}。人物和专有名词必须准确。"
+                    f"表演意图：{unit.audio_plan.delivery_intent or unit.emotion}；"
+                    f"语速：{unit.audio_plan.pace}；情绪能量0到1为{unit.audio_plan.energy:.2f}；"
+                    + (
+                        f"自然停顿位置：{'、'.join(unit.audio_plan.pauses)}；"
+                        if unit.audio_plan.pauses
+                        else "按语义和标点自然停顿；"
+                    )
                     + (
                         "只做画外旁白。"
                         if unit.role == "narrator"
@@ -667,6 +727,7 @@ class EpisodeProductionRuntime:
             emotion=unit.emotion,
             performance_plan=unit.performance_plan,
             camera_plan=unit.camera_plan,
+            audio_plan=unit.audio_plan,
             duration=directed_seconds,
         )
         atomic_write_json(
@@ -736,18 +797,29 @@ class EpisodeProductionRuntime:
         unit: RuntimeUnit,
         series_assets: SeriesAssetManifest,
     ) -> tuple[Path, tuple[Path, ...]] | None:
-        """Resolve the conservative two-asset H3 path for visible solo dialogue.
+        """Resolve reusable H3 assets without manufacturing a per-shot still.
 
-        Picture 1 is always one locked character turnaround and Picture 2 is
-        the matching empty location. Narration-only and multi-character groups
-        keep the scene-aware keyframe workflow.
+        Picture 1 is a locked character asset and Picture 2 is the matching
+        empty location.  Empty establishing shots can use the location as
+        Picture 1.  Multi-character, prop-interaction and reveal shots keep the
+        scene-aware keyframe workflow.
         """
 
-        if (
-            self.settings.local_visual_strategy
-            != "h3-direct-single-character"
-            or not unit.reference_audio_required
+        strategy = self.settings.local_visual_strategy
+        if strategy not in {"adaptive", "h3-direct-single-character"}:
+            return None
+        backend_identity = "".join(
+            character
+            for character in f"{self.settings.video_model} {self.settings.video_command or ''}".casefold()
+            if character.isalnum()
+        )
+        if self.settings.provider != "command" or not any(
+            token in backend_identity for token in ("minimaxh3", "h3ref2va")
         ):
+            return None
+        if unit.visual_strategy == VisualStrategy.STORY_KEYFRAME:
+            return None
+        if strategy == "h3-direct-single-character" and not unit.reference_audio_required:
             return None
         direct_character_ids = (
             unit.direct_video_character_asset_ids
@@ -757,17 +829,23 @@ class EpisodeProductionRuntime:
                 else []
             )
         )
-        if len(direct_character_ids) != 1:
-            return None
         character_map = {record.asset_id: record for record in series_assets.characters}
         location_map = {record.asset_id: record for record in series_assets.locations}
-        character = character_map.get(direct_character_ids[0])
         location = location_map.get(unit.location_asset_id)
-        if character is None or location is None:
+        if location is None:
+            return None
+        location_path = novel_dir / location.primary_image
+        if not location_path.is_file():
+            return None
+        if unit.visual_strategy == VisualStrategy.SCENE_ONLY and not direct_character_ids:
+            return location_path, ()
+        if len(direct_character_ids) != 1:
+            return None
+        character = character_map.get(direct_character_ids[0])
+        if character is None:
             return None
         character_path = novel_dir / character.primary_image
-        location_path = novel_dir / location.primary_image
-        if not character_path.is_file() or not location_path.is_file():
+        if not character_path.is_file():
             return None
         return character_path, (location_path,)
 
@@ -816,7 +894,11 @@ class EpisodeProductionRuntime:
                 selected_attempt = int(saved.get("attempt", 0))
         if selected_video is not None and direct_h3_assets is not None:
             _, additional_video_images = direct_h3_assets
-            visual_input_strategy = "h3-character-plus-location-assets"
+            visual_input_strategy = (
+                "h3-empty-location-asset"
+                if not additional_video_images
+                else "h3-character-plus-location-assets"
+            )
         if selected_video is None:
             attempt_root = (
                 episode_dir / "work" / "visual_attempts" / unit.unit_id / identity[:8]
@@ -834,7 +916,11 @@ class EpisodeProductionRuntime:
             if direct_h3_assets is not None:
                 selected_keyframe, additional_video_images = direct_h3_assets
                 reused_keyframe = True
-                visual_input_strategy = "h3-character-plus-location-assets"
+                visual_input_strategy = (
+                    "h3-empty-location-asset"
+                    if not additional_video_images
+                    else "h3-character-plus-location-assets"
+                )
             elif first_keyframe is None:
                 first_keyframe = attempt_root / "attempt_01" / "keyframe.jpeg"
                 if self.settings.reuse_existing_keyframes and canonical_keyframe.is_file():
@@ -1026,8 +1112,9 @@ class EpisodeProductionRuntime:
             visual_source = str(saved.get("visual_source", ""))
         if not visual_source.startswith("local-keyframe-motion-fallback"):
             visual_source = (
-                f"{self.settings.video_model}-direct-reusable-assets-reference-audio"
-                if selected_used_reference_audio and additional_video_images
+                f"{self.settings.video_model}-direct-reusable-assets-"
+                + ("reference-audio" if selected_used_reference_audio else "no-audio-reference")
+                if visual_input_strategy.startswith("h3-")
                 else (
                     f"{self.settings.video_model}-reference-audio"
                     if selected_used_reference_audio
@@ -1080,7 +1167,9 @@ class EpisodeProductionRuntime:
                     else None
                 ),
                 "keyframe_source": (
-                    "locked-existing-keyframe" if reused_keyframe else "generated"
+                    "reusable-series-asset"
+                    if visual_input_strategy.startswith("h3-")
+                    else "locked-existing-keyframe" if reused_keyframe else "generated"
                 ),
         }
         atomic_write_json(meta, meta_payload)
@@ -1142,6 +1231,8 @@ class EpisodeProductionRuntime:
                 "raw_video_path": group.raw_video_path,
                 "segment_path": group.segment_path,
                 "audio_seconds": group.audio_seconds,
+                "visual_strategy": group.visual_strategy,
+                "keyframe_reasons": group.keyframe_reasons,
             }
         )
 

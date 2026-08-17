@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from .models import CameraBeat, CameraPlan, MotionBeat, PerformancePlan
+from .models import CameraBeat, CameraPlan, MotionBeat, PerformancePlan, SceneAudioPlan
 
 
 PUNCTUATION = "，。！？；：、…,.!?;:"
@@ -256,12 +256,13 @@ def build_sd_prompt(
     emotion: str | None = None,
     performance_plan: PerformancePlan | None = None,
     camera_plan: CameraPlan | None = None,
+    audio_plan: SceneAudioPlan | None = None,
     duration: float = 6.0,
 ) -> str:
     if use_reference_audio and role == "narrator":
         audio_instruction = (
             "严格以参考音频1作为唯一画外旁白、音色、语速、停顿和情绪依据，完整复现参考音频，"
-            "不得改词、漏词、重读或添加其他声音；画中人物不得开口或随旁白做口型。"
+            "不得改词、漏词、重读或添加其他人声；画中人物不得开口或随旁白做口型。"
         )
     elif use_reference_audio:
         audio_instruction = (
@@ -270,6 +271,26 @@ def build_sd_prompt(
         )
     else:
         audio_instruction = "不生成声音。"
+    sound_direction = ""
+    if audio_plan is not None:
+        non_speech = "；".join(
+            item
+            for item in (
+                f"环境底：{audio_plan.ambience}" if audio_plan.ambience else "",
+                f"音乐提示：{audio_plan.music_cue}" if audio_plan.music_cue else "",
+                (
+                    f"同步音效：{'、'.join(audio_plan.sfx_events)}"
+                    if audio_plan.sfx_events
+                    else ""
+                ),
+            )
+            if item
+        )
+        if non_speech:
+            sound_direction = (
+                f"【非语言声音设计】{non_speech}。这些声音不得遮住、替换或重复参考人声；"
+                + ("对白出现时背景自动压低。" if audio_plan.ducking else "背景保持克制。")
+            )
     composition = composition_prompt or "固定单人正脸或四分之三近景"
     performance_plan = performance_plan or _fallback_performance_plan(
         role, text, motion_prompt, emotion
@@ -295,6 +316,7 @@ def build_sd_prompt(
         f"{camera_freedom}"
         "不得变脸，不得新增人物，不出现文字、字幕、气泡、水印或标识。"
         f"{audio_instruction}"
+        f"{sound_direction}"
     )
     camera_direction = (
         "The camera is locked-off and remains entirely motionless for the whole shot. "
@@ -320,7 +342,8 @@ def build_sd_prompt(
         return (
             f"{continuity}这是旁白画面，画面内所有人物都不说话，嘴巴自然闭合。"
             f"当前叙事内容是：{text}。{directing}"
-            "保持较高但有因果的动作密度，不切镜、不循环、不倒放，不要所有动作同时发生。"
+            "只在叙事触发点发生一个清楚的主要动作，并给结果或人物反应留出短暂停顿；"
+            "不得用无意义小动作填满时长，不切镜、不循环、不倒放，不要所有动作同时发生。"
             f"{anti_zoom}{anti_static}"
         )
     actor = actor_description or role
@@ -345,7 +368,8 @@ def build_sd_prompt(
         f"{timing}禁止嘴部静止、夸张大张嘴、嘴形抖动、五官扭曲或其他人物同时说话。"
         "说话人的脸和嘴在整个镜头中始终清晰可见，可以移动和改变姿势，但不能转身背对镜头、离开画面或被遮挡。"
         f"{directing}全程为同一个连续镜头，不切镜、不转场；动作和摄影机运动互相配合，"
-        "每1-2秒出现一次有目的的人物姿势、视线、手部或重心变化；摄影机关系只按既定模式执行，不要随机抽动。"
+        "动作变化必须由台词含义、视线目标、道具状态或对方反应触发；"
+        "一个节拍只做一个主要动作，允许克制停顿，摄影机关系只按既定模式执行，不要随机抽动。"
         f"{anti_zoom}{anti_static}"
     )
 

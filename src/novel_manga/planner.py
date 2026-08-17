@@ -16,6 +16,11 @@ import httpx
 from pydantic import ValidationError
 
 from .config import Settings
+from .creative_direction import (
+    SHORT_DRAMA_PROFILE,
+    apply_creative_direction,
+    creative_prompt_brief,
+)
 from .models import (
     CameraBeat,
     CameraPlan,
@@ -264,6 +269,14 @@ class Planner(ABC):
 
         diagnosis = deterministic_chapter_diagnosis(episode)
         plan = bind_deterministic_events(self.plan_episode(novel, episode, bible), diagnosis)
+        profile = getattr(self, "creative_profile", "faithful-chronological-v1")
+        plan = apply_creative_direction(
+            plan,
+            diagnosis,
+            bible,
+            profile=profile,
+        )
+        plan = normalize_chronological_plan(plan, diagnosis, episode)
         report = evaluate_script_quality(
             plan, diagnosis, episode, previous_state=previous_state
         )
@@ -282,6 +295,11 @@ class Planner(ABC):
 
 
 class DeterministicPlanner(Planner):
+    def __init__(self, settings: Settings | None = None):
+        self.creative_profile = (
+            settings.creative_profile if settings is not None else "faithful-chronological-v1"
+        )
+
     def build_bible(self, novel: NovelDocument) -> StoryBible:
         names = re.findall(
             r"(?:^|[，。！？：“”\n])([\u4e00-\u9fff]{2,3})(?=(?:低声|轻声|高声|冷冷地)?(?:说|问|答|喊)|看向|走出|走进|推开|发现|把|从)",
@@ -481,6 +499,11 @@ class OpenAICompatiblePlanner(Planner):
         schema = StoryBible.model_json_schema()
         system = (
             "你是漫剧总美术和小说事实核验员。只提取原文可支持的信息；外貌未写明时可做克制设计。"
+            "每名主要角色还要建立可跨集复用的选角档案：visual_archetype写社会与戏剧类型，"
+            "face_anchors写3-5个不可漂移的五官锚点，silhouette、hair、palette和base_costume必须彼此可区分，"
+            "signature_prop只填写原文支持或不改变剧情的识别物，expression_profile描述表情幅度，"
+            "motion_signature描述角色惯用姿态和动作节奏，voice_profile_id填写稳定的声音角色标识。"
+            "场景locations应是可生成空场资产的地点名，不把人物动作写进地点。"
             "所有角色必须是健康、非色情、非血腥的统一国漫画风。严格输出 JSON。"
         )
         user = (
@@ -745,7 +768,7 @@ class OpenAICompatiblePlanner(Planner):
             size_guidance = "全片旁白与对白合计900-1400个汉字、24-36个镜头"
         system = (
             "你是小说改编漫剧编剧。忠于原文人物关系、关键事件、顺序、因果和结局；不得新增核心情节。"
-            f"前4秒片头后立即进入冲突或悬念。原文有效字数约{source_chars}，{size_guidance}；"
+            f"不使用静态片头，0-3秒直接进入当前章有原文依据的冲突或悬念。原文有效字数约{source_chars}，{size_guidance}；"
             "不得为凑镜头或字数重复情节、虚构事件或拆碎同一句话。"
             "每个镜头设置 turns：旁白 role=narrator、speaking=false；人物对白 role 和 speaker_name 均使用角色原名、"
             "speaking=true、delivery_mode=visible_dialogue，并逐字保留对白；内心声或画外对白使用角色原名、"
@@ -766,11 +789,17 @@ class OpenAICompatiblePlanner(Planner):
             f"小说：{novel.title}\n本集：{episode.source_title}\n故事圣经：{bible.model_dump_json()}\n"
             f"原文：{episode.source_text}\nJSON Schema：{json.dumps(schema, ensure_ascii=False)}"
         )
-        return _bounded_validate(
+        plan = _bounded_validate(
             "plan_episode",
             self.settings.planner_max_revisions,
             lambda repair: self._json(system, user, repair),
             lambda data: self._validate_episode_data(data, episode, bible),
+        )
+        return apply_creative_direction(
+            plan,
+            deterministic_chapter_diagnosis(episode),
+            bible,
+            profile=self.settings.creative_profile,
         )
 
     def _diagnose_episode(
@@ -823,9 +852,14 @@ class OpenAICompatiblePlanner(Planner):
         system = (
             "你是独立的漫剧剧本审稿人，不负责美化分镜。检查剧本是否忠于当前章、"
             "是否先铺垫再兑现、主要人物是否在承担冲突前完成身份和立场建立、"
-            "开头是否提前泄露章末答案、结尾是否停在当前章边界，以及是否使用后文剧情。"
+            "结尾是否停在当前章边界，以及是否使用后文剧情。"
+            "short-drama-adaptive-v1允许0-3秒展示当前章内的结果、公开受压或关系异常作为冷开场，"
+            "但cold_open_source_quote必须来自当前章，前两镜必须实际呈现，随后必须补足原因并在正常因果位置再次兑现；"
+            "不得借用后文章节的答案。"
             "请站在从未读过原著的观众角度，确认能回答：主要人物是谁、人物关系是什么、"
             "发生了什么、为什么发生、造成什么后果、人物为何这样反应。"
+            "检查旁白是否超过dramaturgy.narration_budget_ratio；能用动作、对白、反应、道具或环境结果表达的信息，"
+            "不得继续写成解释性旁白。"
             "每个turn应是一口气可自然说完、只承载一个核心事实、动作或反应的完整语义句；通常12-36字，"
             "超过60字才因TTS与镜头时长风险判为blocking。不得为了两行字幕把一句话切碎。"
             "长镜头可以连续承载多个语义turn，不能因拆台词而要求增加切镜。"
@@ -882,7 +916,8 @@ class OpenAICompatiblePlanner(Planner):
         system = (
             "你是漫剧台词编辑。只补写现有镜头的turns，不得修改镜头顺序、事件、人物关系或结局。"
             "旁白可忠实转述原文；人物可见对白必须逐字来自对应source_quote。"
-            "优先为信息过薄的镜头增加必要动作、心理和因果连接，不重复已经说过的内容。"
+            "优先补原文已有的短对白、内心声或必要因果，不得用摘要旁白填充字数；"
+            "能由visual_prompt和performance_plan表演的信息不要重复朗读。"
             "每个turn只讲一个核心事实、动作或反应，同时必须保持自然完整的语义与呼吸，通常12-36字，硬上限60字。"
             "不得为字幕分页切碎完整句；字幕由音频对齐层另行分页。"
             "同一shot通常用1-3个语义turn承载一个连续表演beat，必要时可更多，但不要增加shot或切镜。"
@@ -974,41 +1009,49 @@ class OpenAICompatiblePlanner(Planner):
         )
         schema = EpisodePlan.model_json_schema()
         source_chars = len(re.sub(r"\s+", "", episode.source_text))
-        if source_chars <= 1200:
-            size_guidance = "约450-750字、8-14个turn；极短章节按实际内容缩放"
-        elif source_chars <= 3000:
-            size_guidance = "约700-1100字、至少12个turn"
-        else:
-            size_guidance = "约900-1400字、至少18个turn和16个镜头"
-        shot_requirement = (
-            "必须恰好生成18个shot，index连续为1-18"
-            if source_chars > 3000
-            else "镜头数必须达到size_guidance下限"
+        policy = script_policy(
+            source_chars,
+            diagnosis.density,
+            self.settings.creative_profile,
         )
+        size_guidance = (
+            f"至少{policy.min_script_chars}个有效发声字、至少{policy.min_turns}个turn、"
+            f"至少{policy.min_shots}个shot；只在有新信息、动作或反应时增加"
+        )
+        direction_brief = creative_prompt_brief(bible.genre)
         system = (
-            "你是连续竖屏漫剧的逐章编剧。当前章完整对应当前一集，不得拆集、合并下一章、"
-            "借用后文事件或提前揭晓章末答案。先保证人物、因果和冲突完整，再设计动作和运镜。"
-            "扩写表演而不扩写剧情；压缩重复解释而不删除关键因果。默认保持原文顺序；"
-            "如用冷开场，只能做3-5秒无答案预览，随后回到原文顺序。"
-            "video_title、hook和前两镜只能使用章节前四分之一已知信息；hook只提出异常或问题，"
-            "严禁写出章节后半程的破坏、死亡、身份揭晓、真相或最终行动。"
+            "你是连续竖屏短剧的逐章编剧和改编导演，不是有声书摘要员。当前章完整对应当前一集，不得拆集、"
+            "合并下一章或借用后文事件；保留原文事实、人物关系、关键因果和章末边界，但可重排当前章信息。"
+            f"creative_profile必须填写{self.settings.creative_profile}。{direction_brief}"
+            "先填写dramaturgy，只选择一个dramatic_question和3-5个冲突节点；"
+            "cold_open必须在0-3秒呈现当前章内最易读的受压结果、关系异常、关键道具或行动后果，"
+            "cold_open_source_quote逐字来自当前章，前两镜实际呈现；如果预览后段事件，随后回到原因，"
+            "并在正常因果位置再次完整兑现。不得提前给出后文章节答案。"
             f"有效剧本目标为{size_guidance}。每个shot必须填写event_ids，"
             "每个章节事件必须写入adaptation_ledger，critical事件不得removed。"
-            "旁白负责连接动作和必要心理信息，对白负责人物立场和冲突；不要把整章写成摘要旁白。"
+            "supporting事件可compressed或merged，texture事件可removed；不要为覆盖原文把所有句子都发声。"
+            "旁白只保留无法表演的时间、空间、必要规则和内心转折；能用动作、人物对白、反应、道具结果"
+            "表达的信息必须删掉旁白。旁白字数占比不得超过dramaturgy.narration_budget_ratio。"
             "使用口语化短剧节拍：每个turn只交付一个核心事实、动作或反应，但必须是一口气自然说完的完整语义句，"
             "通常12-36字，硬上限60字；字幕在音频对齐后独立切页，严禁为字幕长度把一句话拆碎；"
             "需要讲因果时按触发→事实→后果→人物反应排列，不得只写模糊情绪。"
             "每个turn只允许一个声音角色；可见对白逐字来自source_quote并设置visible_dialogue；"
             "原文中的内心声和画外对白可用角色音色，但speaking必须为false并设置inner_voice或offscreen_dialogue。"
-            f"输出要紧凑：{shot_requirement}；每镜performance_plan用1-2个短motion_beats；"
+            "每镜performance_plan按触发→察觉→一个主要动作→对方反应→收束组织；"
+            "不要为了防静态而让人物每1-2秒机械地转头、摆手或改变重心。"
             "camera_plan默认locked并用1-2个短camera_beats，只有明确叙事动机才选择移动模式；"
             "移动镜头不超过约三分之一、强调运镜不超过约十分之一，不得连续两镜都明显运镜；"
-            "同场景锁定行动轴、人物左右和视线方向；不要重复Schema说明，不要在字段中写长篇方法论。"
+            "运镜动机只允许空间揭示、明确位移、视点变化或权力/情绪转折；普通对白和反应保持固定机位。"
+            "同场景锁定行动轴、人物左右和视线方向。"
+            "visual_strategy必须明确：单人普通对白/反应用direct-assets，无人物空镜用scene-only；"
+            "多人精确站位、人物道具交互、结果揭示、高潮反转和封面级构图用story-keyframe，"
+            "并在keyframe_reasons记录原因。audio_plan中speech_strategy当前统一locked以保证原文台词准确；"
+            "TTS只负责真正发声的turn，ambience、music_cue和sfx_events写场景声音意图，不得把音效写成旁白。"
+            "不要重复Schema说明，不要在字段中写长篇方法论。"
             "对于长章节，每个连续shot通常承载1-3个语义turn，只表达一个明确视觉或情绪beat；"
-            "全集turns.text目标700-1000字，优先讲清关键因果，不用文学性外貌铺陈凑字数；"
+            "优先讲清关键因果，不用文学性外貌铺陈或摘要旁白凑字数；"
             "字数只统计turns.text，narration、subtitle、visual_prompt不计入有效剧本字数。"
-            "标题只能概括本章起始悬念，hook不得包含‘破碎、砸毁、不是现代人、凶手、真相’等章末答案。"
-            "前10秒建立人物、异常和即时问题，章末反转必须先铺垫后兑现。严格输出JSON。"
+            "前10秒必须建立人物、异常和即时问题，章末反转必须先铺垫后兑现。严格输出JSON。"
         )
         base_user = (
             f"小说：{novel.title}\n当前章节：{episode.source_title}\n"
@@ -1030,6 +1073,12 @@ class OpenAICompatiblePlanner(Planner):
             atomic_write_json(draft_root / f"draft_{draft_number:02d}.json", data)
             try:
                 plan = self._validate_episode_data(data, episode, bible)
+                plan = apply_creative_direction(
+                    plan,
+                    diagnosis,
+                    bible,
+                    profile=self.settings.creative_profile,
+                )
                 plan = normalize_chronological_plan(plan, diagnosis, episode)
                 atomic_write_json(
                     draft_root / f"draft_{draft_number:02d}_normalized.json",
@@ -1046,6 +1095,7 @@ class OpenAICompatiblePlanner(Planner):
                     required_chars = script_policy(
                         len(re.sub(r"\s+", "", episode.source_text)),
                         diagnosis.density,
+                        self.settings.creative_profile,
                     ).min_script_chars
                     plan = self._expand_script_turns(
                         episode, bible, plan, required_chars
@@ -1117,6 +1167,7 @@ class CommandPlanner(Planner):
             raise ValueError("planner command is missing")
         self.command = shlex.split(settings.planner_command)
         self.max_revisions = settings.planner_max_revisions
+        self.creative_profile = settings.creative_profile
 
     def _invoke(self, operation: str, payload: dict) -> dict:
         with tempfile.TemporaryDirectory(prefix="novel-planner-") as directory:
@@ -1178,7 +1229,7 @@ class CommandPlanner(Planner):
             },
         }
         normalizer = object.__new__(OpenAICompatiblePlanner)
-        return _bounded_validate(
+        plan = _bounded_validate(
             "plan_episode",
             self.max_revisions,
             lambda repair: self._invoke(
@@ -1186,6 +1237,12 @@ class CommandPlanner(Planner):
                 {**payload, **({"repair": repair} if repair else {})},
             ),
             lambda data: normalizer._validate_episode_data(data, episode, bible),
+        )
+        return apply_creative_direction(
+            plan,
+            deterministic_chapter_diagnosis(episode),
+            bible,
+            profile=self.creative_profile,
         )
 
     def plan_episode_bundle(
@@ -1203,6 +1260,7 @@ class CommandPlanner(Planner):
             "previous_state": previous_state.model_dump(mode="json") if previous_state else {},
             "chapter_only": True,
             "future_chapters_allowed": False,
+            "creative_profile": self.creative_profile,
         }
         diagnosis = _bounded_validate(
             "diagnose_episode",
@@ -1233,7 +1291,16 @@ class CommandPlanner(Planner):
                         "all_critical_events_mapped": True,
                         "adaptation_ledger_required": True,
                         "causal_chain_complete": True,
-                        "opening_must_not_spoil_resolution": True,
+                        "creative_profile": self.creative_profile,
+                        "source_grounded_result_first_cold_open": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "cold_open_must_be_replayed_after_causes": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
+                        "narration_budget_required": (
+                            self.creative_profile == SHORT_DRAMA_PROFILE
+                        ),
                         "ending_at_current_chapter_boundary": True,
                         "one_visible_speaker_per_turn": True,
                         "performance_plan_required": True,
@@ -1248,6 +1315,13 @@ class CommandPlanner(Planner):
             )
             try:
                 plan = normalizer._validate_episode_data(data, episode, bible)
+                plan = apply_creative_direction(
+                    plan,
+                    diagnosis,
+                    bible,
+                    profile=self.creative_profile,
+                )
+                plan = normalize_chronological_plan(plan, diagnosis, episode)
                 deterministic = evaluate_script_quality(
                     plan, diagnosis, episode, previous_state=previous_state
                 )

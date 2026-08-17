@@ -17,6 +17,7 @@ from .models import (
     EpisodePlan,
     MotionBeat,
     PerformancePlan,
+    SpeechStrategy,
     ScriptTurn,
     StoryBible,
     TurnDelivery,
@@ -190,22 +191,55 @@ class SeriesAssetFactory:
         )
 
     @staticmethod
-    def _character_prompt(bible: StoryBible, name: str, appearance: str, wardrobe: str) -> str:
-        return (
+    def _character_prompt(
+        bible: StoryBible,
+        name: str,
+        appearance: str,
+        wardrobe: str,
+        *,
+        visual_archetype: str = "",
+        face_anchors: list[str] | None = None,
+        silhouette: str = "",
+        hair: str = "",
+        palette: str = "",
+        motion_signature: str = "",
+    ) -> str:
+        identity = "；".join(
+            item
+            for item in (
+                f"戏剧类型：{visual_archetype}" if visual_archetype else "",
+                f"五官锚点：{'、'.join(face_anchors or [])}" if face_anchors else "",
+                f"轮廓：{silhouette}" if silhouette else "",
+                f"发型结构：{hair}" if hair else "",
+                f"角色专属配色：{palette}" if palette else "",
+                f"惯用姿态：{motion_signature}" if motion_signature else "",
+            )
+            if item
+        )
+        prefix = (
             f"{bible.visual_style}。系列风格指纹 {bible.style_fingerprint}。{bible.palette}。"
             f"角色资产：{name}；固定外貌：{appearance}；固定服装：{wardrobe}。"
-            "只画一个人物且只出现一次，单人四分之三正面全身站姿，脸部清晰，头脚完整，"
-            "身体比例自然，双手自然放松，不拿食物、纸袋、武器或任何剧情道具。"
+        )
+        return prefix + (f"{identity}。" if identity else "") + (
+            "只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；"
+            "脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。"
+            "双手自然放松，不拿食物、纸袋、武器或任何剧情道具。"
             "纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。"
             f"{SeriesAssetFactory._rendering_direction(bible)}；"
             "不要文字、Logo或水印。"
         )
 
     @staticmethod
-    def _expression_prompt(bible: StoryBible, name: str) -> str:
+    def _expression_prompt(
+        bible: StoryBible,
+        name: str,
+        expression_profile: str = "",
+    ) -> str:
         return (
             f"保持参考图中{ name }的脸型、年龄、发型、服装和{bible.style_fingerprint}风格完全一致。"
-            "只画这个人物且只出现一次，生成四分之三正面单人半身表情锚点：克制的中性神情，"
+            "只画这个人物且只出现一次，生成四分之三正面单人胸像身份与表情锚点；"
+            f"角色表情幅度：{expression_profile or '克制自然、以眼神和眉形为主'}。"
+            "选择该角色最有辨识度、但尚未到剧情高潮的基础表情，"
             "眼睛、眉形和嘴部清晰无遮挡，肩颈与服装领口完整。"
             "不要表情九宫格、多头像、分身、拼贴；双手不持任何物品，简单背景，"
             f"{SeriesAssetFactory._rendering_direction(bible)}；不要文字、Logo或水印。"
@@ -216,7 +250,9 @@ class SeriesAssetFactory:
         return (
             f"{bible.visual_style}。系列风格指纹 {bible.style_fingerprint}。{bible.palette}。"
             f"场景资产：{location}。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。"
-            "竖屏建立镜头与对话主角度可复用背景板，前景不出现人物。"
+            "严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，"
+            "预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。"
+            "不得出现人物、人体剪影、海报人物、照片人物或镜中人。"
             f"{SeriesAssetFactory._rendering_direction(bible)}；不要文字、Logo或水印。"
         )
 
@@ -240,7 +276,18 @@ class SeriesAssetFactory:
         for index, character in enumerate(source_characters, start=1):
             asset_id = f"character_{index:03d}"
             directory = root / "characters" / asset_id
-            prompt = self._character_prompt(bible, character.name, character.appearance, character.wardrobe)
+            prompt = self._character_prompt(
+                bible,
+                character.name,
+                character.appearance,
+                character.base_costume or character.wardrobe,
+                visual_archetype=character.visual_archetype,
+                face_anchors=character.face_anchors,
+                silhouette=character.silhouette,
+                hair=character.hair,
+                palette=character.palette,
+                motion_signature=character.motion_signature,
+            )
             spec = {
                 "asset_id": asset_id,
                 "name": character.name,
@@ -249,6 +296,17 @@ class SeriesAssetFactory:
                 "age": character.age,
                 "appearance": character.appearance,
                 "wardrobe": character.wardrobe,
+                "visual_archetype": character.visual_archetype,
+                "face_anchors": character.face_anchors,
+                "silhouette": character.silhouette,
+                "hair": character.hair,
+                "palette": character.palette,
+                "base_costume": character.base_costume,
+                "episode_costumes": character.episode_costumes,
+                "signature_prop": character.signature_prop,
+                "expression_profile": character.expression_profile,
+                "motion_signature": character.motion_signature,
+                "voice_profile_id": character.voice_profile_id,
                 "style_fingerprint": bible.style_fingerprint,
                 "prompt": prompt,
             }
@@ -279,7 +337,9 @@ class SeriesAssetFactory:
 
         self.provider.enter_stage("image-edit")
         for character, asset_id, directory, prompt, primary in character_rows:
-            expression_prompt = self._expression_prompt(bible, character.name)
+            expression_prompt = self._expression_prompt(
+                bible, character.name, character.expression_profile
+            )
             secondary = self._ensure_image(
                 expression_prompt,
                 directory / "expressions.jpeg",
@@ -698,6 +758,11 @@ def compile_production_plan(
     current_scene_key: tuple[str, str] | None = None
     scene_index = 0
     for shot in plan.shots:
+        if shot.audio_plan.speech_strategy != SpeechStrategy.LOCKED:
+            raise ValueError(
+                f"shot {shot.index} requests native speech, but the production runtime "
+                "currently supports locked speech only"
+            )
         location_id = _resolve_location_id(shot.location, assets)
         scene_key = (location_id, shot.scene_job)
         if scene_key != current_scene_key:
@@ -784,7 +849,16 @@ def compile_production_plan(
             if turn.speaking:
                 speaker = character_specs[turn.speaker_name]
                 actor_identity = _character_identity(speaker)
+                keyframe_contract = (
+                    "【剧情锚点关键帧】原因："
+                    + "、".join(shot.keyframe_reasons or ["导演指定构图"])
+                    + "。"
+                    if str(shot.visual_strategy) == "story-keyframe"
+                    else "【自适应视觉候选】仅当视频后端不能直接接收人物与空场资产时生成本帧。"
+                )
                 keyframe_prompt = (
+                    keyframe_contract
+                    +
                     f"系列风格指纹 {bible.style_fingerprint}。视觉风格：{bible.visual_style}。"
                     f"参考图只锁定唯一角色身份、服装和画风：{actor_identity}；"
                     "不要复制参考图中的静态姿势、画面位置或摄影机构图。"
@@ -810,10 +884,20 @@ def compile_production_plan(
                     emotion=turn.emotion,
                     performance_plan=performance_plan,
                     camera_plan=camera_plan,
+                    audio_plan=shot.audio_plan,
                 )
             else:
                 actor_identity = None
+                keyframe_contract = (
+                    "【剧情锚点关键帧】原因："
+                    + "、".join(shot.keyframe_reasons or ["导演指定构图"])
+                    + "。"
+                    if str(shot.visual_strategy) == "story-keyframe"
+                    else "【自适应视觉候选】仅当场景资产不能直接完成本镜时生成本帧。"
+                )
                 keyframe_prompt = (
+                    keyframe_contract
+                    +
                     f"系列风格指纹 {bible.style_fingerprint}。参考板只锁定场景、角色身份、服装、色彩和光线；"
                     "不要复制参考板中的静态姿势和摄影机构图。"
                     f"分镜视觉约束：{shot.visual_prompt}。"
@@ -838,6 +922,7 @@ def compile_production_plan(
                     composition_prompt=composition,
                     performance_plan=performance_plan,
                     camera_plan=camera_plan,
+                    audio_plan=shot.audio_plan,
                 )
             units.append(
                 RuntimeUnit(
@@ -865,6 +950,9 @@ def compile_production_plan(
                     composition_prompt=composition,
                     performance_plan=performance_plan,
                     camera_plan=camera_plan,
+                    visual_strategy=shot.visual_strategy,
+                    keyframe_reasons=shot.keyframe_reasons,
+                    audio_plan=shot.audio_plan,
                     audio_path=f"work/turn_audio/{unit_id}.wav",
                     keyframe_path=f"work/keyframes/{unit_id}.jpeg",
                     raw_video_path=f"work/raw_video/{unit_id}.mp4",

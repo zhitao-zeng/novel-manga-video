@@ -831,6 +831,7 @@ def test_direct_asset_strategy_requires_local_h3() -> None:
         video_command="/models/h3-video",
         tts_command="/models/tts",
         local_visual_strategy="h3-direct-single-character",
+        font_path=Path(__file__),
     ).validate()
 
 

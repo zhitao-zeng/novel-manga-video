@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from novel_manga.ingest import read_novel
-from novel_manga.models import EpisodePlan, ScriptTurn, SeriesState, Shot, StoryBible
+from novel_manga.models import Episode, EpisodePlan, ScriptTurn, SeriesState, Shot, StoryBible
 from novel_manga.script_planning import (
     deterministic_chapter_diagnosis,
     evaluate_script_quality,
@@ -14,13 +14,28 @@ from novel_manga.script_planning import (
 )
 
 
+def _synthetic_long_episode() -> Episode:
+    first = "方才明明正在逛博物馆，怎么一眨眼的功夫就到这个地方来了？"
+    rows = [first]
+    for index in range(1, 24):
+        rows.append(
+            f"事件{index}发生后，众人根据眼前的环境、彼此的反应和手中的物件继续确认处境，"
+            "每个人的立场都发生了可以追溯的变化，但没有人能够立刻解释异常的真正原因；"
+            "他们只能先记住当前线索，再决定下一步行动。"
+        )
+    source = "第一章 魂瓶\n" + "\n".join(rows)
+    return Episode(
+        index=1,
+        source_title="第一章 魂瓶",
+        source_text=source,
+        text_count=len("".join(source.split())),
+        source_start=0,
+        source_end=len(source),
+    )
+
+
 def test_script_quality_rejects_long_spoken_turn_without_requiring_more_shots() -> None:
-    episode = read_novel(
-        Path(__file__).parents[1]
-        / "outputs/inputs/maoxing-langya-v22/冒姓琅琊_第一章_魂瓶.txt",
-        novel_id="cadence",
-        title="冒姓琅琊",
-    ).episodes[0]
+    episode = _synthetic_long_episode()
     diagnosis = deterministic_chapter_diagnosis(episode)
     quote = diagnosis.events[0].source_quote
     shots = []
@@ -76,12 +91,7 @@ def test_script_quality_rejects_long_spoken_turn_without_requiring_more_shots() 
 
 
 def test_chronological_normalizer_keeps_raw_draft_separate() -> None:
-    episode = read_novel(
-        Path(__file__).parents[1]
-        / "outputs/inputs/maoxing-langya-v22/冒姓琅琊_第一章_魂瓶.txt",
-        novel_id="normalize",
-        title="冒姓琅琊",
-    ).episodes[0]
+    episode = _synthetic_long_episode()
     diagnosis = deterministic_chapter_diagnosis(episode)
     first = diagnosis.events[0]
     last = diagnosis.events[-1]
@@ -180,10 +190,8 @@ def test_diagnosis_quote_grounding_accepts_only_formatting_differences(tmp_path:
 
 
 def test_old_maoxing_summary_script_is_rejected_before_media() -> None:
-    root = Path(__file__).parents[1]
-    source = root / "outputs/inputs/maoxing-langya-v22/冒姓琅琊_第一章_魂瓶.txt"
-    novel = read_novel(source, novel_id="maoxing-v22", title="冒姓琅琊")
-    diagnosis = deterministic_chapter_diagnosis(novel.episodes[0])
+    episode = _synthetic_long_episode()
+    diagnosis = deterministic_chapter_diagnosis(episode)
     texts = [
         "五个现代人围观博物馆魂瓶后，竟在古代江边同时醒来；其中一人仍昏迷。",
         "许编认出王扬；王扬冲到水边，倒影却是一张十七八岁的苍白少年脸。",
@@ -216,7 +224,7 @@ def test_old_maoxing_summary_script_is_rejected_before_media() -> None:
         ],
     )
 
-    report = evaluate_script_quality(plan, diagnosis, novel.episodes[0])
+    report = evaluate_script_quality(plan, diagnosis, episode)
 
     assert report.passed is False
     assert report.script_char_count == 312

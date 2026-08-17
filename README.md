@@ -1,5 +1,8 @@
 # Novel Manga Video
 
+短剧化改编、人物设计、自适应关键帧、生图 / Seedance 提示词和声音分工见
+[`docs/short-drama-methodology.md`](docs/short-drama-methodology.md)。
+
 把 `txt / markdown / docx / pdf` 小说转为 9:16 国漫画风漫剧。生产控制器是普通 Python 程序，不依赖
 Codex；故事规划、生图、生视频、TTS、ASR 和强制对齐均为可替换 provider。
 
@@ -44,11 +47,12 @@ curl 'http://127.0.0.1:8080/generate_progress?novel_id=1'
 API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能跳过质量门禁：
 
 ```text
-小说 → 按原文章节分集 → 一次完成全书系列圣经和各章审稿方案
+小说 → 按原文章节分集 → 题材发动机 + 戏剧问题 + 结果前置冷开场
+     → 一次完成全书系列圣经和各章审稿方案
      → 单人角色资产 + 无人物场景资产（全书复用）
-     → scene → shot → PerformancePlan + CameraPlan → turn
-     → 全部逐句音频 + ASR + 对齐
-     → 连续视觉组关键帧 + 专用封面
+     → scene → shot → PerformancePlan + CameraPlan + AudioPlan → turn
+     → 必须准确的逐句音频 + ASR + 对齐
+     → 自适应人物/场景直出或剧情锚点关键帧 + 专用封面
      → 旁白/画外镜头视频 + 可见对白参考音频视频
      → 轻量人脸一致性评分（仅监测，不重生成、不阻断）
      → 无字幕成片 → ASS 烧录 → 媒体/字幕/ASR 最终准入
@@ -76,7 +80,8 @@ API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能�
 - 复用身份和场景资产，不复用不同说话人的完整构图；相邻同场景 turn 会按音频时长合并为连续视觉组，
   可见对白组仍优先建立清晰的说话人近景。
   可见对白镜头优先锁定当前说话人的角色资产；旁白和连续多人镜头使用场景与不超过两名角色的参考板。
-- 每个 turn 绑定同一份锁定文本、固定音色、音频、字幕对齐、关键帧和视频片段。
+- 每个 turn 绑定同一份锁定文本、固定音色、音频、字幕对齐、视觉输入决策和视频片段；
+  普通单人/空镜可复用人物与场景资产，关键构图才生成剧情锚点帧。
 - 每个 shot 必须先形成结构化表演计划和摄影机计划：动作按“触发→动作→反应→收束”排列；摄影机默认
   `locked`，只有明确的人物位移、空间揭示、情绪/权力转折才允许一次克制的短轨迹。全集移动镜头不超过约
   三分之一、强调运镜不超过约十分之一，相邻镜头不得连续明显运镜；连续视觉组最终只保留一份摄影机计划。
@@ -241,11 +246,10 @@ $NOVEL_TTS_COMMAND --text TEXT --voice VOICE \
 
 这三个适配器可以包装任意本地模型、HTTP 服务或任务队列。视频适配器必须真正接收
 `--reference-audio`；最终合成仍使用锁定的原始 TTS 音频。
-本地 MiniMax H3 适配器还支持重复的 `--additional-image`：开启
-生产默认使用 `NOVEL_LOCAL_VISUAL_STRATEGY=keyframe`，先生成场景化首帧再交给 H3。
-如显式开启 `NOVEL_LOCAL_VISUAL_STRATEGY=h3-direct-single-character`，单角色可见对白组会把
-角色定妆图作为 Picture 1、空场景资产作为 Picture 2 直接生成；其他镜头自动保留关键帧流程。
-这个模式用于对照或低延迟实验，因为 H3 仍可能先展示短暂空场，不能替代首帧构图硬约束。
+本地 MiniMax H3 适配器还支持重复的 `--additional-image`。生产默认使用
+`NOVEL_LOCAL_VISUAL_STRATEGY=adaptive`：普通单角色组把角色定妆图作为 Picture 1、空场景资产作为
+Picture 2；无人物空镜直接使用场景资产；多人站位、人物/道具交互、结果揭示和高潮镜头自动回退剧情
+关键帧。`keyframe` 可恢复旧式逐组关键帧，`h3-direct-single-character` 保留为严格的单角色对照模式。
 
 ### 对齐和 ASR
 

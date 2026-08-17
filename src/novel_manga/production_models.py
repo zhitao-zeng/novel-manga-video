@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
-from .models import CameraPlan, PerformancePlan, TurnDelivery
+from .models import (
+    CameraPlan,
+    PerformancePlan,
+    SceneAudioPlan,
+    TurnDelivery,
+    VisualStrategy,
+)
 
 
 class AssetRecord(BaseModel):
@@ -53,6 +59,9 @@ class RuntimeUnit(BaseModel):
     composition_prompt: str | None = None
     performance_plan: PerformancePlan | None = None
     camera_plan: CameraPlan | None = None
+    visual_strategy: VisualStrategy = VisualStrategy.AUTO
+    keyframe_reasons: list[str] = Field(default_factory=list)
+    audio_plan: SceneAudioPlan = Field(default_factory=SceneAudioPlan)
     audio_path: str
     keyframe_path: str
     raw_video_path: str
@@ -105,6 +114,8 @@ class RuntimeVisualGroup(BaseModel):
     audio_seconds: float | None = None
     segment_seconds: float | None = None
     speed_factor: float = Field(default=1.0, ge=1.0, le=1.12)
+    visual_strategy: VisualStrategy = VisualStrategy.AUTO
+    keyframe_reasons: list[str] = Field(default_factory=list)
 
 
 class ProductionPlan(BaseModel):

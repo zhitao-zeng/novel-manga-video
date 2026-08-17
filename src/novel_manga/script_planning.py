@@ -18,6 +18,7 @@ from .models import (
     SeriesState,
     StoryBible,
 )
+from .creative_direction import SHORT_DRAMA_PROFILE
 
 
 SCRIPT_POLICY_REVISION = "novel-manga-script-v5-semantic-utterance"
@@ -82,9 +83,22 @@ class ScriptPolicy:
     min_shots: int
 
 
-def script_policy(source_chars: int, density: str) -> ScriptPolicy:
+def script_policy(
+    source_chars: int,
+    density: str,
+    creative_profile: str = "faithful-chronological-v1",
+) -> ScriptPolicy:
     """Scale screenplay floors without punishing genuinely tiny chapters."""
 
+    if creative_profile == SHORT_DRAMA_PROFILE:
+        if source_chars <= 200:
+            return ScriptPolicy(max(8, round(source_chars * 0.25)), 1, 1)
+        if source_chars <= 1200:
+            turns = max(4, min(7, math.ceil(source_chars / 180)))
+            return ScriptPolicy(min(240, max(60, round(source_chars * 0.18))), turns, max(4, turns - 1))
+        if source_chars <= 3000:
+            return ScriptPolicy(min(420, max(240, round(source_chars * 0.12))), 8, 8)
+        return ScriptPolicy(min(650, max(420, round(source_chars * 0.10))), 12, 10)
     if source_chars <= 200:
         return ScriptPolicy(max(8, round(source_chars * 0.35)), 1, 1)
     if source_chars <= 1200:
@@ -107,24 +121,29 @@ def normalize_chronological_plan(
     """Create a separate chronological cut without mutating the saved LLM draft."""
 
     event_order = {event.event_id: event.order for event in diagnosis.events}
-    unique = []
-    seen: set[tuple[tuple[str, ...], tuple[str, ...], str]] = set()
-    for shot in plan.shots:
-        signature = (
-            tuple(shot.event_ids),
-            tuple(_normalized(turn.text) for turn in shot.turns),
-            _normalized(shot.source_quote),
+    if plan.creative_profile == SHORT_DRAMA_PROFILE:
+        # A result-first cold open intentionally repeats its event after the
+        # causes are established.  Do not collapse that editorial replay.
+        unique = list(plan.shots)
+    else:
+        unique = []
+        seen: set[tuple[tuple[str, ...], tuple[str, ...], str]] = set()
+        for shot in plan.shots:
+            signature = (
+                tuple(shot.event_ids),
+                tuple(_normalized(turn.text) for turn in shot.turns),
+                _normalized(shot.source_quote),
+            )
+            if signature in seen:
+                continue
+            seen.add(signature)
+            unique.append(shot)
+        unique.sort(
+            key=lambda shot: (
+                min((event_order.get(event_id, 10**6) for event_id in shot.event_ids), default=10**6),
+                shot.index,
+            )
         )
-        if signature in seen:
-            continue
-        seen.add(signature)
-        unique.append(shot)
-    unique.sort(
-        key=lambda shot: (
-            min((event_order.get(event_id, 10**6) for event_id in shot.event_ids), default=10**6),
-            shot.index,
-        )
-    )
     shots = [shot.model_copy(update={"index": index}) for index, shot in enumerate(unique, 1)]
     ledger = []
     for item in plan.adaptation_ledger:
@@ -132,14 +151,18 @@ def normalize_chronological_plan(
             shot.index for shot in shots if item.event_id in shot.event_ids
         ]
         ledger.append(item.model_copy(update={"shot_indexes": indexes}))
-    return plan.model_copy(
-        update={
-            "video_title": episode.source_title,
-            "hook": diagnosis.events[0].description,
-            "shots": shots,
-            "adaptation_ledger": ledger,
-        }
-    )
+    updates: dict[str, object] = {
+        "shots": shots,
+        "adaptation_ledger": ledger,
+    }
+    if plan.creative_profile != SHORT_DRAMA_PROFILE:
+        updates.update(
+            {
+                "video_title": episode.source_title,
+                "hook": diagnosis.events[0].description,
+            }
+        )
+    return plan.model_copy(update=updates)
 
 
 def validate_chapter_diagnosis(
@@ -262,9 +285,18 @@ def evaluate_script_quality(
     previous_state: SeriesState | None = None,
 ) -> ScriptQualityReport:
     source_chars = len(_normalized(episode.source_text))
-    policy = script_policy(source_chars, diagnosis.density)
+    policy = script_policy(source_chars, diagnosis.density, plan.creative_profile)
     turns = [turn for shot in plan.shots for turn in shot.turns]
     script_chars = sum(len(_normalized(turn.text)) for turn in turns)
+    narration_chars = sum(
+        len(_normalized(turn.text)) for turn in turns if turn.role == "narrator"
+    )
+    narration_ratio = narration_chars / script_chars if script_chars else 0.0
+    narration_budget = (
+        plan.dramaturgy.narration_budget_ratio
+        if plan.dramaturgy is not None
+        else 1.0
+    )
     covered = {event_id for shot in plan.shots for event_id in shot.event_ids}
     events = {event.event_id: event for event in diagnosis.events}
     critical = {event.event_id for event in diagnosis.events if event.importance == "critical"}
@@ -316,6 +348,16 @@ def evaluate_script_quality(
             f"通常控制在12-{SHORT_DRAMA_TURN_TARGET_MAX}字。只在自然停顿或语义完成处拆分，"
             "字幕分页由对齐层独立完成，不得为两行字幕把一句话切碎，也不得因此增加切镜",
             shot_indexes=hard_overflow_shots,
+        )
+
+    if (
+        plan.creative_profile == SHORT_DRAMA_PROFILE
+        and narration_ratio > narration_budget + 0.05
+    ):
+        block(
+            "narration_budget_exceeded",
+            f"旁白占比{narration_ratio:.1%}超过当前题材预算{narration_budget:.1%}；"
+            "能表演、能对白或能用反应镜头表达的信息不得继续写成解释性旁白",
         )
 
     if script_chars < policy.min_script_chars:
@@ -394,13 +436,21 @@ def evaluate_script_quality(
         )
 
     opening_no_spoiler = True
+    cold_open_grounded = True
     introductions_complete = True
     future_content_used = False
     if qualitative is not None:
         opening_no_spoiler = qualitative.opening_no_spoiler
         introductions_complete = qualitative.character_introductions_complete
         future_content_used = qualitative.future_content_used
-        issues.extend(qualitative.issues)
+        issues.extend(
+            issue
+            for issue in qualitative.issues
+            if not (
+                plan.creative_profile == SHORT_DRAMA_PROFILE
+                and issue.code == "opening_spoils_resolution"
+            )
+        )
         if not qualitative.passed and not any(
             issue.severity == "blocking" for issue in qualitative.issues
         ):
@@ -408,7 +458,7 @@ def evaluate_script_quality(
                 "independent_review_failed",
                 "独立审稿未通过，但审稿结果没有提供可执行的blocking问题",
             )
-    else:
+    elif plan.creative_profile != SHORT_DRAMA_PROFILE:
         late_sensitive = {
             event.event_id
             for event in diagnosis.events
@@ -419,12 +469,56 @@ def evaluate_script_quality(
             event_id for shot in plan.shots[:2] for event_id in shot.event_ids
         }
         opening_no_spoiler = not bool(late_sensitive & opening_ids)
-    if not opening_no_spoiler:
+    if plan.creative_profile == SHORT_DRAMA_PROFILE:
+        dramaturgy = plan.dramaturgy
+        grounded_quote = (
+            _ground_quote(dramaturgy.cold_open_source_quote, episode.source_text)
+            if dramaturgy is not None
+            else None
+        )
+        opening_quotes = "".join(shot.source_quote for shot in plan.shots[:2])
+        cold_open_grounded = bool(
+            grounded_quote
+            and _quote_key(grounded_quote) in _quote_key(opening_quotes)
+        )
+        opening_no_spoiler = cold_open_grounded
+        if not cold_open_grounded:
+            block(
+                "cold_open_not_grounded",
+                "短剧冷开场必须直接来自当前章证据，并在前两镜中实际出现",
+                shot_indexes=[shot.index for shot in plan.shots[:2]],
+            )
+    if not opening_no_spoiler and plan.creative_profile != SHORT_DRAMA_PROFILE:
         block("opening_spoils_resolution", "开头直接泄露了章节后半段的答案或结果")
     if not introductions_complete:
         block("character_introductions_missing", "主要人物在承担冲突前没有完成基本建立")
     if future_content_used:
         block("future_content_used", "剧本使用了当前章节之外的新剧情或后文信息")
+
+    moving_shots = [
+        shot.index
+        for shot in plan.shots
+        if shot.camera_plan is not None and shot.camera_plan.mode != "locked"
+    ]
+    camera_move_ratio = len(moving_shots) / len(plan.shots) if plan.shots else 0.0
+    if plan.creative_profile == SHORT_DRAMA_PROFILE:
+        adjacent_moves = [
+            right
+            for left, right in zip(moving_shots, moving_shots[1:])
+            if right == left + 1
+        ]
+        if camera_move_ratio > 0.34:
+            block(
+                "camera_movement_budget_exceeded",
+                f"移动镜头占比{camera_move_ratio:.1%}超过短剧预算；普通对白和反应镜头应保持固定机位",
+                shot_indexes=moving_shots,
+            )
+        if adjacent_moves:
+            block(
+                "adjacent_camera_moves",
+                "相邻镜头不得连续使用明显运镜；运镜必须由揭示、位移或权力变化触发",
+                shot_indexes=sorted({index for right in adjacent_moves for index in (right - 1, right)}),
+            )
     current_source = _normalized(episode.source_text)
     historical_characters = {
         character.name for character in (previous_state.characters if previous_state else [])
@@ -465,6 +559,11 @@ def evaluate_script_quality(
         hard_overflow_turn_count=sum(
             length > SHORT_DRAMA_TURN_HARD_MAX for length in turn_lengths
         ),
+        narration_char_count=narration_chars,
+        narration_ratio=round(narration_ratio, 6),
+        narration_budget_ratio=round(narration_budget, 6),
+        cold_open_grounded=cold_open_grounded,
+        camera_move_ratio=round(camera_move_ratio, 6),
         issues=issues,
     )
 

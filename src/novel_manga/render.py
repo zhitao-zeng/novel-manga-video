@@ -457,9 +457,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output: Path,
         work_dir: Path,
     ) -> tuple[Path, Path]:
-        intro = self._silent_card_segment(cover, work_dir / "intro.mp4", self.settings.intro_seconds)
-        outro = self._silent_card_segment(ending, work_dir / "outro.mp4", self.settings.outro_seconds)
-        sequence = [intro] + [item[0] for item in shot_segments] + [outro]
+        sequence: list[Path] = []
+        if self.settings.intro_seconds > 0:
+            sequence.append(
+                self._silent_card_segment(
+                    cover, work_dir / "intro.mp4", self.settings.intro_seconds
+                )
+            )
+        sequence.extend(item[0] for item in shot_segments)
+        if self.settings.outro_seconds > 0:
+            sequence.append(
+                self._silent_card_segment(
+                    ending, work_dir / "outro.mp4", self.settings.outro_seconds
+                )
+            )
         concat_file = work_dir / "concat.txt"
         concat_file.write_text("\n".join(f"file '{path.resolve()}'" for path in sequence) + "\n", encoding="utf-8")
         joined = work_dir / "joined.mp4"
@@ -498,9 +509,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         output: Path,
         work_dir: Path,
     ) -> tuple[Path, Path, Path, list[dict]]:
-        intro = self._silent_card_segment(intro_card, work_dir / "intro.mp4", self.settings.intro_seconds)
-        outro = self._silent_card_segment(ending, work_dir / "outro.mp4", self.settings.outro_seconds)
-        sequence = [intro] + [Path(item["segment"]) for item in turn_segments] + [outro]
+        sequence: list[Path] = []
+        if self.settings.intro_seconds > 0:
+            sequence.append(
+                self._silent_card_segment(
+                    intro_card, work_dir / "intro.mp4", self.settings.intro_seconds
+                )
+            )
+        sequence.extend(Path(item["segment"]) for item in turn_segments)
+        if self.settings.outro_seconds > 0:
+            sequence.append(
+                self._silent_card_segment(
+                    ending, work_dir / "outro.mp4", self.settings.outro_seconds
+                )
+            )
         concat_file = work_dir / "concat.txt"
         concat_file.write_text(
             "\n".join(f"file '{path.resolve()}'" for path in sequence) + "\n",

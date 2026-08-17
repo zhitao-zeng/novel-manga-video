@@ -23,6 +23,23 @@ class TurnDelivery(StrEnum):
     INNER_VOICE = "inner_voice"
 
 
+class VisualStrategy(StrEnum):
+    """How a shot obtains its initial visual conditioning."""
+
+    AUTO = "auto"
+    DIRECT_ASSETS = "direct-assets"
+    SCENE_ONLY = "scene-only"
+    STORY_KEYFRAME = "story-keyframe"
+
+
+class SpeechStrategy(StrEnum):
+    """Whether spoken words are locked before video generation."""
+
+    LOCKED = "locked"
+    NATIVE = "native"
+    ADAPTIVE = "adaptive"
+
+
 class Episode(BaseModel):
     index: int = Field(ge=1)
     source_title: str
@@ -48,6 +65,17 @@ class Character(BaseModel):
     age: str = "成年"
     appearance: str
     wardrobe: str
+    visual_archetype: str = ""
+    face_anchors: list[str] = Field(default_factory=list)
+    silhouette: str = ""
+    hair: str = ""
+    palette: str = ""
+    base_costume: str = ""
+    episode_costumes: list[str] = Field(default_factory=list)
+    signature_prop: str = ""
+    expression_profile: str = ""
+    motion_signature: str = ""
+    voice_profile_id: str = ""
 
 
 class StoryBible(BaseModel):
@@ -146,6 +174,11 @@ class ScriptQualityReport(BaseModel):
     max_turn_char_count: int = Field(default=0, ge=0)
     target_overflow_turn_count: int = Field(default=0, ge=0)
     hard_overflow_turn_count: int = Field(default=0, ge=0)
+    narration_char_count: int = Field(default=0, ge=0)
+    narration_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    narration_budget_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+    cold_open_grounded: bool = True
+    camera_move_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
     issues: list[ScriptReviewIssue] = Field(default_factory=list)
 
 
@@ -301,6 +334,36 @@ class CameraPlan(BaseModel):
         return self
 
 
+class SceneAudioPlan(BaseModel):
+    """Editorial sound intent; TTS remains limited to actual speech."""
+
+    speech_strategy: SpeechStrategy = SpeechStrategy.LOCKED
+    voice_reference_id: str = ""
+    delivery_intent: str = "克制自然"
+    pace: str = "自然"
+    energy: float = Field(default=0.5, ge=0.0, le=1.0)
+    pauses: list[str] = Field(default_factory=list)
+    music_cue: str = ""
+    ambience: str = ""
+    sfx_events: list[str] = Field(default_factory=list)
+    ducking: bool = True
+
+
+class EpisodeDramaturgy(BaseModel):
+    """Source-grounded short-drama intent before sentence-level shots exist."""
+
+    genre_engine: str = Field(min_length=1, max_length=80)
+    dramatic_question: str = Field(min_length=1, max_length=240)
+    cold_open: str = Field(min_length=1, max_length=240)
+    cold_open_source_quote: str = Field(min_length=1, max_length=500)
+    status_before: str = Field(min_length=1, max_length=240)
+    status_after: str = Field(min_length=1, max_length=240)
+    conflict_beats: list[str] = Field(min_length=1, max_length=6)
+    reveal_order: list[str] = Field(default_factory=list, max_length=8)
+    cliffhanger: str = Field(min_length=1, max_length=240)
+    narration_budget_ratio: float = Field(default=0.2, ge=0.0, le=0.5)
+
+
 class Shot(BaseModel):
     index: int = Field(ge=1)
     narration: str = Field(min_length=1, max_length=80)
@@ -316,6 +379,9 @@ class Shot(BaseModel):
     turns: list[ScriptTurn] = Field(default_factory=list)
     performance_plan: PerformancePlan | None = None
     camera_plan: CameraPlan | None = None
+    visual_strategy: VisualStrategy = VisualStrategy.AUTO
+    keyframe_reasons: list[str] = Field(default_factory=list)
+    audio_plan: SceneAudioPlan = Field(default_factory=SceneAudioPlan)
 
 
 class EpisodePlan(BaseModel):
@@ -325,6 +391,8 @@ class EpisodePlan(BaseModel):
     shots: list[Shot] = Field(min_length=1)
     next_preview: str = "敬请期待下一集"
     adaptation_ledger: list[AdaptationLedgerItem] = Field(default_factory=list)
+    creative_profile: str = "faithful-chronological-v1"
+    dramaturgy: EpisodeDramaturgy | None = None
 
     @model_validator(mode="after")
     def validate_shot_order(self) -> "EpisodePlan":
