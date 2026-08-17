@@ -19,6 +19,21 @@
       "license": "GPL-3.0",
       "patch": "headless-template-gallery-warning"
     },
+    "diffusers": {
+      "version": "0.38.0"
+    },
+    "voxcpm": {
+      "version": "2.0.3"
+    },
+    "qwen_tts": {
+      "version": "0.1.1"
+    },
+    "qwen_asr": {
+      "version": "0.0.6"
+    },
+    "qwen_image_tools": {
+      "revision": "6b5e1f5cec987d404be5ac6657db3b9aacb56a89"
+    },
     "minimax_h3_audio_drive": {
       "license": "AGPL-3.0",
       "source": "/app/runtime/comfyui_custom_nodes/novel_manga_h3_audio_drive"

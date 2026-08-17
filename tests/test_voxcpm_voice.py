@@ -56,6 +56,21 @@ def test_offline_manifest_selects_voxcpm_and_keeps_qwen_optional() -> None:
     assert "tts-qwen" in manifest["optional_models"]
 
 
+def test_offline_runtime_versions_match_the_pinned_delivery_contract() -> None:
+    manifest = json.loads((ROOT / "runtime/model_manifest.json").read_text())
+    sources = manifest["runtime_sources"]
+    assert sources["comfyui"]["revision"] == (
+        "6f7cd7fceaaf60d2669b554936394a7412c6fde5"
+    )
+    assert sources["diffusers"]["version"] == "0.38.0"
+    assert sources["voxcpm"]["version"] == "2.0.3"
+    assert sources["qwen_tts"]["version"] == "0.1.1"
+    assert sources["qwen_asr"]["version"] == "0.0.6"
+    assert sources["qwen_image_tools"]["revision"] == (
+        "6b5e1f5cec987d404be5ac6657db3b9aacb56a89"
+    )
+
+
 def test_offline_image_defaults_to_voxcpm() -> None:
     dockerfile = (ROOT / "Dockerfile.offline").read_text()
     assert "NOVEL_TTS_MODEL=VoxCPM2" in dockerfile
@@ -63,3 +78,14 @@ def test_offline_image_defaults_to_voxcpm() -> None:
     assert "NOVEL_TTS_QWEN_FALLBACK=1" in dockerfile
     requirements = (ROOT / "docker/audio-requirements.txt").read_text().splitlines()
     assert "voxcpm==2.0.3" in requirements
+
+
+def test_offline_image_uses_the_production_prompt_policy_and_version_labels() -> None:
+    dockerfile = (ROOT / "Dockerfile.offline").read_text()
+    assert dockerfile.rfind("NOVEL_LOCAL_IMAGE_PROMPT_POLICY=native-v5") > (
+        dockerfile.rfind("NOVEL_LOCAL_IMAGE_PROMPT_POLICY=native-v4")
+    )
+    assert (
+        'io.novel-manga.qwen-image-tools-revision="'
+        '6b5e1f5cec987d404be5ac6657db3b9aacb56a89"'
+    ) in dockerfile
