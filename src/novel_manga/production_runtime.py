@@ -47,6 +47,22 @@ def is_direct_reference_audio_visual_cache(payload: dict) -> bool:
     return "latentsync" not in backend_identity
 
 
+def copy_keyframe(source: Path, target: Path) -> None:
+    """Copy a keyframe together with the provider metadata beside it.
+
+    PhanRouter restores a reference image by task id read from a ``.task.json``
+    sidecar next to the keyframe rather than re-uploading the pixels.  A
+    keyframe copied without that sidecar therefore cannot be submitted at all,
+    which turned every retry into a hard failure and took the episode with it.
+    """
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    source_task = source.with_suffix(source.suffix + ".task.json")
+    if source_task.is_file():
+        shutil.copy2(source_task, target.with_suffix(target.suffix + ".task.json"))
+
+
 def policy_safe_motion_prompt(prompt: str) -> str:
     """Generalize IP-specific wording for a prompt-only video retry.
 
@@ -949,8 +965,7 @@ class EpisodeProductionRuntime:
                     saved = json.loads(meta.read_text(encoding="utf-8")) if meta.is_file() else {}
                     expected_sha = saved.get("keyframe_sha256")
                     if not expected_sha or expected_sha == sha256_file(canonical_keyframe):
-                        first_keyframe.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(canonical_keyframe, first_keyframe)
+                        copy_keyframe(canonical_keyframe, first_keyframe)
                         reused_keyframe = True
                     else:
                         first_keyframe = self.assets._ensure_image(
@@ -1049,8 +1064,7 @@ class EpisodeProductionRuntime:
                     reused_keyframe = True
                     continue
                 if not keyframe_path.is_file():
-                    keyframe_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(selected_keyframe, keyframe_path)
+                    copy_keyframe(selected_keyframe, keyframe_path)
                     reused_keyframe = True
                 try:
                     attempt_uses_reference_audio = use_reference_audio and (
@@ -1125,7 +1139,9 @@ class EpisodeProductionRuntime:
             if selected_provider_audit.resolve() != canonical_provider_audit.resolve():
                 shutil.copy2(selected_provider_audit, canonical_provider_audit)
         if selected_keyframe.resolve() != canonical_keyframe.resolve():
-            shutil.copy2(selected_keyframe, canonical_keyframe)
+            # The canonical copy is what a later run reuses, so it needs the
+            # provider sidecar too or the reuse path reintroduces the failure.
+            copy_keyframe(selected_keyframe, canonical_keyframe)
         if selected_video.resolve() == canonical_video.resolve() and meta.is_file():
             saved = json.loads(meta.read_text(encoding="utf-8"))
             selected_used_reference_audio = bool(
