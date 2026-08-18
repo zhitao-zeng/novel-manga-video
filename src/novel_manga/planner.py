@@ -1088,6 +1088,8 @@ class OpenAICompatiblePlanner(Planner):
             "冲突发展、因果转折、高潮和章末结果。每个事件引用当前章的精确原文，"
             "hook_source_quote和每个event.source_quote都必须从SOURCE_EVIDENCE中选择一整行逐字复制，"
             "不得概括、缩写、拼接或修改标点；description才用于概括事件。"
+            "每条source_quote硬上限500字符，而SOURCE_EVIDENCE中每一行都远短于此，"
+            "所以一旦超长就说明你拼接了多行——只复制其中一行。"
             "causes只能引用更早的事件。未知用途细节标为potential_foreshadowing，不得擅自删除。"
             "previous_state只用于连续性，不得当作本集新增剧情。严格输出JSON。"
         )
