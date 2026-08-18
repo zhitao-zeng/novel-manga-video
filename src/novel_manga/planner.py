@@ -933,10 +933,25 @@ class OpenAICompatiblePlanner(Planner):
                 "message": "at least one explicit viewer/character information state is required",
             })
         for index, fact in enumerate(showrunner.information_states):
-            if not grounded(fact.source_quote) or not set(fact.source_event_ids) <= event_ids:
+            # One bundled message per condition group starved the repair loop
+            # of signal: the model could not tell which requirement it had
+            # missed and repeated the same mistake every revision.
+            fact_problems: list[str] = []
+            if not grounded(fact.source_quote):
+                fact_problems.append(
+                    "source_quote is not a verbatim current-chapter excerpt; "
+                    "copy the matching diagnosis event's source_quote exactly, "
+                    "including punctuation"
+                )
+            if not set(fact.source_event_ids) <= event_ids:
+                fact_problems.append(
+                    "source_event_ids reference unknown events: "
+                    + ",".join(sorted(set(fact.source_event_ids) - event_ids))
+                )
+            if fact_problems:
                 issues.append({
                     "field": f"information_states.{index}",
-                    "message": "fact must be grounded in diagnosed current-chapter evidence",
+                    "message": "; ".join(fact_problems),
                 })
             if fact.reveal_beat_id and fact.reveal_beat_id not in beat_ids:
                 issues.append({
@@ -957,15 +972,29 @@ class OpenAICompatiblePlanner(Planner):
                     "unknown": unknown,
                 })
         for index, delta in enumerate(showrunner.character_state_deltas):
-            if (
-                delta.character_name not in canonical_names
-                or not grounded(delta.source_quote)
-                or not set(delta.event_ids) <= event_ids
-                or delta.before == delta.after
-            ):
+            delta_problems: list[str] = []
+            if delta.character_name not in canonical_names:
+                delta_problems.append(
+                    f"character_name '{delta.character_name}' is not a StoryBible "
+                    "character; use one of: " + "、".join(sorted(canonical_names))
+                )
+            if not grounded(delta.source_quote):
+                delta_problems.append(
+                    "source_quote is not a verbatim current-chapter excerpt; "
+                    "copy the matching diagnosis event's source_quote exactly, "
+                    "including punctuation"
+                )
+            if not set(delta.event_ids) <= event_ids:
+                delta_problems.append(
+                    "event_ids reference unknown events: "
+                    + ",".join(sorted(set(delta.event_ids) - event_ids))
+                )
+            if delta.before == delta.after:
+                delta_problems.append("before and after are identical; drop the delta if nothing changed")
+            if delta_problems:
                 issues.append({
                     "field": f"character_state_deltas.{index}",
-                    "message": "delta needs a canonical character, real before/after change, events, and source evidence",
+                    "message": "; ".join(delta_problems),
                 })
         expected_delta_events = {
             event.event_id
@@ -1003,7 +1032,11 @@ class OpenAICompatiblePlanner(Planner):
             "shot_indexes必须留空；每个节点只绑定event_ids、逐字source_quote、观众问题、承诺、新信息和情绪变化。"
             "information_states逐条记录事实真假、观众认知、各角色认知或误解、信息差用途和揭示节点。"
             "character_state_deltas只记录当前章确实改变的社会地位、关系、力量、情绪、信心或服装；"
-            "before与after不得相同，永久脸型发型不属于剧情状态。所有事实必须有当前章逐字证据。严格输出JSON。"
+            "before与after不得相同，永久脸型发型不属于剧情状态。所有事实必须有当前章逐字证据。"
+            "所有source_quote一律从章节诊断中对应event的source_quote整段逐字复制（包含全部标点和引号），"
+            "不要自己重新摘抄、缩写或改写原文——校验按逐字匹配执行，改一个标点都会失败。"
+            "character_name和character_awareness必须逐字使用故事圣经characters里的角色名，不得用简称或别名。"
+            "严格输出JSON。"
         )
         user = (
             f"当前集：{episode.index} {episode.source_title}\n"
