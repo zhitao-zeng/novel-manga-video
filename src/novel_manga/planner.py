@@ -865,12 +865,69 @@ class OpenAICompatiblePlanner(Planner):
         )
         source = re.sub(r"\s+", "", episode.source_text)
         event_ids = {event.event_id for event in diagnosis.events}
-        fact_ids = {fact.fact_id for fact in showrunner.information_states}
-        beat_ids = {beat.beat_id for beat in showrunner.retention.beats}
         issues: list[dict[str, object]] = []
 
         def grounded(value: str) -> bool:
             return bool(value and re.sub(r"\s+", "", value) in source)
+
+        # Character names already get controller-side canonicalisation above;
+        # quotes relied on the model copying chapter text to the character.
+        # A 27B planner reliably paraphrases one beat per attempt and the
+        # repair loop never converges.  The semantic binding is event_ids —
+        # validated on their own below — so when a quote is not verbatim but
+        # the entry points at diagnosed events, substitute the event's already
+        # validated source_quote instead of failing the whole stage.
+        event_quotes = {event.event_id: event.source_quote for event in diagnosis.events}
+
+        def anchored_quote(quote: str, ids: list[str]) -> str:
+            if grounded(quote):
+                return quote
+            for event_id in ids:
+                candidate = event_quotes.get(event_id, "")
+                if grounded(candidate):
+                    return candidate
+            return quote
+
+        showrunner = showrunner.model_copy(
+            update={
+                "retention": showrunner.retention.model_copy(
+                    update={
+                        "beats": [
+                            beat.model_copy(
+                                update={
+                                    "source_quote": anchored_quote(
+                                        beat.source_quote, beat.event_ids
+                                    )
+                                }
+                            )
+                            for beat in showrunner.retention.beats
+                        ]
+                    }
+                ),
+                "information_states": [
+                    fact.model_copy(
+                        update={
+                            "source_quote": anchored_quote(
+                                fact.source_quote, fact.source_event_ids
+                            )
+                        }
+                    )
+                    for fact in showrunner.information_states
+                ],
+                "character_state_deltas": [
+                    delta.model_copy(
+                        update={
+                            "source_quote": anchored_quote(
+                                delta.source_quote, delta.event_ids
+                            )
+                        }
+                    )
+                    for delta in showrunner.character_state_deltas
+                ],
+            }
+        )
+        fact_ids = {fact.fact_id for fact in showrunner.information_states}
+        beat_ids = {beat.beat_id for beat in showrunner.retention.beats}
 
         starts = [beat.target_start_ratio for beat in showrunner.retention.beats]
         points = [0.0, *starts, 1.0]
