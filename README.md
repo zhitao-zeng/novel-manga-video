@@ -2,6 +2,8 @@
 
 短剧化改编、Showrunner 留存/信息差/人物状态、人物设计、自适应关键帧、生图 / Seedance 提示词和声音分工见
 [`docs/short-drama-methodology.md`](docs/short-drama-methodology.md)。
+本轮实现范围、提交、门禁、验证结果和未验证边界见
+[`docs/short-drama-change-record.md`](docs/short-drama-change-record.md)。
 
 把 `txt / markdown / docx / pdf` 小说转为 9:16 国漫画风漫剧。生产控制器是普通 Python 程序，不依赖
 Codex；故事规划、生图、生视频、TTS、ASR 和强制对齐均为可替换 provider。
