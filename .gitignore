@@ -12,3 +12,5 @@ outputs/
 docker/wheels/*.whl
 delivery/
 vendor/
+.env
+.env.local
