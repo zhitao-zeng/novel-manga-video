@@ -39,6 +39,7 @@ from .models import (
     ShowrunnerPlan,
     Shot,
     StoryBible,
+    TurnDerivation,
 )
 from .safety import safe_visual_prompt
 from .script_planning import (
@@ -698,9 +699,16 @@ class OpenAICompatiblePlanner(Planner):
                     dialogue_span = self._dialogue_source_span(turn.text, source)
                     if dialogue_span is not None:
                         turn_source_quote = dialogue_span
-                    else:
-                        # Never present an adaptation line as verbatim character
-                        # dialogue. It remains usable as grounded narration.
+                    elif turn.derivation != TurnDerivation.DERIVED:
+                        # A verbatim claim that cannot be traced to quoted
+                        # chapter speech must not pass as character dialogue.
+                        # This demotion used to hit every staged line as well
+                        # and silently rewrote it into a narrator turn — which
+                        # is exactly how quoted lines, first-person text and an
+                        # invented farewell ended up voiced by 旁白 in earlier
+                        # plans.  Derived turns declare the staging openly and
+                        # are policed by the script gates instead, so they keep
+                        # their character voice.
                         turn = turn.model_copy(
                             update={
                                 "role": "narrator",
@@ -811,12 +819,15 @@ class OpenAICompatiblePlanner(Planner):
                     })
                 if (
                     turn.speaking
+                    and turn.derivation != TurnDerivation.DERIVED
                     and re.sub(r"\s+", "", turn.text) not in turn_quote
                     and self._dialogue_source_span(turn.text, turn.source_quote) is None
                 ):
                     issues.append({
                         "field": f"shots.{shot.index}.turns.{turn_index}.text",
-                        "message": "visible dialogue must occur verbatim inside source_quote",
+                        "message": "visible dialogue must occur verbatim inside "
+                        "source_quote; if this line stages narration as speech, "
+                        "declare derivation=derived and cite that narration",
                     })
         if issues:
             raise ValueError(json.dumps({"domain_errors": issues}, ensure_ascii=False))
