@@ -21,6 +21,7 @@ from .models import (
     ScriptTurn,
     StoryBible,
     TurnDelivery,
+    TurnDerivation,
 )
 from .production_models import (
     AssetRecord,
@@ -791,7 +792,14 @@ def compile_production_plan(
                 raise ValueError(
                     f"{unit_id} visible speaker {turn.speaker_name!r} has no locked character asset"
                 )
-            if turn.role != "narrator" and "".join(turn.text.split()) not in "".join(source_quote.split()):
+            if (
+                turn.role != "narrator"
+                and turn.derivation != TurnDerivation.DERIVED
+                and "".join(turn.text.split()) not in "".join(source_quote.split())
+            ):
+                # Derived turns stage narration as speech; their citation is
+                # the narration itself (grounded above), so the verbatim
+                # containment that applies to quoted lines cannot hold.
                 raise ValueError(
                     f"{unit_id} character utterance is not an exact substring of its grounded source quote"
                 )
