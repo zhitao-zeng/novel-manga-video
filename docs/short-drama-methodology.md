@@ -74,6 +74,27 @@ cliffhanger             最后一问
 narration_budget_ratio  题材旁白预算
 ```
 
+### 4.0 改编契约：verbatim 与 derived
+
+一章小说通常只有约两成文字带引号，其余七八成是叙述——而因果、动机、来历和转折几乎都藏在叙述里。如果台词只能逐字引用，叙述就只剩"压成旁白"或"删掉"两条路，而旁白又被 `narration_budget_ratio` 压着，结果是一集只剩摘录出来的零散对白，观众看不懂人物为什么这样。
+
+因此每个 turn 必须声明 `derivation`：
+
+| 值 | 语义 | `source_quote` 要求 |
+|---|---|---|
+| `verbatim` | 逐字引用原文引号内的台词 | 归一化后 `turn.text` 必须是 `source_quote` 的子串 |
+| `derived` | 把叙述外化为角色真会说出口的话或可拍摄的反应 | 必须引用**含叙述**的原文，且不得引入原文没有的事实、人物或事件 |
+
+配套硬约束：
+
+- 原文带引号的台词一律归给具体角色，**绝不能标成旁白**。
+- 旁白 turn 不得含第一/第二人称（我/你/您）——第三人称全知叙述不会说"我"，出现即说明这是一句丢了说话人的角色台词。
+- 不得把原文引号内的台词改写成近似句：台词**要么逐字引用，要么由叙述外化**，没有第三种。
+- 承载因果、来历或转折的叙述事件，在 `adaptation_ledger` 中使用 `externalized`，而不是 `compressed`。
+- 长段来历、回忆或规则说明不要交给单个角色一口气独白，拆成有听者的一问一答，让悬念由角色问出来。
+
+这四条由 `evaluate_script_quality` 阻断，分别对应 `narrator_speaks_character_line`、`verbatim_turn_not_quoted`、`derived_turn_paraphrases_dialogue`。
+
 ### 4.1 Showrunner 决策层
 
 `EpisodeDramaturgy` 回答“这一集讲什么”，`ShowrunnerPlan` 进一步回答“观众为什么继续看、谁知道什么、人物发生了什么变化”。它必须先于镜头执行产生：
@@ -191,7 +212,14 @@ voice_profile_id    稳定声音身份
 | 结果揭示、高潮反转 | 剧情关键帧 |
 | 封面级构图、集尾特写 | 剧情关键帧 |
 
-运行时必须记录 `visual_strategy` 和 `keyframe_reasons`。本地 MiniMax H3 支持人物资产作为 Picture 1、空场景作为 Picture 2；空镜可直接使用场景资产。当前 PhanRouter SD2.5 适配器只提交一张 `reference_image`，所以 API 模式会自动回退到剧情关键帧，除非上游接口和适配器同时增加多图支持。
+运行时必须记录 `visual_strategy` 和 `keyframe_reasons`。
+
+上表读作"视频模型收到的参考输入"，不是"是否生成关键帧"。两条路径都始终生成关键帧作为首帧条件图：人物资产是灰底全身定妆图，直接送进视频模型只会得到站在空背景里的人，场景、景别和调度全部丢失，必须先由关键帧把人物与场景合成为真正的场面调度。
+
+- 本地 MiniMax H3 支持在关键帧之外**追加**人物资产（Picture 1）与空场景（Picture 2）作为额外参考，由 `_direct_h3_assets` 决定；空镜可只追加场景资产。
+- 当前 PhanRouter SD2.5 适配器只提交一张 `reference_image`，无法追加，所以 API 模式下 `visual_strategy` 只影响关键帧提示词的构图约束，不改变生成路径。这是适配器接口的限制，不是回退失败。
+
+因此 `direct-assets` 的语义是"给视频模型追加身份锚点"，不是"省掉关键帧"。
 
 ## 8. Seedance / 视频提示词
 

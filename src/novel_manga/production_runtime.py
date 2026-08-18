@@ -1515,6 +1515,27 @@ class EpisodeProductionRuntime:
                 ]
                 visual_rows.extend(future.result() for future in as_completed(futures))
         visual_rows.sort(key=lambda row: str(row["unit_id"]))
+        # The generation proxy deliberately collapses a merged group to a single
+        # narrator voice, but that left every row in this report reading as
+        # 旁白 — including plain visible-dialogue shots — so the report could not
+        # be used to audit who actually speaks in a shot.  Restore the real
+        # per-turn cast here, where the underlying units are still in scope.
+        units_by_id = {unit.unit_id: unit for unit in plan.units}
+        speakers_by_group = {
+            group.group_id: [
+                {
+                    "unit_id": unit_id,
+                    "role": units_by_id[unit_id].role,
+                    "speaker_name": units_by_id[unit_id].speaker_name,
+                    "speaking": units_by_id[unit_id].speaking,
+                }
+                for unit_id in group.unit_ids
+                if unit_id in units_by_id
+            ]
+            for group in plan.visual_groups
+        }
+        for row in visual_rows:
+            row["turn_cast"] = speakers_by_group.get(str(row["unit_id"]), [])
         atomic_write_json(
             episode_dir / "visual_generation_report.json",
             {

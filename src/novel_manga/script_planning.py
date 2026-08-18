@@ -17,6 +17,7 @@ from .models import (
     ScriptReviewIssue,
     SeriesState,
     StoryBible,
+    TurnDerivation,
 )
 from .creative_direction import SHORT_DRAMA_PROFILE
 
@@ -26,6 +27,9 @@ SCRIPT_POLICY_REVISION = "novel-manga-script-v6-showrunner"
 # renderer paginates and times subtitles independently after audio alignment.
 SHORT_DRAMA_TURN_TARGET_MAX = 36
 SHORT_DRAMA_TURN_HARD_MAX = 60
+# Showrunner state deltas are only worth gating on once most of the chapter's
+# declared changes carry evidence; below this the state layer is decorative.
+CHARACTER_DELTA_GROUNDING_FLOOR = 0.6
 
 
 def _normalized(value: str) -> str:
@@ -36,6 +40,25 @@ def _quote_key(value: str) -> str:
     """Normalize formatting-only differences without accepting paraphrases."""
 
     return re.sub(r"[\s，。！？；：、,.!?;:'\"“”‘’（）()《》〈〉…—·-]+", "", value)
+
+
+_SPOKEN_LINE = re.compile(r"[“「]([^”」]+)[”」]")
+# Third-person narration does not address anyone and does not speak as anyone.
+# A narrator turn carrying 我/你 is a character line that lost its speaker,
+# which is how quoted dialogue ends up read in the narrator's voice.
+_ADDRESSED_SPEECH = re.compile(r"[我你您]")
+
+
+def _spoken_lines(source_quote: str) -> list[str]:
+    """Chapter text the author already marked as an uttered line."""
+
+    return [match.group(1) for match in _SPOKEN_LINE.finditer(source_quote)]
+
+
+def _narration_body(source_quote: str) -> str:
+    """The part of a citation that is authorial narration rather than speech."""
+
+    return _SPOKEN_LINE.sub("", source_quote)
 
 
 def _sentences(value: str) -> list[str]:
@@ -91,14 +114,19 @@ def script_policy(
     """Scale screenplay floors without punishing genuinely tiny chapters."""
 
     if creative_profile == SHORT_DRAMA_PROFILE:
+        # These floors used to assume the only speakable material was the text
+        # the author had already put in quotation marks, which in a typical
+        # chapter is barely a fifth of it.  Now that narrated passages can be
+        # staged as derived dialogue, an episode that stays near the old floor
+        # is skipping the adaptation rather than economising.
         if source_chars <= 200:
             return ScriptPolicy(max(8, round(source_chars * 0.25)), 1, 1)
         if source_chars <= 1200:
-            turns = max(4, min(7, math.ceil(source_chars / 180)))
-            return ScriptPolicy(min(240, max(60, round(source_chars * 0.18))), turns, max(4, turns - 1))
+            turns = max(6, min(10, math.ceil(source_chars / 140)))
+            return ScriptPolicy(min(400, max(120, round(source_chars * 0.24))), turns, max(5, turns - 1))
         if source_chars <= 3000:
-            return ScriptPolicy(min(420, max(240, round(source_chars * 0.12))), 8, 8)
-        return ScriptPolicy(min(650, max(420, round(source_chars * 0.10))), 12, 10)
+            return ScriptPolicy(min(900, max(480, round(source_chars * 0.22))), 16, 14)
+        return ScriptPolicy(min(1200, max(700, round(source_chars * 0.20))), 20, 16)
     if source_chars <= 200:
         return ScriptPolicy(max(8, round(source_chars * 0.35)), 1, 1)
     if source_chars <= 1200:
@@ -320,6 +348,69 @@ def evaluate_script_quality(
             )
         )
 
+    # A turn may only reach the screen two ways: it quotes a line the chapter
+    # already puts in quotation marks, or it stages a narrated passage as
+    # performance.  Anything else is either a misattributed line or an invented
+    # one, and both read as incoherence once the narration budget trims what is
+    # left.
+    misattributed: list[int] = []
+    ungrounded_verbatim: list[int] = []
+    paraphrased_dialogue: list[int] = []
+    for shot in plan.shots:
+        for turn in shot.turns:
+            quote = turn.source_quote or ""
+            text_key = _quote_key(turn.text)
+            if turn.role == "narrator":
+                spoken_here = _spoken_lines(quote)
+                if any(
+                    _quote_key(line) and _quote_key(line) in text_key
+                    for line in spoken_here
+                ) or _ADDRESSED_SPEECH.search(turn.text):
+                    misattributed.append(shot.index)
+                    continue
+            if not quote:
+                # Citations stay optional here; requiring one on every turn is a
+                # separate policy change, not part of the grounding contract.
+                continue
+            if turn.derivation == TurnDerivation.VERBATIM:
+                if text_key not in _quote_key(quote):
+                    ungrounded_verbatim.append(shot.index)
+            elif not _quote_key(_narration_body(quote)):
+                paraphrased_dialogue.append(shot.index)
+    if misattributed:
+        block(
+            "narrator_speaks_character_line",
+            "旁白turn说了角色的话：它引用了原文引号内的台词，或含有第一/第二人称。"
+            "带引号的台词和任何带我/你的句子都必须归给具体角色，并设置"
+            "visible_dialogue、offscreen_dialogue或inner_voice",
+            shot_indexes=sorted(set(misattributed)),
+        )
+    if ungrounded_verbatim:
+        block(
+            "verbatim_turn_not_quoted",
+            "derivation=verbatim的turn文本必须逐字出现在其source_quote中；"
+            "如果这句话是由叙述改写而来，请设置derivation=derived并引用对应叙述句",
+            shot_indexes=sorted(set(ungrounded_verbatim)),
+        )
+    if paraphrased_dialogue:
+        block(
+            "derived_turn_paraphrases_dialogue",
+            "derivation=derived的turn必须引用含叙述的原文；不得把原文引号内的台词改写成近似句，"
+            "台词要么逐字引用，要么由叙述外化",
+            shot_indexes=sorted(set(paraphrased_dialogue)),
+        )
+
+    verbatim_turn_count = sum(
+        1 for turn in turns if turn.derivation == TurnDerivation.VERBATIM
+    )
+    derived_turn_count = len(turns) - verbatim_turn_count
+    derived_chars = sum(
+        len(_normalized(turn.text))
+        for turn in turns
+        if turn.derivation == TurnDerivation.DERIVED
+    )
+    derived_char_ratio = derived_chars / script_chars if script_chars else 0.0
+
     turn_lengths = [len(_normalized(turn.text)) for turn in turns]
     target_overflow_shots = sorted(
         {
@@ -352,7 +443,7 @@ def evaluate_script_quality(
 
     if (
         plan.creative_profile == SHORT_DRAMA_PROFILE
-        and narration_ratio > narration_budget + 0.05
+        and narration_ratio > narration_budget + 0.02
     ):
         block(
             "narration_budget_exceeded",
@@ -673,6 +764,16 @@ def evaluate_script_quality(
             character_delta_grounding = (
                 valid_deltas / delta_denominator if delta_denominator else 1.0
             )
+            # The metric was computed and reported but never compared against
+            # anything, so an episode could claim a Showrunner state layer while
+            # leaving most of the chapter's declared changes unrecorded.
+            if character_delta_grounding < CHARACTER_DELTA_GROUNDING_FLOOR:
+                block(
+                    "character_delta_grounding_low",
+                    f"人物状态增量证据覆盖率{character_delta_grounding:.1%}低于下限"
+                    f"{CHARACTER_DELTA_GROUNDING_FLOOR:.0%}；章节声明发生变化的人物必须记录"
+                    "带当前章证据的before/after增量",
+                )
 
             intended_shots = [
                 shot
@@ -767,8 +868,12 @@ def evaluate_script_quality(
         max_attention_gap_ratio=round(max_attention_gap_ratio, 6),
         information_fact_grounding=round(information_fact_grounding, 6),
         character_delta_grounding=round(character_delta_grounding, 6),
+        character_delta_grounding_floor=CHARACTER_DELTA_GROUNDING_FLOOR,
         shot_intent_coverage=round(shot_intent_coverage, 6),
         audio_beat_coverage=round(audio_beat_coverage, 6),
+        verbatim_turn_count=verbatim_turn_count,
+        derived_turn_count=derived_turn_count,
+        derived_char_ratio=round(derived_char_ratio, 6),
         issues=issues,
     )
 

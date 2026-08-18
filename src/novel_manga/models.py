@@ -23,6 +23,21 @@ class TurnDelivery(StrEnum):
     INNER_VOICE = "inner_voice"
 
 
+class TurnDerivation(StrEnum):
+    """How a turn's text relates to the chapter text it is grounded in.
+
+    ``VERBATIM`` copies a quoted line out of the chapter.  ``DERIVED`` stages a
+    narrated passage as dialogue, action or reaction; it stays bound to the
+    narration it came from and may not introduce facts that narration does not
+    already carry.  Without this distinction the only legal move for a narrated
+    passage is to become explanatory narration, which the short-drama profile
+    then budgets away, and the chapter's causal tissue disappears.
+    """
+
+    VERBATIM = "verbatim"
+    DERIVED = "derived"
+
+
 class VisualStrategy(StrEnum):
     """How a shot obtains its initial visual conditioning."""
 
@@ -183,8 +198,12 @@ class ScriptQualityReport(BaseModel):
     max_attention_gap_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
     information_fact_grounding: float = Field(default=0.0, ge=0.0, le=1.0)
     character_delta_grounding: float = Field(default=0.0, ge=0.0, le=1.0)
+    character_delta_grounding_floor: float = Field(default=0.0, ge=0.0, le=1.0)
     shot_intent_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
     audio_beat_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
+    verbatim_turn_count: int = Field(default=0, ge=0)
+    derived_turn_count: int = Field(default=0, ge=0)
+    derived_char_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
     issues: list[ScriptReviewIssue] = Field(default_factory=list)
 
 
@@ -296,9 +315,14 @@ class ScriptTurn(BaseModel):
     delivery_mode: TurnDelivery | None = None
     emotion: str = "克制自然"
     source_quote: str = Field(default="", max_length=500)
+    derivation: TurnDerivation = TurnDerivation.VERBATIM
 
     @model_validator(mode="after")
     def validate_speaker(self) -> "ScriptTurn":
+        if "derivation" not in self.model_fields_set and self.role == "narrator":
+            # Narration is a retelling by construction; only a character line
+            # can meaningfully claim to be a verbatim copy of a quoted line.
+            self.derivation = TurnDerivation.DERIVED
         if self.delivery_mode is None:
             if self.role == "narrator":
                 self.delivery_mode = TurnDelivery.NARRATION

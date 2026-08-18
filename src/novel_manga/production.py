@@ -861,7 +861,7 @@ def compile_production_plan(
                     + "、".join(shot.keyframe_reasons or ["导演指定构图"])
                     + "。"
                     if str(shot.visual_strategy) == "story-keyframe"
-                    else "【自适应视觉候选】仅当视频后端不能直接接收人物与空场资产时生成本帧。"
+                    else "【常规单人镜头】构图服务这一句台词的表演，不要堆叠额外道具、人物或信息。"
                 )
                 keyframe_prompt = (
                     keyframe_contract
@@ -902,7 +902,7 @@ def compile_production_plan(
                     + "、".join(shot.keyframe_reasons or ["导演指定构图"])
                     + "。"
                     if str(shot.visual_strategy) == "story-keyframe"
-                    else "【自适应视觉候选】仅当场景资产不能直接完成本镜时生成本帧。"
+                    else "【常规场景镜头】构图服务当前这一拍，不要堆叠额外道具、人物或信息。"
                 )
                 keyframe_prompt = (
                     keyframe_contract

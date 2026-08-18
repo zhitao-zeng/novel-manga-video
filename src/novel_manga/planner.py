@@ -61,7 +61,7 @@ STYLE = (
 )
 
 DIAGNOSIS_TOKEN_BUDGET = 6000
-SCRIPT_TOKEN_BUDGET = 14000
+SCRIPT_TOKEN_BUDGET = 24000
 REVIEW_TOKEN_BUDGET = 4000
 SHOWRUNNER_TOKEN_BUDGET = 6000
 SERIES_STATE_TOKEN_BUDGET = 5000
@@ -1037,8 +1037,11 @@ class OpenAICompatiblePlanner(Planner):
             f"不使用静态片头，0-3秒直接进入当前章有原文依据的冲突或悬念。原文有效字数约{source_chars}，{size_guidance}；"
             "不得为凑镜头或字数重复情节、虚构事件或拆碎同一句话。"
             "每个镜头设置 turns：旁白 role=narrator、speaking=false；人物对白 role 和 speaker_name 均使用角色原名、"
-            "speaking=true、delivery_mode=visible_dialogue，并逐字保留对白；内心声或画外对白使用角色原名、"
+            "speaking=true、delivery_mode=visible_dialogue；内心声或画外对白使用角色原名、"
             "speaking=false，并分别设置delivery_mode=inner_voice或offscreen_dialogue。"
+            "原文带引号的台词一律归给具体角色，不得标成旁白，并设置derivation=verbatim逐字引用；"
+            "承载因果、来历或转折的叙述段落设置derivation=derived，改写成角色真会说出口的话或可拍摄的反应，"
+            "并在source_quote里引用它依据的那段叙述。"
             "一个turn是一口气可自然说完的完整语义句，通常12-36字，硬上限60字；"
             "不得为了字幕长度拆碎句子。字幕在音频对齐后独立分页，每页最多两行且仍逐字来自turn.text。"
             "一个连续镜头通常承载1-3个语义turn；短剧节奏来自信息、动作和情绪变化，不来自机械断句或增加切镜；"
@@ -1187,7 +1190,9 @@ class OpenAICompatiblePlanner(Planner):
         ]
         system = (
             "你是漫剧台词编辑。只补写现有镜头的turns，不得修改镜头顺序、事件、人物关系或结局。"
-            "旁白可忠实转述原文；人物可见对白必须逐字来自对应source_quote。"
+            "原文带引号的台词归具体角色并设置derivation=verbatim逐字引用，不得标成旁白；"
+            "叙述段落设置derivation=derived，改写成角色对白或可拍摄的反应，并引用所依据的叙述句，"
+            "不得引入原文没有的事实。"
             "优先补原文已有的短对白、内心声或必要因果，不得用摘要旁白填充字数；"
             "能由visual_prompt和performance_plan表演的信息不要重复朗读。"
             "每个turn只讲一个核心事实、动作或反应，同时必须保持自然完整的语义与呼吸，通常12-36字，硬上限60字。"
@@ -1317,13 +1322,24 @@ class OpenAICompatiblePlanner(Planner):
             "确定性绑定最终shot_indexes。不得为了填留存节点虚构刺激。"
             f"有效剧本目标为{size_guidance}。每个shot必须填写event_ids，"
             "每个章节事件必须写入adaptation_ledger，critical事件不得removed。"
+            "承载因果、动机、来历或转折的叙述事件用externalized，把叙述改写成可见对白、反应或道具结果；"
             "supporting事件可compressed或merged，texture事件可removed；不要为覆盖原文把所有句子都发声。"
+            "小说通常只有两成文字带引号，其余是叙述。把叙述一律压成旁白会让因果消失，"
+            "所以每个turn必须声明derivation："
+            "derivation=verbatim时turn.text必须逐字出现在source_quote的引号内容里；"
+            "derivation=derived时source_quote必须是含叙述的原文，你据此把叙述外化为该场景中"
+            "某个角色真的会说出口的话、或一次可拍摄的反应，不得引入原文没有的事实、人物或事件。"
+            "不得把原文引号内的台词改写成近似句：台词要么逐字引用，要么由叙述外化。"
+            "带引号的原文台词必须归给具体角色，绝不能标成旁白。"
             "旁白只保留无法表演的时间、空间、必要规则和内心转折；能用动作、人物对白、反应、道具结果"
-            "表达的信息必须删掉旁白。旁白字数占比不得超过dramaturgy.narration_budget_ratio。"
+            "表达的信息必须改写成derived对白或反应，而不是压成旁白。"
+            "旁白字数占比不得超过dramaturgy.narration_budget_ratio。"
             "使用口语化短剧节拍：每个turn只交付一个核心事实、动作或反应，但必须是一口气自然说完的完整语义句，"
             "通常12-36字，硬上限60字；字幕在音频对齐后独立切页，严禁为字幕长度把一句话拆碎；"
             "需要讲因果时按触发→事实→后果→人物反应排列，不得只写模糊情绪。"
-            "每个turn只允许一个声音角色；可见对白逐字来自source_quote并设置visible_dialogue；"
+            "长段来历、回忆或规则说明不要交给单个角色一口气独白，"
+            "拆成有听者的一问一答，让悬念由角色问出来。"
+            "每个turn只允许一个声音角色；可见对白设置visible_dialogue；"
             "原文中的内心声和画外对白可用角色音色，但speaking必须为false并设置inner_voice或offscreen_dialogue。"
             "每镜performance_plan按触发→察觉→一个主要动作→对方反应→收束组织；"
             "不要为了防静态而让人物每1-2秒机械地转头、摆手或改变重心。"
@@ -1332,6 +1348,8 @@ class OpenAICompatiblePlanner(Planner):
             "运镜动机只允许空间揭示、明确位移、视点变化或权力/情绪转折；普通对白和反应保持固定机位。"
             "同场景锁定行动轴、人物左右和视线方向。"
             "每镜shot_intent必须解释dramatic_function、power_relation、emotion_target、viewer_focus，"
+            "dramatic_function只能从establish/advance/pressure/withhold/reveal/payoff/reaction/transition/cliffhanger中选，"
+            "不得使用reversal/climax/escalation/hook/question等留存节点名称；"
             "并绑定retention_beat_id；承担信息揭示的镜头引用information_fact_ids。先有语义意图，再选择景别和机位。"
             "visual_strategy必须明确：单人普通对白/反应用direct-assets，无人物空镜用scene-only；"
             "多人精确站位、人物道具交互、结果揭示、高潮反转和封面级构图用story-keyframe，"
