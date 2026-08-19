@@ -262,7 +262,16 @@ class SeriesAssetFactory:
         characters: list[AssetRecord] = []
         locations: list[AssetRecord] = []
         voice_assignments = {"narrator": self.settings.voice_map.get("narrator", self.settings.tts_voice)}
+        # The bible carries gender for every character; a flat rotation over a
+        # mixed-gender voice list handed the male lead a 28-year-old female
+        # voice and the ingénue a male one as soon as the cast wasn't in the
+        # explicit voice map.  Fall back within the matching gender pool and
+        # keep the mixed list only for characters whose gender is unknown.
         fallback_voices = ("coral", "verse", "sage", "ash", "nova", "alloy")
+        fallback_male_voices = ("verse", "ash", "alloy", "echo", "fable")
+        fallback_female_voices = ("coral", "nova", "sage")
+        male_cursor = 0
+        female_cursor = 0
         source_characters = bible.characters or [
             Character(
                 name="主角",
@@ -314,8 +323,21 @@ class SeriesAssetFactory:
             atomic_write_json(directory / "spec.json", spec)
             primary = self._ensure_image(prompt, directory / "turnaround.jpeg")
             character_rows.append((character, asset_id, directory, prompt, primary))
+            gender = (character.gender or "").strip()
+            if "女" in gender:
+                default_voice = fallback_female_voices[
+                    female_cursor % len(fallback_female_voices)
+                ]
+                female_cursor += 1
+            elif "男" in gender:
+                default_voice = fallback_male_voices[
+                    male_cursor % len(fallback_male_voices)
+                ]
+                male_cursor += 1
+            else:
+                default_voice = fallback_voices[(index - 1) % len(fallback_voices)]
             voice_assignments[character.name] = self.settings.voice_map.get(
-                character.name, fallback_voices[(index - 1) % len(fallback_voices)]
+                character.name, default_voice
             )
         for index, location in enumerate(dict.fromkeys(bible.locations or ["原文主要场景"]), start=1):
             asset_id = f"location_{index:03d}"
