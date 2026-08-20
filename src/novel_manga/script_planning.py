@@ -42,7 +42,10 @@ def _quote_key(value: str) -> str:
     return re.sub(r"[\s，。！？；：、,.!?;:'\"“”‘’（）()《》〈〉…—·-]+", "", value)
 
 
-_SPOKEN_LINE = re.compile(r"[“「]([^”」]+)[”」]")
+# Straight ASCII quotes are as common as typographic ones in scraped chapters,
+# and a regex that only knew about “」 silently reported zero dialogue on such a
+# text, blinding every speech-attribution check below.
+_SPOKEN_LINE = re.compile(r"[“「\"]([^”」\"]+)[”」\"]")
 # Third-person narration does not address anyone and does not speak as anyone.
 # A narrator turn carrying 我/你 is a character line that lost its speaker,
 # which is how quoted dialogue ends up read in the narrator's voice.
@@ -398,6 +401,54 @@ def evaluate_script_quality(
             "derivation=derived的turn必须引用含叙述的原文；不得把原文引号内的台词改写成近似句，"
             "台词要么逐字引用，要么由叙述外化",
             shot_indexes=sorted(set(paraphrased_dialogue)),
+        )
+
+    # A narrator turn may cite a passage that happens to contain speech, as long
+    # as that speech is actually delivered somewhere in the episode.  What is
+    # not allowed is citing quoted dialogue and summarising it away -- five
+    # separate taunts collapsing into "众人纷纷嘲讽他" is the single fastest way
+    # to turn an adaptation back into a plot summary, and no existing check
+    # caught it because the narrator text does not contain the quote.
+    # Speech is recognised from the chapter itself rather than from the
+    # citation: a turn-level source_quote routinely arrives with its outer
+    # quotation marks stripped, so scanning the citation alone finds nothing.
+    source_spoken = [
+        key for key in (_quote_key(line) for line in _spoken_lines(episode.source_text)) if key
+    ]
+    spoken_delivered = {
+        _quote_key(turn.text)
+        for shot in plan.shots
+        for turn in shot.turns
+        if turn.role != "narrator" and _quote_key(turn.text)
+    }
+
+    def _is_delivered(line_key: str) -> bool:
+        return any(
+            line_key in delivered or delivered in line_key
+            for delivered in spoken_delivered
+        )
+
+    summarised_dialogue = sorted(
+        {
+            shot.index
+            for shot in plan.shots
+            for turn in shot.turns
+            if turn.role == "narrator" and _quote_key(turn.source_quote or "")
+            for line_key in source_spoken
+            if (
+                line_key in _quote_key(turn.source_quote)
+                or _quote_key(turn.source_quote) in line_key
+            )
+            and not _is_delivered(line_key)
+        }
+    )
+    if summarised_dialogue:
+        block(
+            "narrator_summarises_dialogue",
+            "旁白引用了原文引号内的台词，但这些台词没有被任何角色说出来，"
+            "等于把对白概括成了旁白。原文有几句台词就让角色说几句，"
+            "旁白只保留无法表演的时间、空间和必要规则",
+            shot_indexes=summarised_dialogue,
         )
 
     verbatim_turn_count = sum(
