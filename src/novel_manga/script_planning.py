@@ -222,7 +222,14 @@ def validate_chapter_diagnosis(
             grounded_events.append(event.model_copy(update={"source_quote": grounded_quote}))
         unknown = set(event.characters) - known_characters
         if unknown:
-            issues.append(f"{event.event_id} uses unknown characters: {sorted(unknown)}")
+            # Naming the allowed cast inline: without it the repair loop only
+            # learns which name was rejected, not which ones it may use, and a
+            # crowd noun keeps coming back under a new spelling.
+            issues.append(
+                f"{event.event_id} uses unknown characters: {sorted(unknown)}; "
+                f"characters may only contain StoryBible names: {sorted(known_characters)}; "
+                "unnamed crowds belong in description, not in characters"
+            )
         critical_count += event.importance == "critical"
     if not critical_count:
         issues.append("chapter diagnosis must contain at least one critical event")
