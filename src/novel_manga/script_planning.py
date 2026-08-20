@@ -359,10 +359,31 @@ def evaluate_script_quality(
     misattributed: list[int] = []
     ungrounded_verbatim: list[int] = []
     paraphrased_dialogue: list[int] = []
+    unrewritten_derived: list[int] = []
+    third_person_self: list[int] = []
+    source_key = _quote_key(episode.source_text)
     for shot in plan.shots:
         for turn in shot.turns:
             quote = turn.source_quote or ""
             text_key = _quote_key(turn.text)
+            if turn.role != "narrator" and turn.derivation == TurnDerivation.DERIVED:
+                # Relabelling narration as a character's inner voice is not
+                # adaptation: the model keeps the third-person prose and only
+                # changes the delivery field, so the character ends up narrating
+                # themselves by name.
+                speaker_key = _quote_key(turn.speaker_name)
+                if speaker_key and speaker_key in text_key:
+                    third_person_self.append(shot.index)
+                    continue
+                # A staged line may reuse a short factual phrase word for word
+                # ("四岁练气，十岁拥有九段战之气") and still be genuine speech;
+                # what is not adaptation is lifting a whole clause of
+                # third-person prose unchanged.  Hand-written baselines top out
+                # around 13 characters of verbatim reuse, relabelled narration
+                # starts around 28.
+                if len(text_key) >= 25 and text_key in source_key:
+                    unrewritten_derived.append(shot.index)
+                    continue
             if turn.role == "narrator":
                 spoken_here = _spoken_lines(quote)
                 if any(
@@ -394,6 +415,20 @@ def evaluate_script_quality(
             "derivation=verbatim的turn文本必须逐字出现在其source_quote中；"
             "如果这句话是由叙述改写而来，请设置derivation=derived并引用对应叙述句",
             shot_indexes=sorted(set(ungrounded_verbatim)),
+        )
+    if third_person_self:
+        block(
+            "derived_turn_narrates_self",
+            "角色台词里出现了说话人自己的名字，说明这是把第三人称叙述直接搬进了台词或内心声。"
+            "角色说自己的话要用第一人称，叙述内容必须真正改写成他会说出口的话",
+            shot_indexes=sorted(set(third_person_self)),
+        )
+    if unrewritten_derived:
+        block(
+            "derived_turn_not_rewritten",
+            "derivation=derived的角色台词与原文叙述逐字相同，等于只换了标签没有改写。"
+            "把叙述改写成角色真会说出口的口语，或拆成有听者的一问一答",
+            shot_indexes=sorted(set(unrewritten_derived)),
         )
     if paraphrased_dialogue:
         block(
