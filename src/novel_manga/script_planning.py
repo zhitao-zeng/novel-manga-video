@@ -50,6 +50,9 @@ _SPOKEN_LINE = re.compile(r"[“「\"]([^”」\"]+)[”」\"]")
 # A narrator turn carrying 我/你 is a character line that lost its speaker,
 # which is how quoted dialogue ends up read in the narrator's voice.
 _ADDRESSED_SPEECH = re.compile(r"[我你您]")
+# Bracketed annotations belong in delivery_mode and performance_plan, never in
+# the text a voice actor speaks.
+_STAGE_DIRECTION = re.compile(r"[（(【\[][^）)】\]]{0,8}[）)】\]]")
 
 
 def _spoken_lines(source_quote: str) -> list[str]:
@@ -361,11 +364,18 @@ def evaluate_script_quality(
     paraphrased_dialogue: list[int] = []
     unrewritten_derived: list[int] = []
     third_person_self: list[int] = []
+    stage_directions: list[int] = []
     source_key = _quote_key(episode.source_text)
     for shot in plan.shots:
         for turn in shot.turns:
             quote = turn.source_quote or ""
             text_key = _quote_key(turn.text)
+            # turn.text is spoken verbatim by TTS and burned into subtitles, so
+            # a bracketed stage direction such as （内心） is read out loud.
+            # delivery_mode already carries that information.
+            if _STAGE_DIRECTION.search(turn.text):
+                stage_directions.append(shot.index)
+                continue
             if turn.role != "narrator" and turn.derivation == TurnDerivation.DERIVED:
                 # Relabelling narration as a character's inner voice is not
                 # adaptation: the model keeps the third-person prose and only
@@ -380,8 +390,13 @@ def evaluate_script_quality(
                 # what is not adaptation is lifting a whole clause of
                 # third-person prose unchanged.  Hand-written baselines top out
                 # around 13 characters of verbatim reuse, relabelled narration
-                # starts around 28.
-                if len(text_key) >= 25 and text_key in source_key:
+                # starts around 28.  Scan windows rather than the whole line:
+                # prefixing a stage direction made a straight containment test
+                # miss the lift it was written to catch.
+                if any(
+                    text_key[i : i + 25] in source_key
+                    for i in range(len(text_key) - 24)
+                ):
                     unrewritten_derived.append(shot.index)
                     continue
             if turn.role == "narrator":
@@ -415,6 +430,13 @@ def evaluate_script_quality(
             "derivation=verbatim的turn文本必须逐字出现在其source_quote中；"
             "如果这句话是由叙述改写而来，请设置derivation=derived并引用对应叙述句",
             shot_indexes=sorted(set(ungrounded_verbatim)),
+        )
+    if stage_directions:
+        block(
+            "turn_text_contains_stage_direction",
+            "turn.text会被逐字配音并烧进字幕，其中不得出现（内心）这类括号提示；"
+            "该信息用delivery_mode表示，表演细节写进performance_plan",
+            shot_indexes=sorted(set(stage_directions)),
         )
     if third_person_self:
         block(
