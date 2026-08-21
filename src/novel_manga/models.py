@@ -330,6 +330,13 @@ class ScriptTurn(BaseModel):
                 self.delivery_mode = TurnDelivery.VISIBLE_DIALOGUE
             else:
                 self.delivery_mode = TurnDelivery.OFFSCREEN_DIALOGUE
+        # speaking and delivery_mode encode the same fact twice, and planners
+        # routinely disagree with themselves across the two.  delivery_mode is
+        # the richer field, so let it decide and reconcile the boolean, rather
+        # than spending a revision round on a contradiction that carries no
+        # information.
+        if self.delivery_mode is not None:
+            self.speaking = self.delivery_mode == TurnDelivery.VISIBLE_DIALOGUE
         if self.role == "narrator" and self.speaking:
             raise ValueError("narrator turns cannot be visible speaking turns")
         if self.role != "narrator" and not self.speaker_name.strip():
