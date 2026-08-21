@@ -1037,7 +1037,10 @@ def evaluate_script_quality(
             audio_beat_coverage = (
                 len(directed_audio_shots) / len(plan.shots) if plan.shots else 0.0
             )
-            if len(directed_audio_shots) != len(plan.shots):
+            # Completeness of the sound plan is craft, not correctness: a shot
+            # without an audio beat still plays, it just has no designed sound
+            # design under it.
+            if len(directed_audio_shots) != len(plan.shots) and not _relaxed():
                 block(
                     "audio_beat_plan_incomplete",
                     "每个短剧镜头必须有按触发执行的相对音频节拍",

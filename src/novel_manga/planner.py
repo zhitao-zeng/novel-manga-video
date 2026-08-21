@@ -123,6 +123,13 @@ def _bounded_validate(
 ) -> ValidatedT:
     """Ask a planner to repair only invalid structured output, with a hard limit."""
 
+    # Repair feedback works on structural mistakes, which the model can see and
+    # correct.  It does nothing for a draft that is simply thin: those attempts
+    # come back near-identical, sometimes byte-identical.  Once feedback has had
+    # two chances, stop resending it and take an independent sample instead --
+    # run-to-run variance is wide enough that a fresh attempt beats another
+    # rewrite of the same weak draft.
+    feedback_attempts = min(2, max_revisions)
     repair: dict | None = None
     last_error: ValueError | None = None
     for revision in range(max_revisions + 1):
@@ -134,11 +141,18 @@ def _bounded_validate(
             last_error = error
             if revision >= max_revisions:
                 break
-            repair = {
-                "revision": revision + 1,
-                "previous_response": data,
-                "validation_errors": _validation_feedback(error),
-            }
+            if revision + 1 < feedback_attempts:
+                repair = {
+                    "revision": revision + 1,
+                    "previous_response": data,
+                    "validation_errors": _validation_feedback(error),
+                }
+            else:
+                repair = {
+                    "revision": revision + 1,
+                    "resample": True,
+                    "validation_errors": _validation_feedback(error),
+                }
     assert last_error is not None
     details = json.dumps(_validation_feedback(last_error), ensure_ascii=False)
     raise ValueError(
@@ -486,6 +500,12 @@ class OpenAICompatiblePlanner(Planner):
             "response_format": {"type": "json_object"},
             "messages": messages,
         }
+        if repair and repair.get("resample"):
+            # A resample only helps if it can actually diverge; at temperature
+            # 0.2 the model reproduces its previous answer almost verbatim,
+            # which is how three "revisions" came back byte-identical.
+            payload["temperature"] = 0.8
+            payload["seed"] = 1000 + int(repair.get("revision") or 0)
         if self.settings.llm_disable_thinking:
             # vLLM/Qwen accepts this OpenAI-compatible extension.  Keep it
             # opt-in so hosted OpenAI-compatible providers are unaffected.
