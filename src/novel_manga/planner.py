@@ -477,19 +477,33 @@ class OpenAICompatiblePlanner(Planner):
         base = str(self.settings.llm_base_url).rstrip("/")
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         if repair:
-            if repair.get("previous_response") is not None:
+            # A resample deliberately starts clean: carrying the rejected draft
+            # would both anchor the model to it and, at roughly 25k tokens for
+            # a full screenplay, overflow the context window once the output
+            # budget is added.
+            if repair.get("previous_response") is not None and not repair.get("resample"):
                 messages.append({
                     "role": "assistant",
                     "content": json.dumps(repair["previous_response"], ensure_ascii=False),
                 })
-            messages.append({
-                "role": "user",
-                "content": (
-                    "上一次 JSON 未通过确定性校验。只修复列出的错误，继续忠于输入原文，"
-                    "不要解释、不要输出 Markdown。校验反馈："
-                    + json.dumps(repair["validation_errors"], ensure_ascii=False)
-                ),
-            })
+            if repair.get("resample"):
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "上一稿未通过校验，请重新独立创作一稿，不要沿用上一稿的写法。"
+                        "需要避免的问题："
+                        + json.dumps(repair["validation_errors"], ensure_ascii=False)[:1200]
+                    ),
+                })
+            else:
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "上一次 JSON 未通过确定性校验。只修复列出的错误，继续忠于输入原文，"
+                        "不要解释、不要输出 Markdown。校验反馈："
+                        + json.dumps(repair["validation_errors"], ensure_ascii=False)
+                    ),
+                })
         payload = {
             "model": self.settings.llm_model,
             "temperature": 0.2,
@@ -515,7 +529,18 @@ class OpenAICompatiblePlanner(Planner):
             headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
             json=payload,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except Exception as error:
+            # httpx names the status and nothing else; the server's body is
+            # where the actual complaint is, and without it a 400 from the
+            # inference server is undiagnosable from the logs.
+            body = ""
+            try:
+                body = response.text[:600]
+            except Exception:
+                pass
+            raise RuntimeError(f"{error}; body: {body}") from error
         content = response.json()["choices"][0]["message"]["content"]
         return _loads_json_object(content)
 
