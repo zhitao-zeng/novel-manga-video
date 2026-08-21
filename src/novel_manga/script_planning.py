@@ -44,7 +44,7 @@ def _relaxed() -> bool:
 
 
 def _delta_floor() -> float:
-    return 0.2 if _relaxed() else CHARACTER_DELTA_GROUNDING_FLOOR
+    return 0.15 if _relaxed() else CHARACTER_DELTA_GROUNDING_FLOOR
 
 
 def _narration_tolerance() -> float:

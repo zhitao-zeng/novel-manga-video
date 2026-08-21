@@ -48,8 +48,8 @@ from .script_planning import (
     deterministic_series_state,
     evaluate_script_quality,
     repair_machine_draft,
-    normalize_chronological_plan,
     script_policy,
+    normalize_chronological_plan,
     source_evidence_units,
     validate_chapter_diagnosis,
     validate_series_state,
@@ -1143,12 +1143,23 @@ class OpenAICompatiblePlanner(Planner):
     def plan_episode(self, novel: NovelDocument, episode: Episode, bible: StoryBible) -> EpisodePlan:
         schema = EpisodePlan.model_json_schema()
         source_chars = len(re.sub(r"\s+", "", episode.source_text))
+        # State the floor the gate actually enforces, not just a target range:
+        # drafts kept landing at half the lower bound because a range reads as
+        # advisory.
+        floor = script_policy(
+            source_chars, "balanced", self.settings.creative_profile
+        )
         if source_chars <= 1200:
             size_guidance = "全片旁白与对白合计450-750个汉字、8-14个镜头"
         elif source_chars <= 3000:
             size_guidance = "全片旁白与对白合计700-1100个汉字、16-24个镜头"
         else:
             size_guidance = "全片旁白与对白合计900-1400个汉字、24-36个镜头"
+        size_guidance += (
+            f"。硬性下限：turns文本合计不得少于{floor.min_script_chars}个汉字、"
+            f"不得少于{floor.min_turns}个turn、不得少于{floor.min_shots}个镜头，"
+            "低于任何一项都会被直接打回；写够是第一优先，宁可多写一两个反应镜头"
+        )
         system = (
             "你是小说改编漫剧编剧。忠于原文人物关系、关键事件、顺序、因果和结局；不得新增核心情节。"
             f"不使用静态片头，0-3秒直接进入当前章有原文依据的冲突或悬念。原文有效字数约{source_chars}，{size_guidance}；"
@@ -1448,7 +1459,7 @@ class OpenAICompatiblePlanner(Planner):
             f"creative_profile必须填写{self.settings.creative_profile}。{direction_brief}"
             "先填写dramaturgy，只选择一个dramatic_question和3-5个冲突节点；"
             "cold_open必须在0-3秒呈现当前章内最易读的受压结果、关系异常、关键道具或行动后果，"
-            "cold_open_source_quote逐字来自当前章，前两镜实际呈现；如果预览后段事件，随后回到原因，"
+            "cold_open_source_quote必须逐字取自当前章的某一整行，且这一行要短——""它必须能完整出现在前两镜的source_quote里（每镜source_quote上限120字），""所以不要选很长的段落做冷开场证据；前两镜必须实际呈现它。""如果预览后段事件，随后回到原因，"
             "并在正常因果位置再次完整兑现。不得提前给出后文章节答案。"
             "Showrunner已经独立完成留存、信息差和人物状态决策；必须按输入中的showrunner_plan安排事件和镜头，"
             "不得在剧本阶段重写其事实、时间节点或人物状态。showrunner_plan字段可原样复制，程序会依据event_ids"
