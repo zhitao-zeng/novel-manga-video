@@ -275,8 +275,9 @@ def test_openai_compatible_planner_can_bound_qwen_output(tmp_path: Path) -> None
 
 
 def test_planner_revision_budget_is_hard_capped() -> None:
+    Settings(planner_max_revisions=6).validate()
     with pytest.raises(ValueError, match="NOVEL_PLANNER_MAX_REVISIONS"):
-        Settings(planner_max_revisions=3).validate()
+        Settings(planner_max_revisions=7).validate()
 
 
 def test_openai_planner_runs_diagnosis_script_review_and_state_stages(
