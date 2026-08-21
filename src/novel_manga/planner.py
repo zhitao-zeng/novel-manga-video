@@ -1143,23 +1143,12 @@ class OpenAICompatiblePlanner(Planner):
     def plan_episode(self, novel: NovelDocument, episode: Episode, bible: StoryBible) -> EpisodePlan:
         schema = EpisodePlan.model_json_schema()
         source_chars = len(re.sub(r"\s+", "", episode.source_text))
-        # State the floor the gate actually enforces, not just a target range:
-        # drafts kept landing at half the lower bound because a range reads as
-        # advisory.
-        floor = script_policy(
-            source_chars, "balanced", self.settings.creative_profile
-        )
         if source_chars <= 1200:
             size_guidance = "全片旁白与对白合计450-750个汉字、8-14个镜头"
         elif source_chars <= 3000:
             size_guidance = "全片旁白与对白合计700-1100个汉字、16-24个镜头"
         else:
             size_guidance = "全片旁白与对白合计900-1400个汉字、24-36个镜头"
-        size_guidance += (
-            f"。硬性下限：turns文本合计不得少于{floor.min_script_chars}个汉字、"
-            f"不得少于{floor.min_turns}个turn、不得少于{floor.min_shots}个镜头，"
-            "低于任何一项都会被直接打回；写够是第一优先，宁可多写一两个反应镜头"
-        )
         system = (
             "你是小说改编漫剧编剧。忠于原文人物关系、关键事件、顺序、因果和结局；不得新增核心情节。"
             f"不使用静态片头，0-3秒直接进入当前章有原文依据的冲突或悬念。原文有效字数约{source_chars}，{size_guidance}；"
@@ -1183,7 +1172,7 @@ class OpenAICompatiblePlanner(Planner):
             "全片至少三分之一的台词字数应来自derived角色对白；只把derived用在旁白上等于没有改编。"
             "一个turn是一口气可自然说完的完整语义句，通常12-36字，硬上限60字；"
             "不得为了字幕长度拆碎句子。字幕在音频对齐后独立分页，每页最多两行且仍逐字来自turn.text。"
-            "一个连续镜头通常承载1-3个语义turn，对话场景尤其要写成有来有回的多轮：""甲问一句、乙答一句、甲再追问，这些都放在同一个镜头的turns数组里，""而不是一镜只放一句然后靠加镜头凑数。""短剧节奏来自信息、动作和情绪变化，不来自机械断句或增加切镜；"
+            "一个连续镜头通常承载1-3个语义turn；短剧节奏来自信息、动作和情绪变化，不来自机械断句或增加切镜；"
             "每个镜头必须填写 performance_plan：动作起点、1-4个有触发和反应的 motion_beats、动作终点；"
             "必须填写camera_plan.mode、motivation、action_axis和screen_direction。默认mode=locked，"
             "由人物表演承担动态；只有人物明确位移、信息揭示或情绪/权力转折才使用motivated_subtle，"
