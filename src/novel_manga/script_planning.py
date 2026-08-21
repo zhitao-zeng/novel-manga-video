@@ -141,8 +141,12 @@ def _relax_policy(policy: "ScriptPolicy") -> "ScriptPolicy":
 
     if not _relaxed():
         return policy
+    # The repair pass hands violating turns back to the narrator, and narration
+    # does not count toward the spoken-script total, so a draft that started
+    # near the bar can land well under it after being cleaned up.  The floor has
+    # to leave room for that.
     return ScriptPolicy(
-        min_script_chars=int(policy.min_script_chars * 0.6),
+        min_script_chars=int(policy.min_script_chars * 0.45),
         min_turns=int(policy.min_turns * 0.75),
         min_shots=int(policy.min_shots * 0.75),
     )
