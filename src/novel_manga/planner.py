@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import re
 import shlex
 import subprocess
@@ -517,9 +518,13 @@ class OpenAICompatiblePlanner(Planner):
         if repair and repair.get("resample"):
             # A resample only helps if it can actually diverge; at temperature
             # 0.2 the model reproduces its previous answer almost verbatim,
-            # which is how three "revisions" came back byte-identical.
-            payload["temperature"] = 0.8
-            payload["seed"] = 1000 + int(repair.get("revision") or 0)
+            # which is how three "revisions" came back byte-identical.  A seed
+            # derived from the attempt number is not enough either: the prompt
+            # is identical across resamples, so the sampler has to be told to
+            # draw fresh each time.
+            payload["temperature"] = 1.0
+            payload["top_p"] = 0.95
+            payload["seed"] = random.randint(1, 2**31 - 1)
         if self.settings.llm_disable_thinking:
             # vLLM/Qwen accepts this OpenAI-compatible extension.  Keep it
             # opt-in so hosted OpenAI-compatible providers are unaffected.

@@ -718,7 +718,8 @@ def evaluate_script_quality(
     if ledger_mapping_errors:
         block(
             "adaptation_ledger_mapping_mismatch",
-            "改编账本的shot_indexes与实际分镜事件映射不一致",
+            "改编账本的shot_indexes与实际分镜事件映射不一致"
+            + "：" + "；".join(f"{eid}账本记{sorted(ledger[eid].shot_indexes)}实际{sorted(index for index, ids in shots_by_index.items() if eid in ids)}" for eid in ledger_mapping_errors[:6]),
             event_ids=sorted(ledger_mapping_errors),
         )
     removed_critical = sorted(
@@ -733,20 +734,36 @@ def evaluate_script_quality(
         for event_id in covered
     }
     causal_complete = True
+    # Name the offending pair.  Without it the model is told a causal link is
+    # broken somewhere among twenty shots and can only guess, which is why the
+    # same draft came back unchanged from every resample.
+    causal_problems: list[str] = []
+    causal_shots: list[int] = []
     for event_id in covered:
         if event_id not in events:
             continue
         for cause in events[event_id].causes:
             if cause not in covered:
                 causal_complete = False
+                causal_problems.append(f"{event_id}缺少前置事件{cause}")
+                causal_shots.extend(occurrences[event_id])
                 continue
             if min(occurrences[event_id]) < min(occurrences[cause]):
                 # A result may appear in a short cold open, but the full event
                 # still has to be shown again after its cause is established.
                 if max(occurrences[event_id]) < min(occurrences[cause]):
                     causal_complete = False
+                    causal_problems.append(
+                        f"{event_id}(镜{occurrences[event_id]})排在其前置事件"
+                        f"{cause}(镜{occurrences[cause]})之前且此后未再出现"
+                    )
+                    causal_shots.extend(occurrences[event_id])
     if not causal_complete:
-        block("causal_chain_broken", "分镜包含结果事件但缺少其前置因果事件")
+        block(
+            "causal_chain_broken",
+            "分镜包含结果事件但缺少其前置因果事件：" + "；".join(causal_problems[:6]),
+            shot_indexes=sorted(set(causal_shots)),
+        )
     final_candidates = [
         event for event in diagnosis.events
         if event.narrative_role in {"climax", "resolution"} and event.importance == "critical"
