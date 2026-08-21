@@ -47,6 +47,7 @@ from .script_planning import (
     deterministic_chapter_diagnosis,
     deterministic_series_state,
     evaluate_script_quality,
+    repair_machine_draft,
     normalize_chronological_plan,
     script_policy,
     source_evidence_units,
@@ -737,6 +738,10 @@ class OpenAICompatiblePlanner(Planner):
             episode.source_text,
             bible,
         )
+        # Correct the decidable mislabels before judging the draft, so revision
+        # rounds are spent on writing rather than on bookkeeping the controller
+        # can do itself.
+        plan = repair_machine_draft(plan, episode)
         normalized_source = re.sub(r"\s+", "", episode.source_text)
         canonical_names = {character.name for character in bible.characters}
         canonical_locations = set(bible.locations)

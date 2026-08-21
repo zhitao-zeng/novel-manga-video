@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 
@@ -17,6 +18,7 @@ from .models import (
     ScriptReviewIssue,
     SeriesState,
     StoryBible,
+    TurnDelivery,
     TurnDerivation,
 )
 from .creative_direction import SHORT_DRAMA_PROFILE
@@ -30,6 +32,23 @@ SHORT_DRAMA_TURN_HARD_MAX = 60
 # Showrunner state deltas are only worth gating on once most of the chapter's
 # declared changes carry evidence; below this the state layer is decorative.
 CHARACTER_DELTA_GROUNDING_FLOOR = 0.6
+
+# Two bars, not one.  The correctness checks below -- invented lines, dialogue
+# summarised into narration, a narrator speaking a character's words -- stay on
+# in every mode, because failing them produces an episode the audience cannot
+# follow.  The craft bars (length, narration share, evidence coverage) are what
+# separates a serviceable machine draft from a hand-written one, and a project
+# may reasonably choose to ship the former.
+def _relaxed() -> bool:
+    return os.getenv("NOVEL_SCRIPT_STRICTNESS", "strict").strip().lower() == "relaxed"
+
+
+def _delta_floor() -> float:
+    return 0.2 if _relaxed() else CHARACTER_DELTA_GROUNDING_FLOOR
+
+
+def _narration_tolerance() -> float:
+    return 0.20 if _relaxed() else 0.02
 
 
 def _normalized(value: str) -> str:
@@ -145,6 +164,70 @@ def script_policy(
     floor = min(1200, max(800, round(source_chars * 0.20)))
     turns = 20 if density == "dense" else 18
     return ScriptPolicy(floor, turns, 14)
+
+
+def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
+    """Fix the mechanical mislabels a planner reliably makes, before gating.
+
+    A model that is otherwise writing a usable draft still gets three things
+    wrong in a way no amount of prompting has fixed: it marks a line it copied
+    out of quotation marks as ``derived``, it marks a line it invented as
+    ``verbatim``, and it drops a paragraph of third-person prose into a
+    character's inner voice.  All three are decidable from the chapter text, so
+    the controller corrects them rather than spending revision rounds on them.
+    Anything not decidable here still fails the gates.
+    """
+
+    source_key = _quote_key(episode.source_text)
+    spoken_keys = [
+        key for key in (_quote_key(line) for line in _spoken_lines(episode.source_text)) if key
+    ]
+    shots = []
+    for shot in plan.shots:
+        turns = []
+        for turn in shot.turns:
+            text_key = _quote_key(turn.text)
+            update: dict[str, object] = {}
+
+            # A two-character interjection is contained in half the chapter by
+            # accident; only treat a line as copied when there is enough of it
+            # to be sure.
+            quoted = len(text_key) >= 5 and any(
+                text_key in line or line in text_key for line in spoken_keys
+            )
+            if turn.role != "narrator":
+                if quoted and turn.derivation != TurnDerivation.VERBATIM:
+                    # Copied out of the chapter's quotation marks: that is a
+                    # verbatim line however the model labelled it.  Re-anchor
+                    # the citation too, or the relabel just trades one gate
+                    # failure for another.
+                    update["derivation"] = TurnDerivation.VERBATIM
+                    if text_key not in _quote_key(turn.source_quote or ""):
+                        row = _ground_quote(turn.text, episode.source_text)
+                        if row:
+                            update["source_quote"] = row[:500]
+                elif not quoted and turn.derivation == TurnDerivation.VERBATIM and (
+                    text_key not in _quote_key(turn.source_quote or "")
+                ):
+                    update["derivation"] = TurnDerivation.DERIVED
+
+                speaker_key = _quote_key(turn.speaker_name)
+                lifted = len(text_key) >= 25 and text_key in source_key
+                if not quoted and (
+                    (speaker_key and speaker_key in text_key) or lifted
+                ):
+                    # Third-person prose wearing a character's voice: hand it
+                    # back to the narrator, where it is at least honest.
+                    update.update(
+                        role="narrator",
+                        speaker_name="旁白",
+                        speaking=False,
+                        delivery_mode=TurnDelivery.NARRATION,
+                        derivation=TurnDerivation.DERIVED,
+                    )
+            turns.append(turn.model_copy(update=update) if update else turn)
+        shots.append(shot.model_copy(update={"turns": turns}))
+    return plan.model_copy(update={"shots": shots})
 
 
 def normalize_chronological_plan(
@@ -558,7 +641,7 @@ def evaluate_script_quality(
 
     if (
         plan.creative_profile == SHORT_DRAMA_PROFILE
-        and narration_ratio > narration_budget + 0.02
+        and narration_ratio > narration_budget + _narration_tolerance()
     ):
         block(
             "narration_budget_exceeded",
@@ -882,11 +965,11 @@ def evaluate_script_quality(
             # The metric was computed and reported but never compared against
             # anything, so an episode could claim a Showrunner state layer while
             # leaving most of the chapter's declared changes unrecorded.
-            if character_delta_grounding < CHARACTER_DELTA_GROUNDING_FLOOR:
+            if character_delta_grounding < _delta_floor():
                 block(
                     "character_delta_grounding_low",
                     f"人物状态增量证据覆盖率{character_delta_grounding:.1%}低于下限"
-                    f"{CHARACTER_DELTA_GROUNDING_FLOOR:.0%}；章节声明发生变化的人物必须记录"
+                    f"{_delta_floor():.0%}；章节声明发生变化的人物必须记录"
                     "带当前章证据的before/after增量",
                 )
 
@@ -983,7 +1066,7 @@ def evaluate_script_quality(
         max_attention_gap_ratio=round(max_attention_gap_ratio, 6),
         information_fact_grounding=round(information_fact_grounding, 6),
         character_delta_grounding=round(character_delta_grounding, 6),
-        character_delta_grounding_floor=CHARACTER_DELTA_GROUNDING_FLOOR,
+        character_delta_grounding_floor=_delta_floor(),
         shot_intent_coverage=round(shot_intent_coverage, 6),
         audio_beat_coverage=round(audio_beat_coverage, 6),
         verbatim_turn_count=verbatim_turn_count,
