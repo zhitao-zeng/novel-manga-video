@@ -213,6 +213,9 @@ def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
 
                 speaker_key = _quote_key(turn.speaker_name)
                 lifted = len(text_key) >= 25 and text_key in source_key
+                # A speaker naming themselves is third-person prose whatever
+                # its length; the 25-character floor only ever applied to the
+                # verbatim-lift test beside it.
                 if not quoted and (
                     (speaker_key and speaker_key in text_key) or lifted
                 ):

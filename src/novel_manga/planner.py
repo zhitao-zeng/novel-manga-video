@@ -1183,7 +1183,7 @@ class OpenAICompatiblePlanner(Planner):
             "全片至少三分之一的台词字数应来自derived角色对白；只把derived用在旁白上等于没有改编。"
             "一个turn是一口气可自然说完的完整语义句，通常12-36字，硬上限60字；"
             "不得为了字幕长度拆碎句子。字幕在音频对齐后独立分页，每页最多两行且仍逐字来自turn.text。"
-            "一个连续镜头通常承载1-3个语义turn；短剧节奏来自信息、动作和情绪变化，不来自机械断句或增加切镜；"
+            "一个连续镜头通常承载1-3个语义turn，对话场景尤其要写成有来有回的多轮：""甲问一句、乙答一句、甲再追问，这些都放在同一个镜头的turns数组里，""而不是一镜只放一句然后靠加镜头凑数。""短剧节奏来自信息、动作和情绪变化，不来自机械断句或增加切镜；"
             "每个镜头必须填写 performance_plan：动作起点、1-4个有触发和反应的 motion_beats、动作终点；"
             "必须填写camera_plan.mode、motivation、action_axis和screen_direction。默认mode=locked，"
             "由人物表演承担动态；只有人物明确位移、信息揭示或情绪/权力转折才使用motivated_subtle，"
