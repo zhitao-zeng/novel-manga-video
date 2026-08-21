@@ -213,8 +213,12 @@ def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
             # A two-character interjection is contained in half the chapter by
             # accident; only treat a line as copied when there is enough of it
             # to be sure.
+            # Only "the chapter contains this line" counts as copied.  The
+            # reverse -- a source line sitting inside the turn -- means the
+            # model kept a real fragment and invented the rest, which is the
+            # fabrication this contract exists to catch, not a copy.
             quoted = len(text_key) >= 5 and any(
-                text_key in line or line in text_key for line in spoken_keys
+                text_key in line for line in spoken_keys
             )
             if turn.role != "narrator":
                 if quoted and turn.derivation == TurnDerivation.VERBATIM and (
