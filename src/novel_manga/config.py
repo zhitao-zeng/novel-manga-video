@@ -218,8 +218,11 @@ class Settings:
             )
         if self.planner_backend not in {"auto", "deterministic", "openai-compatible", "command"}:
             raise ValueError("NOVEL_PLANNER_BACKEND is invalid")
-        if not 0 <= self.planner_max_revisions <= 2:
-            raise ValueError("NOVEL_PLANNER_MAX_REVISIONS must be between 0 and 2")
+        # The cap was two because attempts were repairs, and a third repair of
+        # the same draft bought nothing.  Later attempts are now independent
+        # samples, which do pay off, so allow a few more.
+        if not 0 <= self.planner_max_revisions <= 6:
+            raise ValueError("NOVEL_PLANNER_MAX_REVISIONS must be between 0 and 6")
         if not 512 <= self.llm_max_tokens <= 32768:
             raise ValueError("NOVEL_LLM_MAX_TOKENS must be between 512 and 32768")
         if not 1 <= self.media_workers <= 8:
