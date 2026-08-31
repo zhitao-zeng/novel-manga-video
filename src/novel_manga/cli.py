@@ -9,8 +9,13 @@ from .config import Settings
 from .ingest import read_novel
 from .models import (
     ChapterDiagnosis,
+    EpisodeContract,
     EpisodePlan,
+    RetentionBeatDirection,
+    RetentionBeatScript,
     ScriptQualityReport,
+    SeriesDevelopmentPlan,
+    SeriesDevelopmentReview,
     SeriesState,
     ShowrunnerPlan,
     StoryBible,
@@ -85,15 +90,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "contract":
             print(json.dumps({
                 "contract": "novel-manga-production/v1",
-                "planner_contract": "novel-manga-planner/v4",
+                "planner_contract": "novel-manga-planner/v5",
                 "codex_required": False,
                 "planner_operations": [
                     "build_bible",
                     "diagnose_episode",
+                    "develop_series",
+                    "review_series_development",
                     "plan_showrunner",
-                    "plan_episode",
+                    "plan_beat_script",
+                    "plan_beat_direction",
                     "review_episode",
                     "update_series_state",
+                    "blind_compare",
                 ],
                 "planner_repair_protocol": {
                     "bounded": True,
@@ -102,7 +111,12 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 "story_bible_schema": StoryBible.model_json_schema(),
                 "chapter_diagnosis_schema": ChapterDiagnosis.model_json_schema(),
+                "series_development_schema": SeriesDevelopmentPlan.model_json_schema(),
+                "series_development_review_schema": SeriesDevelopmentReview.model_json_schema(),
                 "showrunner_plan_schema": ShowrunnerPlan.model_json_schema(),
+                "episode_contract_schema": EpisodeContract.model_json_schema(),
+                "retention_beat_script_schema": RetentionBeatScript.model_json_schema(),
+                "retention_beat_direction_schema": RetentionBeatDirection.model_json_schema(),
                 "episode_plan_schema": EpisodePlan.model_json_schema(),
                 "script_quality_schema": ScriptQualityReport.model_json_schema(),
                 "series_state_schema": SeriesState.model_json_schema(),

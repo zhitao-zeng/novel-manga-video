@@ -87,6 +87,22 @@ def test_script_turn_normalizes_chinese_narrator_role() -> None:
     assert turn.delivery_mode == TurnDelivery.NARRATION
 
 
+def test_script_turn_recovers_real_speaker_from_mislabeled_narrator_role() -> None:
+    turn = ScriptTurn.model_validate(
+        {
+            "role": "narrator",
+            "speaker_name": "测验员",
+            "text": "战之气：七段！",
+            "speaking": True,
+            "delivery_mode": "visible_dialogue",
+            "source_quote": '"战之气：七段！"',
+        }
+    )
+
+    assert turn.role == "测验员"
+    assert turn.speaking is True
+
+
 @pytest.mark.parametrize(
     ("retention_function", "shot_function"),
     [
@@ -139,7 +155,7 @@ def test_short_drama_normalization_uses_actual_cold_open_as_hook(
 
 
 @pytest.mark.parametrize(
-    "review_code", ["TURN_LENGTH_OVERFLOW", "TTS_OVERFLOW_RISK"]
+    "review_code", ["TURN_LENGTH_OVERFLOW", "TURN_TOO_LONG"]
 )
 def test_independent_review_turn_length_issue_defers_to_deterministic_count(
     tmp_path: Path,
@@ -177,6 +193,41 @@ def test_independent_review_turn_length_issue_defers_to_deterministic_count(
     )
 
     assert review_code not in {issue.code for issue in report.issues}
+
+
+def test_independent_review_false_without_blocker_is_report_only(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚"))
+    qualitative = ScriptQualityReport(
+        passed=False,
+        script_char_count=5,
+        shot_count=1,
+        turn_count=1,
+        critical_event_coverage=1.0,
+        causal_chain_complete=True,
+        character_introductions_complete=True,
+        opening_no_spoiler=True,
+        ending_at_chapter_boundary=True,
+        issues=[],
+    )
+
+    report = evaluate_script_quality(
+        plan,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        novel.episodes[0],
+        qualitative=qualitative,
+    )
+
+    issue = next(
+        item
+        for item in report.issues
+        if item.code == "independent_review_nonactionable_fail"
+    )
+    assert issue.severity == "warning"
+    assert issue.gate_level == "craft"
 
 
 def test_real_turn_length_overflow_keeps_independent_review_issue(
@@ -313,6 +364,7 @@ def _fixture(tmp_path: Path):
         llm_api_key="local",
         llm_model="qwen-local",
         planner_max_revisions=2,
+        creative_profile="faithful-chronological-v1",
     )
     return novel, bible, settings
 
@@ -771,8 +823,9 @@ def test_script_expansion_prompt_locks_existing_and_quoted_turns(
     system_prompt = client.requests[0]["json"]["messages"][0]["content"]
     assert "现有turn是事实与角色归属基线" in system_prompt
     assert "若过长、重复、书面化或导致逐字比例超限" in system_prompt
-    assert "一条原文引号对白必须作为一个完整turn逐字复制" in system_prompt
-    assert "不得把同一条对白拆成多个turn" in system_prompt
+    assert "长对白可设置derivation=abridged" in system_prompt
+    assert "只按原顺序删除完整标点子句" in system_prompt
+    assert "连续拼接后必须等于所选完整子句" in system_prompt
 
 
 def test_script_expansion_repairs_changes_to_existing_turns(

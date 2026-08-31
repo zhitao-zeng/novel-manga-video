@@ -30,16 +30,12 @@ from novel_manga.production_models import (
     SeriesAssetManifest,
 )
 from novel_manga.production_runtime import (
-    adaptive_tts_speed,
     EpisodeProductionRuntime,
     build_visual_groups,
     compile_phanrouter_runtime_motion_prompt,
     compile_seedance_native_audio_prompt,
     copy_keyframe,
-    is_direct_reference_audio_visual_cache,
     keyframe_brightness_report,
-    policy_safe_motion_prompt,
-    retime_group_timelines_to_native_audio,
 )
 from novel_manga.providers.base import ImageResult
 
@@ -132,9 +128,6 @@ def test_api_visual_groups_keep_each_shot_as_one_generation_unit() -> None:
         ],
     )
     runtime = compile_production_plan("1_1", episode, plan, _bible(), _assets())
-    for unit, seconds in zip(runtime.units, [4.0, 4.0, 1.2, 1.1], strict=True):
-        unit.audio_seconds = seconds
-
     groups = build_visual_groups(runtime)
 
     assert len(runtime.units) == 4
@@ -149,19 +142,19 @@ def test_api_visual_groups_keep_each_shot_as_one_generation_unit() -> None:
     assert "不是多张静态图片串联" in groups[0].motion_prompt
     assert "【本连续镜头摄影机计划】模式=locked" in groups[0].motion_prompt
     assert "整组只执行上面唯一的摄影机计划" in groups[0].motion_prompt
-    assert groups[0].video_audio_path.endswith("visual_001.wav")
     assert groups[0].shot_contract is not None
     assert groups[0].shot_contract.contract_version == "hell-grind-adapted-v1"
-    assert groups[0].shot_contract.external_audio_is_master is True
+    assert groups[0].shot_contract.external_audio_is_master is False
     assert groups[0].shot_contract.risk_focus
     assert groups[0].image_contract is not None
     assert groups[0].image_contract.purpose == "shot_start_keyframe"
 
     local_groups = build_visual_groups(runtime, allow_cross_shot_merge=True)
-    assert len(local_groups) == 1
+    assert len(local_groups) == 3
+    assert [group.planned_seconds for group in local_groups] == [9.043, 6.75, 6.75]
 
 
-def test_h3_eight_second_window_splits_long_visual_groups() -> None:
+def test_generation_window_splits_long_visual_groups() -> None:
     source = "第一句。第二句。第三句。"
     episode = Episode(
         index=1,
@@ -174,7 +167,7 @@ def test_h3_eight_second_window_splits_long_visual_groups() -> None:
     plan = EpisodePlan(
         video_title="第一章",
         hook="开场",
-        summary="H3 短镜测试",
+        summary="短镜测试",
         shots=[
             Shot(
                 index=1,
@@ -193,12 +186,89 @@ def test_h3_eight_second_window_splits_long_visual_groups() -> None:
         ],
     )
     runtime = compile_production_plan("1_1", episode, plan, _bible(), _assets())
-    for unit in runtime.units:
-        unit.audio_seconds = 3.0
-
-    groups = build_visual_groups(runtime, target_seconds=7.5)
+    groups = build_visual_groups(runtime, target_seconds=8.5)
 
     assert [len(group.unit_ids) for group in groups] == [2, 1]
+    assert [group.planned_seconds for group in groups] == [8.1, 4.0]
+
+
+def test_compiler_assigns_consecutive_beats_and_ignores_measured_audio_for_duration() -> None:
+    source = "第一句。第二句。"
+    episode = Episode(
+        index=1,
+        source_title="第一章",
+        source_text=source,
+        text_count=len(source),
+        source_start=0,
+        source_end=len(source),
+    )
+    shot = Shot(
+        index=1,
+        narration=source,
+        subtitle=source,
+        visual_prompt="林晚站在旧书店门内",
+        motion_prompt="林晚看门、推门、停手",
+        characters=["林晚"],
+        location="旧书店",
+        source_quote=source,
+        turns=[
+            ScriptTurn(text="第一句。", source_quote="第一句。"),
+            ScriptTurn(text="第二句。", source_quote="第二句。"),
+        ],
+        performance_plan=PerformancePlan(
+            objective="决定是否开门",
+            start_state="林晚离门一步，手臂垂下",
+            motion_beats=[
+                MotionBeat(
+                    phase="opening",
+                    seconds=1.0,
+                    actor="林晚",
+                    target="木门",
+                    action="林晚抬眼看向木门",
+                    end_state="视线停在门闩",
+                ),
+                MotionBeat(
+                    phase="development",
+                    seconds=2.0,
+                    actor="林晚",
+                    target="门闩",
+                    action="林晚伸手推开门闩",
+                    end_state="门闩离开卡槽",
+                ),
+                MotionBeat(
+                    phase="resolution",
+                    seconds=1.0,
+                    actor="林晚",
+                    target="门外",
+                    action="林晚停手看向门外",
+                    end_state="她站定并留出门口视线",
+                ),
+            ],
+            end_state="林晚站定并看向门外",
+        ),
+    )
+    runtime = compile_production_plan(
+        "1_1",
+        episode,
+        EpisodePlan(video_title="门", hook="门", summary="开门", shots=[shot]),
+        _bible(),
+        _assets(),
+    )
+
+    assert [unit.performance_beat_indexes for unit in runtime.units] == [[0, 1], [2]]
+    assert [unit.planned_seconds for unit in runtime.units] == [4.75, 4.0]
+
+    group = build_visual_groups(runtime)[0]
+
+    assert group.planned_seconds == 8.85
+    assert group.shot_contract is not None
+    assert [beat.action for beat in group.shot_contract.beat_timeline] == [
+        "林晚抬眼看向木门",
+        "林晚伸手推开门闩",
+        "林晚停手看向门外",
+    ]
+    assert group.shot_contract.beat_timeline[-1].end_seconds == 8.85
+    assert "4.8秒竖屏" in compile_phanrouter_runtime_motion_prompt(runtime.units[0])
 
 
 def _two_character_bible() -> StoryBible:
@@ -270,25 +340,22 @@ def test_visual_group_never_crosses_visible_speakers_in_one_shot() -> None:
         _two_character_bible(),
         _two_character_assets(),
     )
-    for unit in runtime.units:
-        unit.audio_seconds = 2.0
-
     groups = build_visual_groups(runtime)
 
     assert [group.unit_ids for group in groups] == [
         ["shot_001_turn_01"],
         ["shot_001_turn_02"],
     ]
-    assert [group.direct_video_character_asset_ids for group in groups] == [
-        ["character_001"],
-        ["character_002"],
+    assert [group.visual_strategy for group in groups] == [
+        VisualStrategy.DIRECT_ASSETS,
+        VisualStrategy.DIRECT_ASSETS,
     ]
     assert all(group.shot_contract is not None for group in groups)
     assert groups[0].shot_contract.exact_dialogue == ["林晚：不要开门。"]
     assert groups[1].shot_contract.exact_dialogue == ["周宇：已经晚了。"]
 
 
-def test_compiler_materializes_scene_shot_turn_and_exact_reference_audio_prompt() -> None:
+def test_compiler_materializes_scene_shot_turn_and_exact_dialogue_prompt() -> None:
     source = "林晚低声说：“不要开门。”"
     episode = Episode(
         index=1,
@@ -532,7 +599,6 @@ def test_action_shot_compiles_physics_chain_and_environment_feedback() -> None:
         assets,
     )
     unit = plan.units[0]
-    unit.audio_seconds = 4.0
 
     assert unit.action_physics_plan is not None
     assert "裂纹" in unit.action_physics_plan.contact
@@ -651,7 +717,6 @@ def test_story_keyframe_keeps_all_visible_characters_and_exact_subject_count() -
 
     group = build_visual_groups(runtime, series_assets=_two_character_assets())[0]
     assert group.visual_strategy == VisualStrategy.STORY_KEYFRAME
-    assert group.direct_video_character_asset_ids == []
     assert group.shot_contract is not None
     assert group.shot_contract.visible_asset_ids == [
         "character_002@v001",
@@ -830,9 +895,6 @@ def test_each_shot_contract_compiles_one_performance_and_one_camera_plan() -> No
         _bible(),
         _assets(),
     )
-    for unit in runtime.units:
-        unit.audio_seconds = 1.0
-
     groups = build_visual_groups(runtime)
 
     assert len(groups) == 3
@@ -885,26 +947,20 @@ def test_visual_group_keeps_offscreen_cast_but_routes_one_visible_speaker() -> N
         _two_character_bible(),
         _two_character_assets(),
     )
-    for unit in runtime.units:
-        unit.audio_seconds = 2.0
-
     groups = build_visual_groups(runtime)
     group = groups[0]
 
     assert len(groups) == 2
     assert group.character_asset_ids == ["character_001"]
-    assert group.direct_video_character_asset_ids == ["character_001"]
     proxy = EpisodeProductionRuntime._visual_group_proxy(
         group, {unit.unit_id: unit for unit in runtime.units}
     )
     assert proxy.character_asset_ids == ["character_001"]
-    assert proxy.direct_video_character_asset_ids == ["character_001"]
     assert proxy.speaking is True
     assert proxy.role == "林晚"
     assert proxy.speaker_name == "林晚"
     assert "最终画面只保留这一名人物" in group.keyframe_prompt
     assert "不得生成背景人脸" in group.keyframe_prompt
-    assert groups[1].direct_video_character_asset_ids == []
     assert groups[1].shot_contract is not None
     assert "F-DIALOGUE-VISUALIZED" in groups[1].shot_contract.risk_focus
 
@@ -946,11 +1002,11 @@ def test_visual_group_finishes_action_inside_delivery_window() -> None:
         _bible(),
         _assets(),
     )
-    runtime.units[0].audio_seconds = 2.32
 
     group = build_visual_groups(runtime)[0]
 
-    assert "前2.52秒内完成并收势" in group.motion_prompt
+    assert group.planned_seconds == runtime.units[0].planned_seconds
+    assert f"前{group.planned_seconds:.2f}秒内完成并收势" in group.motion_prompt
     assert "余下时间保持动作终点和稳定构图" in group.motion_prompt
 
 
@@ -999,15 +1055,10 @@ def test_visual_group_does_not_direct_route_an_ambiguous_second_character() -> N
         _two_character_bible(),
         _two_character_assets(),
     )
-    for unit in runtime.units:
-        unit.audio_seconds = 2.0
-
     groups = build_visual_groups(runtime)
 
     assert groups[0].character_asset_ids == ["character_001"]
-    assert groups[0].direct_video_character_asset_ids == ["character_001"]
     assert groups[1].character_asset_ids == ["character_001", "character_002"]
-    assert groups[1].direct_video_character_asset_ids == []
 
 
 def test_runtime_units_never_reuse_complete_turn_artifacts() -> None:
@@ -1074,7 +1125,6 @@ def test_two_reference_prompt_uses_image_identity_without_rewriting_character() 
         keyframe_prompt="旧书店里的林晚",
         actor_description="林晚，成年女性，黑色长发，蓝色风衣",
         composition_prompt="左侧三分线胸像",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/video.mp4",
         segment_path="work/segment.mp4",
@@ -1111,7 +1161,6 @@ def test_two_reference_prompt_preserves_approved_3d_guoman_rendering() -> None:
         keyframe_prompt="3D国漫，哑光Toon-PBR材质",
         actor_description="林晚，成年女性，黑色长发，蓝色风衣",
         composition_prompt="左侧三分线胸像",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/video.mp4",
         segment_path="work/segment.mp4",
@@ -1169,7 +1218,6 @@ def test_nonvisible_character_voice_keeps_voice_identity_without_driving_lips() 
     assert unit.voice == "coral"
     assert unit.delivery_mode == TurnDelivery.INNER_VOICE
     assert unit.speaking is False
-    assert unit.reference_audio_required is False
     assert "所有人物嘴巴自然闭合" in unit.keyframe_prompt
     assert "口型必须与参考音频逐字同步" not in unit.motion_prompt
 
@@ -1345,14 +1393,6 @@ def test_locked_series_asset_survives_prompt_revision_without_image_call(tmp_pat
     assert saved["artifact_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
 
 
-def test_overlong_turn_uses_next_model_native_speed_without_exceeding_limit() -> None:
-    speed = adaptive_tts_speed(1.15, 11.331, 7.5)
-
-    assert speed == pytest.approx(1.7721684, rel=1e-5)
-    assert adaptive_tts_speed(speed, 7.48, 7.5) == speed
-    assert adaptive_tts_speed(1.9, 12.0, 7.5) == 2.0
-
-
 def test_series_asset_prompts_follow_3d_story_bible_without_2d_conflict() -> None:
     bible = _bible().model_copy(
         update={"visual_style": "高精度半写实3D国漫CG，PBR材质，仙侠游戏过场动画"}
@@ -1417,157 +1457,6 @@ def test_production_settings_fail_closed_without_asr_backend() -> None:
 def test_latentsync_is_hard_disabled() -> None:
     with pytest.raises(ValueError, match="LatentSync is disabled"):
         Settings(video_model="LatentSync-1.6").validate()
-
-
-def test_direct_asset_strategy_requires_local_h3() -> None:
-    with pytest.raises(ValueError, match="requires the command provider and MiniMax H3"):
-        Settings(local_visual_strategy="h3-direct-single-character").validate()
-    Settings(
-        provider="command",
-        video_model="MiniMax-H3-Ref2VA",
-        image_command="/models/image",
-        video_command="/models/h3-video",
-        tts_command="/models/tts",
-        local_visual_strategy="h3-direct-single-character",
-        font_path=Path(__file__),
-    ).validate()
-
-
-def test_direct_h3_assets_selects_only_one_character_dialogue_group(
-    tmp_path: Path,
-) -> None:
-    assets = _assets()
-    novel_dir = tmp_path / "novel"
-    character = novel_dir / assets.characters[0].primary_image
-    location = novel_dir / assets.locations[0].primary_image
-    for path in (character, location):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"jpeg")
-    runtime = EpisodeProductionRuntime(
-        Settings(
-            provider="command",
-            video_model="MiniMax-H3-Ref2VA",
-            image_command="/models/image",
-            video_command="/models/h3-video",
-            tts_command="/models/tts",
-            local_visual_strategy="h3-direct-single-character",
-        ),
-        None,
-        None,
-        None,
-        None,
-    )  # type: ignore[arg-type]
-    unit = RuntimeUnit(
-        unit_id="visual_001",
-        episode_id="1_1",
-        scene_id="scene_001",
-        shot_id="shot_001",
-        shot_index=1,
-        turn_index=1,
-        role="narrator",
-        speaker_name="旁白",
-        speaking=False,
-        reference_audio_required=True,
-        text="林晚低声说不要开门。",
-        emotion="警惕",
-        source_quote="不要开门。",
-        character_asset_ids=["character_001"],
-        location_asset_id="location_001",
-        voice="narrator",
-        visual_prompt="旧书店",
-        motion_prompt="林晚转头并说话",
-        keyframe_prompt="旧书店里的林晚",
-        audio_path="work/audio.wav",
-        keyframe_path="work/keyframe.jpeg",
-        raw_video_path="work/video.mp4",
-        segment_path="work/segment.mp4",
-    )
-
-    assert runtime._direct_h3_assets(novel_dir, unit, assets) == (
-        character,
-        (location,),
-    )
-    assert runtime._direct_h3_assets(
-        novel_dir,
-        unit.model_copy(update={"reference_audio_required": False}),
-        assets,
-    ) is None
-
-
-def test_prepare_keyframe_bypasses_qwen_for_direct_h3_assets(tmp_path: Path) -> None:
-    assets = _assets()
-    novel_dir = tmp_path / "novel"
-    character = novel_dir / assets.characters[0].primary_image
-    location = novel_dir / assets.locations[0].primary_image
-    for path in (character, location):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"jpeg")
-    episode_dir = novel_dir / "episode"
-    audio = episode_dir / "work/audio.wav"
-    reference = episode_dir / "work/reference.jpeg"
-    audio.parent.mkdir(parents=True, exist_ok=True)
-    audio.write_bytes(b"wav")
-    reference.write_bytes(b"board")
-
-    class Assets:
-        def reference_board(self, episode_dir, unit, series_assets, novel_dir):
-            return reference
-
-        def _ensure_image(self, prompt, output, reference=None):
-            raise AssertionError("direct H3 mode must not generate a per-shot keyframe")
-
-    runtime = EpisodeProductionRuntime(
-        Settings(
-            provider="command",
-            video_model="MiniMax-H3-Ref2VA",
-            image_command="/models/image",
-            video_command="/models/h3-video",
-            tts_command="/models/tts",
-            local_visual_strategy="h3-direct-single-character",
-        ),
-        None,
-        None,
-        Assets(),
-        None,
-    )  # type: ignore[arg-type]
-    unit = RuntimeUnit(
-        unit_id="visual_001",
-        episode_id="1_1",
-        scene_id="scene_001",
-        shot_id="shot_001",
-        shot_index=1,
-        turn_index=1,
-        role="narrator",
-        speaker_name="旁白",
-        speaking=False,
-        reference_audio_required=True,
-        text="林晚低声说不要开门。",
-        emotion="警惕",
-        source_quote="不要开门。",
-        character_asset_ids=["character_001"],
-        location_asset_id="location_001",
-        voice="narrator",
-        visual_prompt="旧书店",
-        motion_prompt="林晚转头并说话",
-        keyframe_prompt="旧书店里的林晚",
-        audio_path="work/audio.wav",
-        keyframe_path="work/keyframe.jpeg",
-        raw_video_path="work/video.mp4",
-        segment_path="work/segment.mp4",
-    )
-
-    prepared = runtime._prepare_keyframe(episode_dir, novel_dir, unit, assets)
-
-    assert prepared["selected_keyframe"] == character
-    assert prepared["additional_video_images"] == (location,)
-    assert prepared["visual_input_strategy"] == "h3-character-plus-location-assets"
-    assert runtime._direct_h3_assets(
-        novel_dir,
-        unit.model_copy(
-            update={"character_asset_ids": ["character_001", "character_002"]}
-        ),
-        assets,
-    ) is None
 
 
 def test_phanrouter_keyframe_uses_only_character_and_scene_references(
@@ -1635,7 +1524,6 @@ def test_phanrouter_keyframe_uses_only_character_and_scene_references(
         speaker_name="林晚",
         speaking=True,
         delivery_mode=TurnDelivery.VISIBLE_DIALOGUE,
-        reference_audio_required=True,
         text="不要开门。",
         emotion="警惕",
         source_quote="不要开门。",
@@ -1647,11 +1535,9 @@ def test_phanrouter_keyframe_uses_only_character_and_scene_references(
         motion_prompt="很长的内部导演说明",
         keyframe_prompt="很长的内部关键帧说明",
         composition_prompt="右前方四分之三胸像，人物位于左侧三分线",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/video.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.4,
     )
     assets = Assets()
     runtime = EpisodeProductionRuntime(
@@ -1684,7 +1570,8 @@ def test_phanrouter_keyframe_uses_only_character_and_scene_references(
     assert "发型=黑色齐肩短发，不束发" in image_prompt
     assert len(image_prompt) < 700
     runtime_prompt = prepared["unit"].motion_prompt
-    assert "外部音频是唯一口型" in runtime_prompt
+    assert "Seedance自行生成" in runtime_prompt
+    assert "外部音频" not in runtime_prompt
     assert "不要开门。" in runtime_prompt
     assert "很长的内部导演说明" not in runtime_prompt
     assert len(runtime_prompt) < 520
@@ -1764,11 +1651,9 @@ def test_phanrouter_single_character_narration_puts_identity_reference_first(
         motion_prompt="固定机位",
         keyframe_prompt="旧书店里的林晚",
         composition_prompt="右前方四分之三胸像，人物位于左侧三分线",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/video.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.4,
     )
     assets = Assets()
     runtime = EpisodeProductionRuntime(
@@ -1807,38 +1692,6 @@ def test_bright_location_gate_rejects_dark_keyframe(tmp_path: Path) -> None:
     assert keyframe_brightness_report(bright, location)["status"] == "passed"
 
 
-def test_native_audio_retiming_preserves_exact_event_text() -> None:
-    timings = [
-        {
-            "unit_id": "turn_01",
-            "events": [{"text": "第一句。", "start": 0.0, "end": 1.0}],
-        },
-        {
-            "unit_id": "turn_02",
-            "events": [{"text": "第二句更长。", "start": 1.0, "end": 2.0}],
-        },
-    ]
-
-    result = retime_group_timelines_to_native_audio(
-        timings,
-        speech_start=0.2,
-        speech_end=4.2,
-    )
-
-    assert [event["text"] for row in result for event in row["events"]] == [
-        "第一句。",
-        "第二句更长。",
-    ]
-    assert result[0]["speech_start"] == 0.2
-    assert result[-1]["speech_end"] == 4.2
-    assert result[0]["speech_end"] < result[1]["speech_end"]
-    assert all(
-        event["alignment_evidence"] == "seedance_native_coarse_audio_bounds"
-        for row in result
-        for event in row["events"]
-    )
-
-
 def test_seedance_native_prompt_requests_direct_speech_without_reference_audio() -> None:
     unit = RuntimeUnit(
         unit_id="visual_001",
@@ -1860,11 +1713,9 @@ def test_seedance_native_prompt_requests_direct_speech_without_reference_audio()
         motion_instruction="林晚望向门口",
         motion_prompt="内部导演说明",
         keyframe_prompt="门内",
-        audio_path="work/timing.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/raw.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.0,
     )
 
     prompt = compile_seedance_native_audio_prompt(unit)
@@ -1874,22 +1725,14 @@ def test_seedance_native_prompt_requests_direct_speech_without_reference_audio()
     assert "外部音频" not in prompt
 
 
-def test_seedance_native_audio_is_selected_without_tts_or_asr(tmp_path: Path) -> None:
+def test_native_dialogue_audio_is_selected_without_tts(tmp_path: Path) -> None:
     raw_video = tmp_path / "raw.mp4"
-    locked_tts = tmp_path / "locked.wav"
     subprocess.run(
         [
             "ffmpeg", "-y", "-v", "error",
             "-f", "lavfi", "-i", "color=c=blue:s=64x64:r=25:d=2",
             "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
             "-c:v", "libx264", "-c:a", "aac", "-shortest", str(raw_video),
-        ],
-        check=True,
-    )
-    subprocess.run(
-        [
-            "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
-            "anullsrc=r=48000:cl=stereo", "-t", "1", str(locked_tts),
         ],
         check=True,
     )
@@ -1903,18 +1746,12 @@ def test_seedance_native_audio_is_selected_without_tts_or_asr(tmp_path: Path) ->
         combined_text="不要开门。",
         keyframe_prompt="门内",
         motion_prompt="人物说话",
-        audio_path="work/group.wav",
-        video_audio_path="work/group_driver.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/raw.mp4",
         segment_path="work/segment.mp4",
     )
 
-    settings = Settings(
-        provider="phanrouter",
-        admission_mode="preview",
-        final_audio_policy="seedance_native_unchecked",
-    )
+    settings = Settings(provider="phanrouter", admission_mode="preview")
     runtime = EpisodeProductionRuntime(
         settings, None, None, None, None
     )  # type: ignore[arg-type]
@@ -1923,15 +1760,14 @@ def test_seedance_native_audio_is_selected_without_tts_or_asr(tmp_path: Path) ->
         episode_dir=tmp_path,
         group=group,
         raw_video=raw_video,
-        locked_tts=locked_tts,
     )
 
-    assert selected != locked_tts
-    assert report["selected_source"] == "seedance_native_unchecked"
+    assert selected.is_file()
+    assert report["selected_source"] == "native_dialogue"
     assert "asr" not in report
 
 
-def test_sd25_native_audio_policy_requires_no_tts_backend() -> None:
+def test_legacy_sd25_audio_policy_is_read_only() -> None:
     settings = Settings(
         provider="phanrouter",
         admission_mode="preview",
@@ -1940,7 +1776,8 @@ def test_sd25_native_audio_policy_requires_no_tts_backend() -> None:
         final_audio_policy="sd25_native_original",
     )
 
-    settings.validate()
+    with pytest.raises(ValueError, match="legacy audio artifacts are read-only"):
+        settings.validate()
 
 
 def test_phanrouter_rejects_legacy_sd20_model() -> None:
@@ -1949,7 +1786,6 @@ def test_phanrouter_rejects_legacy_sd20_model() -> None:
             provider="phanrouter",
             phanrouter_api_key="runtime-only",
             video_model="sd2.0",
-            tts_command="/models/tts-adapter",
         ).validate()
 
 
@@ -1961,208 +1797,21 @@ def test_admission_cache_identity_includes_video_backend() -> None:
     assert sd25["video_model"] == "sd2.5"
 
 
-def test_admission_cache_identity_includes_voice_map_and_render_policy() -> None:
-    dylan = admission_backend_identity(
-        Settings(voice_map={"林澈": "Dylan"})
-    )
-    designed = admission_backend_identity(
-        Settings(voice_map={"林澈": "LinChe_Deep_Adult_v1"})
-    )
+def test_admission_cache_identity_excludes_legacy_voice_map() -> None:
+    identity = admission_backend_identity(Settings())
 
-    assert dylan != designed
-    assert designed["render_policy_revision"] == (
+    assert "tts_model" not in identity
+    assert "tts_command_sha256" not in identity
+    assert identity["render_policy_revision"] == (
         "transparent-outline-subs-story-art-endpoints-v2"
     )
-    assert designed["camera_policy_revision"] == "motivated-camera-v2-subtle-unbudgeted"
+    assert identity["camera_policy_revision"] == "motivated-camera-v2-subtle-unbudgeted"
 
 
 def test_legacy_lip_sync_environment_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NOVEL_LIP_SYNC_COMMAND", "/models/old-adapter")
     with pytest.raises(ValueError, match="lip-sync inspection/remediation is disabled"):
         Settings.from_env()
-
-
-def test_modified_or_latentsync_visual_cache_is_not_reused() -> None:
-    assert is_direct_reference_audio_visual_cache({"workflow": "sd2.5-reference-audio"})
-    assert not is_direct_reference_audio_visual_cache(
-        {"workflow": "sd2.5-reference-audio", "postprocess": "closed-tail-crossfade"}
-    )
-    assert not is_direct_reference_audio_visual_cache({"backend": "latent_sync-local"})
-
-
-def test_policy_safe_prompt_removes_ip_names_and_verbatim_audio_instruction() -> None:
-    prompt = (
-        "萧家广场，萧薰儿走向萧炎。"
-        "参考音频中的可见对白严格依次为：萧薰儿：萧炎哥哥。。"
-        "只有这些可见对白驱动对应角色口型；"
-        "参考音频中的旁白、画外对白和内心声期间，其他人闭嘴。"
-    )
-
-    safe = policy_safe_motion_prompt(prompt)
-
-    assert "萧家" not in safe
-    assert "萧薰儿" not in safe
-    assert "萧炎" not in safe
-    assert "参考音频" not in safe
-    assert "紫衣少女" in safe
-    assert "黑衣青年" in safe
-    assert "人物只做与剧情相符的短句说话动作" in safe
-
-
-def test_resumed_policy_rejection_skips_consumed_reference_audio_attempts(
-    tmp_path: Path,
-) -> None:
-    class Media:
-        calls: list[tuple[str, object]] = []
-
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
-            self.calls.append((prompt, reference_audio))
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b"real-prompt-only-video")
-            return output
-
-    class Assets:
-        def __init__(self, reference: Path):
-            self.reference = reference
-
-        def reference_board(self, episode_dir, unit, series_assets, novel_dir):
-            return self.reference
-
-        def _ensure_image(self, prompt, output, reference=None):
-            raise AssertionError("resumed attempt must reuse the prior keyframe")
-
-    episode_dir = tmp_path / "episode"
-    audio = episode_dir / "work/audio.wav"
-    reference = episode_dir / "work/reference.jpeg"
-    audio.parent.mkdir(parents=True, exist_ok=True)
-    audio.write_bytes(b"audio")
-    reference.write_bytes(b"reference")
-    unit = RuntimeUnit(
-        unit_id="shot_001_turn_01",
-        episode_id="1_1",
-        scene_id="scene_001",
-        shot_id="shot_001",
-        shot_index=1,
-        turn_index=1,
-        role="林晚",
-        speaker_name="林晚",
-        speaking=True,
-        text="不要走。",
-        emotion="紧张",
-        source_quote="不要走。",
-        location_asset_id="location_001",
-        voice="heroine",
-        visual_prompt="门外",
-        motion_prompt="萧薰儿看向萧炎。参考音频中的可见对白严格依次为：萧薰儿：萧炎哥哥。。只有这些可见对白驱动对应角色口型；",
-        keyframe_prompt="门外的对话",
-        audio_path="work/audio.wav",
-        keyframe_path="work/keyframe.jpeg",
-        raw_video_path="work/clip.mp4",
-        segment_path="work/segment.mp4",
-        audio_seconds=2.0,
-    )
-    runtime = EpisodeProductionRuntime(
-        Settings(provider="mock", admission_mode="production", max_unit_attempts=4),
-        Media(),
-        None,
-        Assets(reference),
-        None,
-    )  # type: ignore[arg-type]
-    identity = runtime._visual_identity(unit, audio, reference)
-    for attempt in (1, 2):
-        consumed = (
-            episode_dir / "work/visual_attempts" / unit.unit_id / identity[:8]
-            / f"attempt_{attempt:02d}" / "keyframe.jpeg"
-        )
-        consumed.parent.mkdir(parents=True, exist_ok=True)
-        consumed.write_bytes(b"locked-keyframe")
-
-    row = runtime._prepare_visual(episode_dir, tmp_path, unit, None)  # type: ignore[arg-type]
-
-    assert len(Media.calls) == 1
-    assert Media.calls[0][1] is None
-    assert "萧炎" not in Media.calls[0][0]
-    assert row["attempt"] == 3
-    assert row["visual_source"] == "sd2.5-policy-safe-prompt-dialogue-final-local-audio"
-
-
-def test_modified_visual_cache_guard_is_wired_to_visual_generation(tmp_path: Path) -> None:
-    class Media:
-        calls = 0
-
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
-            self.calls += 1
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b"new-direct-reference-audio-video")
-            return output
-
-    class Assets:
-        def __init__(self, reference: Path):
-            self.reference = reference
-
-        def reference_board(self, episode_dir, unit, series_assets, novel_dir):
-            return self.reference
-
-        def _ensure_image(self, prompt, output, reference=None):
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b"new-keyframe")
-            return ImageResult(path=output)
-
-    episode_dir = tmp_path / "episode"
-    audio = episode_dir / "work/audio.wav"
-    keyframe = episode_dir / "work/keyframe.jpeg"
-    video = episode_dir / "work/clip.mp4"
-    reference = episode_dir / "work/reference.jpeg"
-    for path, content in (
-        (audio, b"audio"),
-        (keyframe, b"old-keyframe"),
-        (video, b"old-postprocessed-video"),
-        (reference, b"reference"),
-    ):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
-    unit = RuntimeUnit(
-        unit_id="shot_001_turn_01",
-        episode_id="1_1",
-        scene_id="scene_001",
-        shot_id="shot_001",
-        shot_index=1,
-        turn_index=1,
-        role="narrator",
-        speaker_name="旁白",
-        speaking=False,
-        text="门外传来脚步声。",
-        emotion="紧张",
-        source_quote="门外传来脚步声。",
-        location_asset_id="location_001",
-        voice="narrator",
-        visual_prompt="门外",
-        motion_prompt="轻微推镜",
-        keyframe_prompt="门外的脚步声",
-        audio_path="work/audio.wav",
-        keyframe_path="work/keyframe.jpeg",
-        raw_video_path="work/clip.mp4",
-        segment_path="work/segment.mp4",
-        audio_seconds=2.0,
-    )
-    settings = Settings(provider="mock")
-    media = Media()
-    assets = Assets(reference)
-    runtime = EpisodeProductionRuntime(settings, media, None, assets, None)  # type: ignore[arg-type]
-    identity = runtime._visual_identity(unit, audio, reference)
-    video.with_suffix(".mp4.request.json").write_text(
-        json.dumps({
-            "request_sha256": identity,
-            "workflow": "sd2.5-reference-audio",
-            "postprocess": "legacy-lip-remediation",
-        }),
-        encoding="utf-8",
-    )
-
-    runtime._prepare_visual(episode_dir, tmp_path, unit, None)  # type: ignore[arg-type]
-
-    assert media.calls == 1
-    assert video.read_bytes() == b"new-direct-reference-audio-video"
 
 
 @pytest.mark.parametrize("has_metadata", [True, False])
@@ -2173,7 +1822,7 @@ def test_sd25_rerun_can_reuse_hash_verified_locked_keyframe(
     class Media:
         calls = 0
 
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
+        def create_video(self, prompt, image, output, duration):
             self.calls += 1
             assert image.path.read_bytes() == b"locked-keyframe"
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -2224,11 +1873,9 @@ def test_sd25_rerun_can_reuse_hash_verified_locked_keyframe(
         visual_prompt="门外",
         motion_prompt="新版动作链和镜头轨迹",
         keyframe_prompt="门外的脚步声",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/clip.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.0,
     )
     if has_metadata:
         video.with_suffix(".mp4.request.json").write_text(
@@ -2260,7 +1907,7 @@ def test_visual_retry_reuses_first_keyframe_and_only_resubmits_video(tmp_path: P
         calls = 0
         keyframe_bytes: list[bytes] = []
 
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
+        def create_video(self, prompt, image, output, duration):
             self.calls += 1
             self.keyframe_bytes.append(image.path.read_bytes())
             if self.calls == 1:
@@ -2308,11 +1955,9 @@ def test_visual_retry_reuses_first_keyframe_and_only_resubmits_video(tmp_path: P
         visual_prompt="门外",
         motion_prompt="轻微推镜",
         keyframe_prompt="门外的脚步声",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/clip.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.0,
     )
     media = Media()
     assets = Assets(reference)
@@ -2350,7 +1995,7 @@ def test_sd25_privacy_rejection_redraws_anime_keyframe_before_retry(
             output.write_bytes(b"flat-cel-anime-keyframe")
             return ImageResult(path=output)
 
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
+        def create_video(self, prompt, image, output, duration):
             self.video_calls += 1
             self.keyframe_bytes.append(image.path.read_bytes())
             if self.video_calls == 1:
@@ -2397,11 +2042,9 @@ def test_sd25_privacy_rejection_redraws_anime_keyframe_before_retry(
         visual_prompt="明亮大厅里的古装青年",
         motion_prompt="轻微推镜",
         keyframe_prompt="门外的脚步声",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/clip.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.0,
     )
     media = Media()
     runtime = EpisodeProductionRuntime(
@@ -2430,7 +2073,7 @@ def test_sd25_privacy_rejection_redraws_anime_keyframe_before_retry(
 
 def test_image_safety_rejection_uses_calm_anime_start_frame(tmp_path: Path) -> None:
     class Media:
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
+        def create_video(self, prompt, image, output, duration):
             assert image.path.read_bytes() == b"safe-anime-keyframe"
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(b"video")
@@ -2480,11 +2123,9 @@ def test_image_safety_rejection_uses_calm_anime_start_frame(tmp_path: Path) -> N
         visual_prompt="拥挤人群争抢锦盒",
         motion_prompt="镜头推进",
         keyframe_prompt="拥挤人群争抢锦盒",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/clip.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.0,
     )
     assets = Assets(reference)
     runtime = EpisodeProductionRuntime(
@@ -2515,9 +2156,8 @@ def test_visual_retry_uses_local_motion_fallback_after_two_remote_failures(
     class Media:
         calls = 0
 
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
+        def create_video(self, prompt, image, output, duration):
             self.calls += 1
-            assert reference_audio is None
             raise RuntimeError("remote policy rejection")
 
     class Assets:
@@ -2569,11 +2209,9 @@ def test_visual_retry_uses_local_motion_fallback_after_two_remote_failures(
         visual_prompt="门外",
         motion_prompt="轻微推镜",
         keyframe_prompt="门外的脚步声",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/clip.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.0,
     )
     media = Media()
     assets = Assets(reference)
@@ -2600,7 +2238,7 @@ def test_visual_retry_uses_local_motion_fallback_after_two_remote_failures(
 
 def test_production_visual_failure_never_uses_static_fallback(tmp_path: Path) -> None:
     class Media:
-        def create_video(self, prompt, image, output, duration, reference_audio=None):
+        def create_video(self, prompt, image, output, duration):
             raise RuntimeError("remote policy rejection")
 
     class Assets:
@@ -2643,11 +2281,9 @@ def test_production_visual_failure_never_uses_static_fallback(tmp_path: Path) ->
         visual_prompt="门外",
         motion_prompt="轻微推镜",
         keyframe_prompt="门外的脚步声",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/clip.mp4",
         segment_path="work/segment.mp4",
-        audio_seconds=2.0,
     )
     runtime = EpisodeProductionRuntime(
         Settings(provider="mock", admission_mode="production", max_unit_attempts=2),
@@ -2722,7 +2358,6 @@ def test_cover_reference_prefers_early_character_rich_unit() -> None:
             visual_prompt="雨夜书店",
             motion_prompt="参考音频，仅林晚说：不要走。" if speaking else "镜头推进",
             keyframe_prompt="雨夜书店",
-            audio_path=f"work/{unit_id}.wav",
             keyframe_path=f"work/{unit_id}.jpeg",
             raw_video_path=f"work/{unit_id}.mp4",
             segment_path=f"work/{unit_id}_segment.mp4",
@@ -2808,7 +2443,6 @@ def test_endpoint_cards_use_cover_and_final_story_keyframe(tmp_path: Path) -> No
         visual_prompt="书店亮灯",
         motion_prompt="灯光亮起",
         keyframe_prompt="最后的书店",
-        audio_path="work/audio.wav",
         keyframe_path="work/keyframes/final.jpeg",
         raw_video_path="work/raw.mp4",
         segment_path="work/segment.mp4",

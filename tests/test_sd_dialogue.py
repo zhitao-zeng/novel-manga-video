@@ -1,7 +1,6 @@
 import base64
 import io
 import json
-import wave
 from types import SimpleNamespace
 
 import httpx
@@ -32,11 +31,10 @@ from novel_manga.sd_dialogue import (
 def test_phanrouter_uses_separate_image_and_video_credentials() -> None:
     provider = PhanRouterMediaProvider(
         Settings(
-            provider="phanrouter",
-            phanrouter_api_key="video-secret",
-            phanrouter_image_api_key="image-secret",
-            tts_command="/bin/false",
-            asr_command="/bin/false",
+                provider="phanrouter",
+                phanrouter_api_key="video-secret",
+                phanrouter_image_api_key="image-secret",
+                asr_command="/bin/false",
         )
     )
     try:
@@ -62,23 +60,11 @@ def test_dialogue_prompt_contains_exact_line_and_single_speaker_constraint() -> 
     assert "不摇移相机" not in prompt
 
 
-def test_reference_audio_prompt_removes_silent_instruction_and_requires_exact_sync() -> None:
-    line = "我现在，还有资格让你这么叫吗？"
-    prompt = build_sd_prompt("xiaoyan", line, "人物抬眼。", use_reference_audio=True)
-    assert line in prompt
-    assert "参考音频1" in prompt
-    assert "口型必须与参考音频逐字同步" in prompt
-    assert "静音期间嘴巴保持自然闭合" in prompt
-    assert "人声结束后立即闭嘴" in prompt
-    assert "不生成声音" not in prompt
-
-
 def test_prompt_consumes_shot_intent_and_triggered_audio_timeline() -> None:
     prompt = build_sd_prompt(
         "narrator",
         "石碑显出斗之力三段。",
         "人群在结果出现后停止议论。",
-        use_reference_audio=True,
         shot_intent=ShotIntent(
             dramatic_function="reveal",
             power_relation="主角被公开压低",
@@ -113,7 +99,6 @@ def test_dialogue_prompt_uses_supplied_locked_identity_description() -> None:
         "测试员",
         "萧炎，斗之力，三段！",
         "固定镜头。",
-        use_reference_audio=True,
         actor_description="方脸、短须、深色长袍的中年测试员",
     )
 
@@ -121,14 +106,12 @@ def test_dialogue_prompt_uses_supplied_locked_identity_description() -> None:
     assert "萧炎，斗之力，三段！" in prompt
 
 
-def test_phanrouter_reference_audio_payload_uses_official_schema(tmp_path) -> None:
-    audio = tmp_path / "line.wav"
-    audio.write_bytes(b"RIFF" + b"\x00" * 128)
+def test_phanrouter_native_audio_payload_uses_official_schema() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
     provider.settings = SimpleNamespace(video_model="sd2.5")
 
-    payload, digest = provider._video_payload(
-        "说出台词", "https://example.test/frame.png", 4.2, audio
+    payload = provider._video_payload(
+        "说出台词", "https://example.test/frame.png", 4.2
     )
 
     assert payload["generate_audio"] is True
@@ -138,58 +121,42 @@ def test_phanrouter_reference_audio_payload_uses_official_schema(tmp_path) -> No
     assert payload["resolution"] == "720p"
     assert payload["watermark"] is False
     assert payload["output_format"] == "mp4"
-    assert payload["content"][-1]["type"] == "audio_url"
-    assert payload["content"][-1]["role"] == "reference_audio"
-    assert payload["content"][-1]["audio_url"]["url"].startswith("data:audio/wav;base64,")
-    assert digest
+    assert [item["type"] for item in payload["content"]] == ["text", "image_url"]
 
 
 def test_seedance25_payload_clamps_to_documented_duration_range() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
     provider.settings = SimpleNamespace(video_model="sd2.5")
 
-    short, _ = provider._video_payload(
-        "短镜头", "https://example.test/frame.png", 0.2, None
+    short = provider._video_payload(
+        "短镜头", "https://example.test/frame.png", 0.2
     )
-    long, _ = provider._video_payload(
-        "长镜头", "https://example.test/frame.png", 99.0, None
+    long = provider._video_payload(
+        "长镜头", "https://example.test/frame.png", 99.0
     )
 
     assert short["duration"] == 4
     assert long["duration"] == 30
-    assert short["generate_audio"] is False
+    assert short["generate_audio"] is True
 
     provider.settings = SimpleNamespace(
         video_model="sd2.5",
-        final_audio_policy="seedance_native_unchecked",
+        final_audio_policy="native_dialogue",
     )
-    native, digest = provider._video_payload(
-        "人物直接说出台词", "https://example.test/frame.png", 4.0, None
+    native = provider._video_payload(
+        "人物直接说出台词", "https://example.test/frame.png", 4.0
     )
     assert native["generate_audio"] is True
-    assert digest is None
     assert all(item.get("type") != "audio_url" for item in native["content"])
-
-    provider.settings = SimpleNamespace(
-        video_model="sd2.5",
-        final_audio_policy="sd25_native_original",
-    )
-    sd25_native, digest = provider._video_payload(
-        "保留SD2.5原声", "https://example.test/frame.png", 4.0, None
-    )
-    assert sd25_native["generate_audio"] is True
-    assert digest is None
-
 
 def test_seedance25_payload_keeps_ordered_character_and_scene_cards() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
     provider.settings = SimpleNamespace(video_model="sd2.5")
 
-    payload, _ = provider._video_payload(
+    payload = provider._video_payload(
         "图1是角色卡，图2是场景卡",
         "data:image/jpeg;base64,character",
         4.0,
-        None,
         ("data:image/jpeg;base64,scene",),
     )
 
@@ -209,14 +176,13 @@ def test_seedance25_payload_supports_text_to_video_without_image() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
     provider.settings = SimpleNamespace(
         video_model="sd2.5",
-        final_audio_policy="seedance_native_unchecked",
+        final_audio_policy="native_dialogue",
     )
 
-    payload, _ = provider._video_payload(
+    payload = provider._video_payload(
         "纯文本生成楚烟儿镜头",
         None,
         4.0,
-        None,
     )
 
     assert payload["generate_audio"] is True
@@ -290,13 +256,6 @@ def test_seedream_image_submit_download_and_sanitized_metadata(tmp_path) -> None
 def test_seedance25_retries_succeeded_task_until_cdn_file_is_ready(
     tmp_path, monkeypatch
 ) -> None:
-    audio = tmp_path / "line.wav"
-    with wave.open(str(audio), "wb") as stream:
-        stream.setnchannels(1)
-        stream.setsampwidth(2)
-        stream.setframerate(24000)
-        stream.writeframes(b"\x00\x00" * 50400)
-
     submitted: dict = {}
     media_requests = 0
 
@@ -352,7 +311,6 @@ def test_seedance25_retries_succeeded_task_until_cdn_file_is_ready(
             ),
             output,
             duration=8,
-            reference_audio=audio,
         )
     finally:
         provider.client.close()
@@ -364,7 +322,6 @@ def test_seedance25_retries_succeeded_task_until_cdn_file_is_ready(
     assert submitted["output_format"] == "mp4"
     assert [item.get("role") for item in submitted["content"][1:]] == [
         "reference_image",
-        "reference_audio",
     ]
     metadata = json.loads(
         output.with_suffix(".mp4.task.json").read_text(encoding="utf-8")
@@ -374,46 +331,10 @@ def test_seedance25_retries_succeeded_task_until_cdn_file_is_ready(
     assert "runtime-secret" not in json.dumps(metadata)
 
 
-def test_phanrouter_pads_short_wav_only_for_reference_payload(tmp_path) -> None:
-    audio = tmp_path / "short.wav"
-    with wave.open(str(audio), "wb") as stream:
-        stream.setnchannels(1)
-        stream.setsampwidth(2)
-        stream.setframerate(24000)
-        stream.writeframes(b"\x00\x00" * 12000)
-    # Qwen's streaming WAV response deliberately leaves RIFF/data lengths open.
-    # The Python wave module then reports an enormous frame count even though
-    # ffprobe can infer the real duration from the finite HTTP response body.
-    streaming = bytearray(audio.read_bytes())
-    streaming[4:8] = b"\xff\xff\xff\xff"
-    data_size = streaming.index(b"data") + 4
-    streaming[data_size:data_size + 4] = b"\xff\xff\xff\xff"
-    audio.write_bytes(streaming)
-    original = audio.read_bytes()
-
-    content, _ = PhanRouterMediaProvider._reference_audio_content(audio)
-
-    encoded = content["audio_url"]["url"].split(",", 1)[1]
-    with wave.open(io.BytesIO(base64.b64decode(encoded)), "rb") as stream:
-        assert stream.getnframes() / stream.getframerate() >= 2.0
-    assert audio.read_bytes() == original
-
-
 def test_narrator_prompt_keeps_mouths_closed() -> None:
     prompt = build_sd_prompt("narrator", "广场骤然安静。", "人群停止议论。")
     assert "所有人物都不说话" in prompt
     assert "嘴巴自然闭合" in prompt
-
-
-def test_reference_audio_narrator_is_voiceover_without_character_lip_motion() -> None:
-    prompt = build_sd_prompt(
-        "narrator", "广场骤然安静。", "人群停止议论。", use_reference_audio=True
-    )
-    assert "唯一画外旁白" in prompt
-    assert "画中人物不得开口或随旁白做口型" in prompt
-    assert "不生成声音" not in prompt
-    assert "不是静态摆拍" in prompt
-    assert "数字推近" in prompt
 
 
 def test_subtitle_pages_have_at_most_two_lines_and_no_punctuation_only_page() -> None:
@@ -473,7 +394,6 @@ def test_fallback_camera_is_locked_while_actor_motion_stays_directed() -> None:
         "林晚",
         "不要开门。",
         "林晚先抬眼，再抬手挡住门。",
-        use_reference_audio=True,
     )
 
     assert "【摄影机模式】locked" in prompt
@@ -527,7 +447,6 @@ def test_motivated_camera_allows_only_one_trajectory_and_locks_axis() -> None:
         "narrator",
         "门后的人终于出现。",
         "林晚侧身。",
-        use_reference_audio=True,
         performance_plan=performance,
         camera_plan=camera,
     )

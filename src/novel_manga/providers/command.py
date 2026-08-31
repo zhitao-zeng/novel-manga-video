@@ -9,7 +9,7 @@ from .base import ImageResult, MediaProvider
 
 
 class CommandMediaProvider(MediaProvider):
-    """Local command adapter for arbitrary image, video, and TTS backends."""
+    """Local command adapter for image and native-audio video backends."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -25,21 +25,6 @@ class CommandMediaProvider(MediaProvider):
             from .phanrouter import PhanRouterMediaProvider
 
             self.remote_image_provider = PhanRouterMediaProvider(settings)
-
-    def enter_stage(self, stage: str) -> None:
-        if self.remote_image_provider is not None and stage in {
-            "image-base",
-            "image-edit",
-        }:
-            return
-        if not self.settings.model_lifecycle_command:
-            return
-        subprocess.run(
-            shlex.split(self.settings.model_lifecycle_command) + ["--stage", stage],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
 
     @staticmethod
     def _run(command: str | None, arguments: list[str], output: Path) -> None:
@@ -70,10 +55,6 @@ class CommandMediaProvider(MediaProvider):
                 additional_references=additional_references,
             )
         arguments = ["--prompt", prompt, "--width", str(self.settings.width), "--height", str(self.settings.height)]
-        if self.settings.local_image_prompt_policy:
-            arguments.extend(
-                ["--prompt-policy", self.settings.local_image_prompt_policy]
-            )
         if reference:
             arguments.extend(["--reference", str(reference)])
         for additional_reference in additional_references:
@@ -87,7 +68,6 @@ class CommandMediaProvider(MediaProvider):
         image: ImageResult,
         output: Path,
         duration: float,
-        reference_audio: Path | None = None,
         additional_images: tuple[Path, ...] = (),
     ) -> Path:
         arguments = [
@@ -98,26 +78,7 @@ class CommandMediaProvider(MediaProvider):
             "--width", str(self.settings.width),
             "--height", str(self.settings.height),
         ]
-        if reference_audio:
-            arguments.extend(["--reference-audio", str(reference_audio)])
         for additional_image in additional_images:
             arguments.extend(["--additional-image", str(additional_image)])
         self._run(self.settings.video_command, arguments, output)
-        return output
-
-    def synthesize(
-        self,
-        text: str,
-        output: Path,
-        *,
-        voice: str | None = None,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> Path:
-        arguments = ["--text", text, "--voice", voice or self.settings.tts_voice]
-        if instructions:
-            arguments.extend(["--instructions", instructions])
-        if speed is not None:
-            arguments.extend(["--speed", f"{speed:.3f}"])
-        self._run(self.settings.tts_command, arguments, output)
         return output

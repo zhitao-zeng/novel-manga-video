@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import math
-import re
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -219,154 +216,15 @@ class Renderer:
         ])
         return output
 
-    def mux_shot(self, visual: Path, audio: Path, output: Path) -> tuple[Path, float]:
-        duration = media_duration(audio) + 0.08
-        run([
-            "ffmpeg", "-y", "-stream_loop", "-1", "-i", str(visual), "-i", str(audio),
-            "-vf", (
-                f"scale={self.settings.width}:{self.settings.height}:force_original_aspect_ratio=increase,"
-                f"crop={self.settings.width}:{self.settings.height},fps={self.settings.fps},format=yuv420p"
-            ),
-            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
-            "-t", f"{duration:.3f}", "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", str(self.settings.fps),
-            "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-shortest", str(output),
-        ])
-        return output, media_duration(output)
-
-    def mux_turn(self, visual: Path, audio: Path, output: Path, *, pause_after: float = 0.3) -> tuple[Path, float]:
-        """Mux one exact reference-audio turn without looping generated motion."""
-        duration = media_duration(audio) + pause_after
-        output.parent.mkdir(parents=True, exist_ok=True)
-        run([
-            "ffmpeg", "-y", "-i", str(visual), "-i", str(audio),
-            "-filter_complex",
-            (
-                f"[0:v]scale={self.settings.width}:{self.settings.height}:force_original_aspect_ratio=increase,"
-                f"crop={self.settings.width}:{self.settings.height},fps={self.settings.fps},format=yuv420p,"
-                f"setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration={pause_after + 1.0:.3f}[v];"
-                # One-pass loudnorm has a long analysis window and can erase
-                # sub-two-second dialogue. TTS output is already levelled;
-                # preserve it here and normalize only after episode assembly.
-                f"[1:a]aresample=48000,"
-                f"apad=pad_dur={pause_after:.3f},atrim=duration={duration:.3f},asetpts=PTS-STARTPTS[a]"
-            ),
-            "-map", "[v]", "-map", "[a]", "-t", f"{duration:.3f}",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-            "-r", str(self.settings.fps), "-c:a", "aac", "-b:a", "160k",
-            "-ar", "48000", "-ac", "2", "-movflags", "+faststart", str(output),
-        ])
-        return output, media_duration(output)
-
-    @staticmethod
-    def _peak_volume_db(path: Path) -> float | None:
-        """Measure one locked turn without changing its duration or samples."""
-
-        result = run([
-            "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
-            "-af", "volumedetect", "-f", "null", "-",
-        ])
-        match = re.search(r"max_volume:\s*(-?(?:inf|\d+(?:\.\d+)?)) dB", result.stderr)
-        if match is None or match.group(1) in {"-inf", "inf"}:
-            return None
-        return float(match.group(1))
-
-    def compose_visual_group_audio(
-        self,
-        audios: list[Path],
-        output: Path,
-        *,
-        audible: list[bool] | None = None,
-        gap: float = 0.10,
-        target_seconds: float = 13.4,
-        max_speed: float = 1.0,
-    ) -> tuple[Path, float, list[float], float]:
-        """Join locked turns for one continuous shot and return scaled turn offsets.
-
-        Neural TTS can preserve the requested emotion while producing very
-        different amplitudes between turns.  Peak-normalize only the delivery
-        mix, before concatenation, so every spoken turn remains audible.  The
-        H3 performance driver (``audible`` is not ``None``) keeps the original
-        reference samples and timing.
-        """
-        if not audios:
-            raise ValueError("visual group requires at least one audio file")
-        if audible is not None and len(audible) != len(audios):
-            raise ValueError("audible flags must match visual-group audio inputs")
-        durations = [media_duration(path) for path in audios]
-        unscaled = sum(durations) + gap * max(0, len(audios) - 1)
-        if max_speed != 1.0:
-            raise ValueError("speech speed must be controlled inside the TTS model")
-        speed = 1.0
-        if unscaled > target_seconds + 0.03:
-            raise ValueError(
-                f"visual group audio {unscaled:.3f}s cannot fit {target_seconds:.3f}s "
-                "without post-processing speed changes"
-            )
-        filters: list[str] = []
-        concat_inputs: list[str] = []
-        for index in range(len(audios)):
-            mute = "volume=0," if audible is not None and not audible[index] else ""
-            delivery_gain = ""
-            if audible is None:
-                peak_db = self._peak_volume_db(audios[index])
-                if peak_db is not None:
-                    gain_db = max(-12.0, min(36.0, -3.0 - peak_db))
-                    delivery_gain = f"volume={gain_db:.3f}dB,"
-            filters.append(
-                f"[{index}:a]aresample=48000,"
-                "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
-                f"{mute}"
-                f"{delivery_gain}"
-                f"asetpts=PTS-STARTPTS[a{index}]"
-            )
-            concat_inputs.append(f"[a{index}]")
-            if index < len(audios) - 1:
-                filters.append(
-                    f"anullsrc=r=48000:cl=stereo:d={gap:.6f}[g{index}]"
-                )
-                concat_inputs.append(f"[g{index}]")
-        filters.append(
-            "".join(concat_inputs)
-            + f"concat=n={len(concat_inputs)}:v=0:a=1[out]"
-        )
-        output.parent.mkdir(parents=True, exist_ok=True)
-        command = ["ffmpeg", "-y", "-v", "error"]
-        for audio in audios:
-            command.extend(["-i", str(audio)])
-        command.extend(
-            [
-                "-filter_complex",
-                ";".join(filters),
-                "-map",
-                "[out]",
-                "-c:a",
-                "pcm_s16le",
-                "-ar",
-                "48000",
-                "-ac",
-                "2",
-                str(output),
-            ]
-        )
-        run(command)
-        offsets: list[float] = []
-        cursor = 0.0
-        for duration in durations:
-            offsets.append(cursor)
-            cursor += duration + gap
-        return output, media_duration(output), offsets, speed
-
     def mux_visual_group(
         self,
         visual: Path,
         audio: Path,
         output: Path,
-        *,
-        pause_after: float = 0.20,
     ) -> tuple[Path, float]:
-        """Mux one continuous generated performance with its combined reference audio."""
-        duration = media_duration(audio) + pause_after
+        """Mux native audio without changing the generated clip's duration."""
+        duration = media_duration(visual)
+        audio_padding = max(0.0, duration - media_duration(audio))
         output.parent.mkdir(parents=True, exist_ok=True)
         run([
             "ffmpeg", "-y", "-i", str(visual), "-i", str(audio),
@@ -374,8 +232,8 @@ class Renderer:
             (
                 f"[0:v]scale={self.settings.width}:{self.settings.height}:force_original_aspect_ratio=increase,"
                 f"crop={self.settings.width}:{self.settings.height},fps={self.settings.fps},format=yuv420p,"
-                f"setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration={pause_after + 1.0:.3f}[v];"
-                f"[1:a]aresample=48000,apad=pad_dur={pause_after:.3f},"
+                "setpts=PTS-STARTPTS[v];"
+                f"[1:a]aresample=48000,apad=pad_dur={audio_padding:.3f},"
                 f"atrim=duration={duration:.3f},asetpts=PTS-STARTPTS[a]"
             ),
             "-map", "[v]", "-map", "[a]", "-t", f"{duration:.3f}",
@@ -392,37 +250,6 @@ class Renderer:
         minutes, centis = divmod(centis, 6000)
         secs, centis = divmod(centis, 100)
         return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
-
-    def write_ass(self, path: Path, subtitles: list[TimedSubtitle]) -> Path:
-        header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: {self.settings.width}
-PlayResY: {self.settings.height}
-WrapStyle: 2
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: Default,WenQuanYi Micro Hei,58,&H00FFFFFF,&H000000FF,&H00111111,&H00000000,-1,0,0,0,100,100,1,0,1,5,1,2,90,90,310,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-        events: list[str] = []
-        for item in subtitles:
-            clean = item.text.replace("{", "（").replace("}", "）").replace("\n", "")
-            chunks = [clean[i:i + 18] for i in range(0, len(clean), 18)] or [""]
-            pages = [chunks[i:i + 2] for i in range(0, len(chunks), 2)]
-            span = max(0.2, (item.end - item.start) / len(pages))
-            for index, page in enumerate(pages):
-                start = item.start + index * span
-                end = item.end if index == len(pages) - 1 else min(item.end, start + span)
-                text = r"\N".join(page)
-                events.append(
-                    f"Dialogue: 0,{self._ass_time(start)},{self._ass_time(end)},Default,{item.role},0,0,0,,{text}"
-                )
-        path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
-        return path
 
     def write_ass_pages(self, path: Path, subtitles: list[TimedSubtitle]) -> Path:
         """Write already aligned/paged events without changing their text or timing."""
@@ -451,57 +278,82 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         path.write_text(header + "\n".join(rows) + "\n", encoding="utf-8")
         return path
 
-    def assemble(
+    def _join_with_crossfade(
         self,
-        cover: Path,
-        ending: Path,
-        shot_segments: list[tuple[Path, float, str]],
+        sequence: list[Path],
+        durations: list[float],
         output: Path,
-        work_dir: Path,
-    ) -> tuple[Path, Path]:
-        sequence: list[Path] = []
-        if self.settings.intro_seconds > 0:
-            sequence.append(
-                self._silent_card_segment(
-                    cover, work_dir / "intro.mp4", self.settings.intro_seconds
-                )
-            )
-        sequence.extend(item[0] for item in shot_segments)
-        if self.settings.outro_seconds > 0:
-            sequence.append(
-                self._silent_card_segment(
-                    ending, work_dir / "outro.mp4", self.settings.outro_seconds
-                )
-            )
-        concat_file = work_dir / "concat.txt"
-        concat_file.write_text("\n".join(f"file '{path.resolve()}'" for path in sequence) + "\n", encoding="utf-8")
-        joined = work_dir / "joined.mp4"
-        run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(joined)])
+        *,
+        crossfade_seconds: float = 0.15,
+    ) -> list[float]:
+        """Join matching A/V transitions and return each source start time."""
 
-        cursor = self.settings.intro_seconds
-        subtitles: list[TimedSubtitle] = []
-        for _, duration, text in shot_segments:
-            subtitles.append(TimedSubtitle(start=cursor, end=cursor + duration, text=text))
-            cursor += duration
-        ass = self.write_ass(work_dir / "subtitles.ass", subtitles)
+        if len(sequence) != len(durations) or not sequence:
+            raise ValueError("crossfade join requires one duration per segment")
+        command = ["ffmpeg", "-y", "-v", "error"]
+        for path in sequence:
+            command.extend(["-i", str(path)])
+        filters = []
+        for index in range(len(sequence)):
+            filters.extend(
+                [
+                    f"[{index}:v]settb=AVTB,setpts=PTS-STARTPTS,"
+                    f"fps={self.settings.fps},format=yuv420p[v{index}]",
+                    f"[{index}:a]aresample=48000,"
+                    "aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                    f"asetpts=PTS-STARTPTS[a{index}]",
+                ]
+            )
+        offsets = [0.0]
+        video_label = "v0"
+        audio_label = "a0"
+        cumulative = durations[0]
+        for index in range(1, len(sequence)):
+            fade = min(
+                crossfade_seconds,
+                max(0.01, durations[index - 1] / 4),
+                max(0.01, durations[index] / 4),
+            )
+            start = cumulative - fade
+            filters.append(
+                f"[{video_label}][v{index}]xfade=transition=fade:duration={fade:.3f}:"
+                f"offset={start:.6f}[vx{index}]"
+            )
+            filters.append(
+                f"[{audio_label}][a{index}]acrossfade=d={fade:.3f}:c1=tri:c2=tri[ax{index}]"
+            )
+            video_label = f"vx{index}"
+            audio_label = f"ax{index}"
+            offsets.append(start)
+            cumulative = start + durations[index]
         output.parent.mkdir(parents=True, exist_ok=True)
-        escaped_ass = str(ass.resolve()).replace("'", r"\'").replace(":", r"\:")
-        run([
-            "ffmpeg", "-y", "-i", str(joined),
-            "-vf", f"ass='{escaped_ass}'", "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-r", str(self.settings.fps), "-pix_fmt", "yuv420p", "-c:a", "copy",
-            "-movflags", "+faststart", str(output),
-        ])
-        if self.settings.bgm_path:
-            mixed = work_dir / "mixed.mp4"
-            run([
-                "ffmpeg", "-y", "-i", str(output), "-stream_loop", "-1", "-i", str(self.settings.bgm_path),
-                "-filter_complex", "[0:a]volume=1.0[voice];[1:a]volume=0.08[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[a]",
-                "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-                "-shortest", str(mixed),
-            ])
-            shutil.move(mixed, output)
-        return output, ass
+        command.extend(
+            [
+                "-filter_complex",
+                ";".join(filters),
+                "-map",
+                f"[{video_label}]",
+                "-map",
+                f"[{audio_label}]",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "20",
+                "-r",
+                str(self.settings.fps),
+                "-c:a",
+                "aac",
+                "-b:a",
+                "160k",
+                "-movflags",
+                "+faststart",
+                str(output),
+            ]
+        )
+        run(command)
+        return offsets
 
     def assemble_production(
         self,
@@ -512,51 +364,63 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         work_dir: Path,
     ) -> tuple[Path, Path, Path, list[dict]]:
         sequence: list[Path] = []
+        sequence_durations: list[float] = []
         if self.settings.intro_seconds > 0:
             sequence.append(
                 self._silent_card_segment(
                     intro_card, work_dir / "intro.mp4", self.settings.intro_seconds
                 )
             )
+            sequence_durations.append(self.settings.intro_seconds)
         sequence.extend(Path(item["segment"]) for item in turn_segments)
+        sequence_durations.extend(float(item["duration"]) for item in turn_segments)
         if self.settings.outro_seconds > 0:
             sequence.append(
                 self._silent_card_segment(
                     ending, work_dir / "outro.mp4", self.settings.outro_seconds
                 )
             )
-        concat_file = work_dir / "concat.txt"
-        concat_file.write_text(
-            "\n".join(f"file '{path.resolve()}'" for path in sequence) + "\n",
-            encoding="utf-8",
-        )
+            sequence_durations.append(self.settings.outro_seconds)
         joined = work_dir / "joined.mp4"
-        run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "copy", str(joined)])
+        sequence_offsets = self._join_with_crossfade(
+            sequence,
+            sequence_durations,
+            joined,
+            crossfade_seconds=0.15,
+        )
 
-        cursor = self.settings.intro_seconds
         events: list[dict] = []
-        for item in turn_segments:
+        story_sequence_offset = 1 if self.settings.intro_seconds > 0 else 0
+        for item_index, item in enumerate(turn_segments):
+            sequence_index = story_sequence_offset + item_index
+            event_base = sequence_offsets[sequence_index]
+            next_cut = (
+                sequence_offsets[sequence_index + 1]
+                if sequence_index + 1 < len(sequence_offsets)
+                else None
+            )
             local_events = item.get("subtitle_events")
             if local_events is None:
-                local_events = [
-                    {
-                        "unit_id": item["unit_id"],
-                        "role": item["role"],
-                        **event,
-                    }
-                    for event in item["alignment"]["events"]
-                ]
+                raise ValueError("native dialogue assembly requires ASR subtitle events")
             for event in local_events:
+                event_start = event_base + float(event["start"])
+                event_end = event_base + float(event["end"])
+                if next_cut is not None:
+                    event_end = min(event_end, next_cut - 0.01)
+                event_end = max(event_start + 0.05, event_end)
                 events.append(
                     {
                         "unit_id": event["unit_id"],
                         "role": event["role"],
-                        "start": cursor + float(event["start"]),
-                        "end": cursor + float(event["end"]),
+                        "start": event_start,
+                        "end": event_end,
                         "text": str(event["text"]),
+                        "subtitle_source": event.get(
+                            "subtitle_source",
+                            "native_audio_asr",
+                        ),
                     }
                 )
-            cursor += float(item["duration"])
         subtitles = [
             TimedSubtitle(
                 start=float(event["start"]),
@@ -569,19 +433,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         ass = self.write_ass_pages(work_dir / "subtitles.ass", subtitles)
         output.parent.mkdir(parents=True, exist_ok=True)
         escaped_ass = str(ass.resolve()).replace("'", r"\'").replace(":", r"\:")
-        run([
-            "ffmpeg", "-y", "-i", str(joined), "-vf", f"ass='{escaped_ass}'",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-            "-r", str(self.settings.fps), "-pix_fmt", "yuv420p", "-c:a", "copy",
-            "-movflags", "+faststart", str(output),
-        ])
         if self.settings.bgm_path:
-            mixed = work_dir / "mixed.mp4"
             run([
-                "ffmpeg", "-y", "-i", str(output), "-stream_loop", "-1", "-i", str(self.settings.bgm_path),
-                "-filter_complex", "[0:a]volume=1.0[voice];[1:a]volume=0.08[bgm];[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2[a]",
-                "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
-                "-shortest", str(mixed),
+                "ffmpeg", "-y", "-i", str(joined), "-stream_loop", "-1", "-i", str(self.settings.bgm_path),
+                "-vf", f"ass='{escaped_ass}'",
+                "-filter_complex",
+                "[0:a]volume=1.0[voice];[1:a]volume=0.06[bgm];"
+                "[voice][bgm]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[mix];"
+                "[mix]loudnorm=I=-16:TP=-1.5:LRA=11[a]",
+                "-map", "0:v:0", "-map", "[a]",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-r", str(self.settings.fps), "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "160k", "-shortest",
+                "-movflags", "+faststart", str(output),
             ])
-            shutil.move(mixed, output)
+        else:
+            run([
+                "ffmpeg", "-y", "-i", str(joined), "-vf", f"ass='{escaped_ass}'",
+                "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-r", str(self.settings.fps), "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "160k",
+                "-movflags", "+faststart", str(output),
+            ])
         return output, ass, joined, events

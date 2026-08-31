@@ -1,6 +1,3 @@
-from pathlib import Path
-
-from novel_manga.config import Settings
 from novel_manga.creative_direction import (
     SHORT_DRAMA_PROFILE,
     apply_creative_direction,
@@ -17,8 +14,6 @@ from novel_manga.models import (
     StoryBible,
     VisualStrategy,
 )
-from novel_manga.production_models import AssetRecord, RuntimeUnit, SeriesAssetManifest
-from novel_manga.production_runtime import EpisodeProductionRuntime
 from novel_manga.script_planning import evaluate_script_quality, normalize_chronological_plan
 
 
@@ -149,64 +144,3 @@ def test_adaptive_profile_keeps_result_first_replay_and_audits_narration_budget(
     assert report.cold_open_grounded is True
     assert report.narration_ratio == 1.0
     assert "narration_budget_exceeded" in {issue.code for issue in report.issues}
-
-
-def test_adaptive_h3_scene_only_uses_empty_location_without_generating_keyframe(
-    tmp_path: Path,
-) -> None:
-    location = tmp_path / "series_assets/locations/location_001/establishing.jpeg"
-    location.parent.mkdir(parents=True)
-    location.write_bytes(b"jpeg")
-    assets = SeriesAssetManifest(
-        style_fingerprint="test",
-        characters=[],
-        locations=[
-            AssetRecord(
-                asset_id="location_001",
-                kind="location",
-                name="测试广场",
-                spec_path="series_assets/locations/location_001/spec.json",
-                primary_image="series_assets/locations/location_001/establishing.jpeg",
-                prompt_sha256="test",
-            )
-        ],
-        voice_assignments={"narrator": "alloy"},
-    )
-    unit = RuntimeUnit(
-        unit_id="visual_001",
-        episode_id="1_1",
-        scene_id="scene_001",
-        shot_id="shot_001",
-        shot_index=1,
-        turn_index=1,
-        role="narrator",
-        speaker_name="旁白",
-        speaking=False,
-        text="广场骤然安静。",
-        emotion="压抑",
-        source_quote="广场骤然安静。",
-        location_asset_id="location_001",
-        voice="alloy",
-        visual_prompt="空广场",
-        motion_prompt="风吹动旗帜",
-        keyframe_prompt="空广场",
-        visual_strategy=VisualStrategy.SCENE_ONLY,
-        audio_path="work/audio.wav",
-        keyframe_path="work/keyframe.jpeg",
-        raw_video_path="work/video.mp4",
-        segment_path="work/segment.mp4",
-    )
-    runtime = EpisodeProductionRuntime(
-        Settings(
-            provider="command",
-            video_model="MiniMax-H3-Ref2VA",
-            video_command="/models/h3-video",
-            local_visual_strategy="adaptive",
-        ),
-        None,
-        None,
-        None,
-        None,
-    )  # type: ignore[arg-type]
-
-    assert runtime._direct_h3_assets(tmp_path, unit, assets) == (location, ())

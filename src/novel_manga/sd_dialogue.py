@@ -187,6 +187,35 @@ def _timed_beats(duration: float, count: int) -> list[tuple[float, float]]:
     ]
 
 
+def _timed_motion_beats(
+    performance_plan: PerformancePlan,
+    duration: float,
+) -> list[tuple[float, float]]:
+    """Place explicit action budgets inside the full dialogue-plus-action span."""
+
+    beats = performance_plan.motion_beats
+    if not any(beat.seconds is not None for beat in beats):
+        return _timed_beats(duration, len(beats))
+    usable = max(0.8, min(14.0, duration))
+    action_seconds = [float(beat.seconds or 0.0) for beat in beats]
+    action_total = sum(action_seconds)
+    if action_total > usable:
+        scale = usable / action_total
+        windows = [seconds * scale for seconds in action_seconds]
+    else:
+        dialogue_reserve = usable - action_total
+        windows = [
+            seconds + dialogue_reserve / len(beats) for seconds in action_seconds
+        ]
+    cursor = 0.0
+    timed = []
+    for index, seconds in enumerate(windows):
+        end = usable if index == len(windows) - 1 else cursor + seconds
+        timed.append((cursor, end))
+        cursor = end
+    return timed
+
+
 def compile_performance_prompt(
     performance_plan: PerformancePlan,
     *,
@@ -195,10 +224,17 @@ def compile_performance_prompt(
     performance_rows = []
     for beat, (start, end) in zip(
         performance_plan.motion_beats,
-        _timed_beats(duration, len(performance_plan.motion_beats)),
+        _timed_motion_beats(performance_plan, duration),
         strict=True,
     ):
         parts = [f"{start:.1f}-{end:.1f}秒"]
+        if beat.seconds is not None:
+            parts.append(f"动作预算：{beat.seconds:.1f}秒")
+        if beat.actor:
+            parts.append(f"执行者：{beat.actor}")
+        if beat.target:
+            parts.append(f"目标：{beat.target}")
+        parts.append(f"动作类型：{beat.action_type}")
         if beat.trigger:
             parts.append(f"触发：{beat.trigger}")
         parts.append(f"动作：{beat.action}")
@@ -206,6 +242,8 @@ def compile_performance_prompt(
             parts.append(f"反应：{beat.reaction}")
         if beat.expression_transition:
             parts.append(f"表情：{beat.expression_transition}")
+        if beat.end_state:
+            parts.append(f"终态：{beat.end_state}")
         performance_rows.append("，".join(parts))
     return (
         f"【镜头目的】{performance_plan.objective}。"
@@ -257,7 +295,6 @@ def build_sd_prompt(
     text: str,
     motion_prompt: str,
     *,
-    use_reference_audio: bool = False,
     actor_description: str | None = None,
     composition_prompt: str | None = None,
     emotion: str | None = None,
@@ -267,18 +304,7 @@ def build_sd_prompt(
     audio_plan: SceneAudioPlan | None = None,
     duration: float = 6.0,
 ) -> str:
-    if use_reference_audio and role == "narrator":
-        audio_instruction = (
-            "严格以参考音频1作为唯一画外旁白、音色、语速、停顿和情绪依据，完整复现参考音频，"
-            "不得改词、漏词、重读或添加其他人声；画中人物不得开口或随旁白做口型。"
-        )
-    elif use_reference_audio:
-        audio_instruction = (
-            "严格以参考音频1作为唯一对白、音色、语速、停顿和情绪依据，完整复现参考音频，"
-            "不得改词、漏词、重读或添加其他对白；口型必须与参考音频逐字同步。"
-        )
-    else:
-        audio_instruction = "不生成声音。"
+    audio_instruction = "本层只编译表演与镜头，原生对白由视频提示适配器统一声明。"
     sound_direction = ""
     if audio_plan is not None:
         non_speech = "；".join(
@@ -302,7 +328,7 @@ def build_sd_prompt(
             sound_direction = (
                 (f"【非语言声音设计】{non_speech}。" if non_speech else "")
                 + (f"【相对音频节拍】{audio_timeline}。" if audio_timeline else "")
-                + "这些声音不得遮住、替换或重复参考人声；"
+                + "这些声音不得遮住、替换或重复原生对白；"
                 + ("对白出现时背景自动压低。" if audio_plan.ducking else "背景保持克制。")
             )
     composition = composition_prompt or "固定单人正脸或四分之三近景"
@@ -373,17 +399,10 @@ def build_sd_prompt(
         )
     actor = actor_description or role
     performance = f"表演情绪为{emotion}。" if emotion else ""
-    if use_reference_audio:
-        timing = (
-            "参考音频开头静音期间嘴巴保持自然闭合，只在参考音频实际人声开始时开口；"
-            "嘴唇随台词逐字自然连续开合，下颌动作克制，停顿与标点自然；"
-            "参考音频人声结束后立即闭嘴，并在剩余静音和镜头尾部持续闭合至少半秒。"
-        )
-    else:
-        timing = (
-            "从镜头开始后立即说话，嘴唇随台词逐字自然连续开合，下颌动作克制，"
-            "停顿与标点自然，说完后自然闭嘴。"
-        )
+    timing = (
+        "从镜头开始后立即说话，嘴唇随台词逐字自然连续开合，下颌动作克制，"
+        "停顿与标点自然，说完后自然闭嘴。"
+    )
     return (
         f"{continuity}镜头明确聚焦{actor}，初始构图参考：{composition}。"
         "人物必须随表演改变姿态、视线、手势和身体重心；摄影机构图只按既定模式改变。"

@@ -13,15 +13,19 @@ from pathlib import Path
 from PIL import Image, ImageStat
 
 from .admission import evaluate_episode_admission
-from .config import NATIVE_VIDEO_AUDIO_POLICIES, Settings
+from .config import NATIVE_DIALOGUE_POLICY, Settings
 from .face_consistency import evaluate_face_consistency
-from .indextts import (
-    INDEXTTS_SYNTHESIS_TEXT_POLICY,
-    indextts_synthesis_identity,
-    indextts_synthesis_text,
+from .models import (
+    Episode,
+    EpisodePlan,
+    SpeechStrategy,
+    StoryBible,
+    TurnDelivery,
+    TurnDevice,
+    VisualStrategy,
 )
-from .models import Episode, EpisodePlan, StoryBible, VisualStrategy
 from .production import SeriesAssetFactory, compile_production_plan, sha256_file, sha256_text
+from .preflight import evaluate_production_preflight
 from .production_models import (
     EpisodeSequenceContract,
     ImagePromptContract,
@@ -40,6 +44,7 @@ from .render import Renderer
 from .runtime_backends import (
     RuntimeEvidenceBackends,
     aggregate_asr,
+    correct_protected_lexicon,
     measured_speech_bounds,
 )
 from .sd_dialogue import (
@@ -54,18 +59,85 @@ from .util import atomic_write_json, media_duration, run
 SILENT_ACTION_MARKER = "【无对白动作镜】"
 
 
-LOCAL_VIDEO_PROMPT_POLICY_REVISION = "h3-drama-v2-camera-contract"
+LOCAL_VIDEO_PROMPT_POLICY_REVISION = "native-dialogue-v1-camera-contract"
 
 
-def is_direct_reference_audio_visual_cache(payload: dict) -> bool:
-    if any(str(key).startswith("postprocess") for key in payload):
-        return False
-    backend_identity = "".join(
-        character
-        for character in json.dumps(payload, ensure_ascii=False).casefold()
-        if character.isalnum()
-    )
-    return "latentsync" not in backend_identity
+def apply_native_dialogue_profile(plan: EpisodePlan) -> EpisodePlan:
+    """Make native dialogue authoritative and reject non-visual voiceover."""
+
+    blocked = []
+    normalized_shots = []
+    for shot in plan.shots:
+        if not shot.turns:
+            blocked.append(f"shot_{shot.index:03d}: implicit narrator turn")
+        for turn in shot.turns:
+            if turn.delivery_mode in {
+                TurnDelivery.NARRATION,
+                TurnDelivery.INNER_VOICE,
+            }:
+                blocked.append(
+                    f"shot_{shot.index:03d}: {turn.delivery_mode} is forbidden"
+                )
+            if turn.device in {TurnDevice.NARRATION, TurnDevice.INNER_VOICE}:
+                blocked.append(
+                    f"shot_{shot.index:03d}: device {turn.device} is forbidden"
+                )
+        normalized_shots.append(
+            shot.model_copy(
+                update={
+                    "audio_plan": shot.audio_plan.model_copy(
+                        update={"speech_strategy": SpeechStrategy.NATIVE}
+                    )
+                }
+            )
+        )
+    if blocked:
+        raise ValueError(
+            "native_dialogue requires visible/offscreen dialogue or title cards; "
+            + "; ".join(blocked)
+        )
+    return plan.model_copy(update={"shots": normalized_shots})
+
+
+def native_dialogue_quality_route(
+    asr_row: dict,
+    *,
+    quality_attempt: int,
+    single_speaker_expected: bool = True,
+) -> dict:
+    """Return the only blocking native-audio routes; legacy CER bars are reports."""
+
+    issues = []
+    hypothesis = re.sub(r"\s+", "", str(asr_row.get("hypothesis", "")))
+    peak = asr_row.get("max_volume_db")
+    if not hypothesis or peak is None or float(peak) < -35.0:
+        issues.append("voice_energy_missing")
+    cer = float(asr_row.get("cer", math.inf))
+    if not math.isfinite(cer) or cer > 0.5:
+        issues.append("gibberish_cer_over_0_5")
+    speaker_count = asr_row.get("speaker_count")
+    if (
+        single_speaker_expected
+        and speaker_count is not None
+        and int(speaker_count) > 1
+    ):
+        issues.append("multiple_speakers_in_single_speaker_contract")
+    if not issues:
+        action = "accept"
+    elif quality_attempt == 0:
+        action = "regenerate_same_contract_once"
+    elif quality_attempt == 1:
+        action = "regenerate_reaction_or_over_shoulder"
+    else:
+        action = "fail_native_dialogue_gate"
+    return {
+        "passed": not issues,
+        "issues": issues,
+        "action": action,
+        "quality_attempt": quality_attempt,
+        "cer": cer,
+        "legacy_cer_thresholds_report_only": True,
+    }
 
 
 def copy_keyframe(source: Path, target: Path) -> None:
@@ -86,46 +158,6 @@ def copy_keyframe(source: Path, target: Path) -> None:
                 source_sidecar,
                 target.with_suffix(target.suffix + suffix),
             )
-
-
-def policy_safe_motion_prompt(prompt: str) -> str:
-    """Generalize IP-specific wording for a prompt-only video retry.
-
-    The locked keyframe still carries the approved character and scene art.
-    This changes only remote video conditioning; the renderer continues to
-    deliver the exact verified local TTS track and subtitles.
-    """
-
-    generalized = prompt
-    for source, replacement in (
-        ("萧薰儿", "紫衣少女"),
-        ("薰儿小姐", "紫衣少女"),
-        ("薰儿", "紫衣少女"),
-        ("萧炎哥哥", "黑衣青年"),
-        ("萧炎", "黑衣青年"),
-        ("萧媚", "珊瑚衣少女"),
-        ("萧家", "古代家族"),
-        ("斗之气", "修炼能量"),
-        ("斗气", "修炼能量"),
-        ("斗者", "正式修行者"),
-        ("测验员", "主持考官"),
-    ):
-        generalized = generalized.replace(source, replacement)
-    generalized = re.sub(
-        r"参考音频中的可见对白严格依次为：.*?。"
-        r"只有这些可见对白驱动对应角色口型；",
-        "人物只做与剧情相符的短句说话动作；",
-        generalized,
-        flags=re.DOTALL,
-    )
-    generalized = generalized.replace(
-        "参考音频中的旁白、画外对白和内心声期间，",
-        "没有可见对白时，",
-    )
-    return (
-        "原创古装奇幻家族考核场景；不使用任何作品名或角色专名。"
-        + generalized
-    )
 
 
 def is_real_person_privacy_rejection(error: Exception) -> bool:
@@ -285,7 +317,7 @@ def _visible_close_state(unit: RuntimeUnit) -> str:
 def compile_phanrouter_runtime_motion_prompt(unit: RuntimeUnit) -> str:
     """Compile the internal directing contract into one Seedance-sized prompt."""
 
-    duration = min(14.0, max(4.0, float(unit.audio_seconds or 0.0) + 0.5))
+    duration = unit.planned_seconds
     composition = _compact_prompt_clause(
         unit.composition_prompt or "竖屏中近景，主体位于三分线，视线朝向画内",
         72,
@@ -326,6 +358,8 @@ def compile_phanrouter_runtime_motion_prompt(unit: RuntimeUnit) -> str:
             f"外部音频是唯一口型、呼吸和节奏时间轴；只有{unit.speaker_name}开口，"
             f"原句：‘{unit.text}’；说完自然闭嘴。"
         )
+    elif unit.delivery_mode == TurnDelivery.SILENT_ACTION:
+        audio = "本镜只有自然环境声和动作拟音，无人说话、无人旁白，所有人物全程闭嘴。"
     else:
         audio = "声音为旁白、画外声或内心声，画面内所有人物全程闭嘴。"
     return (
@@ -338,7 +372,19 @@ def compile_phanrouter_runtime_motion_prompt(unit: RuntimeUnit) -> str:
 
 def compile_seedance_native_audio_prompt(unit: RuntimeUnit) -> str:
     prompt = compile_phanrouter_runtime_motion_prompt(unit)
-    if unit.speaking:
+    if unit.delivery_mode == TurnDelivery.TITLE_CARD:
+        old = "声音为旁白、画外声或内心声，画面内所有人物全程闭嘴。"
+        new = (
+            "Seedance只生成当前空间的自然环境声；无人说话、无人旁白。"
+            "时间卡文字由后期叠加，生成画面内不得出现任何可读文字。"
+        )
+    elif unit.delivery_mode == TurnDelivery.SILENT_ACTION:
+        old = "本镜只有自然环境声和动作拟音，无人说话、无人旁白，所有人物全程闭嘴。"
+        new = (
+            "Seedance只生成当前空间环境声和与可见动作同步的拟音；"
+            "无人说话、无人旁白，所有人物全程闭嘴。"
+        )
+    elif unit.speaking:
         old = (
             f"外部音频是唯一口型、呼吸和节奏时间轴；只有{unit.speaker_name}开口，"
             f"原句：‘{unit.text}’；说完自然闭嘴。"
@@ -347,6 +393,11 @@ def compile_seedance_native_audio_prompt(unit: RuntimeUnit) -> str:
             f"Seedance自行生成与人物一致的声音和当前空间环境声；只有{unit.speaker_name}开口，"
             f"直接自然说原句：‘{unit.text}’；不加词，句末闭嘴。"
         )
+        if unit.audio_plan.voice_reference_id:
+            new += (
+                f"角色音色锚点={unit.audio_plan.voice_reference_id}；"
+                "跨镜保持同一年龄感、音高区间、音色和说话习惯。"
+            )
     else:
         old = "声音为旁白、画外声或内心声，画面内所有人物全程闭嘴。"
         new = (
@@ -420,68 +471,13 @@ def generation_iteration_record(
     }
 
 
-_OFFSCREEN_VISUAL_MARKERS = (
-    "画外",
-    "不入前景",
-    "不入画",
-    "镜外",
-    "画面外",
-    "只作为视线对象",
-)
-_MULTI_FOREGROUND_MARKERS = (
-    "双人同框",
-    "两人同框",
-    "多人同框",
-    "三人同框",
-    "双人镜头",
-    "三人镜头",
-)
-
-
-def _direct_video_character_ids(units: list[RuntimeUnit]) -> list[str]:
-    """Return one visibly speaking identity only when the scene is explicit.
-
-    A narration turn may reference an off-screen relationship target and thus
-    legitimately carry more character asset IDs than the frame contains.  We
-    keep those IDs for provenance and Qwen fallback, but they must not disable
-    the H3 character + empty-location path when the shot explicitly says that
-    the extra character stays outside the frame.
-    """
-
-    visible_speaker_ids = list(
-        dict.fromkeys(
-            unit.character_asset_ids[0]
-            for unit in units
-            if unit.speaking and unit.character_asset_ids
-        )
-    )
-    if len(visible_speaker_ids) != 1:
-        return []
-    visible_id = visible_speaker_ids[0]
-    for unit in units:
-        other_ids = [
-            asset_id
-            for asset_id in unit.character_asset_ids
-            if asset_id != visible_id
-        ]
-        if not other_ids:
-            continue
-        visual = unit.visual_prompt
-        if (
-            not any(marker in visual for marker in _OFFSCREEN_VISUAL_MARKERS)
-            or any(marker in visual for marker in _MULTI_FOREGROUND_MARKERS)
-        ):
-            return []
-    return [visible_id]
-
-
 def _visual_delivery_signature(unit: RuntimeUnit) -> tuple[str, str]:
     """Identify who, if anyone, may drive the visible performance."""
 
     if unit.speaking:
         return ("visible_dialogue", unit.speaker_name)
     if unit.role == "narrator":
-        return ("narration", "narrator")
+        return (str(unit.delivery_mode), "narrator")
     return (str(unit.delivery_mode), unit.speaker_name)
 
 
@@ -571,10 +567,13 @@ def _build_shot_contract(
             exclude=["foreground_people", "composition", "camera", "text"],
         )
     )
-    performance = next(
-        (unit.performance_plan for unit in units if unit.performance_plan is not None),
-        None,
-    )
+    directed_units = [
+        (unit, unit.performance_plan)
+        for unit in units
+        if unit.performance_plan is not None
+    ]
+    performance = directed_units[0][1] if directed_units else None
+    closing_performance = directed_units[-1][1] if directed_units else None
     physics = next(
         (
             unit.action_physics_plan
@@ -583,7 +582,12 @@ def _build_shot_contract(
         ),
         None,
     )
-    source_beats = list(performance.motion_beats) if performance is not None else []
+    source_beat_rows = [
+        (unit, beat)
+        for unit, unit_performance in directed_units
+        for beat in unit_performance.motion_beats
+    ]
+    source_beats = [beat for _, beat in source_beat_rows]
     physics_beats = (
         [
             (physics.trigger, physics.preparation, "", physics.preparation),
@@ -631,6 +635,26 @@ def _build_shot_contract(
             weight += 0.25
         timing_weights.append(weight)
     timing_total = sum(timing_weights) or 1.0
+    if source_beats and any(beat.seconds is not None for beat in source_beats):
+        explicit_seconds = [float(beat.seconds or 0.0) for beat in source_beats]
+        explicit_total = sum(explicit_seconds)
+        if explicit_total > duration_seconds:
+            scale = duration_seconds / explicit_total
+            timing_windows = [seconds * scale for seconds in explicit_seconds]
+        else:
+            dialogue_reserve = duration_seconds - explicit_total
+            timing_windows = [
+                seconds + dialogue_reserve * weight / timing_total
+                for seconds, weight in zip(
+                    explicit_seconds,
+                    timing_weights,
+                    strict=True,
+                )
+            ]
+    else:
+        timing_windows = [
+            duration_seconds * weight / timing_total for weight in timing_weights
+        ]
     timing_cursor = 0.0
     beats: list[ShotContractBeat] = []
     for index in range(beat_count):
@@ -638,7 +662,7 @@ def _build_shot_contract(
         end = (
             duration_seconds
             if index == beat_count - 1
-            else start + duration_seconds * timing_weights[index] / timing_total
+            else start + timing_windows[index]
         )
         timing_cursor = end
         beat = source_beats[index] if source_beats else None
@@ -687,7 +711,11 @@ def _build_shot_contract(
                 start_seconds=round(start, 3),
                 end_seconds=round(end, 3),
                 actor_or_source=(
-                    visible_units[0].speaker_name
+                    beat.actor
+                    if beat is not None and beat.actor
+                    else source_beat_rows[index][0].speaker_name
+                    if source_beats
+                    else visible_units[0].speaker_name
                     if visible_units
                     else "画面主要角色" if first.character_asset_ids else "环境"
                 ),
@@ -701,6 +729,8 @@ def _build_shot_contract(
                 end_state=(
                     physics_beat[3]
                     if physics_beat is not None
+                    else beat.end_state
+                    if beat is not None and beat.end_state
                     else beat.expression_transition if beat is not None else "动作落定"
                 ),
             )
@@ -725,7 +755,9 @@ def _build_shot_contract(
         else "人物和场景处于主要动作开始前一瞬"
     )
     close_state = (
-        performance.end_state if performance is not None else "主要动作完成并稳定停留"
+        closing_performance.end_state
+        if closing_performance is not None
+        else "主要动作完成并稳定停留"
     )
     vague_state_tokens = ("内心", "意识", "感到", "渴望", "确认", "认为", "脸色一变")
     if any(token in open_state for token in vague_state_tokens):
@@ -741,8 +773,10 @@ def _build_shot_contract(
         audible_roles=audible_roles,
         reference_scopes=reference_scopes,
         open_state=open_state,
+        open_handoff=first.script_open_state,
         beat_timeline=beats,
         close_state=close_state,
+        close_handoff=units[-1].script_close_state,
         camera_start=camera_plan.start_position,
         camera_path=camera_path,
         camera_end=camera_plan.end_position,
@@ -756,7 +790,7 @@ def _build_shot_contract(
                 f"角色资产：{','.join(visible_version_ids) or '无可见说话者'}",
                 f"场景资产：{location_version_id}",
                 camera_plan.screen_direction,
-                "外部锁定音频与字幕文本不变",
+                "仅生成剧本契约指定的原生对白，字幕以ASR结果为准",
             ]
             + [
                 f"{asset_id}当前状态："
@@ -773,6 +807,7 @@ def _build_shot_contract(
         ),
         risk_focus=risks[:3],
         exact_dialogue=exact_dialogue,
+        external_audio_is_master=False,
     )
 
 
@@ -890,7 +925,7 @@ def build_visual_groups(
     plan: ProductionPlan,
     *,
     series_assets: SeriesAssetManifest | None = None,
-    target_seconds: float = 13.4,
+    target_seconds: float = 14.0,
     max_speed: float = 1.0,
     gap: float = 0.10,
     allow_cross_shot_merge: bool = False,
@@ -901,7 +936,7 @@ def build_visual_groups(
     current: list[RuntimeUnit] = []
     current_seconds = 0.0
     for unit in plan.units:
-        seconds = float(unit.audio_seconds or 0.0)
+        seconds = unit.planned_seconds
         addition = seconds + (gap if current else 0.0)
         if current and (
             unit.shot_id != current[-1].shot_id
@@ -924,9 +959,14 @@ def build_visual_groups(
     for group in packed:
         if allow_cross_shot_merge and merged:
             left = merged[-1]
-            left_seconds = sum(float(unit.audio_seconds or 0.0) for unit in left) + gap * (len(left) - 1)
-            right_seconds = sum(float(unit.audio_seconds or 0.0) for unit in group) + gap * (len(group) - 1)
+            left_seconds = sum(unit.planned_seconds for unit in left) + gap * (len(left) - 1)
+            right_seconds = sum(unit.planned_seconds for unit in group) + gap * (len(group) - 1)
             combined_shots = list(dict.fromkeys(unit.shot_id for unit in left + group))
+            combined_beat_count = sum(
+                len(unit.performance_plan.motion_beats)
+                for unit in left + group
+                if unit.performance_plan is not None
+            )
             if (
                 left[-1].scene_id == group[0].scene_id
                 and _visual_delivery_signature(left[-1])
@@ -934,6 +974,7 @@ def build_visual_groups(
                 and (left_seconds < 4.0 or right_seconds < 4.0)
                 and left_seconds + right_seconds + gap <= limit
                 and len(combined_shots) <= 4
+                and combined_beat_count <= 4
             ):
                 left.extend(group)
                 continue
@@ -946,7 +987,6 @@ def build_visual_groups(
         character_ids = list(
             dict.fromkeys(asset_id for unit in units for asset_id in unit.character_asset_ids)
         )
-        direct_video_character_ids = _direct_video_character_ids(units)
         keyframe_reasons = list(
             dict.fromkeys(
                 reason for unit in units for reason in unit.keyframe_reasons
@@ -954,20 +994,27 @@ def build_visual_groups(
         )
         if any(unit.visual_strategy == VisualStrategy.STORY_KEYFRAME for unit in units):
             visual_strategy = VisualStrategy.STORY_KEYFRAME
-        elif direct_video_character_ids:
+        elif len(character_ids) == 1:
             visual_strategy = VisualStrategy.DIRECT_ASSETS
         elif not character_ids:
             visual_strategy = VisualStrategy.SCENE_ONLY
         else:
             visual_strategy = VisualStrategy.AUTO
         visuals = list(dict.fromkeys(unit.visual_prompt for unit in units))
-        actions = list(
-            dict.fromkeys(
-                performance_action_only(unit.motion_instruction)
-                for unit in units
-                if unit.motion_instruction
+        actions = [
+            beat.action
+            for unit in units
+            if unit.performance_plan is not None
+            for beat in unit.performance_plan.motion_beats
+        ]
+        if not actions:
+            actions = list(
+                dict.fromkeys(
+                    performance_action_only(unit.motion_instruction)
+                    for unit in units
+                    if unit.motion_instruction
+                )
             )
-        )
         spoken = [f"{unit.speaker_name}：{unit.text}" for unit in units if unit.speaking]
         nonvisible_character_voice = [
             f"{unit.speaker_name}：{unit.text}"
@@ -1016,10 +1063,9 @@ def build_visual_groups(
         delivery_seconds = min(
             14.0,
             max(
-                0.8,
-                sum(float(unit.audio_seconds or 0.0) for unit in units)
+                4.0,
+                sum(unit.planned_seconds for unit in units)
                 + gap * max(0, len(units) - 1)
-                + 0.2,
             ),
         )
         visible_speaker = next((unit for unit in units if unit.speaking), None)
@@ -1058,7 +1104,7 @@ def build_visual_groups(
                 continue
             seen_performances.add(identity)
             shot_seconds = sum(
-                float(row.audio_seconds or 0.0) for row in units if row.shot_id == unit.shot_id
+                row.planned_seconds for row in units if row.shot_id == unit.shot_id
             ) + gap * max(0, sum(row.shot_id == unit.shot_id for row in units) - 1)
             performance_plans.append(
                 f"{unit.shot_id}："
@@ -1121,11 +1167,15 @@ def build_visual_groups(
             )
             + f"【本连续镜头摄影机计划】{camera_directing}。"
             + (
-                f"参考音频中的可见对白严格依次为：{'；'.join(spoken)}。"
-                "只有这些可见对白驱动对应角色口型；参考音频中的旁白、画外对白和内心声期间，"
-                "画面内所有人物必须保持闭嘴。"
+                f"视频模型原生生成可见对白：{'；'.join(spoken)}。"
+                "只有当前可见说话者开口；不得加词、漏词、重读或让其他人物同时说话，句末自然闭嘴。"
                 if spoken
-                else "剧情声音全部为画外旁白、画外对白或内心声，画面内所有人物不得随声音做口型。"
+                else (
+                    f"视频模型原生生成画外对白：{'；'.join(nonvisible_character_voice)}。"
+                    "画面内所有人物全程闭嘴，不得把画外说话者生成到画面中。"
+                    if nonvisible_character_voice
+                    else "本镜只生成当前空间的自然环境声和动作拟音，无人说话、无人旁白。"
+                )
             )
             + (
                 f"其中画外角色声音依次为：{'；'.join(nonvisible_character_voice)}，不得让画中人物朗读。"
@@ -1138,7 +1188,7 @@ def build_visual_groups(
                 + (f"音乐提示：{'；'.join(music_cues)}。" if music_cues else "")
                 + (f"同步音效：{'、'.join(sfx_events)}。" if sfx_events else "")
                 + (f"相对音频节拍：{'；'.join(audio_timeline)}。" if audio_timeline else "")
-                + "不得遮住、替换或重复锁定人声；对白出现时背景自动压低。"
+                + "不得遮住、替换或重复原生对白；对白出现时背景自动压低。"
                 if ambience or music_cues or sfx_events or audio_timeline
                 else ""
             )
@@ -1172,16 +1222,14 @@ def build_visual_groups(
                 unit_ids=[unit.unit_id for unit in units],
                 location_asset_id=units[0].location_asset_id,
                 character_asset_ids=character_ids,
-                direct_video_character_asset_ids=direct_video_character_ids,
                 spatial_anchor=spatial_anchor,
                 combined_text="".join(unit.text for unit in units),
                 keyframe_prompt=keyframe_prompt,
                 motion_prompt=motion_prompt,
-                audio_path=f"work/visual_group_audio/{group_id}.wav",
-                video_audio_path=f"work/visual_group_audio_driver/{group_id}.wav",
                 keyframe_path=f"work/visual_group_keyframes/{group_id}.jpeg",
                 raw_video_path=f"work/visual_group_video/{group_id}.mp4",
                 segment_path=f"work/visual_group_segments/{group_id}.mp4",
+                planned_seconds=round(delivery_seconds, 3),
                 visual_strategy=visual_strategy,
                 keyframe_reasons=keyframe_reasons,
                 shot_contract=shot_contract,
@@ -1189,68 +1237,6 @@ def build_visual_groups(
             )
         )
     return groups
-
-
-def retime_group_timelines_to_native_audio(
-    timings: list[dict],
-    *,
-    speech_start: float,
-    speech_end: float,
-) -> list[dict]:
-    """Allocate exact subtitle text over measured Seedance speech bounds."""
-
-    copied = [json.loads(json.dumps(timing, ensure_ascii=False)) for timing in timings]
-    weights = [
-        max(
-            1,
-            sum(
-                len(re.sub(r"\s+", "", str(event.get("text", ""))))
-                for event in timing.get("events", [])
-            ),
-        )
-        for timing in copied
-    ]
-    total_weight = sum(weights)
-    span = max(0.1, speech_end - speech_start)
-    cursor = speech_start
-    for timing, weight in zip(copied, weights, strict=True):
-        unit_end = speech_end if timing is copied[-1] else cursor + span * weight / total_weight
-        events = timing.get("events", [])
-        event_weights = [
-            max(1, len(re.sub(r"\s+", "", str(event.get("text", "")))))
-            for event in events
-        ]
-        event_total = sum(event_weights) or 1
-        event_cursor = cursor
-        for event, event_weight in zip(events, event_weights, strict=True):
-            event_end = (
-                unit_end
-                if event is events[-1]
-                else event_cursor + (unit_end - cursor) * event_weight / event_total
-            )
-            event["start"] = round(event_cursor, 6)
-            event["end"] = round(event_end, 6)
-            event["alignment_evidence"] = "seedance_native_coarse_audio_bounds"
-            event_cursor = event_end
-        timing["offset"] = round(cursor, 6)
-        timing["speech_start"] = round(cursor, 6)
-        timing["speech_end"] = round(unit_end, 6)
-        timing["alignment_evidence"] = "seedance_native_coarse_audio_bounds"
-        cursor = unit_end
-    return copied
-
-
-def adaptive_tts_speed(
-    current_speed: float,
-    audio_seconds: float,
-    target_seconds: float,
-) -> float:
-    """Choose the next model-native speed after an overlong TTS attempt."""
-
-    if audio_seconds <= target_seconds + 0.03:
-        return current_speed
-    required = current_speed * audio_seconds / target_seconds * 1.02
-    return min(2.0, max(current_speed + 0.05, required))
 
 
 def _camera_mode_rank(mode: str) -> int:
@@ -1468,300 +1454,9 @@ class EpisodeProductionRuntime:
         )
         return intro_card, ending_background
 
-    def _audio_identity(self, unit: RuntimeUnit) -> str:
-        cache_source_sha256 = None
-        cache_dir = os.environ.get("NOVEL_QWEN_TTS_CACHE_DIR")
-        if cache_dir:
-            cache_source = Path(cache_dir) / f"{unit.unit_id}.wav"
-            if cache_source.is_file():
-                cache_source_sha256 = sha256_file(cache_source)
-        identity_payload = {
-            "text": unit.text,
-            "voice": unit.voice,
-            "emotion": unit.emotion,
-            "audio_plan": unit.audio_plan.model_dump(mode="json"),
-            "delivery_mode": unit.delivery_mode,
-            "tts_model": self.settings.tts_model,
-            "tts_command": self.settings.tts_command,
-            "tts_speed": self._speech_speed(unit),
-            "tts_max_audio_seconds": self._max_turn_audio_seconds(),
-            "tts_duration_policy": "indextts-model-native-fit-v1",
-            "model_lifecycle_command": self.settings.model_lifecycle_command,
-            "provider": self.settings.provider,
-            # A command string alone cannot identify a mutable local TTS
-            # cache. Include the addressed WAV so speed/padding changes
-            # invalidate stale attempts and downstream video.
-            "tts_cache_source_sha256": cache_source_sha256,
-        }
-        identity_payload.update(indextts_synthesis_identity(unit.text))
-        return sha256_text(
-            json.dumps(identity_payload, ensure_ascii=False, sort_keys=True)
-        )
-
-    def _speech_speed(self, unit: RuntimeUnit) -> float | None:
-        role_speed = (
-            self.settings.tts_narration_speed
-            if unit.role == "narrator"
-            else self.settings.tts_dialogue_speed
-        )
-        return role_speed if role_speed is not None else self.settings.tts_speed
-
-    def _max_turn_audio_seconds(self) -> float:
-        return min(13.4, self.settings.video_max_seconds - 0.5)
-
-    def _prepare_native_timing_audio(
-        self,
-        episode_dir: Path,
-        unit: RuntimeUnit,
-    ) -> tuple[dict, dict]:
-        output = self._resolve(episode_dir, unit.audio_path)
-        if unit.text == SILENT_ACTION_MARKER:
-            actions = (
-                [beat.action for beat in unit.performance_plan.motion_beats]
-                if unit.performance_plan is not None
-                else [unit.motion_instruction]
-            )
-            displacement = any(
-                token in "".join(actions)
-                for token in ("走", "跑", "追", "绕", "穿过", "转身")
-            )
-            seconds = min(
-                2.5,
-                max(1.5, 0.55 + len(actions) * (0.65 if displacement else 0.48)),
-            )
-        else:
-            visible_chars = len(re.sub(r"\s+", "", unit.text))
-            seconds = min(
-                self._max_turn_audio_seconds(),
-                max(2.0, visible_chars / 4.2 + 0.5),
-            )
-        if not output.is_file():
-            output.parent.mkdir(parents=True, exist_ok=True)
-            run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-v",
-                    "error",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "anullsrc=r=48000:cl=stereo",
-                    "-t",
-                    f"{seconds:.6f}",
-                    "-c:a",
-                    "pcm_s16le",
-                    str(output),
-                ]
-            )
-        seconds = media_duration(output)
-        speech_start = 0.0 if unit.text == SILENT_ACTION_MARKER else 0.1
-        speech_end = (
-            0.0
-            if unit.text == SILENT_ACTION_MARKER
-            else max(speech_start + 0.1, seconds - 0.2)
-        )
-        events = (
-            []
-            if unit.text == SILENT_ACTION_MARKER
-            else timed_subtitle_pages(unit.text, speech_start, speech_end)
-        )
-        unit.audio_seconds = round(seconds, 6)
-        unit.speech_start = speech_start
-        unit.speech_end = speech_end
-        unit.subtitle_alignment = (
-            "none-silent-action"
-            if unit.text == SILENT_ACTION_MARKER
-            else "native-video-audio-pending"
-        )
-        return (
-            {
-                "unit_id": unit.unit_id,
-                "reference": unit.text,
-                "hypothesis": "",
-                "cer": 999.0,
-                "status": "skipped",
-                "backend": None,
-                "reason": "Seedance native audio preview disables TTS and ASR",
-            },
-            {
-                "unit_id": unit.unit_id,
-                "backend": "seedance-native-provisional-timing",
-                "evidence": "coarse_text_duration_before_native_audio",
-                "speech_start": speech_start,
-                "speech_end": speech_end,
-                "events": events,
-            },
-        )
-
-    def _prepare_audio(self, episode_dir: Path, unit: RuntimeUnit) -> tuple[dict, dict]:
-        output = self._resolve(episode_dir, unit.audio_path)
-        meta = output.with_suffix(output.suffix + ".request.json")
-        identity = self._audio_identity(unit)
-        selected_path: Path | None = None
-        selected_attempt = 0
-        selected_asr: dict | None = None
-        base_speed = float(self._speech_speed(unit) or 1.0)
-        selected_speed = base_speed
-        next_speed = base_speed
-        max_audio_seconds = self._max_turn_audio_seconds()
-        if output.is_file() and meta.is_file():
-            saved = json.loads(meta.read_text(encoding="utf-8"))
-            if saved.get("request_sha256") == identity:
-                selected_path = output
-                selected_attempt = int(saved.get("attempt", 0))
-                selected_speed = float(saved.get("speed") or base_speed)
-                selected_asr = self.evidence.transcribe(unit.unit_id, unit.text, output)
-                if not (
-                    selected_asr.get("status") == "passed"
-                    and float(selected_asr.get("cer", float("inf"))) <= self.settings.max_turn_cer
-                    and media_duration(output) <= max_audio_seconds + 0.03
-                ):
-                    selected_path = None
-        attempts = (
-            range(1, self.settings.max_unit_attempts + 1)
-            if selected_path is None
-            else ()
-        )
-        for attempt in attempts:
-            attempt_path = (
-                episode_dir
-                / "work"
-                / "turn_audio_attempts"
-                / unit.unit_id
-                / identity[:8]
-                / f"attempt_{attempt:02d}.wav"
-            )
-            attempt_meta = attempt_path.with_suffix(".wav.request.json")
-            attempt_speed = next_speed
-            if attempt_path.is_file() and attempt_meta.is_file():
-                attempt_speed = float(
-                    json.loads(attempt_meta.read_text(encoding="utf-8")).get(
-                        "speed", attempt_speed
-                    )
-                )
-            if not attempt_path.is_file():
-                instructions = (
-                    f"标准普通话，逐字准确朗读：{unit.text}。人物和专有名词必须准确。"
-                    f"表演意图：{unit.audio_plan.delivery_intent or unit.emotion}；"
-                    f"语速：{unit.audio_plan.pace}；情绪能量0到1为{unit.audio_plan.energy:.2f}；"
-                    + (
-                        f"自然停顿位置：{'、'.join(unit.audio_plan.pauses)}；"
-                        if unit.audio_plan.pauses
-                        else "按语义和标点自然停顿；"
-                    )
-                    + (
-                        "只做画外旁白。"
-                        if unit.role == "narrator"
-                        else (
-                            "这是角色内心声，保持角色音色稳定，像心里完整想完这句话，不做可见口型。"
-                            if str(unit.delivery_mode) == "inner_voice"
-                            else (
-                                "这是画外角色对白，保持角色音色稳定，不做可见口型。"
-                                if not unit.speaking
-                                else "保持角色音色稳定。"
-                            )
-                        )
-                    )
-                )
-                self.media.synthesize(
-                    unit.text,
-                    attempt_path,
-                    voice=unit.voice,
-                    instructions=instructions,
-                    speed=attempt_speed,
-                )
-                atomic_write_json(
-                    attempt_meta,
-                    {
-                        "speed": attempt_speed,
-                        "base_speed": base_speed,
-                        "max_audio_seconds": max_audio_seconds,
-                        "policy": "indextts-model-native-fit-v1",
-                    },
-                )
-            row = self.evidence.transcribe(unit.unit_id, unit.text, attempt_path)
-            attempt_seconds = media_duration(attempt_path)
-            selected_path, selected_attempt, selected_asr = attempt_path, attempt, row
-            selected_speed = attempt_speed
-            if (
-                row.get("status") == "passed"
-                and float(row.get("cer", float("inf"))) <= self.settings.max_turn_cer
-                and attempt_seconds <= max_audio_seconds + 0.03
-            ):
-                break
-            next_speed = adaptive_tts_speed(
-                attempt_speed,
-                attempt_seconds,
-                max_audio_seconds,
-            )
-        assert selected_path is not None and selected_asr is not None
-        output.parent.mkdir(parents=True, exist_ok=True)
-        if selected_path.resolve() != output.resolve():
-            shutil.copy2(selected_path, output)
-        seconds = media_duration(output)
-        if seconds > max_audio_seconds + 0.03:
-            raise ValueError(
-                f"{unit.unit_id} audio duration {seconds:.3f}s exceeds the "
-                f"{max_audio_seconds:.3f}s model window after "
-                f"{selected_attempt} attempts (last internal speed={selected_speed:.3f})"
-            )
-        if not (
-            selected_asr.get("status") == "passed"
-            and float(selected_asr.get("cer", float("inf")))
-            <= self.settings.max_turn_cer
-        ):
-            raise ValueError(
-                f"{unit.unit_id} TTS content CER "
-                f"{float(selected_asr.get('cer', float('inf'))):.3f} exceeds "
-                f"{self.settings.max_turn_cer:.3f} after {selected_attempt} attempts"
-            )
-        alignment = self.evidence.align(unit.unit_id, unit.text, output)
-        unit.attempt = selected_attempt
-        unit.audio_seconds = round(seconds, 6)
-        unit.speech_start = round(float(alignment["speech_start"]), 6)
-        unit.speech_end = round(float(alignment["speech_end"]), 6)
-        unit.subtitle_alignment = str(alignment["evidence"])
-        directed_seconds = float(math.ceil(min(14.0, max(4.0, seconds + 0.5))))
-        unit.motion_prompt = build_sd_prompt(
-            unit.speaker_name if unit.speaking else "narrator",
-            unit.text,
-            unit.motion_instruction,
-            use_reference_audio=True,
-            actor_description=unit.actor_description,
-            composition_prompt=unit.composition_prompt,
-            emotion=unit.emotion,
-            performance_plan=unit.performance_plan,
-            camera_plan=unit.camera_plan,
-            shot_intent=unit.shot_intent,
-            audio_plan=unit.audio_plan,
-            duration=directed_seconds,
-        )
-        atomic_write_json(
-            meta,
-            {
-                "request_sha256": identity,
-                "attempt": selected_attempt,
-                "audio_sha256": sha256_file(output),
-                "voice": unit.voice,
-                "speed": selected_speed,
-                "base_speed": base_speed,
-                "max_audio_seconds": max_audio_seconds,
-                "duration_policy": "indextts-model-native-fit-v1",
-                "synthesis_text_policy": (
-                    INDEXTTS_SYNTHESIS_TEXT_POLICY
-                    if indextts_synthesis_text(unit.text) != unit.text
-                    else None
-                ),
-                "text_sha256": sha256_text(unit.text),
-            },
-        )
-        return selected_asr, alignment
-
     def _visual_identity(
         self,
         unit: RuntimeUnit,
-        audio: Path,
         reference_board: Path,
         additional_references: tuple[Path, ...] = (),
     ) -> str:
@@ -1770,7 +1465,6 @@ class EpisodeProductionRuntime:
                 {
                     "keyframe_prompt": unit.keyframe_prompt,
                     "motion_prompt": unit.motion_prompt,
-                    "audio_sha256": sha256_file(audio),
                     "reference_board_sha256": sha256_file(reference_board),
                     "additional_reference_sha256s": [
                         sha256_file(path) for path in additional_references
@@ -1791,17 +1485,8 @@ class EpisodeProductionRuntime:
                         )
                         else self.settings.provider
                     ),
-                    "local_image_prompt_policy": self.settings.local_image_prompt_policy,
-                    "local_visual_strategy": self.settings.local_visual_strategy,
                     "local_video_prompt_policy_revision": (
                         LOCAL_VIDEO_PROMPT_POLICY_REVISION
-                        if self.settings.provider == "command"
-                        and "minimaxh3" in "".join(
-                            character
-                            for character in self.settings.video_model.casefold()
-                            if character.isalnum()
-                        )
-                        else None
                     ),
                     "video_model": self.settings.video_model,
                     "final_audio_policy": self.settings.final_audio_policy,
@@ -1815,11 +1500,6 @@ class EpisodeProductionRuntime:
                         if self.settings.video_command
                         else None
                     ),
-                    "model_lifecycle_command_sha256": (
-                        sha256_text(self.settings.model_lifecycle_command)
-                        if self.settings.model_lifecycle_command
-                        else None
-                    ),
                 },
                 ensure_ascii=False,
                 sort_keys=True,
@@ -1830,7 +1510,7 @@ class EpisodeProductionRuntime:
     def _two_reference_keyframe_prompt(unit: RuntimeUnit) -> str:
         if _is_3d_guoman_unit(unit):
             return (
-                "Qwen Image Edit双参考3D国漫剧情关键帧。图1只锁定同一角色的脸型、五官、年龄感、"
+                "双参考3D国漫剧情关键帧。图1只锁定同一角色的脸型、五官、年龄感、"
                 "发型、服装结构和批准的3D国漫渲染；图2只锁定场景建筑、空间、材质、色彩与光线。"
                 f"把图1人物自然放入图2；场景必须明确是{_location_prompt_context(unit)}，不得改到其他地点。"
                 f"构图：{_compact_prompt_clause(unit.composition_prompt, 80)}。"
@@ -1870,7 +1550,7 @@ class EpisodeProductionRuntime:
                 else ""
             )
             return (
-                "Qwen Image Edit 3D国漫剧情关键帧。图1只锁定空场建筑、空间布局、材质、色彩和光线；"
+                "多参考3D国漫剧情关键帧。图1只锁定空场建筑、空间布局、材质、色彩和光线；"
                 f"{character_scope}所有参考只用于身份与环境，不继承原构图或姿势。"
                 f"场景必须明确是{_location_prompt_context(unit)}，不得改到未登记地点。"
                 f"场面：{_compact_prompt_clause(unit.visual_prompt, 110)}。"
@@ -1958,64 +1638,6 @@ class EpisodeProductionRuntime:
             + "；".join(clauses)
             + f"。{hair_guard}，{costume_guard}。"
         )
-
-    def _direct_h3_assets(
-        self,
-        novel_dir: Path,
-        unit: RuntimeUnit,
-        series_assets: SeriesAssetManifest,
-    ) -> tuple[Path, tuple[Path, ...]] | None:
-        """Resolve reusable H3 assets without manufacturing a per-shot still.
-
-        Picture 1 is a locked character asset and Picture 2 is the matching
-        empty location.  Empty establishing shots can use the location as
-        Picture 1.  Multi-character, prop-interaction and reveal shots keep the
-        scene-aware keyframe workflow.
-        """
-
-        strategy = self.settings.local_visual_strategy
-        if strategy not in {"adaptive", "h3-direct-single-character"}:
-            return None
-        backend_identity = "".join(
-            character
-            for character in f"{self.settings.video_model} {self.settings.video_command or ''}".casefold()
-            if character.isalnum()
-        )
-        if self.settings.provider != "command" or not any(
-            token in backend_identity for token in ("minimaxh3", "h3ref2va")
-        ):
-            return None
-        if unit.visual_strategy == VisualStrategy.STORY_KEYFRAME:
-            return None
-        if strategy == "h3-direct-single-character" and not unit.reference_audio_required:
-            return None
-        direct_character_ids = (
-            unit.direct_video_character_asset_ids
-            or (
-                unit.character_asset_ids
-                if len(unit.character_asset_ids) == 1
-                else []
-            )
-        )
-        character_map = {record.asset_id: record for record in series_assets.characters}
-        location_map = {record.asset_id: record for record in series_assets.locations}
-        location = location_map.get(unit.location_asset_id)
-        if location is None:
-            return None
-        location_path = novel_dir / location.primary_image
-        if not location_path.is_file():
-            return None
-        if unit.visual_strategy == VisualStrategy.SCENE_ONLY and not direct_character_ids:
-            return location_path, ()
-        if len(direct_character_ids) != 1:
-            return None
-        character = character_map.get(direct_character_ids[0])
-        if character is None:
-            return None
-        character_path = novel_dir / character.primary_image
-        if not character_path.is_file():
-            return None
-        return character_path, (location_path,)
 
     def _direct_phanrouter_assets(
         self,
@@ -2260,7 +1882,9 @@ class EpisodeProductionRuntime:
             unit = unit.model_copy(
                 update={"keyframe_prompt": unit.keyframe_prompt + cast_guard}
             )
-        audio = self._resolve(episode_dir, unit.audio_path)
+        unit = unit.model_copy(
+            update={"motion_prompt": compile_seedance_native_audio_prompt(unit)}
+        )
         canonical_video = self._resolve(episode_dir, unit.raw_video_path)
         canonical_keyframe = self._resolve(episode_dir, unit.keyframe_path)
         reference_board = self.assets.reference_board(
@@ -2373,18 +1997,6 @@ class EpisodeProductionRuntime:
                         )
                     }
                 )
-        if self.settings.provider == "phanrouter":
-            unit = unit.model_copy(
-                update={
-                    "motion_prompt": (
-                        compile_seedance_native_audio_prompt(unit)
-                        if self.settings.final_audio_policy
-                        in NATIVE_VIDEO_AUDIO_POLICIES
-                        else compile_phanrouter_runtime_motion_prompt(unit)
-                    )
-                }
-            )
-        direct_h3_assets = self._direct_h3_assets(novel_dir, unit, series_assets)
         direct_phanrouter_assets = self._direct_phanrouter_assets(
             novel_dir,
             unit,
@@ -2394,7 +2006,6 @@ class EpisodeProductionRuntime:
             reference_board, additional_keyframe_references = direct_phanrouter_assets
         identity = self._visual_identity(
             unit,
-            audio,
             reference_board,
             additional_keyframe_references,
         )
@@ -2402,36 +2013,16 @@ class EpisodeProductionRuntime:
         selected_video: Path | None = None
         selected_keyframe: Path | None = None
         selected_attempt = 0
-        selected_used_reference_audio = False
         reused_keyframe = False
         additional_video_images: tuple[Path, ...] = ()
         visual_input_strategy = "scene-aware-keyframe"
-        use_reference_audio = (
-            unit.speaking
-            or unit.reference_audio_required
-            or self.settings.video_requires_audio
-        )
-        generate_native_audio_without_reference = (
-            self.settings.provider == "phanrouter"
-            and self.settings.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES
-        )
         existing_keyframe_attempts: set[int] = set()
         if canonical_video.is_file() and canonical_keyframe.is_file() and meta.is_file():
             saved = json.loads(meta.read_text(encoding="utf-8"))
-            if (
-                saved.get("request_sha256") == identity
-                and is_direct_reference_audio_visual_cache(saved)
-            ):
+            if saved.get("request_sha256") == identity:
                 selected_video = canonical_video
                 selected_keyframe = canonical_keyframe
                 selected_attempt = int(saved.get("attempt", 0))
-        if selected_video is not None and direct_h3_assets is not None:
-            _, additional_video_images = direct_h3_assets
-            visual_input_strategy = (
-                "h3-empty-location-asset"
-                if not additional_video_images
-                else "h3-character-plus-location-assets"
-            )
         if selected_video is not None and direct_phanrouter_assets is not None:
             _, additional_video_images = direct_phanrouter_assets
             visual_input_strategy = "phanrouter-direct-series-assets"
@@ -2449,15 +2040,7 @@ class EpisodeProductionRuntime:
                 ),
                 None,
             )
-            if direct_h3_assets is not None:
-                selected_keyframe, additional_video_images = direct_h3_assets
-                reused_keyframe = True
-                visual_input_strategy = (
-                    "h3-empty-location-asset"
-                    if not additional_video_images
-                    else "h3-character-plus-location-assets"
-                )
-            elif direct_phanrouter_assets is not None:
+            if direct_phanrouter_assets is not None:
                 selected_keyframe, additional_video_images = direct_phanrouter_assets
                 reused_keyframe = True
                 visual_input_strategy = "phanrouter-direct-series-assets"
@@ -2508,7 +2091,6 @@ class EpisodeProductionRuntime:
             and selected_video is None
             and location_style_reference is not None
             and location_style_reference.is_file()
-            and direct_h3_assets is None
             and direct_phanrouter_assets is None
         ):
             selected_keyframe = self._enforce_bright_location_keyframe(
@@ -2524,7 +2106,6 @@ class EpisodeProductionRuntime:
         return {
             "episode_dir": episode_dir,
             "unit": unit,
-            "audio": audio,
             "canonical_video": canonical_video,
             "canonical_keyframe": canonical_keyframe,
             "reference_board": reference_board,
@@ -2534,13 +2115,7 @@ class EpisodeProductionRuntime:
             "selected_video": selected_video,
             "selected_keyframe": selected_keyframe,
             "selected_attempt": selected_attempt,
-            "selected_used_reference_audio": selected_used_reference_audio,
-            "existing_keyframe_attempts": existing_keyframe_attempts,
             "reused_keyframe": reused_keyframe,
-            "use_reference_audio": use_reference_audio,
-            "generate_native_audio_without_reference": (
-                generate_native_audio_without_reference
-            ),
             "additional_video_images": additional_video_images,
             "visual_input_strategy": visual_input_strategy,
         }
@@ -2548,7 +2123,6 @@ class EpisodeProductionRuntime:
     def _prepare_video(self, prepared: dict) -> dict:
         episode_dir: Path = prepared["episode_dir"]
         unit: RuntimeUnit = prepared["unit"]
-        audio: Path = prepared["audio"]
         canonical_video: Path = prepared["canonical_video"]
         canonical_keyframe: Path = prepared["canonical_keyframe"]
         reference_board: Path = prepared["reference_board"]
@@ -2560,14 +2134,7 @@ class EpisodeProductionRuntime:
         selected_video: Path | None = prepared["selected_video"]
         selected_keyframe: Path = prepared["selected_keyframe"]
         selected_attempt: int = prepared["selected_attempt"]
-        selected_used_reference_audio: bool = prepared["selected_used_reference_audio"]
-        existing_keyframe_attempts: set[int] = prepared["existing_keyframe_attempts"]
         reused_keyframe: bool = prepared["reused_keyframe"]
-        use_reference_audio: bool = prepared["use_reference_audio"]
-        generate_native_audio_without_reference: bool = prepared.get(
-            "generate_native_audio_without_reference",
-            False,
-        )
         additional_video_images: tuple[Path, ...] = prepared.get(
             "additional_video_images", ()
         )
@@ -2577,8 +2144,8 @@ class EpisodeProductionRuntime:
         # Reusable character/location assets intentionally live at the novel
         # level, beside the episode directory.  Store a portable relative path
         # even when the selected reference is outside this one episode; using
-        # ``Path.relative_to(episode_dir)`` incorrectly rejected that valid
-        # cross-episode reuse during parallel H3 cache merges.
+        # ``Path.relative_to(episode_dir)`` incorrectly rejects that valid
+        # cross-episode reuse.
         reference_board_audit_path = Path(
             os.path.relpath(reference_board, episode_dir)
         ).as_posix()
@@ -2597,46 +2164,22 @@ class EpisodeProductionRuntime:
                 )
                 keyframe_path = directory / "keyframe.jpeg"
                 video_path = directory / "clip.mp4"
-                video_task_path = video_path.with_suffix(video_path.suffix + ".task.json")
-                if (
-                    self.settings.provider != "command"
-                    and use_reference_audio
-                    and attempt <= 2
-                    and attempt in existing_keyframe_attempts
-                    and not video_path.is_file()
-                    and not video_task_path.is_file()
-                ):
-                    reused_keyframe = True
-                    continue
                 if not keyframe_path.is_file():
                     copy_keyframe(selected_keyframe, keyframe_path)
                     reused_keyframe = True
                 try:
-                    attempt_uses_reference_audio = use_reference_audio and (
-                        self.settings.provider == "command" or attempt <= 2
-                    )
-                    attempt_uses_reference_audio = (
-                        attempt_uses_reference_audio
-                        and not generate_native_audio_without_reference
-                    )
                     if not video_path.is_file():
                         video_kwargs = {}
                         if additional_video_images:
                             video_kwargs["additional_images"] = additional_video_images
                         self.media.create_video(
-                            (
-                                unit.motion_prompt
-                                if attempt_uses_reference_audio
-                                or generate_native_audio_without_reference
-                                else policy_safe_motion_prompt(unit.motion_prompt)
-                            ),
+                            unit.motion_prompt,
                             ImageResult(path=keyframe_path),
                             video_path,
                             duration=min(
                                 14.0,
-                                max(4.0, float(unit.audio_seconds or 0.0) + 0.5),
+                                max(4.0, unit.planned_seconds),
                             ),
-                            reference_audio=audio if attempt_uses_reference_audio else None,
                             **video_kwargs,
                         )
                 except Exception as error:
@@ -2714,7 +2257,7 @@ class EpisodeProductionRuntime:
                             ) from error
                         fallback_seconds = min(
                             14.0,
-                            max(4.0, float(unit.audio_seconds or 0.0) + 0.5),
+                            max(4.0, unit.planned_seconds),
                         )
                         self.renderer._silent_card_segment(
                             keyframe_path, video_path, fallback_seconds
@@ -2728,7 +2271,6 @@ class EpisodeProductionRuntime:
                 selected_video = video_path
                 selected_keyframe = keyframe_path
                 selected_attempt = attempt
-                selected_used_reference_audio = attempt_uses_reference_audio
                 break
         if selected_video is None:
             raise RuntimeError(
@@ -2758,35 +2300,14 @@ class EpisodeProductionRuntime:
             copy_keyframe(selected_keyframe, canonical_keyframe)
         if selected_video.resolve() == canonical_video.resolve() and meta.is_file():
             saved = json.loads(meta.read_text(encoding="utf-8"))
-            selected_used_reference_audio = bool(
-                saved.get("reference_audio_used", use_reference_audio)
-            )
             visual_source = str(saved.get("visual_source", ""))
         if not visual_source.startswith("local-keyframe-motion-fallback"):
-            visual_source = (
-                f"{self.settings.video_model}-native-audio-no-reference"
-                if generate_native_audio_without_reference
-                else
-                f"{self.settings.video_model}-direct-reusable-assets-"
-                + ("reference-audio" if selected_used_reference_audio else "no-audio-reference")
-                if visual_input_strategy.startswith("h3-")
-                or visual_input_strategy == "phanrouter-direct-series-assets"
-                else (
-                    f"{self.settings.video_model}-reference-audio"
-                    if selected_used_reference_audio
-                    else (
-                        f"{self.settings.video_model}-policy-safe-prompt-dialogue-final-local-audio"
-                        if use_reference_audio
-                        else f"{self.settings.video_model}-narration-motion-no-audio-reference"
-                    )
-                )
-            )
+            visual_source = f"{self.settings.video_model}-native-dialogue"
         unit.attempt = max(unit.attempt, selected_attempt)
         meta_payload = {
                 "request_sha256": identity,
                 "attempt": selected_attempt,
                 "video_sha256": sha256_file(canonical_video),
-                "audio_sha256": sha256_file(audio),
                 "keyframe_sha256": sha256_file(canonical_keyframe),
                 "keyframe_prompt": unit.keyframe_prompt,
                 "motion_prompt": unit.motion_prompt,
@@ -2812,18 +2333,7 @@ class EpisodeProductionRuntime:
                     }
                     for path in additional_video_images
                 ],
-                "workflow": (
-                    "direct-reusable-assets-reference-audio-video-no-lip-review-v1"
-                    if selected_used_reference_audio and additional_video_images
-                    else "direct-reference-audio-video-no-lip-review-v2"
-                    if selected_used_reference_audio
-                    else (
-                        "real-prompt-dialogue-video-final-local-audio-v1"
-                        if use_reference_audio
-                        else "narration-motion-video-no-audio-reference-v1"
-                    )
-                ),
-                "reference_audio_used": selected_used_reference_audio,
+                "workflow": "video-model-native-dialogue-v1",
                 "visual_source": visual_source,
                 "remote_failure": (
                     f"{type(last_error).__name__}: {last_error}"[:500]
@@ -2833,8 +2343,7 @@ class EpisodeProductionRuntime:
                 ),
                 "keyframe_source": (
                     "reusable-series-asset"
-                    if visual_input_strategy.startswith("h3-")
-                    or visual_input_strategy == "phanrouter-direct-series-assets"
+                    if visual_input_strategy == "phanrouter-direct-series-assets"
                     else "locked-existing-keyframe" if reused_keyframe else "generated"
                 ),
         }
@@ -2846,7 +2355,6 @@ class EpisodeProductionRuntime:
             "speaking": unit.speaking,
             "text": unit.text,
             "clip": unit.raw_video_path,
-            "audio": unit.audio_path,
             "attempt": selected_attempt,
             "visual_source": visual_source,
         }
@@ -2902,14 +2410,8 @@ class EpisodeProductionRuntime:
                     visible_speaker.speaker_name if visible_speaker else "旁白"
                 ),
                 "speaking": visible_speaker is not None,
-                "reference_audio_required": any(
-                    units_by_id[unit_id].speaking for unit_id in group.unit_ids
-                ),
                 "text": group.combined_text[:500],
                 "character_asset_ids": ordered_character_ids,
-                "direct_video_character_asset_ids": (
-                    group.direct_video_character_asset_ids
-                ),
                 "location_asset_id": group.location_asset_id,
                 "keyframe_prompt": (
                     group.prompt_adapter.image_prompt
@@ -2921,15 +2423,10 @@ class EpisodeProductionRuntime:
                     if group.prompt_adapter is not None
                     else group.motion_prompt
                 ),
-                # This is the H3 performance track, not the delivery track:
-                # visible dialogue remains audible while narration and
-                # off-screen voices are duration-preserving silence. Final
-                # rendering remuxes the complete locked group.audio_path.
-                "audio_path": group.video_audio_path,
                 "keyframe_path": group.keyframe_path,
                 "raw_video_path": group.raw_video_path,
                 "segment_path": group.segment_path,
-                "audio_seconds": group.audio_seconds,
+                "planned_seconds": group.planned_seconds,
                 "delivery_mode": (
                     visible_speaker.delivery_mode
                     if visible_speaker is not None
@@ -2987,11 +2484,7 @@ class EpisodeProductionRuntime:
                 proxy.location_asset_id,
                 *proxy.character_asset_ids[:character_count],
             ]
-        video_prompt = (
-            compile_seedance_native_audio_prompt(proxy)
-            if self.settings.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES
-            else compile_phanrouter_runtime_motion_prompt(proxy)
-        )
+        video_prompt = compile_seedance_native_audio_prompt(proxy)
         if group.image_contract is not None:
             if group.image_contract.spatial_anchors:
                 anchors = _compact_prompt_clause(
@@ -3049,18 +2542,7 @@ class EpisodeProductionRuntime:
         episode_dir: Path,
         group: RuntimeVisualGroup,
         raw_video: Path,
-        locked_tts: Path,
     ) -> tuple[Path, dict]:
-        if (
-            self.settings.final_audio_policy
-            not in NATIVE_VIDEO_AUDIO_POLICIES
-            or self.settings.provider != "phanrouter"
-        ):
-            return locked_tts, {
-                "group_id": group.group_id,
-                "selected_source": "locked_tts",
-                "reason": "configured locked_tts policy",
-            }
         native = (
             episode_dir
             / "work"
@@ -3090,58 +2572,211 @@ class EpisodeProductionRuntime:
             native_duration = media_duration(native)
             speech_start, speech_end = measured_speech_bounds(native)
         except (OSError, subprocess.SubprocessError, ValueError) as error:
-            return locked_tts, {
-                "group_id": group.group_id,
-                "selected_source": "silent_timing_fallback",
-                "reason": f"native audio unavailable: {type(error).__name__}",
-            }
+            raise RuntimeError(
+                f"{group.group_id} native dialogue audio is unavailable"
+            ) from error
         return native, {
             "group_id": group.group_id,
             "selected_source": self.settings.final_audio_policy,
-            "reason": "configured to keep video-model native audio without ASR",
+            "reason": "configured to keep the video-model native audio",
             "native_audio": str(native.relative_to(episode_dir)),
             "native_duration": round(native_duration, 6),
             "speech_start": speech_start,
             "speech_end": speech_end,
         }
 
-    def _audit_delivered_asr(
+    def _native_group_asr(
         self,
-        episode_dir: Path,
-        final_video: Path,
-        plan: ProductionPlan,
-        delivery_timeline: list[dict],
-    ) -> dict:
-        rows = []
-        delivered_dir = episode_dir / "work" / "delivered_turn_audio"
-        units_by_id = {unit.unit_id: unit for unit in plan.units}
-        for timing in delivery_timeline:
-            unit = units_by_id[str(timing["unit_id"])]
-            start = self.settings.intro_seconds + float(timing["speech_start"])
-            end = self.settings.intro_seconds + float(timing["speech_end"])
-            output = delivered_dir / f"{unit.unit_id}.wav"
-            output.parent.mkdir(parents=True, exist_ok=True)
-            run([
-                "ffmpeg", "-y", "-v", "error", "-ss", f"{start:.6f}",
-                "-i", str(final_video), "-t", f"{max(0.1, end - start):.6f}",
-                "-vn", "-ar", "16000", "-ac", "1",
-                "-c:a", "pcm_s16le", str(output),
-            ])
-            row = self.evidence.transcribe(unit.unit_id, unit.text, output)
-            mean_volume, max_volume = self._audio_levels(output)
-            rows.append(
+        *,
+        group: RuntimeVisualGroup,
+        audio: Path,
+        units_by_id: dict[str, RuntimeUnit],
+        protected_terms: list[str],
+    ) -> tuple[dict, list[dict]]:
+        units = [units_by_id[unit_id] for unit_id in group.unit_ids]
+        first = units[0]
+        duration = media_duration(audio)
+        if all(
+            unit.delivery_mode == TurnDelivery.SILENT_ACTION for unit in units
+        ):
+            for unit in units:
+                unit.subtitle_alignment = "none-silent-action-native"
+            return (
                 {
-                    **row,
-                    "audio": str(output.relative_to(episode_dir)),
-                    "delivered_start": round(start, 6),
-                    "delivered_end": round(end, 6),
-                    "mean_volume_db": mean_volume,
-                    "max_volume_db": max_volume,
-                }
+                    "unit_id": group.group_id,
+                    "reference": "",
+                    "hypothesis": "",
+                    "cer": 0.0,
+                    "status": "not_applicable_silent_action",
+                    "backend": None,
+                    "subtitle_source": "none_silent_action",
+                },
+                [
+                    {
+                        "unit_id": first.unit_id,
+                        "offset": 0.0,
+                        "speech_start": 0.0,
+                        "speech_end": 0.0,
+                        "events": [],
+                    }
+                ],
             )
-        report = aggregate_asr(rows)
-        report["audio_source"] = "delivered_final_video_per_turn_extract"
-        return report
+        if all(unit.delivery_mode == TurnDelivery.TITLE_CARD for unit in units):
+            events = []
+            usable = max(0.2 * len(units), duration - 0.3)
+            for index, unit in enumerate(units):
+                start = 0.15 + usable * index / len(units)
+                end = 0.15 + usable * (index + 1) / len(units)
+                for event in timed_subtitle_pages(unit.text, start, end):
+                    events.append(
+                        {
+                            "unit_id": unit.unit_id,
+                            "role": unit.role,
+                            "start": float(event["start"]),
+                            "end": float(event["end"]),
+                            "text": str(event["text"]),
+                            "subtitle_source": "title_card_contract",
+                        }
+                    )
+            return (
+                {
+                    "unit_id": group.group_id,
+                    "reference": "".join(unit.text for unit in units),
+                    "hypothesis": "",
+                    "cer": 0.0,
+                    "status": "not_applicable_title_card",
+                    "backend": None,
+                    "subtitle_source": "title_card_contract",
+                },
+                [
+                    {
+                        "unit_id": first.unit_id,
+                        "offset": 0.0,
+                        "speech_start": 0.0,
+                        "speech_end": 0.0,
+                        "events": events,
+                    }
+                ],
+            )
+        reference = "".join(
+            unit.text
+            for unit in units
+            if unit.delivery_mode != TurnDelivery.TITLE_CARD
+        )
+        row = self.evidence.transcribe(group.group_id, reference, audio)
+        corrected, corrections = correct_protected_lexicon(
+            str(row.get("hypothesis", "")),
+            reference,
+            protected_terms,
+            self.settings.protected_lexicon,
+        )
+        speech_start, speech_end = measured_speech_bounds(audio)
+        events = [
+            {
+                "unit_id": first.unit_id,
+                "role": first.role,
+                "start": float(event["start"]),
+                "end": float(event["end"]),
+                "text": str(event["text"]),
+                "subtitle_source": "native_audio_asr",
+            }
+            for event in (
+                timed_subtitle_pages(corrected, speech_start, speech_end)
+                if corrected.strip()
+                else []
+            )
+        ]
+        mean_volume, max_volume = self._audio_levels(audio)
+        enriched = {
+            **row,
+            "raw_hypothesis": row.get("hypothesis", ""),
+            "hypothesis": corrected,
+            "protected_lexicon_corrections": corrections,
+            "subtitle_source": "native_audio_asr",
+            "mean_volume_db": mean_volume,
+            "max_volume_db": max_volume,
+            "native_audio_seconds": round(duration, 6),
+        }
+        for unit in units:
+            unit.subtitle_alignment = f"native-asr:{row.get('backend') or 'unavailable'}"
+        return (
+            enriched,
+            [
+                {
+                    "unit_id": first.unit_id,
+                    "offset": 0.0,
+                    "speech_start": speech_start,
+                    "speech_end": speech_end,
+                    "events": events,
+                }
+            ],
+        )
+
+    @staticmethod
+    def _post_select_group_voice(
+        group: RuntimeVisualGroup,
+        audio: Path,
+        units_by_id: dict[str, RuntimeUnit],
+    ) -> tuple[Path, dict]:
+        """Stable insertion point for optional VC after native audio selection."""
+
+        anchors = list(
+            dict.fromkeys(
+                units_by_id[unit_id].audio_plan.voice_reference_id
+                for unit_id in group.unit_ids
+                if units_by_id[unit_id].audio_plan.voice_reference_id
+            )
+        )
+        return audio, {
+            "stage": "post_select_group_audio",
+            "status": "passthrough_no_vc_backend",
+            "voice_anchor_ids": anchors,
+        }
+
+    def _regenerate_native_group_video(
+        self,
+        *,
+        episode_dir: Path,
+        group: RuntimeVisualGroup,
+        units_by_id: dict[str, RuntimeUnit],
+        quality_attempt: int,
+        fallback_composition: bool,
+    ) -> Path:
+        raw_video = self._resolve(episode_dir, group.raw_video_path)
+        keyframe = self._resolve(episode_dir, group.keyframe_path)
+        retry_root = (
+            episode_dir
+            / "work"
+            / "native_dialogue_quality_retries"
+            / group.group_id
+        )
+        retry_root.mkdir(parents=True, exist_ok=True)
+        original = retry_root / "attempt_01_original.mp4"
+        if not original.is_file():
+            shutil.copy2(raw_video, original)
+        output = retry_root / f"attempt_{quality_attempt + 1:02d}.mp4"
+        proxy = self._visual_group_proxy(group, units_by_id)
+        prompt = (
+            group.prompt_adapter.video_prompt
+            if group.prompt_adapter is not None
+            else compile_seedance_native_audio_prompt(proxy)
+        )
+        if fallback_composition:
+            prompt += (
+                " 质量重试构图：改为听者肩后反打或说话者侧前三分之四近景，"
+                f"仍只有{proxy.speaker_name}开口，嘴部完整无遮挡；"
+                "减少身体动作，只保留一次明确反应和自然说话。"
+            )
+        else:
+            prompt += " 质量重试：保持同一镜头契约独立重生成，不沿用上一段声音。"
+        self.media.create_video(
+            prompt,
+            ImageResult(path=keyframe),
+            output,
+            duration=group.planned_seconds,
+        )
+        shutil.copy2(output, raw_video)
+        return output
 
     def run(
         self,
@@ -3158,95 +2793,45 @@ class EpisodeProductionRuntime:
         video_id: str,
         episode_count: int,
     ) -> dict:
+        if self.settings.final_audio_policy != NATIVE_DIALOGUE_POLICY:
+            raise RuntimeError(
+                "legacy audio profiles are read-only; production requires native_dialogue"
+            )
+        episode_plan = apply_native_dialogue_profile(episode_plan)
         plan = compile_production_plan(video_id, episode, episode_plan, bible, series_assets)
-        plan_path = episode_dir / "production_plan.json"
-        atomic_write_json(plan_path, plan.model_dump(mode="json"))
-
-        self.media.enter_stage("audio")
-        asr_rows = []
-        alignments = []
-        for unit in plan.units:
-            if self.settings.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES:
-                asr_row, alignment = self._prepare_native_timing_audio(
-                    episode_dir,
-                    unit,
-                )
-            else:
-                asr_row, alignment = self._prepare_audio(episode_dir, unit)
-            asr_rows.append(asr_row)
-            alignments.append(alignment)
-        tts_asr_report = aggregate_asr(asr_rows)
-        tts_asr_report["audio_source"] = (
-            "native_video_audio_preview_no_tts_no_asr"
-            if self.settings.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES
-            else "locked_tts_reference_before_video"
-        )
-        atomic_write_json(episode_dir / "tts_asr_report.json", tts_asr_report)
-        atomic_write_json(episode_dir / "alignment_report.json", {"units": alignments})
-        atomic_write_json(plan_path, plan.model_dump(mode="json"))
-        visual_target_seconds = min(13.4, self.settings.video_max_seconds - 0.5)
+        visual_target_seconds = self.settings.video_max_seconds
         plan.visual_groups = build_visual_groups(
             plan,
             series_assets=series_assets,
             target_seconds=visual_target_seconds,
             allow_cross_shot_merge=self.settings.provider == "command",
         )
+        plan_path = episode_dir / "production_plan.json"
+        atomic_write_json(plan_path, plan.model_dump(mode="json"))
+        preflight = evaluate_production_preflight(
+            episode_plan,
+            plan,
+            native_dialogue=True,
+        )
+        atomic_write_json(episode_dir / "production_preflight_report.json", preflight)
+        if not preflight["passed"]:
+            raise RuntimeError(
+                "production PRE gate failed before audio/image/video generation"
+            )
+
+        for unit in plan.units:
+            unit.subtitle_alignment = (
+                "title-card-contract"
+                if unit.delivery_mode == TurnDelivery.TITLE_CARD
+                else "none-silent-action-native"
+                if unit.delivery_mode == TurnDelivery.SILENT_ACTION
+                else "native-asr-pending"
+            )
+        atomic_write_json(plan_path, plan.model_dump(mode="json"))
         units_by_id = {unit.unit_id: unit for unit in plan.units}
-        alignment_by_id = {str(row["unit_id"]): row for row in alignments}
         group_timelines: dict[str, list[dict]] = {}
         for group in plan.visual_groups:
-            audios = [self._resolve(episode_dir, units_by_id[unit_id].audio_path) for unit_id in group.unit_ids]
-            _, seconds, offsets, speed = self.renderer.compose_visual_group_audio(
-                audios,
-                self._resolve(episode_dir, group.audio_path),
-                target_seconds=visual_target_seconds,
-            )
-            driver_path, driver_seconds, driver_offsets, driver_speed = (
-                self.renderer.compose_visual_group_audio(
-                    audios,
-                    self._resolve(episode_dir, group.video_audio_path),
-                    audible=[
-                        units_by_id[unit_id].speaking for unit_id in group.unit_ids
-                    ],
-                    target_seconds=visual_target_seconds,
-                )
-            )
-            if abs(driver_seconds - seconds) > 0.03 or driver_offsets != offsets:
-                raise RuntimeError(
-                    f"{group.group_id} video audio driver drifted from locked TTS timeline"
-                )
-            if abs(driver_speed - speed) > 1e-6 or not driver_path.is_file():
-                raise RuntimeError(
-                    f"{group.group_id} video audio driver does not match group speed"
-                )
-            group.audio_seconds = round(seconds, 6)
-            group.speed_factor = round(speed, 8)
-            timings = []
-            for unit_id, offset in zip(group.unit_ids, offsets, strict=True):
-                unit = units_by_id[unit_id]
-                alignment = alignment_by_id[unit_id]
-                speech_start = offset + float(alignment["speech_start"]) / speed
-                speech_end = offset + float(alignment["speech_end"]) / speed
-                events = [
-                    {
-                        "unit_id": unit_id,
-                        "role": unit.role,
-                        "start": offset + float(event["start"]) / speed,
-                        "end": offset + float(event["end"]) / speed,
-                        "text": str(event["text"]),
-                    }
-                    for event in alignment["events"]
-                ]
-                timings.append(
-                    {
-                        "unit_id": unit_id,
-                        "offset": round(offset, 6),
-                        "speech_start": round(speech_start, 6),
-                        "speech_end": round(speech_end, 6),
-                        "events": events,
-                    }
-                )
-            group_timelines[group.group_id] = timings
+            group_timelines[group.group_id] = []
         previous_continuity_out: str | None = None
         for group in plan.visual_groups:
             if group.shot_contract is None:
@@ -3256,13 +2841,12 @@ class EpisodeProductionRuntime:
                     update={"continuity_in": previous_continuity_out}
                 )
             previous_continuity_out = group.shot_contract.continuity_out
-        if self.settings.provider == "phanrouter":
-            for group in plan.visual_groups:
-                proxy = self._visual_group_proxy(group, units_by_id)
-                group.prompt_adapter = self._build_provider_prompt_adapter(
-                    group,
-                    proxy,
-                )
+        for group in plan.visual_groups:
+            proxy = self._visual_group_proxy(group, units_by_id)
+            group.prompt_adapter = self._build_provider_prompt_adapter(
+                group,
+                proxy,
+            )
         plan.sequence_contract = _build_sequence_contract(
             plan=plan,
             episode_plan=episode_plan,
@@ -3284,17 +2868,16 @@ class EpisodeProductionRuntime:
         estimated_seconds = (
             self.settings.intro_seconds
             + self.settings.outro_seconds
-            + sum(float(group.audio_seconds or 0.0) + 0.2 for group in plan.visual_groups)
+            + sum(group.planned_seconds + 0.2 for group in plan.visual_groups)
         )
         if estimated_seconds > 300.5:
             raise ValueError(
-                f"audio-bound episode estimate {estimated_seconds:.1f}s exceeds the five-minute limit"
+                f"planned episode estimate {estimated_seconds:.1f}s exceeds the five-minute limit"
             )
 
         group_proxies = [
             self._visual_group_proxy(group, units_by_id) for group in plan.visual_groups
         ]
-        self.media.enter_stage("image-edit")
         prepared_visuals: list[dict] = []
         with ThreadPoolExecutor(max_workers=self.settings.media_workers) as executor:
             futures = {
@@ -3312,8 +2895,7 @@ class EpisodeProductionRuntime:
         prepared_visuals.sort(key=lambda row: str(row["unit"].unit_id))
 
         # Materialize the selected keyframes before video generation.  This
-        # keeps cover art, ending art and face consistency in the image stage,
-        # so a one-GPU runtime never reloads the image model after H3 starts.
+        # keeps cover art, ending art and face consistency in the image stage.
         selected_keyframes = {
             str(row["unit"].unit_id): Path(row["selected_keyframe"])
             for row in prepared_visuals
@@ -3358,23 +2940,11 @@ class EpisodeProductionRuntime:
         )
 
         visual_rows: list[dict] = []
-        if self.settings.model_lifecycle_command:
-            # Local deployments expose one video capability. MiniMax H3 uses
-            # either real dialogue or a silent timing driver, so the Core no
-            # longer branches into separate video checkpoints.
-            self.media.enter_stage("video")
-            with ThreadPoolExecutor(max_workers=self.settings.video_workers) as executor:
-                futures = [
-                    executor.submit(self._prepare_video, row)
-                    for row in prepared_visuals
-                ]
-                visual_rows.extend(future.result() for future in as_completed(futures))
-        else:
-            with ThreadPoolExecutor(max_workers=self.settings.video_workers) as executor:
-                futures = [
-                    executor.submit(self._prepare_video, row) for row in prepared_visuals
-                ]
-                visual_rows.extend(future.result() for future in as_completed(futures))
+        with ThreadPoolExecutor(max_workers=self.settings.video_workers) as executor:
+            futures = [
+                executor.submit(self._prepare_video, row) for row in prepared_visuals
+            ]
+            visual_rows.extend(future.result() for future in as_completed(futures))
         visual_rows.sort(key=lambda row: str(row["unit_id"]))
         # The generation proxy deliberately collapses a merged group to a single
         # narrator voice, but that left every row in this report reading as
@@ -3422,27 +2992,110 @@ class EpisodeProductionRuntime:
 
         selected_group_audio: dict[str, Path] = {}
         native_audio_rows = []
-        for group in plan.visual_groups:
-            selected_audio, audio_row = self._select_group_audio(
-                episode_dir=episode_dir,
-                group=group,
-                raw_video=self._resolve(episode_dir, group.raw_video_path),
-                locked_tts=self._resolve(episode_dir, group.audio_path),
+        native_dialogue_asr_rows: list[dict] = []
+        protected_terms = list(
+            dict.fromkeys(
+                [
+                    *(character.name for character in bible.characters),
+                    *bible.locations,
+                    *(record.name for record in series_assets.characters),
+                    *(record.name for record in series_assets.locations),
+                    *self.settings.protected_lexicon.values(),
+                ]
             )
+        )
+        for group in plan.visual_groups:
+            quality_attempt = 0
+            quality_rows = []
+            while True:
+                selected_audio, audio_row = self._select_group_audio(
+                    episode_dir=episode_dir,
+                    group=group,
+                    raw_video=self._resolve(episode_dir, group.raw_video_path),
+                )
+                selected_audio, voice_row = self._post_select_group_voice(
+                    group,
+                    selected_audio,
+                    units_by_id,
+                )
+                audio_row["voice_postprocess"] = voice_row
+                asr_row, timeline = self._native_group_asr(
+                    group=group,
+                    audio=selected_audio,
+                    units_by_id=units_by_id,
+                    protected_terms=protected_terms,
+                )
+                non_speech = asr_row.get("status") in {
+                    "not_applicable_title_card",
+                    "not_applicable_silent_action",
+                }
+                route = (
+                    {
+                        "passed": True,
+                        "issues": [],
+                        "action": "accept_non_speech_group",
+                        "quality_attempt": quality_attempt,
+                    }
+                    if non_speech
+                    else native_dialogue_quality_route(
+                        asr_row,
+                        quality_attempt=quality_attempt,
+                        single_speaker_expected=True,
+                    )
+                )
+                asr_row["quality_route"] = route
+                quality_rows.append(
+                    {
+                        "quality_attempt": quality_attempt,
+                        "asr": asr_row,
+                        "route": route,
+                        "audio": audio_row,
+                    }
+                )
+                if route["passed"]:
+                    native_dialogue_asr_rows.append(asr_row)
+                    group_timelines[group.group_id] = timeline
+                    audio_row["asr"] = asr_row
+                    break
+                if route["action"] == "fail_native_dialogue_gate":
+                    atomic_write_json(
+                        episode_dir / "native_dialogue_quality_failure.json",
+                        {
+                            "status": "failed",
+                            "group_id": group.group_id,
+                            "attempts": quality_rows,
+                        },
+                    )
+                    raise RuntimeError(
+                        f"{group.group_id} failed native dialogue quality after "
+                        f"{quality_attempt + 1} attempts: {route['issues']}"
+                    )
+                quality_attempt += 1
+                self._regenerate_native_group_video(
+                    episode_dir=episode_dir,
+                    group=group,
+                    units_by_id=units_by_id,
+                    quality_attempt=quality_attempt,
+                    fallback_composition=(
+                        route["action"]
+                        == "regenerate_reaction_or_over_shoulder"
+                    ),
+                )
+            audio_row["quality_attempts"] = quality_rows
             selected_group_audio[group.group_id] = selected_audio
             native_audio_rows.append(audio_row)
-            if audio_row.get("selected_source") in NATIVE_VIDEO_AUDIO_POLICIES:
-                group_timelines[group.group_id] = retime_group_timelines_to_native_audio(
-                    group_timelines[group.group_id],
-                    speech_start=float(audio_row["speech_start"]),
-                    speech_end=float(audio_row["speech_end"]),
-                )
-                group.audio_seconds = round(media_duration(selected_audio), 6)
         atomic_write_json(
             episode_dir / "native_audio_selection_report.json",
             {
                 "policy": self.settings.final_audio_policy,
                 "groups": native_audio_rows,
+            },
+        )
+        atomic_write_json(
+            episode_dir / "alignment_report.json",
+            {
+                "subtitle_source": "native_audio_asr",
+                "groups": group_timelines,
             },
         )
         atomic_write_json(plan_path, plan.model_dump(mode="json"))
@@ -3452,8 +3105,6 @@ class EpisodeProductionRuntime:
         }
 
         turn_segments = []
-        delivery_timeline = []
-        story_cursor = 0.0
         for group in plan.visual_groups:
             segment, duration = self.renderer.mux_visual_group(
                 self._resolve(episode_dir, group.raw_video_path),
@@ -3476,15 +3127,6 @@ class EpisodeProductionRuntime:
                     "subtitle_events": local_events,
                 }
             )
-            for timing in group_timelines[group.group_id]:
-                delivery_timeline.append(
-                    {
-                        "unit_id": timing["unit_id"],
-                        "speech_start": story_cursor + float(timing["speech_start"]),
-                        "speech_end": story_cursor + float(timing["speech_end"]),
-                    }
-                )
-            story_cursor += duration
         story_seconds = sum(float(row["duration"]) for row in turn_segments)
         if self.settings.intro_seconds + story_seconds + self.settings.outro_seconds > 300.5:
             raise ValueError("planned episode exceeds the five-minute admission limit")
@@ -3492,18 +3134,27 @@ class EpisodeProductionRuntime:
         final_video, ass, joined, subtitle_events = self.renderer.assemble_production(
             intro_card, ending, turn_segments, final_video, episode_dir / "work"
         )
-        if self.settings.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES:
-            asr_report = {
-                "status": "skipped",
-                "reason": "Seedance native audio creative preview disables ASR",
-                "cer": 999.0,
-                "turns": [],
-            }
-        else:
-            self.media.enter_stage("audio-evidence")
-            asr_report = self._audit_delivered_asr(
-                episode_dir, final_video, plan, delivery_timeline
-            )
+        audible_rows = [
+            row
+            for row in native_dialogue_asr_rows
+            if not str(row.get("status", "")).startswith("not_applicable_")
+        ]
+        title_card_rows = [
+            row
+            for row in native_dialogue_asr_rows
+            if row.get("status") == "not_applicable_title_card"
+        ]
+        silent_action_rows = [
+            row
+            for row in native_dialogue_asr_rows
+            if row.get("status") == "not_applicable_silent_action"
+        ]
+        asr_report = aggregate_asr(audible_rows)
+        asr_report["title_cards"] = title_card_rows
+        asr_report["silent_actions"] = silent_action_rows
+        asr_report["audio_source"] = "video_model_native_group_audio"
+        asr_report["subtitle_source"] = "native_audio_asr"
+        asr_report["protected_lexicon"] = protected_terms
         atomic_write_json(episode_dir / "asr_report.json", asr_report)
         atomic_write_json(plan_path, plan.model_dump(mode="json"))
 
@@ -3530,7 +3181,6 @@ class EpisodeProductionRuntime:
                     "speaking": unit.speaking,
                     "character_asset_ids": unit.character_asset_ids,
                     "location_asset_id": unit.location_asset_id,
-                    "audio_path": unit.audio_path,
                     "keyframe_path": unit.keyframe_path,
                     "clip_path": next(
                         group.raw_video_path

@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 
@@ -33,7 +34,6 @@ def _plan() -> ProductionPlan:
         motion_instruction="林晚向前半步挡住周宇",
         motion_prompt="林晚向前半步挡住周宇并说：别开门。",
         keyframe_prompt="两人同框",
-        audio_path="unused.wav",
         keyframe_path="work/keyframe.jpeg",
         raw_video_path="work/raw.mp4",
         segment_path="work/segment.mp4",
@@ -76,8 +76,6 @@ def _plan() -> ProductionPlan:
                 combined_text="别开门。",
                 keyframe_prompt="两人同框",
                 motion_prompt="林晚向前半步挡住周宇",
-                audio_path="unused.wav",
-                video_audio_path="unused-driver.wav",
                 keyframe_path="work/keyframe.jpeg",
                 raw_video_path="work/raw.mp4",
                 segment_path="work/segment.mp4",
@@ -132,6 +130,10 @@ def _make_clip(path: Path) -> None:
             str(path),
         ],
         check=True,
+    )
+    path.with_suffix(path.suffix + ".request.json").write_text(
+        json.dumps({"workflow": "video-model-native-dialogue-v1"}),
+        encoding="utf-8",
     )
 
 

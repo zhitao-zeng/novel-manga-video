@@ -14,7 +14,7 @@ from novel_manga.script_planning import source_evidence_units
 
 
 CONTENT_DIRECTION = """
-你是中文竖屏二维动漫短剧的资深编剧、导演和分镜师。严格忠于当前章原文的人物、事实、因果、顺序和章末边界。
+你是中文竖屏3D国漫短剧的资深编剧、导演和分镜师。严格忠于当前章原文的人物、事实、因果、顺序和章末边界。
 内容创作规则：
 1. 每个shot只有一个叙事功能、一个主要可见动作和一个可见说话者；说话者或delivery_mode变化必须新建shot。
 2. 对话按建立镜、说话者近景、无声反应、反打、道具插入或环境响应形成覆盖；同一角色保持屏幕侧，
@@ -25,20 +25,27 @@ CONTENT_DIRECTION = """
    时长不足必须拆镜，不得把动作、多人对白和内心声塞进一个长镜头。
 6. 每镜摄影机只有一个主意图，写起点、路径和终点；移动镜头稀疏且必须由空间揭示、明确位移、信息揭示、
    权力或情绪转折触发。同场对话保持180度行动轴和屏幕方向。
-7. 原文引号对白逐字保留给具体角色；叙述可外化为有原文依据的对白、反应或道具结果，不得新增事实。
-8. 旁白、画外声和内心声不能自动视觉化为闪回、额外人物或场景变化；除非原文明确进入回忆场景，
-   visual_prompt、motion_prompt、performance_plan和camera_plan都必须留在当前时空，禁止写“回忆画面”、
-   少年版角色、未发生的新地点或用蒙太奇补过去，改拍当前角色反应、关键道具或环境响应。
-9. 角色与场景资产控制二维画法；参考不锁原姿势、构图和机位。画面不生成可读文字。
-10. 只输出严格符合给定JSON Schema的一个JSON对象，不输出Markdown、解释、思考过程或代码围栏。
+7. 原文短对白可逐字保留；长原句允许按turn连续拆开，或用abridged只删子句而不改词序。叙述可外化成
+   有原文依据的载体对白、获取过程、因果桥接和反应；derived必须用serves指向已有event_id或fact_id。
+8. 扩写不能新增原文事实、事件或StoryBible外的具名角色。可以发明无名听者和无名群声作为信息载体，
+   但删掉一条derived后若没有原文事实失去载体、也没有因果断裂，这条就是闲聊，必须删除。
+9. native_dialogue下禁止narration和inner_voice；时间提示改title_card，不发声动作或反应写silent_action。
+10. 除非原文明示回忆，所有视觉与动作保持在当前时空，禁止补少年版角色、新地点或蒙太奇前史。
+11. 角色与场景资产控制3D国漫画风；参考不锁原姿势、构图和机位。画面不生成可读文字。
+12. 只输出严格符合给定JSON Schema的一个JSON对象，不输出Markdown、解释、思考过程或代码围栏。
 """.strip()
 
 
 OPERATION_GUIDANCE = {
     "diagnose_episode": "先提取当前章事件、因果、人物动机、可外化信息和严格章节边界，不写具体镜头。",
-    "plan_showrunner": "规划观众信息差、留存节点和人物状态变化；shot_indexes保持空，不提前写镜头。",
+    "develop_series": "只写系列压力引擎、主角默认策略、升级阶梯、关系压力网和逐章投影，不写分镜与台词。",
+    "review_series_development": "独立审查系列引擎和逐章投影，重点阻止后文事实泄漏；只审不改。",
+    "plan_showrunner": "读取系列引擎的当前章投影，规划观众信息差、留存节点、选择与代价；shot_indexes保持空；function只能用hook/question/pressure/escalation/payoff/reversal/cliffhanger；cause事件必须先于dependent，若冷开场提前dependent则必须在cause之后再次绑定该dependent。",
+    "plan_beat_script": "只写当前RetentionBeat的1到6个短镜和turn，不写机位、表演或声音规划；derived逐条填写serves；shot_intent.dramatic_function只能用establish/advance/pressure/withhold/reveal/payoff/reaction/transition/cliffhanger。native_dialogue时严禁narration和inner_voice；叙述性前史必须在当前场景用无名听者问答、群声或证据物外化，禁止回忆画面。",
+    "plan_beat_direction": "只给已接受的beat剧本做动作、表演、机位和五维handoff；turn文字和顺序不可改，可按turn边界拆镜；输出的source_shot_index集合必须与accepted_script完全一致，每个source shot至少一行，禁止把后续source shot吸收到前镜turn范围。",
     "plan_episode": "按章节诊断和Showrunner输出可拍摄的完整EpisodePlan，优先叙事清楚、镜头覆盖和自然表演。",
-    "review_episode": "作为独立审稿人逐项指出忠实度、因果、节奏、旁白比例、动作可拍性和镜头重复问题。",
+    "review_episode": "作为独立审稿人检查忠实度、因果、节奏和可拍性，并逐条对derived做删除测试；只审不改；输出紧凑ScriptQualityReport，issues最多8条，禁止复制原文、episode_plan、镜头或schema。",
+    "blind_compare": "盲评A/B两个剧本，逐一回答输入的七个问题，不猜版本；只输出紧凑JSON，不复制剧本。",
     "update_series_state": "只记录当前章结束后有原文证据的稳定状态，不推测未来章节。",
     "build_bible": "从提供的小说内容建立稳定角色、地点、画风和连续性圣经。",
 }
@@ -208,7 +215,13 @@ def main() -> int:
             "\n上一稿未通过校验。必须逐项修复repair.validation_errors，不得重复"
             "被点名的未知角色、改写引用、字段缺失或Schema错误。"
         )
-    default_max_tokens = "50000" if operation == "plan_episode" else "20000"
+    default_max_tokens = {
+        "plan_episode": "50000",
+        "review_episode": "5000",
+        "blind_compare": "4000",
+        "review_series_development": "4000",
+        "update_series_state": "8000",
+    }.get(operation, "20000")
     request = {
         "model": model,
         "max_tokens": int(

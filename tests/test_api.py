@@ -254,28 +254,3 @@ def test_processing_job_is_recovered_from_durable_state(tmp_path: Path):
         progress = _wait_for_terminal(client, "recover")
         assert progress["status"] == "completed"
         assert progress["video_list"][0]["text"] == "恢复后的正文。"
-
-
-def test_required_local_models_block_readiness_and_upload(tmp_path: Path):
-    output = tmp_path / "output"
-    config = ApiConfig(
-        output_root=output,
-        upload_root=output / ".uploads",
-        state_root=output / ".jobs",
-        provider="command",
-        require_local_models=True,
-        model_supervisor_url="http://127.0.0.1:9",
-    )
-    app = create_app(config, runner=_fake_runner(output))
-
-    with TestClient(app) as client:
-        ready = client.get("/ready")
-        assert ready.status_code == 503
-        assert ready.json()["runtime"]["ready"] is False
-
-        upload = client.post(
-            "/upload_novel",
-            data={"novel_id": "offline"},
-            files={"file": ("novel.txt", "正文。".encode(), "text/plain")},
-        )
-        assert upload.status_code == 503

@@ -82,15 +82,13 @@ def evaluate_generated_video_quality(
         if not duration_ok:
             automated_failures.append(f"{group_id}:generation-duration")
         request_meta = raw.with_suffix(raw.suffix + ".request.json")
-        reference_audio_used = None
+        workflow = None
         if request_meta.is_file():
-            reference_audio_used = bool(
-                json.loads(request_meta.read_text(encoding="utf-8")).get(
-                    "reference_audio_used"
-                )
-            )
-            if reference_audio_used:
-                automated_failures.append(f"{group_id}:reference-audio-used")
+            workflow = json.loads(
+                request_meta.read_text(encoding="utf-8")
+            ).get("workflow")
+            if workflow != "video-model-native-dialogue-v1":
+                automated_failures.append(f"{group_id}:non-native-dialogue-workflow")
         group_rows.append(
             {
                 "group_id": group_id,
@@ -99,7 +97,7 @@ def evaluate_generated_video_quality(
                 "actual_duration": round(actual, 6),
                 "requested_generation_duration": requested,
                 "duration_ok": duration_ok,
-                "reference_audio_used": reference_audio_used,
+                "workflow": workflow,
             }
         )
 

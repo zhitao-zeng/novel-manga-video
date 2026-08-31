@@ -137,4 +137,4 @@ def test_compile_planning_bundle_materializes_downstream_contract(tmp_path: Path
     production_path = Path(result["bundle"]) / result["episodes"][0]["production_plan"]
     production = json.loads(production_path.read_text(encoding="utf-8"))
     assert production["video_id"] == "demo_1"
-    assert production["units"][0]["audio_path"].endswith(".wav")
+    assert "audio_path" not in production["units"][0]

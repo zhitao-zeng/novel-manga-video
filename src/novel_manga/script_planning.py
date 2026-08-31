@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import os
 import re
 from collections import Counter
 from dataclasses import dataclass
@@ -14,21 +13,24 @@ from .models import (
     CharacterEpisodeState,
     Episode,
     EpisodeEndState,
+    EpisodeMode,
     EpisodePlan,
     GroundedStateFact,
+    QualityGateLevel,
     ScriptQualityReport,
     ScriptReviewIssue,
     SeriesState,
     StoryBible,
     TurnDelivery,
     TurnDerivation,
+    TurnDevice,
 )
 from .creative_direction import SHORT_DRAMA_PROFILE
 
 
 SCRIPT_POLICY_REVISION = "novel-manga-script-v7-active-drama"
-# A turn is a complete TTS breath/meaning group, not one subtitle page.  The
-# renderer paginates and times subtitles independently after audio alignment.
+# A turn is one complete spoken meaning group, not one subtitle page. Native
+# ASR paginates and times subtitles after video generation.
 SHORT_DRAMA_TURN_TARGET_MAX = 14
 SHORT_DRAMA_TURN_HARD_MAX = 20
 SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX = 0.35
@@ -37,22 +39,12 @@ SHORT_DRAMA_NAMED_CONFLICT_RATIO_MIN = 0.20
 # declared changes carry evidence; below this the state layer is decorative.
 CHARACTER_DELTA_GROUNDING_FLOOR = 0.6
 
-# Two bars, not one.  The correctness checks below -- invented lines, dialogue
-# summarised into narration, a narrator speaking a character's words -- stay on
-# in every mode, because failing them produces an episode the audience cannot
-# follow.  The craft bars (length, narration share, evidence coverage) are what
-# separates a serviceable machine draft from a hand-written one, and a project
-# may reasonably choose to ship the former.
-def _relaxed() -> bool:
-    return os.getenv("NOVEL_SCRIPT_STRICTNESS", "strict").strip().lower() == "relaxed"
-
-
 def _delta_floor() -> float:
-    return 0.15 if _relaxed() else CHARACTER_DELTA_GROUNDING_FLOOR
+    return CHARACTER_DELTA_GROUNDING_FLOOR
 
 
 def _narration_tolerance() -> float:
-    return 0.20 if _relaxed() else 0.02
+    return 0.02
 
 
 def _normalized(value: str) -> str:
@@ -122,6 +114,79 @@ def _spoken_lines(source_quote: str) -> list[str]:
     return [match.group(1) for match in _SPOKEN_LINE.finditer(source_quote)]
 
 
+def abridged_clause_subsequence(
+    turn_texts: list[str],
+    source_quote: str,
+) -> bool:
+    """Accept only ordered whole-clause deletion from one quoted utterance."""
+
+    spoken = _spoken_lines(source_quote)
+    if len(spoken) != 1 or not turn_texts:
+        return False
+    source = _normalized(spoken[0])
+    target = _normalized("".join(turn_texts))
+    clauses = [
+        _normalized(match.group(0))
+        for match in re.finditer(r"[^，,；;。！？!?]+[，,；;。！？!?]*", source)
+        if _normalized(match.group(0))
+    ]
+    if not clauses or not target or target == source:
+        return False
+    positions = {0}
+    selected_any = False
+    for clause in clauses:
+        updated = set(positions)
+        for position in positions:
+            if target.startswith(clause, position):
+                updated.add(position + len(clause))
+                selected_any = True
+        positions = updated
+    return selected_any and len(target) in positions
+
+
+def restore_abridged_clause_punctuation(
+    turn_texts: list[str],
+    source_quote: str,
+) -> list[str] | None:
+    """Restore source punctuation only when every turn matches whole clause words."""
+
+    spoken = _spoken_lines(source_quote)
+    if len(spoken) != 1 or not turn_texts:
+        return None
+    clauses = [
+        _normalized(match.group(0))
+        for match in re.finditer(
+            r"[^，,；;。！？!?]+[，,；;。！？!?]*",
+            _normalized(spoken[0]),
+        )
+        if _normalized(match.group(0))
+    ]
+    restored = []
+    cursor = 0
+    for text in turn_texts:
+        target_key = _quote_key(text)
+        matched = None
+        for start in range(cursor, len(clauses)):
+            combined = ""
+            for end in range(start, len(clauses)):
+                combined += clauses[end]
+                combined_key = _quote_key(combined)
+                if combined_key == target_key:
+                    matched = (end + 1, combined)
+                    break
+                if len(combined_key) > len(target_key):
+                    break
+            if matched is not None:
+                break
+        if matched is None:
+            return None
+        cursor, source_text = matched
+        restored.append(source_text)
+    if restored == turn_texts:
+        return None
+    return restored
+
+
 def _narration_body(source_quote: str) -> str:
     """The part of a citation that is authorial narration rather than speech."""
 
@@ -173,30 +238,6 @@ class ScriptPolicy:
     min_shots: int
 
 
-def _relax_policy(policy: "ScriptPolicy") -> "ScriptPolicy":
-    """Scale the size floors down for a draft that only has to be serviceable.
-
-    A local planner reliably lands around 60% of the hand-written length: it
-    stages fewer exchanges per shot, not worse ones.  Relaxed mode accepts that
-    trade rather than failing an otherwise clean draft on volume alone.
-    """
-
-    if not _relaxed():
-        return policy
-    # The repair pass hands violating turns back to the narrator, and narration
-    # does not count toward the spoken-script total, so a draft that started
-    # near the bar can land well under it after being cleaned up.  The floor has
-    # to leave room for that.
-    scale = float(os.getenv("NOVEL_SCRIPT_RELAXED_SCALE", "0.45"))
-    if not 0.2 <= scale <= 1.0:
-        raise ValueError("NOVEL_SCRIPT_RELAXED_SCALE must be between 0.2 and 1.0")
-    return ScriptPolicy(
-        min_script_chars=int(policy.min_script_chars * scale),
-        min_turns=int(policy.min_turns * 0.75),
-        min_shots=int(policy.min_shots * 0.75),
-    )
-
-
 def script_policy(
     source_chars: int,
     density: str,
@@ -239,13 +280,10 @@ def effective_script_policy(
 ) -> ScriptPolicy:
     """Return the same size policy used by the final quality gate.
 
-    Planner-side expansion must not target the strict floor while the selected
-    relaxed mode later evaluates against a smaller one.  Keeping this in one
-    helper prevents pointless resampling toward a bar the final gate does not
-    require.
+    These are reporting references for A/B analysis, not production blockers.
     """
 
-    return _relax_policy(script_policy(source_chars, density, creative_profile))
+    return script_policy(source_chars, density, creative_profile)
 
 
 def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
@@ -312,7 +350,7 @@ def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
                     row = _ground_quote(turn.text, episode.source_text)
                     if row:
                         update["source_quote"] = row[:500]
-                elif quoted and turn.derivation != TurnDerivation.VERBATIM:
+                elif quoted and turn.derivation == TurnDerivation.DERIVED:
                     # Copied out of the chapter's quotation marks: that is a
                     # verbatim line however the model labelled it.  Re-anchor
                     # the citation too, or the relabel just trades one gate
@@ -538,9 +576,20 @@ def evaluate_script_quality(
         source_chars, diagnosis.density, plan.creative_profile
     )
     turns = [turn for shot in plan.shots for turn in shot.turns]
-    script_chars = sum(len(_normalized(turn.text)) for turn in turns)
+    voiced_turns = [
+        turn
+        for turn in turns
+        if turn.delivery_mode
+        not in {TurnDelivery.TITLE_CARD, TurnDelivery.SILENT_ACTION}
+    ]
+    script_chars = sum(len(_normalized(turn.text)) for turn in voiced_turns)
     narration_chars = sum(
-        len(_normalized(turn.text)) for turn in turns if turn.role == "narrator"
+        len(_normalized(turn.text))
+        for turn in turns
+        if turn.delivery_mode in {
+            TurnDelivery.NARRATION,
+            TurnDelivery.INNER_VOICE,
+        }
     )
     narration_ratio = narration_chars / script_chars if script_chars else 0.0
     narration_budget = (
@@ -550,6 +599,14 @@ def evaluate_script_quality(
     )
     covered = {event_id for shot in plan.shots for event_id in shot.event_ids}
     events = {event.event_id: event for event in diagnosis.events}
+    known_fact_ids = {
+        fact.fact_id
+        for fact in (
+            plan.showrunner_plan.information_states
+            if plan.showrunner_plan is not None
+            else []
+        )
+    }
     critical = {event.event_id for event in diagnosis.events if event.importance == "critical"}
     coverage = len(critical & covered) / len(critical) if critical else 0.0
     issues: list[ScriptReviewIssue] = []
@@ -605,13 +662,36 @@ def evaluate_script_quality(
         len(changed_shots) / len(plan.shots) if plan.shots else 0.0
     )
     last_shot = plan.shots[-1] if plan.shots else None
+    last_shot_is_visible_consequence = bool(
+        last_shot is not None
+        and any(
+            turn.device == TurnDevice.CONSEQUENCE
+            for turn in last_shot.turns
+        )
+    )
     visible_cliffhanger = bool(
         last_shot is not None
-        and last_shot.shot_intent.dramatic_function == "cliffhanger"
+        and (
+            last_shot.shot_intent.dramatic_function == "cliffhanger"
+            or last_shot_is_visible_consequence
+        )
         and last_shot.performance_plan is not None
         and last_shot.performance_plan.motion_beats
         and (
             any("？" in turn.text or "?" in turn.text for turn in last_shot.turns)
+            or any(
+                beat.action_type.value
+                in {
+                    "choose",
+                    "refuse",
+                    "confront",
+                    "ask",
+                    "move",
+                    "reveal",
+                    "press",
+                }
+                for beat in last_shot.performance_plan.motion_beats
+            )
             or any(
                 token in performance_text(last_shot)
                 for token in ("亮", "出现", "握", "抬眼", "打开", "看", "追问")
@@ -625,6 +705,7 @@ def evaluate_script_quality(
         *,
         shot_indexes: list[int] | None = None,
         event_ids: list[str] | None = None,
+        gate_level: QualityGateLevel = QualityGateLevel.STRUCTURAL,
     ) -> None:
         issues.append(
             ScriptReviewIssue(
@@ -633,6 +714,40 @@ def evaluate_script_quality(
                 message=message,
                 shot_indexes=shot_indexes or [],
                 event_ids=event_ids or [],
+                gate_level=gate_level,
+            )
+        )
+
+    def review(
+        code: str,
+        message: str,
+        *,
+        shot_indexes: list[int] | None = None,
+        event_ids: list[str] | None = None,
+    ) -> None:
+        block(
+            code,
+            message,
+            shot_indexes=shot_indexes,
+            event_ids=event_ids,
+            gate_level=QualityGateLevel.REVIEWED,
+        )
+
+    def warn(
+        code: str,
+        message: str,
+        *,
+        shot_indexes: list[int] | None = None,
+        event_ids: list[str] | None = None,
+    ) -> None:
+        issues.append(
+            ScriptReviewIssue(
+                code=code,
+                severity="warning",
+                message=message,
+                shot_indexes=shot_indexes or [],
+                event_ids=event_ids or [],
+                gate_level=QualityGateLevel.CRAFT,
             )
         )
 
@@ -647,18 +762,62 @@ def evaluate_script_quality(
     unrewritten_derived: list[int] = []
     third_person_self: list[int] = []
     stage_directions: list[int] = []
+    derived_without_device: list[int] = []
+    native_voiceover_turns: list[int] = []
+    derived_without_serves: list[int] = []
+    derived_unknown_serves: list[int] = []
+    derived_event_scope_errors: list[int] = []
     source_key = _quote_key(episode.source_text)
     for shot in plan.shots:
         for turn in shot.turns:
             quote = turn.source_quote or ""
             text_key = _quote_key(turn.text)
-            # turn.text is spoken verbatim by TTS and burned into subtitles, so
-            # a bracketed stage direction such as （内心） is read out loud.
-            # delivery_mode already carries that information.
-            if _STAGE_DIRECTION.search(turn.text):
+            # turn.text is a spoken-content contract, so a bracketed stage
+            # direction such as （内心） would be spoken aloud. delivery_mode
+            # already carries that information.
+            if (
+                turn.delivery_mode != TurnDelivery.SILENT_ACTION
+                and _STAGE_DIRECTION.search(turn.text)
+            ):
                 stage_directions.append(shot.index)
                 continue
-            if turn.role != "narrator" and turn.derivation == TurnDerivation.DERIVED:
+            if (
+                turn.derivation == TurnDerivation.DERIVED
+                and turn.device is None
+                and plan.episode_contract is not None
+            ):
+                derived_without_device.append(shot.index)
+            if (
+                turn.derivation == TurnDerivation.DERIVED
+                and plan.episode_contract is not None
+                and not turn.serves
+            ):
+                derived_without_serves.append(shot.index)
+            if turn.derivation == TurnDerivation.DERIVED and turn.serves:
+                unknown = set(turn.serves) - set(events) - known_fact_ids
+                if unknown:
+                    derived_unknown_serves.append(shot.index)
+                if {
+                    value for value in turn.serves if value.startswith("event_")
+                } - set(shot.event_ids):
+                    derived_event_scope_errors.append(shot.index)
+            if (
+                plan.episode_contract is not None
+                and plan.dramaturgy is not None
+                and plan.dramaturgy.narration_budget_ratio == 0.0
+                and (
+                    turn.delivery_mode
+                    in {TurnDelivery.NARRATION, TurnDelivery.INNER_VOICE}
+                    or turn.device
+                    in {TurnDevice.NARRATION, TurnDevice.INNER_VOICE}
+                )
+            ):
+                native_voiceover_turns.append(shot.index)
+            if (
+                turn.role != "narrator"
+                and turn.derivation == TurnDerivation.DERIVED
+                and turn.delivery_mode != TurnDelivery.SILENT_ACTION
+            ):
                 # Relabelling narration as a character's inner voice is not
                 # adaptation: the model keeps the third-person prose and only
                 # changes the delivery field, so the character ends up narrating
@@ -696,7 +855,11 @@ def evaluate_script_quality(
             if turn.derivation == TurnDerivation.VERBATIM:
                 if text_key not in _quote_key(quote):
                     ungrounded_verbatim.append(shot.index)
-            elif not _quote_key(_narration_body(quote)):
+            elif (
+                turn.derivation == TurnDerivation.DERIVED
+                and turn.delivery_mode != TurnDelivery.SILENT_ACTION
+                and not _quote_key(_narration_body(quote))
+            ):
                 paraphrased_dialogue.append(shot.index)
     if misattributed:
         block(
@@ -741,6 +904,79 @@ def evaluate_script_quality(
             "台词要么逐字引用，要么由叙述外化",
             shot_indexes=sorted(set(paraphrased_dialogue)),
         )
+    if derived_without_device:
+        block(
+            "derived_turn_device_missing",
+            "v5 derived turn必须声明listener_qa、crowd_proxy、half_line、"
+            "evidence_object、spatial、consequence、inner_voice或narration手法",
+            shot_indexes=sorted(set(derived_without_device)),
+        )
+    if derived_without_serves:
+        block(
+            "derived_turn_serves_missing",
+            "v5每条derived turn必须用serves指向它承载的当前event_id或已登记fact_id；"
+            "无法回答删除后哪条事实失去载体或哪条因果会断的turn应删除",
+            shot_indexes=sorted(set(derived_without_serves)),
+        )
+    if derived_unknown_serves:
+        block(
+            "derived_turn_serves_unknown_id",
+            "derived turn的serves只能引用当前章节事件或Showrunner已登记的信息fact，不能创造新事实",
+            shot_indexes=sorted(set(derived_unknown_serves)),
+        )
+    if derived_event_scope_errors:
+        block(
+            "derived_turn_serves_unmapped_event",
+            "derived turn服务的event_id必须同时映射到所在shot，不能用其他事件替闲聊背书",
+            shot_indexes=sorted(set(derived_event_scope_errors)),
+        )
+    if native_voiceover_turns:
+        block(
+            "native_dialogue_voiceover_forbidden",
+            "native_dialogue禁止narration和inner_voice turn/device；时间跳转改用title_card",
+            shot_indexes=sorted(set(native_voiceover_turns)),
+        )
+
+    abridged_groups: list[tuple[list[int], list[str], str]] = []
+    current_indexes: list[int] = []
+    current_texts: list[str] = []
+    current_quote = ""
+    current_speaker = ""
+    for shot in plan.shots:
+        for turn in shot.turns:
+            if turn.derivation == TurnDerivation.ABRIDGED:
+                quote = turn.source_quote or shot.source_quote
+                if (
+                    current_texts
+                    and (quote != current_quote or turn.speaker_name != current_speaker)
+                ):
+                    abridged_groups.append(
+                        (current_indexes, current_texts, current_quote)
+                    )
+                    current_indexes, current_texts = [], []
+                current_indexes.append(shot.index)
+                current_texts.append(turn.text)
+                current_quote = quote
+                current_speaker = turn.speaker_name
+            elif current_texts:
+                abridged_groups.append((current_indexes, current_texts, current_quote))
+                current_indexes, current_texts = [], []
+                current_quote = ""
+                current_speaker = ""
+    if current_texts:
+        abridged_groups.append((current_indexes, current_texts, current_quote))
+    invalid_abridged = [
+        indexes
+        for indexes, texts, quote in abridged_groups
+        if not abridged_clause_subsequence(texts, quote)
+    ]
+    if invalid_abridged:
+        block(
+            "abridged_turn_not_clause_subsequence",
+            "abridged只能从一条原文引号对白中按顺序删除完整标点子句；"
+            "保留长子句可拆成连续turn，但拼接后必须等于所选完整子句",
+            shot_indexes=sorted({index for group in invalid_abridged for index in group}),
+        )
 
     # A narrator turn may cite a passage that happens to contain speech, as long
     # as that speech is actually delivered somewhere in the episode.  What is
@@ -758,7 +994,9 @@ def evaluate_script_quality(
         _quote_key(turn.text)
         for shot in plan.shots
         for turn in shot.turns
-        if turn.role != "narrator" and _quote_key(turn.text)
+        if turn.role != "narrator"
+        and turn.delivery_mode != TurnDelivery.SILENT_ACTION
+        and _quote_key(turn.text)
     }
 
     def _is_delivered(line_key: str) -> bool:
@@ -791,17 +1029,57 @@ def evaluate_script_quality(
         )
 
     verbatim_turn_count = sum(
-        1 for turn in turns if turn.derivation == TurnDerivation.VERBATIM
+        1 for turn in voiced_turns if turn.derivation == TurnDerivation.VERBATIM
     )
-    derived_turn_count = len(turns) - verbatim_turn_count
+    abridged_turn_count = sum(
+        1 for turn in voiced_turns if turn.derivation == TurnDerivation.ABRIDGED
+    )
+    derived_turn_count = sum(
+        1 for turn in voiced_turns if turn.derivation == TurnDerivation.DERIVED
+    )
     derived_chars = sum(
         len(_normalized(turn.text))
-        for turn in turns
+        for turn in voiced_turns
         if turn.derivation == TurnDerivation.DERIVED
     )
     derived_char_ratio = derived_chars / script_chars if script_chars else 0.0
     verbatim_turn_ratio = (
-        verbatim_turn_count / len(turns) if turns else 0.0
+        verbatim_turn_count / len(voiced_turns) if voiced_turns else 0.0
+    )
+    source_anchored_turn_count = verbatim_turn_count + abridged_turn_count
+    source_anchored_chars = sum(
+        len(_normalized(turn.text))
+        for turn in voiced_turns
+        if turn.derivation in {
+            TurnDerivation.VERBATIM,
+            TurnDerivation.ABRIDGED,
+        }
+    )
+    source_anchored_char_ratio = (
+        source_anchored_chars / script_chars if script_chars else 0.0
+    )
+    externalization_devices = {
+        TurnDevice.LISTENER_QA,
+        TurnDevice.CROWD_PROXY,
+        TurnDevice.HALF_LINE,
+        TurnDevice.EVIDENCE_OBJECT,
+        TurnDevice.SPATIAL,
+        TurnDevice.CONSEQUENCE,
+    }
+    device_turn_count = sum(
+        turn.derivation == TurnDerivation.DERIVED
+        and turn.device in externalization_devices
+        for turn in voiced_turns
+    )
+    device_coverage = (
+        device_turn_count / derived_turn_count if derived_turn_count else 1.0
+    )
+    derived_serves_count = sum(
+        turn.derivation == TurnDerivation.DERIVED and bool(turn.serves)
+        for turn in voiced_turns
+    )
+    derived_serves_coverage = (
+        derived_serves_count / derived_turn_count if derived_turn_count else 1.0
     )
 
     if plan.creative_profile == SHORT_DRAMA_PROFILE:
@@ -809,13 +1087,13 @@ def evaluate_script_quality(
             set(shot.index for shot in plan.shots) - set(changed_shots)
         )
         if missing_change_shots:
-            block(
+            review(
                 "shot_change_missing",
                 "每镜必须明确填写这一镜改变了什么；没有新增信息、关系变化或动作结果的镜头应删除或合并",
                 shot_indexes=missing_change_shots,
             )
         if protagonist_agency_shots and len(protagonist_agency_shots) < protagonist_agency_floor:
-            block(
+            review(
                 "protagonist_agency_too_low",
                 f"主角{protagonist_name}只有{len(protagonist_agency_shots)}镜主动动作，"
                 f"至少需要{protagonist_agency_floor}镜；站立、低头和被动听话不计主动动作",
@@ -826,18 +1104,33 @@ def evaluate_script_quality(
                 ][: max(1, protagonist_agency_floor - len(protagonist_agency_shots))],
             )
         elif not protagonist_agency_shots:
-            block(
+            review(
                 "protagonist_has_no_active_action",
                 f"主角{protagonist_name or '未识别'}没有可见的选择、反击、追问或改变局面的动作",
             )
         named_conflict_applicable = (
             len(character_scores) >= 2 and len(plan.shots) >= 3
         )
+        structured_pressure_events = (
+            set(plan.dramaturgy.opposition.source_event_ids)
+            if plan.dramaturgy is not None
+            and plan.dramaturgy.episode_mode == EpisodeMode.PRESSURE
+            and plan.dramaturgy.opposition is not None
+            else set()
+        )
+        collective_pressure_grounded = bool(
+            structured_pressure_events
+            and any(
+                structured_pressure_events & set(shot.event_ids)
+                for shot in plan.shots
+            )
+        )
         if (
             named_conflict_applicable
+            and not collective_pressure_grounded
             and named_conflict_ratio < SHORT_DRAMA_NAMED_CONFLICT_RATIO_MIN
         ):
-            block(
+            review(
                 "named_conflict_ratio_too_low",
                 f"有具名对手参与的冲突镜占比{named_conflict_ratio:.1%}低于"
                 f"{SHORT_DRAMA_NAMED_CONFLICT_RATIO_MIN:.0%}；匿名人群氛围不能替代具体对手",
@@ -852,7 +1145,7 @@ def evaluate_script_quality(
             len(turns) >= 2
             and verbatim_turn_ratio > SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX
         ):
-            block(
+            warn(
                 "verbatim_turn_ratio_too_high",
                 f"逐字原文turn占比{verbatim_turn_ratio:.1%}超过上限"
                 f"{SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX:.0%}；保真应由事实、因果和source trace保证，"
@@ -867,19 +1160,22 @@ def evaluate_script_quality(
                 ],
             )
         if len(plan.shots) >= 3 and not visible_cliffhanger:
-            block(
+            review(
                 "visible_cliffhanger_missing",
                 "最后一镜必须在画面或声音中主动抛出问题、异象、决定或后果；"
                 "只在注释中写“原因未揭晓”不算章末钩子",
                 shot_indexes=[last_shot.index] if last_shot is not None else [],
             )
 
-    turn_lengths = [len(_normalized(turn.text)) for turn in turns]
+    turn_lengths = [len(_normalized(turn.text)) for turn in voiced_turns]
     target_overflow_shots = sorted(
         {
             shot.index
             for shot in plan.shots
             if any(
+                turn.delivery_mode
+                not in {TurnDelivery.TITLE_CARD, TurnDelivery.SILENT_ACTION}
+                and
                 len(_normalized(turn.text)) > SHORT_DRAMA_TURN_TARGET_MAX
                 for turn in shot.turns
             )
@@ -890,6 +1186,9 @@ def evaluate_script_quality(
             shot.index
             for shot in plan.shots
             if any(
+                turn.delivery_mode
+                not in {TurnDelivery.TITLE_CARD, TurnDelivery.SILENT_ACTION}
+                and
                 len(_normalized(turn.text)) > SHORT_DRAMA_TURN_HARD_MAX
                 for turn in shot.turns
             )
@@ -908,21 +1207,27 @@ def evaluate_script_quality(
         plan.creative_profile == SHORT_DRAMA_PROFILE
         and narration_ratio > narration_budget + _narration_tolerance()
     ):
-        block(
+        warn(
             "narration_budget_exceeded",
             f"旁白占比{narration_ratio:.1%}超过当前题材预算{narration_budget:.1%}；"
             "能表演、能对白或能用反应镜头表达的信息不得继续写成解释性旁白",
         )
-
     if script_chars < policy.min_script_chars:
-        block(
-            "script_too_short",
-            f"有效剧本{script_chars}字，当前章节至少需要{policy.min_script_chars}字",
+        warn(
+            "density_script_below_reference",
+            f"有效剧本{script_chars}字，低于报告参考值{policy.min_script_chars}字；"
+            "该指标不阻断生产，需在A/B中结合戏剧变化判断",
         )
-    if len(turns) < policy.min_turns:
-        block("too_few_turns", f"只有{len(turns)}个turn，至少需要{policy.min_turns}个")
+    if len(voiced_turns) < policy.min_turns:
+        warn(
+            "density_turns_below_reference",
+            f"只有{len(voiced_turns)}个发声turn，低于报告参考值{policy.min_turns}个；不作硬门",
+        )
     if len(plan.shots) < policy.min_shots:
-        block("too_few_shots", f"只有{len(plan.shots)}镜，至少需要{policy.min_shots}镜")
+        warn(
+            "density_shots_below_reference",
+            f"只有{len(plan.shots)}镜，低于旧策略参考值{policy.min_shots}镜；不作硬门",
+        )
     missing = sorted(critical - covered)
     if missing:
         block("critical_events_missing", "关键事件未映射到分镜", event_ids=missing)
@@ -950,6 +1255,25 @@ def evaluate_script_quality(
             "改编账本的shot_indexes与实际分镜事件映射不一致"
             + "：" + "；".join(f"{eid}账本记{sorted(ledger[eid].shot_indexes)}实际{sorted(index for index, ids in shots_by_index.items() if eid in ids)}" for eid in ledger_mapping_errors[:6]),
             event_ids=sorted(ledger_mapping_errors),
+        )
+    externalized_without_carrier = []
+    for event_id, item in ledger.items():
+        if item.disposition != "externalized":
+            continue
+        if not any(
+            turn.derivation == TurnDerivation.DERIVED
+            and event_id in turn.serves
+            for shot in plan.shots
+            if event_id in shot.event_ids
+            for turn in shot.turns
+        ):
+            externalized_without_carrier.append(event_id)
+    if externalized_without_carrier:
+        block(
+            "externalized_event_carrier_missing",
+            "adaptation_ledger标为externalized的事件必须至少被一条derived turn的serves指向；"
+            "删除测试答不出会断哪条事件/事实的扩写不是载体，应删除",
+            event_ids=sorted(externalized_without_carrier),
         )
     removed_critical = sorted(
         event_id
@@ -1015,7 +1339,7 @@ def evaluate_script_quality(
         introductions_complete = qualitative.character_introductions_complete
         future_content_used = qualitative.future_content_used
         issues.extend(
-            issue
+            issue.model_copy(update={"gate_level": QualityGateLevel.REVIEWED})
             for issue in qualitative.issues
             if not (
                 plan.creative_profile == SHORT_DRAMA_PROFILE
@@ -1026,16 +1350,16 @@ def evaluate_script_quality(
                 and (
                     "TURN_LENGTH" in issue.code.upper()
                     or "TURN_TOO_LONG" in issue.code.upper()
-                    or "TTS_OVERFLOW" in issue.code.upper()
                 )
             )
         )
         if not qualitative.passed and not any(
             issue.severity == "blocking" for issue in qualitative.issues
         ):
-            block(
-                "independent_review_failed",
-                "独立审稿未通过，但审稿结果没有提供可执行的blocking问题",
+            warn(
+                "independent_review_nonactionable_fail",
+                "独立审稿返回passed=false，但没有提供可执行的blocking问题；"
+                "保留为审稿协议警告，不凭布尔值阻断",
             )
     elif plan.creative_profile != SHORT_DRAMA_PROFILE:
         late_sensitive = {
@@ -1055,22 +1379,84 @@ def evaluate_script_quality(
             if dramaturgy is not None
             else None
         )
-        opening_quotes = "".join(shot.source_quote for shot in plan.shots[:2])
+        opening_quote_keys = [
+            _quote_key(quote)
+            for shot in plan.shots[:2]
+            for quote in [
+                shot.source_quote,
+                *[turn.source_quote for turn in shot.turns],
+            ]
+            if _quote_key(quote)
+        ]
+        grounded_key = _quote_key(grounded_quote or "")
         cold_open_grounded = bool(
             grounded_quote
-            and _quote_key(grounded_quote) in _quote_key(opening_quotes)
+            and any(
+                opening_key in grounded_key or grounded_key in opening_key
+                for opening_key in opening_quote_keys
+            )
         )
         opening_no_spoiler = cold_open_grounded
-        if not cold_open_grounded and not _relaxed():
+        if not cold_open_grounded:
             block(
                 "cold_open_not_grounded",
                 "短剧冷开场必须直接来自当前章证据，并在前两镜中实际出现",
                 shot_indexes=[shot.index for shot in plan.shots[:2]],
             )
+        if plan.episode_contract is not None and dramaturgy is not None:
+            if dramaturgy.episode_mode == EpisodeMode.CHOICE:
+                choice_grounded = bool(
+                    dramaturgy.protagonist_choice
+                    and dramaturgy.choice_source_quote
+                    and _ground_quote(
+                        dramaturgy.choice_source_quote,
+                        episode.source_text,
+                    )
+                    and _quote_key(dramaturgy.protagonist_choice)
+                    in _quote_key(dramaturgy.choice_source_quote)
+                )
+                cost_grounded = bool(
+                    dramaturgy.cost_paid
+                    and dramaturgy.cost_source_quote
+                    and _ground_quote(
+                        dramaturgy.cost_source_quote,
+                        episode.source_text,
+                    )
+                    and _quote_key(dramaturgy.cost_paid)
+                    in _quote_key(dramaturgy.cost_source_quote)
+                )
+                if not choice_grounded:
+                    review(
+                        "protagonist_choice_not_grounded",
+                        "choice_episode必须写出主角有代价的决定，且protagonist_choice按归一化子串"
+                        "出现在当前章choice_source_quote中",
+                    )
+                if not cost_grounded:
+                    review(
+                        "choice_cost_not_grounded",
+                        "choice_episode必须写出已经支付的代价，cost_paid按归一化子串匹配"
+                        "当前章cost_source_quote，不做自由文本逐字等式",
+                    )
+            opposition = dramaturgy.opposition
+            if opposition is None:
+                review(
+                    "episode_opposition_missing",
+                    "v5单集必须结构化声明具名对手、目标、手段和当前章source_event_ids",
+                )
+            elif not set(opposition.source_event_ids) <= set(events):
+                block(
+                    "episode_opposition_not_grounded",
+                    "结构化opposition引用了当前章不存在的事件",
+                    event_ids=[
+                        event_id
+                        for event_id in opposition.source_event_ids
+                        if event_id in events
+                    ],
+                )
     if not opening_no_spoiler and plan.creative_profile != SHORT_DRAMA_PROFILE:
         block("opening_spoils_resolution", "开头直接泄露了章节后半段的答案或结果")
     if not introductions_complete:
-        block("character_introductions_missing", "主要人物在承担冲突前没有完成基本建立")
+        review("character_introductions_missing", "主要人物在承担冲突前没有完成基本建立")
     if future_content_used:
         block("future_content_used", "剧本使用了当前章节之外的新剧情或后文信息")
 
@@ -1091,7 +1477,7 @@ def evaluate_script_quality(
             len(emphasis_shots) / len(plan.shots) if plan.shots else 0.0
         )
         if emphasis_ratio > 0.20:
-            block(
+            warn(
                 "camera_emphasis_budget_exceeded",
                 f"强调型大运镜占比{emphasis_ratio:.1%}超过20%；"
                 "普通慢推、短跟拍和同轴重新构图不受此预算限制",
@@ -1212,6 +1598,40 @@ def evaluate_script_quality(
                     "information_graph_empty",
                     "短剧模式必须显式记录至少一个观众与角色的信息状态",
                 )
+            beat_order = {
+                beat.beat_id: index
+                for index, beat in enumerate(showrunner.retention.beats)
+            }
+            for fact in showrunner.information_states:
+                if fact.dramatic_use != "withheld":
+                    continue
+                release_beats = [
+                    beat
+                    for beat in showrunner.retention.beats
+                    if fact.fact_id in beat.new_information_fact_ids
+                ]
+                if fact.reveal_beat_id:
+                    reveal_order = beat_order.get(fact.reveal_beat_id, 10**6)
+                    early = [
+                        beat.beat_id
+                        for beat in release_beats
+                        if beat_order[beat.beat_id] < reveal_order
+                    ]
+                    revealed_at_target = any(
+                        beat.beat_id == fact.reveal_beat_id
+                        for beat in release_beats
+                    )
+                    if early or not revealed_at_target:
+                        block(
+                            "withheld_fact_release_order_invalid",
+                            f"withheld信息{fact.fact_id}不得在{fact.reveal_beat_id}之前释放，"
+                            "并必须在指定reveal beat实际进入new_information_fact_ids",
+                        )
+                elif release_beats:
+                    block(
+                        "withheld_fact_released_without_reveal",
+                        f"withheld信息{fact.fact_id}没有reveal_beat_id，不得被任何beat释放",
+                    )
 
             valid_deltas = 0
             for delta in showrunner.character_state_deltas:
@@ -1245,9 +1665,7 @@ def evaluate_script_quality(
                     "章节诊断已声明人物状态变化，但Showrunner未记录状态增量",
                     event_ids=missing_delta_events,
                 )
-            delta_denominator = max(
-                len(showrunner.character_state_deltas), len(expected_delta_events)
-            )
+            delta_denominator = len(showrunner.character_state_deltas)
             character_delta_grounding = (
                 valid_deltas / delta_denominator if delta_denominator else 1.0
             )
@@ -1293,20 +1711,13 @@ def evaluate_script_quality(
             # Completeness of the sound plan is craft, not correctness: a shot
             # without an audio beat still plays, it just has no designed sound
             # design under it.
-            if len(directed_audio_shots) != len(plan.shots) and not _relaxed():
-                block(
-                    "audio_beat_plan_incomplete",
-                    "每个短剧镜头必须有按触发执行的相对音频节拍",
-                    shot_indexes=[
-                        shot.index for shot in plan.shots if shot not in directed_audio_shots
-                    ],
-                )
             if showrunner.planning_mode == "inferred_fallback":
                 issues.append(
                     ScriptReviewIssue(
                         code="showrunner_inferred_fallback",
                         severity="warning",
                         message="当前Showrunner计划由确定性回退生成；可生产但应优先由规划模型给出信息差与人物状态决策",
+                        gate_level=QualityGateLevel.CRAFT,
                     )
                 )
     current_source = _normalized(episode.source_text)
@@ -1333,13 +1744,56 @@ def evaluate_script_quality(
             + "、".join(ungrounded_characters),
         )
 
+    retention_beat_count = (
+        len(plan.showrunner_plan.retention.beats)
+        if plan.showrunner_plan is not None
+        else 0
+    )
+    expected_shots_from_retention = retention_beat_count * 4
+    density_reference_min_shots = 22
+    density_reference_max_shots = 36
+    density_within_reference = (
+        density_reference_min_shots
+        <= len(plan.shots)
+        <= density_reference_max_shots
+    )
+    if not density_within_reference:
+        warn(
+            "density_shot_range_report",
+            f"当前{len(plan.shots)}镜不在A/B参考区间"
+            f"{density_reference_min_shots}-{density_reference_max_shots}镜；"
+            "仅报告，不阻断生产",
+        )
+    if expected_shots_from_retention and len(plan.shots) < expected_shots_from_retention:
+        warn(
+            "density_below_retention_projection",
+            f"{retention_beat_count}个留存节点按每节点4镜投影为"
+            f"{expected_shots_from_retention}镜，当前为{len(plan.shots)}镜；仅报告",
+        )
+
     blocking = [issue for issue in issues if issue.severity == "blocking"]
+    structural_blockers = [
+        issue
+        for issue in blocking
+        if issue.gate_level == QualityGateLevel.STRUCTURAL
+    ]
+    reviewed_blockers = [
+        issue
+        for issue in blocking
+        if issue.gate_level == QualityGateLevel.REVIEWED
+    ]
+    craft_warnings = [
+        issue
+        for issue in issues
+        if issue.severity == "warning"
+        and issue.gate_level == QualityGateLevel.CRAFT
+    ]
     return ScriptQualityReport(
         policy_revision=SCRIPT_POLICY_REVISION,
         passed=not blocking,
         script_char_count=script_chars,
         shot_count=len(plan.shots),
-        turn_count=len(turns),
+        turn_count=len(voiced_turns),
         critical_event_coverage=round(coverage, 6),
         causal_chain_complete=causal_complete,
         character_introductions_complete=introductions_complete,
@@ -1366,7 +1820,12 @@ def evaluate_script_quality(
         shot_intent_coverage=round(shot_intent_coverage, 6),
         audio_beat_coverage=round(audio_beat_coverage, 6),
         verbatim_turn_count=verbatim_turn_count,
+        abridged_turn_count=abridged_turn_count,
         derived_turn_count=derived_turn_count,
+        source_anchored_turn_count=source_anchored_turn_count,
+        source_anchored_char_ratio=round(source_anchored_char_ratio, 6),
+        externalization_device_coverage=round(device_coverage, 6),
+        derived_serves_coverage=round(derived_serves_coverage, 6),
         derived_char_ratio=round(derived_char_ratio, 6),
         verbatim_turn_ratio=round(verbatim_turn_ratio, 6),
         verbatim_turn_ratio_max=SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX,
@@ -1377,6 +1836,15 @@ def evaluate_script_quality(
         named_conflict_shot_count=len(named_conflict_shots),
         named_conflict_ratio=round(named_conflict_ratio, 6),
         visible_cliffhanger=visible_cliffhanger,
+        density_reference_min_shots=density_reference_min_shots,
+        density_reference_max_shots=density_reference_max_shots,
+        expected_shots_from_retention=expected_shots_from_retention,
+        density_target_script_chars=policy.min_script_chars,
+        density_target_turns=policy.min_turns,
+        density_within_reference=density_within_reference,
+        structural_blocker_count=len(structural_blockers),
+        reviewed_blocker_count=len(reviewed_blockers),
+        craft_warning_count=len(craft_warnings),
         issues=issues,
     )
 

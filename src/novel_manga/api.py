@@ -4,8 +4,6 @@ import hashlib
 import json
 import os
 import threading
-import urllib.error
-import urllib.request
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -27,7 +25,6 @@ from .util import atomic_write_json
 
 JobStatus = Literal["processing", "completed", "failed"]
 PipelineRunner = Callable[[Path, str, str], SubmissionManifest]
-DIRECT_HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def _now() -> str:
@@ -69,18 +66,6 @@ def _parse_positive_int(name: str, default: int, *, minimum: int, maximum: int) 
     return value
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    normalized = raw.strip().casefold()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(f"{name} 必须是 0/1 或 true/false")
-
-
 @dataclass(frozen=True)
 class ApiConfig:
     output_root: Path = Path("/output")
@@ -91,8 +76,6 @@ class ApiConfig:
     bgm_path: Path | None = None
     job_workers: int = 1
     max_upload_bytes: int = 50 * 1024 * 1024
-    require_local_models: bool = False
-    model_supervisor_url: str = "http://127.0.0.1:18090"
 
     def __post_init__(self) -> None:
         if self.provider not in {"mock", "phanrouter", "command"}:
@@ -103,8 +86,6 @@ class ApiConfig:
             raise ValueError("NOVEL_JOB_WORKERS 必须是 1 或 2")
         if self.max_upload_bytes < 1:
             raise ValueError("NOVEL_MAX_UPLOAD_BYTES 必须为正整数")
-        if not self.model_supervisor_url.startswith(("http://", "https://")):
-            raise ValueError("NOVEL_MODEL_SUPERVISOR_URL 必须是 HTTP(S) 地址")
 
     @classmethod
     def from_env(cls) -> "ApiConfig":
@@ -125,10 +106,6 @@ class ApiConfig:
                 minimum=1,
                 maximum=2 * 1024 * 1024 * 1024,
             ),
-            require_local_models=_env_flag("NOVEL_REQUIRE_LOCAL_MODELS", False),
-            model_supervisor_url=os.getenv(
-                "NOVEL_MODEL_SUPERVISOR_URL", "http://127.0.0.1:18090"
-            ).rstrip("/"),
         )
 
 
@@ -202,31 +179,10 @@ class JobManager:
                     self.config.state_root,
                 )
             )
-        return controller_ready and bool(self.runtime_status()["ready"])
+        return controller_ready
 
     def runtime_status(self) -> dict[str, object]:
-        if not self.config.require_local_models:
-            return {"required": False, "ready": True}
-        url = f"{self.config.model_supervisor_url}/ready"
-        try:
-            request = urllib.request.Request(url, method="GET")
-            with DIRECT_HTTP.open(request, timeout=2) as response:
-                payload = json.loads(response.read())
-        except (OSError, ValueError, urllib.error.URLError) as error:
-            return {
-                "required": True,
-                "ready": False,
-                "error": f"{type(error).__name__}: {error}"[:500],
-            }
-        all_models_ready = bool(payload.get("all_models_ready"))
-        return {
-            "required": True,
-            "ready": bool(payload.get("ready")) and all_models_ready,
-            "all_models_ready": all_models_ready,
-            "active_stage": payload.get("active_stage"),
-            "last_error": payload.get("last_error"),
-            "models": payload.get("models", {}),
-        }
+        return {"required": False, "ready": True}
 
     def _run_pipeline(self, source: Path, novel_id: str, title: str) -> SubmissionManifest:
         settings = Settings.from_env(
@@ -567,21 +523,8 @@ def create_app(
 
     @application.get("/ready")
     async def ready():
-        runtime = job_manager.runtime_status()
         if not job_manager.ready:
-            if resolved_config.require_local_models:
-                return JSONResponse(
-                    status_code=503,
-                    content={
-                        "success": False,
-                        "status": "not_ready",
-                        "message": "本地模型尚未就绪",
-                        "runtime": runtime,
-                    },
-                )
             return _error("服务尚未就绪", 503)
-        if resolved_config.require_local_models:
-            return {"success": True, "status": "ready", "runtime": runtime}
         return {"success": True, "status": "ready"}
 
     @application.post("/upload_novel")

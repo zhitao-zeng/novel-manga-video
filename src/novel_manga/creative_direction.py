@@ -480,13 +480,11 @@ def apply_creative_direction(
         shot_intent = _intent_for_shot(shot, showrunner)
         directed_shot = shot.model_copy(update={"shot_intent": shot_intent})
         visual_strategy, reasons = infer_visual_strategy(directed_shot)
-        # The runtime currently guarantees exact source dialogue through
-        # locked speech. Non-speech layers are separate directing cues, not
-        # synthetic TTS utterances. Native speech remains a schema-level future
-        # mode until the API exposes a verifiable full-audio or stem contract.
+        # The executable profile keeps the video model's original dialogue.
+        # ASR supplies subtitles and the bounded native-speech quality route.
         audio_plan = shot.audio_plan.model_copy(
             update={
-                "speech_strategy": SpeechStrategy.LOCKED,
+                "speech_strategy": SpeechStrategy.NATIVE,
                 "delivery_intent": shot.audio_plan.delivery_intent or "克制自然",
                 "ambience": shot.audio_plan.ambience or direction.sound_direction,
                 "audio_beats": _audio_beats_for_shot(

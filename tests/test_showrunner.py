@@ -9,6 +9,7 @@ from novel_manga.models import (
     Shot,
     StoryBible,
 )
+from novel_manga.planner import OpenAICompatiblePlanner
 from novel_manga.script_planning import evaluate_script_quality
 
 
@@ -149,6 +150,54 @@ def test_showrunner_fallback_connects_retention_intent_state_and_audio() -> None
     assert report.character_delta_grounding == 1.0
     assert report.shot_intent_coverage == 1.0
     assert report.audio_beat_coverage == 1.0
+    assert report.expected_shots_from_retention == (
+        len(plan.showrunner_plan.retention.beats) * 4
+    )
+    assert "density_below_retention_projection" in {
+        issue.code for issue in report.issues
+    }
+
+
+def test_showrunner_normalizes_reveal_function_to_payoff() -> None:
+    episode, diagnosis, plan = _directed_plan()
+    assert plan.showrunner_plan is not None
+    raw = plan.showrunner_plan.model_dump(mode="json")
+    raw["retention"]["beats"][2]["function"] = "reveal"
+    raw["information_states"][0]["source_event_ids"] = [
+        "event_001",
+        "event_003",
+    ]
+    diagnosis.events[2].importance = "supporting"
+    for beat in raw["retention"]["beats"]:
+        beat["shot_indexes"] = []
+    raw["retention"]["beats"][-1]["event_ids"].append("event_002")
+    bible = StoryBible(
+        novel_title="斗破测试",
+        genre="东方玄幻",
+        visual_style="国漫",
+        palette="冷青暖金",
+        characters=[
+            {
+                "name": "萧炎",
+                "appearance": "黑发少年",
+                "wardrobe": "深色练功服",
+            }
+        ],
+        locations=["测试广场"],
+        style_fingerprint="showrunner-test",
+    )
+    planner = object.__new__(OpenAICompatiblePlanner)
+
+    showrunner = planner._validate_showrunner_data(
+        raw,
+        episode,
+        diagnosis,
+        bible,
+        {"event_001"},
+    )
+
+    assert showrunner.retention.beats[2].function == "payoff"
+    assert showrunner.information_states[0].source_event_ids == ["event_001"]
 
 
 def test_quality_gate_rejects_middle_attention_vacuum_and_ungrounded_fact() -> None:

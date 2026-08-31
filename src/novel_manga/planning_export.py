@@ -260,8 +260,8 @@ def compile_planning_bundle(
                 "shot_count": len(production.shots),
                 "unit_count": len(production.units),
                 "visible_speaking_unit_count": sum(unit.speaking for unit in production.units),
-                "reference_audio_prompt_count": sum(
-                    "参考音频" in unit.motion_prompt for unit in production.units
+                "native_dialogue_prompt_count": sum(
+                    "完整台词" in unit.motion_prompt for unit in production.units
                 ),
             }
         )

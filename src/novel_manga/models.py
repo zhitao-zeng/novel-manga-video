@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class EpisodeStatus(StrEnum):
@@ -21,6 +22,8 @@ class TurnDelivery(StrEnum):
     VISIBLE_DIALOGUE = "visible_dialogue"
     OFFSCREEN_DIALOGUE = "offscreen_dialogue"
     INNER_VOICE = "inner_voice"
+    TITLE_CARD = "title_card"
+    SILENT_ACTION = "silent_action"
 
 
 class TurnDerivation(StrEnum):
@@ -35,7 +38,38 @@ class TurnDerivation(StrEnum):
     """
 
     VERBATIM = "verbatim"
+    ABRIDGED = "abridged"
     DERIVED = "derived"
+
+
+class TurnDevice(StrEnum):
+    LISTENER_QA = "listener_qa"
+    CROWD_PROXY = "crowd_proxy"
+    HALF_LINE = "half_line"
+    EVIDENCE_OBJECT = "evidence_object"
+    SPATIAL = "spatial"
+    CONSEQUENCE = "consequence"
+    INNER_VOICE = "inner_voice"
+    NARRATION = "narration"
+
+
+class EpisodeMode(StrEnum):
+    CHOICE = "choice_episode"
+    PRESSURE = "pressure_episode"
+
+
+class MotionActionType(StrEnum):
+    """The visible dramatic job performed by one causal motion beat."""
+
+    CHOOSE = "choose"
+    REFUSE = "refuse"
+    CONFRONT = "confront"
+    ASK = "ask"
+    MOVE = "move"
+    REVEAL = "reveal"
+    REACT = "react"
+    WAIT = "wait"
+    PRESS = "press"
 
 
 class VisualStrategy(StrEnum):
@@ -166,12 +200,19 @@ class AdaptationLedgerItem(BaseModel):
     rationale: str = Field(min_length=1, max_length=240)
 
 
+class QualityGateLevel(StrEnum):
+    STRUCTURAL = "structural"
+    REVIEWED = "reviewed"
+    CRAFT = "craft"
+
+
 class ScriptReviewIssue(BaseModel):
     code: str
     severity: str = Field(pattern=r"^(blocking|warning)$")
     message: str = Field(min_length=1, max_length=500)
     shot_indexes: list[int] = Field(default_factory=list)
     event_ids: list[str] = Field(default_factory=list)
+    gate_level: QualityGateLevel = QualityGateLevel.STRUCTURAL
 
 
 class ScriptQualityReport(BaseModel):
@@ -202,7 +243,12 @@ class ScriptQualityReport(BaseModel):
     shot_intent_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
     audio_beat_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
     verbatim_turn_count: int = Field(default=0, ge=0)
+    abridged_turn_count: int = Field(default=0, ge=0)
     derived_turn_count: int = Field(default=0, ge=0)
+    source_anchored_turn_count: int = Field(default=0, ge=0)
+    source_anchored_char_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    externalization_device_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
+    derived_serves_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
     derived_char_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
     verbatim_turn_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
     verbatim_turn_ratio_max: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -213,6 +259,15 @@ class ScriptQualityReport(BaseModel):
     named_conflict_shot_count: int = Field(default=0, ge=0)
     named_conflict_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
     visible_cliffhanger: bool = False
+    density_reference_min_shots: int = Field(default=22, ge=0)
+    density_reference_max_shots: int = Field(default=36, ge=0)
+    expected_shots_from_retention: int = Field(default=0, ge=0)
+    density_target_script_chars: int = Field(default=0, ge=0)
+    density_target_turns: int = Field(default=0, ge=0)
+    density_within_reference: bool = False
+    structural_blocker_count: int = Field(default=0, ge=0)
+    reviewed_blocker_count: int = Field(default=0, ge=0)
+    craft_warning_count: int = Field(default=0, ge=0)
     issues: list[ScriptReviewIssue] = Field(default_factory=list)
 
 
@@ -325,12 +380,36 @@ class ScriptTurn(BaseModel):
     emotion: str = "克制自然"
     source_quote: str = Field(default="", max_length=500)
     derivation: TurnDerivation = TurnDerivation.VERBATIM
+    device: TurnDevice | None = None
+    serves: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
     def normalize_narrator_role(cls, data):
-        if isinstance(data, dict) and str(data.get("role", "")).strip() == "旁白":
-            return {**data, "role": "narrator"}
+        if isinstance(data, dict):
+            role = str(data.get("role", "")).strip()
+            speaker = str(data.get("speaker_name", "")).strip()
+            delivery = str(data.get("delivery_mode", "")).strip()
+            if delivery == TurnDelivery.SILENT_ACTION and role in {
+                "",
+                "narrator",
+                "旁白",
+            }:
+                return {**data, "role": "action", "speaker_name": ""}
+            if (
+                role in {"", "narrator", "旁白"}
+                and speaker not in {"", "narrator", "旁白"}
+                and delivery
+                in {
+                    TurnDelivery.VISIBLE_DIALOGUE,
+                    TurnDelivery.OFFSCREEN_DIALOGUE,
+                    "visible_dialogue",
+                    "offscreen_dialogue",
+                }
+            ):
+                return {**data, "role": speaker}
+            if role == "旁白":
+                return {**data, "role": "narrator"}
         return data
 
     @model_validator(mode="after")
@@ -355,17 +434,44 @@ class ScriptTurn(BaseModel):
             self.speaking = self.delivery_mode == TurnDelivery.VISIBLE_DIALOGUE
         if self.role == "narrator" and self.speaking:
             raise ValueError("narrator turns cannot be visible speaking turns")
-        if self.role != "narrator" and not self.speaker_name.strip():
+        if (
+            self.delivery_mode != TurnDelivery.SILENT_ACTION
+            and self.role != "narrator"
+            and not self.speaker_name.strip()
+        ):
             raise ValueError("character voice turns require speaker_name")
-        if self.role == "narrator" and self.delivery_mode != TurnDelivery.NARRATION:
-            raise ValueError("narrator turns must use narration delivery")
+        if self.role == "narrator" and self.delivery_mode not in {
+            TurnDelivery.NARRATION,
+            TurnDelivery.TITLE_CARD,
+        }:
+            raise ValueError("narrator turns must use narration or title_card delivery")
         if self.speaking and self.delivery_mode != TurnDelivery.VISIBLE_DIALOGUE:
             raise ValueError("visible speaking turns must use visible_dialogue delivery")
         if not self.speaking and self.role != "narrator" and self.delivery_mode not in {
             TurnDelivery.OFFSCREEN_DIALOGUE,
             TurnDelivery.INNER_VOICE,
+            TurnDelivery.SILENT_ACTION,
         }:
-            raise ValueError("non-visible character turns must use offscreen_dialogue or inner_voice")
+            raise ValueError(
+                "non-visible character turns must use offscreen_dialogue, inner_voice, or silent_action"
+            )
+        invalid_serves = [
+            value
+            for value in self.serves
+            if not re.fullmatch(r"(?:event|fact)_\d{3}", value)
+        ]
+        if invalid_serves:
+            raise ValueError(f"invalid serves ids: {invalid_serves}")
+        if (
+            self.device == TurnDevice.NARRATION
+            and self.delivery_mode != TurnDelivery.NARRATION
+        ):
+            raise ValueError("narration device requires narration delivery")
+        if (
+            self.device == TurnDevice.INNER_VOICE
+            and self.delivery_mode != TurnDelivery.INNER_VOICE
+        ):
+            raise ValueError("inner_voice device requires inner_voice delivery")
         return self
 
 
@@ -382,10 +488,15 @@ class MotionBeat(BaseModel):
     """One causally ordered performance beat inside a continuous shot."""
 
     phase: str = Field(pattern=r"^(opening|development|resolution)$")
+    seconds: float | None = Field(default=None, gt=0.0, le=14.0)
+    actor: str = Field(default="", max_length=80)
+    target: str = Field(default="", max_length=120)
+    action_type: MotionActionType = MotionActionType.REACT
     trigger: str = ""
     action: str = Field(min_length=1, max_length=240)
     reaction: str = Field(default="", max_length=180)
     expression_transition: str = Field(default="", max_length=120)
+    end_state: str = Field(default="", max_length=180)
 
 
 class PerformancePlan(BaseModel):
@@ -437,9 +548,9 @@ class AudioBeat(BaseModel):
 
 
 class SceneAudioPlan(BaseModel):
-    """Editorial sound intent; TTS remains limited to actual speech."""
+    """Editorial sound intent for video-model native dialogue."""
 
-    speech_strategy: SpeechStrategy = SpeechStrategy.LOCKED
+    speech_strategy: SpeechStrategy = SpeechStrategy.NATIVE
     voice_reference_id: str = ""
     delivery_intent: str = "克制自然"
     pace: str = "自然"
@@ -555,6 +666,104 @@ class ShowrunnerPlan(BaseModel):
     character_state_deltas: list[CharacterStateDelta] = Field(
         default_factory=list, max_length=12
     )
+    episode_mode: EpisodeMode = EpisodeMode.PRESSURE
+    protagonist_choice: str = Field(default="", max_length=240)
+    choice_source_quote: str = Field(default="", max_length=500)
+    cost_paid: str = Field(default="", max_length=240)
+    cost_source_quote: str = Field(default="", max_length=500)
+    opposition: "EpisodeOpposition | None" = None
+
+
+class StoryEngine(BaseModel):
+    pressure_loop: str = Field(min_length=1, max_length=300)
+    protagonist_default_strategy: str = Field(min_length=1, max_length=240)
+    strategy_creates_problem: str = Field(min_length=1, max_length=300)
+    escalation_ladder: list[str] = Field(min_length=3, max_length=10)
+    termination_condition: str = Field(min_length=1, max_length=300)
+
+
+class RelationshipPressureEdge(BaseModel):
+    people: list[str] = Field(min_length=2, max_length=3)
+    pressure: str = Field(min_length=1, max_length=240)
+    leverage: str = Field(min_length=1, max_length=240)
+    escalation: str = Field(min_length=1, max_length=240)
+
+
+class SetupPayoffObligation(BaseModel):
+    obligation_id: str = Field(pattern=r"^obligation_\d{3}$")
+    setup_episode: int = Field(ge=1)
+    payoff_episode_min: int = Field(ge=1)
+    payoff_episode_max: int = Field(ge=1)
+    setup_function: str = Field(min_length=1, max_length=240)
+    payoff_function: str = Field(min_length=1, max_length=240)
+    source_event_ids: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_payoff_window(self) -> "SetupPayoffObligation":
+        if self.payoff_episode_min < self.setup_episode:
+            raise ValueError("payoff window cannot precede setup episode")
+        if self.payoff_episode_max < self.payoff_episode_min:
+            raise ValueError("payoff window end cannot precede its start")
+        return self
+
+
+class ChapterProjection(BaseModel):
+    episode_index: int = Field(ge=1)
+    source_chapter: str = Field(min_length=1, max_length=200)
+    arc_position: str = Field(min_length=1, max_length=200)
+    pressure_step: str = Field(min_length=1, max_length=300)
+    allowed_event_ids: list[str] = Field(min_length=1)
+    allowed_reveal_event_ids: list[str] = Field(default_factory=list)
+    setup_obligation_ids: list[str] = Field(default_factory=list)
+    payoff_obligation_ids: list[str] = Field(default_factory=list)
+    required_close_state: str = Field(min_length=1, max_length=300)
+
+
+class SeriesDevelopmentPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: int = 1
+    development_version: str = Field(pattern=r"^v\d{3}$")
+    novel_title: str
+    engine: StoryEngine
+    relationship_pressure_network: list[RelationshipPressureEdge] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    obligations: list[SetupPayoffObligation] = Field(default_factory=list, max_length=30)
+    chapter_projections: list[ChapterProjection] = Field(min_length=1)
+
+
+class SeriesDevelopmentReview(BaseModel):
+    review_revision: str = "series-development-review-v1"
+    passed: bool
+    engine_coherent: bool
+    projections_grounded: bool
+    future_fact_leakage: bool = False
+    issues: list[str] = Field(default_factory=list, max_length=30)
+
+
+class EpisodeContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: str = "episode-contract-v1"
+    episode_index: int = Field(ge=1)
+    development_version: str = Field(pattern=r"^v\d{3}$")
+    arc_position: str
+    pressure_loop: str
+    protagonist_default_strategy: str
+    strategy_creates_problem: str
+    pressure_step: str
+    setup_obligation_ids: list[str] = Field(default_factory=list)
+    payoff_obligation_ids: list[str] = Field(default_factory=list)
+    allowed_event_ids: list[str] = Field(min_length=1)
+    allowed_information_fact_ids: list[str] = Field(default_factory=list)
+    retention_beat_ids: list[str] = Field(min_length=1)
+    required_close_state: str
+    episode_mode: EpisodeMode = EpisodeMode.PRESSURE
+    protagonist_choice: str = ""
+    cost_paid: str = ""
+    opposition: EpisodeOpposition | None = None
 
 
 class ShotIntent(BaseModel):
@@ -602,6 +811,27 @@ class EpisodeDramaturgy(BaseModel):
     reveal_order: list[str] = Field(default_factory=list, max_length=8)
     cliffhanger: str = Field(min_length=1, max_length=240)
     narration_budget_ratio: float = Field(default=0.2, ge=0.0, le=0.5)
+    episode_mode: EpisodeMode = EpisodeMode.PRESSURE
+    protagonist_choice: str = Field(default="", max_length=240)
+    choice_source_quote: str = Field(default="", max_length=500)
+    cost_paid: str = Field(default="", max_length=240)
+    cost_source_quote: str = Field(default="", max_length=500)
+    opposition: "EpisodeOpposition | None" = None
+
+
+class EpisodeOpposition(BaseModel):
+    opponent_name: str = Field(min_length=1, max_length=80)
+    goal: str = Field(min_length=1, max_length=240)
+    tactic: str = Field(min_length=1, max_length=240)
+    source_event_ids: list[str] = Field(min_length=1)
+
+
+class HandoffState(BaseModel):
+    knowledge: dict[str, str] = Field(default_factory=dict)
+    power: dict[str, str] = Field(default_factory=dict)
+    relationship: dict[str, str] = Field(default_factory=dict)
+    physical: dict[str, str] = Field(default_factory=dict)
+    ongoing_action: str = "none"
 
 
 class Shot(BaseModel):
@@ -612,7 +842,7 @@ class Shot(BaseModel):
     motion_prompt: str
     characters: list[str] = Field(default_factory=list)
     location: str = ""
-    source_quote: str = Field(min_length=1, max_length=120)
+    source_quote: str = Field(min_length=1, max_length=500)
     scene_job: str = "推进"
     change: str = Field(default="", max_length=240)
     event_ids: list[str] = Field(default_factory=list)
@@ -624,6 +854,75 @@ class Shot(BaseModel):
     keyframe_reasons: list[str] = Field(default_factory=list)
     shot_intent: ShotIntent = Field(default_factory=ShotIntent)
     audio_plan: SceneAudioPlan = Field(default_factory=SceneAudioPlan)
+    script_open_state: HandoffState | None = None
+    script_close_state: HandoffState | None = None
+
+
+class BeatScriptShot(BaseModel):
+    """Writing-owned shot content before performance and camera direction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    local_index: int = Field(ge=1)
+    scene_job: str = Field(min_length=1, max_length=120)
+    change: str = Field(min_length=1, max_length=240)
+    blocking: str = Field(min_length=1, max_length=300)
+    characters: list[str] = Field(default_factory=list)
+    location: str = ""
+    source_quote: str = Field(min_length=1, max_length=500)
+    event_ids: list[str] = Field(min_length=1)
+    shot_intent: ShotIntent
+    turns: list[ScriptTurn] = Field(min_length=1, max_length=6)
+
+
+class RetentionBeatScript(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    beat_id: str = Field(pattern=r"^beat_\d{3}$")
+    open_state: str = Field(min_length=1, max_length=300)
+    close_state: str = Field(min_length=1, max_length=300)
+    released_fact_ids: list[str] = Field(default_factory=list)
+    shots: list[BeatScriptShot] = Field(min_length=1, max_length=6)
+
+    @model_validator(mode="after")
+    def validate_local_indexes(self) -> "RetentionBeatScript":
+        indexes = [shot.local_index for shot in self.shots]
+        if indexes != list(range(1, len(self.shots) + 1)):
+            raise ValueError("beat script local shot indexes must be consecutive")
+        return self
+
+
+class DirectedShot(BaseModel):
+    """Direction-only contract for one contiguous range of immutable turns."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_shot_index: int = Field(ge=1)
+    turn_start: int = Field(ge=1)
+    turn_end: int = Field(ge=1)
+    shot_scale: str = "中近景"
+    visual_prompt: str = Field(min_length=1, max_length=600)
+    motion_prompt: str = Field(min_length=1, max_length=500)
+    performance_plan: PerformancePlan
+    camera_plan: CameraPlan
+    visual_strategy: VisualStrategy = VisualStrategy.AUTO
+    keyframe_reasons: list[str] = Field(default_factory=list)
+    audio_plan: SceneAudioPlan
+    script_open_state: HandoffState
+    script_close_state: HandoffState
+
+    @model_validator(mode="after")
+    def validate_turn_range(self) -> "DirectedShot":
+        if self.turn_end < self.turn_start:
+            raise ValueError("directed shot turn_end must not precede turn_start")
+        return self
+
+
+class RetentionBeatDirection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    beat_id: str = Field(pattern=r"^beat_\d{3}$")
+    shots: list[DirectedShot] = Field(min_length=1, max_length=18)
 
 
 class EpisodePlan(BaseModel):
@@ -636,6 +935,7 @@ class EpisodePlan(BaseModel):
     creative_profile: str = "faithful-chronological-v1"
     dramaturgy: EpisodeDramaturgy | None = None
     showrunner_plan: ShowrunnerPlan | None = None
+    episode_contract: EpisodeContract | None = None
 
     @model_validator(mode="after")
     def validate_shot_order(self) -> "EpisodePlan":
@@ -683,6 +983,7 @@ class EpisodePlanningBundle(BaseModel):
     plan: EpisodePlan
     quality_report: ScriptQualityReport
     updated_series_state: SeriesState
+    episode_contract: EpisodeContract | None = None
 
 
 class MediaPaths(BaseModel):

@@ -21,10 +21,10 @@ source chapter
   -> selection / render / production admission
 ```
 
-The API route never merges different visible speakers, narration, off-screen
-dialogue, or inner voice into one generated performance. It also does not merge
-different shots merely to remove a short cut. The local H3 route may explicitly
-enable short-shot packing, but only while the delivery identity remains the same.
+No route merges different visible speakers or delivery identities into one
+generated performance. A command provider may pack adjacent short shots only
+when scene, visible speaker, delivery mode, action budget, and duration all remain
+compatible.
 
 ## Shot Contract
 
@@ -38,8 +38,8 @@ Every generated group records:
 - `continuity_in -> changes_here -> continuity_out`;
 - `must_hold / changes_here / must_not_appear`;
 - at most three current risk codes;
-- exact visible dialogue and an explicit audio-master policy (`external_audio_is_master`
-  is true for locked reference audio and false for video-model native audio).
+- exact visible dialogue and `external_audio_is_master=false`; the video model's
+  native track is authoritative.
 
 The sequence contract orders those groups, records the camera rhythm and common
 lighting/audio continuity, visual motifs and coverage rhythm, and makes the prior
@@ -57,7 +57,7 @@ with every story keyframe.
 
 Ordinary single-speaker keyframes use exactly:
 
-1. the current character asset, inheriting identity, hair, costume, and its 2D rendering;
+1. the current character asset, inheriting identity, hair, costume, and its approved 3D-guoman rendering;
 2. the approved location asset version, inheriting architecture, space, color, daylight,
    and its 2D rendering.
 
@@ -79,10 +79,10 @@ initial composition, one visible action, one camera move, exact audio-master rul
 close state, and the few highest-risk constraints. Project management fields,
 unrelated safety boilerplate, and generic gesture templates are not sent.
 
-For `sd25_native_original`, the adapter requests native audio and sends no reference
-audio. The resulting clip must contain both video and AAC audio, and final assembly
-keeps that native track. This policy is preview-only until delivered speech has been
-audited by ASR.
+For `native_dialogue`, the adapter requests native speech and environment sound.
+The resulting clip must contain both video and audio; final assembly keeps that
+native track. ASR supplies subtitles, protected-name correction, and the bounded
+speech-quality route before production admission.
 
 ## Failure and iteration records
 
@@ -103,7 +103,7 @@ Known hard routing examples:
 ## Admission boundary
 
 The keyframe preflight does not replace final production admission. Generated clips
-first pass duration, native-audio/reference-audio, planned-action, exact-cast,
+first pass duration, native-audio, planned-action, exact-cast,
 unexpected-object and screen-direction gates. Delivery still requires source trace,
 1080x1920 H.264/AAC output, 25 or 30 fps, subtitle structure and pixel burn-in,
 per-turn ASR, and media QC. Face consistency remains a monitoring signal rather than

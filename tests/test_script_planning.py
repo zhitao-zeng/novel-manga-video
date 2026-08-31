@@ -24,24 +24,17 @@ from novel_manga.script_planning import (
 )
 
 
-def test_relaxed_expansion_uses_the_same_floor_as_the_final_gate(
+def test_density_reference_is_stable_and_never_relaxed_into_a_shipping_gate(
     monkeypatch,
 ) -> None:
-    monkeypatch.delenv("NOVEL_SCRIPT_RELAXED_SCALE", raising=False)
-    monkeypatch.setenv("NOVEL_SCRIPT_STRICTNESS", "strict")
     strict = effective_script_policy(2705, "normal", "short-drama-adaptive-v1")
     monkeypatch.setenv("NOVEL_SCRIPT_STRICTNESS", "relaxed")
-    relaxed = effective_script_policy(2705, "normal", "short-drama-adaptive-v1")
-    monkeypatch.setenv("NOVEL_SCRIPT_RELAXED_SCALE", "0.40")
-    task_relaxed = effective_script_policy(
+    legacy_env_ignored = effective_script_policy(
         2705, "normal", "short-drama-adaptive-v1"
     )
 
     assert strict.min_script_chars == 595
-    assert relaxed.min_script_chars == 267
-    assert relaxed.min_turns == 12
-    assert relaxed.min_shots == 10
-    assert task_relaxed.min_script_chars == 238
+    assert legacy_env_ignored == strict
 
 
 def _synthetic_long_episode() -> Episode:
@@ -125,6 +118,72 @@ def test_script_quality_rejects_long_spoken_turn_without_requiring_more_shots() 
     assert short_report.max_turn_char_count <= 14
     assert short_report.hard_overflow_turn_count == 0
     assert not any(issue.code == "spoken_turn_too_long" for issue in short_report.issues)
+
+
+def test_silent_action_is_not_checked_as_spoken_stage_direction_or_paraphrase() -> None:
+    source = '第一章\n"他们为何如此势利？"少年抬头看向人群。'
+    episode = Episode(
+        index=1,
+        source_title="第一章",
+        source_text=source,
+        text_count=len(source),
+        source_start=0,
+        source_end=len(source),
+    )
+    diagnosis = ChapterDiagnosis(
+        source_chapter="第一章",
+        density="sparse",
+        core_event="少年抬头",
+        chapter_start_state="少年低头",
+        chapter_end_state="少年抬头看人群",
+        episode_state_change="少年开始正视人群",
+        strongest_hook_candidate="少年为何被排斥",
+        hook_source_quote='"他们为何如此势利？"',
+        ending_type="decision",
+        events=[
+            ChapterEvent(
+                event_id="event_001",
+                order=1,
+                description="少年抬头看人群",
+                source_quote='"他们为何如此势利？"少年抬头看向人群。',
+                importance="critical",
+                narrative_role="resolution",
+            )
+        ],
+    )
+    plan = EpisodePlan(
+        video_title="第一章",
+        hook="少年抬头",
+        summary="无声反应",
+        shots=[
+            Shot(
+                index=1,
+                narration="（无声）",
+                subtitle="（无声）",
+                visual_prompt="少年抬头看向人群",
+                motion_prompt="少年抬头",
+                source_quote='"他们为何如此势利？"少年抬头看向人群。',
+                event_ids=["event_001"],
+                turns=[
+                    ScriptTurn(
+                        role="action",
+                        speaker_name="",
+                        text="（无声）",
+                        delivery_mode="silent_action",
+                        source_quote='"他们为何如此势利？"',
+                        derivation="derived",
+                        device="spatial",
+                    )
+                ],
+            )
+        ],
+    )
+
+    report = evaluate_script_quality(plan, diagnosis, episode)
+    codes = {issue.code for issue in report.issues}
+
+    assert "turn_text_contains_stage_direction" not in codes
+    assert "derived_turn_paraphrases_dialogue" not in codes
 
 
 def test_short_drama_quality_blocks_slideshow_objective() -> None:
@@ -367,8 +426,19 @@ def test_old_maoxing_summary_script_is_rejected_before_media() -> None:
     assert report.passed is False
     assert report.script_char_count == 312
     codes = {issue.code for issue in report.issues}
-    assert "script_too_short" in codes
-    assert "too_few_turns" in codes
+    assert "density_script_below_reference" in codes
+    density_issue = next(
+        issue
+        for issue in report.issues
+        if issue.code == "density_script_below_reference"
+    )
+    assert density_issue.severity == "warning"
+    assert density_issue.gate_level == "craft"
+    assert report.craft_warning_count >= 1
+    assert report.structural_blocker_count >= 1
+    assert report.density_reference_min_shots == 22
+    assert report.density_reference_max_shots == 36
+    assert "density_turns_below_reference" in codes
     assert "critical_events_missing" in codes
 
 

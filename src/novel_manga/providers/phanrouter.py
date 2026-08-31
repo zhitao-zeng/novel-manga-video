@@ -6,16 +6,13 @@ import io
 import json
 import math
 import os
-import shlex
-import subprocess
-import tempfile
 import time
 from pathlib import Path
 
 import httpx
 from PIL import Image, ImageOps
 
-from ..config import NATIVE_VIDEO_AUDIO_POLICIES, Settings
+from ..config import Settings
 from ..util import atomic_write_json, retry
 from .base import ImageResult, MediaProvider
 
@@ -210,75 +207,13 @@ class PhanRouterMediaProvider(MediaProvider):
         )
         return ImageResult(path=output, public_url=str(url))
 
-    @staticmethod
-    def _reference_audio_content(reference_audio: Path) -> tuple[dict, str]:
-        if not reference_audio.is_file():
-            raise FileNotFoundError(reference_audio)
-        if reference_audio.suffix.lower() not in {".wav", ".mp3"}:
-            raise ValueError("Seedance reference audio must be WAV or MP3")
-        audio_bytes = reference_audio.read_bytes()
-        mime = "audio/wav" if reference_audio.suffix.lower() == ".wav" else "audio/mpeg"
-
-        # Seedance rejects very short reference-audio clips. Pad only the API
-        # reference to 2.05 seconds; the original TTS file remains unchanged
-        # and is still used for final muxing and subtitle timing.
-        duration: float | None = None
-        if reference_audio.suffix.lower() == ".wav":
-            try:
-                probe = subprocess.run(
-                    [
-                        "ffprobe",
-                        "-v",
-                        "error",
-                        "-show_entries",
-                        "format=duration",
-                        "-of",
-                        "default=noprint_wrappers=1:nokey=1",
-                        str(reference_audio),
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                duration = float(probe.stdout.strip())
-            except (OSError, ValueError, subprocess.SubprocessError):
-                duration = None
-        if duration is not None and duration < 2.0:
-            with tempfile.TemporaryDirectory(prefix="novel-ref-audio-") as directory:
-                padded = Path(directory) / "reference.wav"
-                subprocess.run(
-                    [
-                        "ffmpeg", "-y", "-v", "error", "-i", str(reference_audio),
-                        "-af", "apad", "-t", "2.05", "-ar", "24000", "-ac", "1",
-                        "-c:a", "pcm_s16le", str(padded),
-                    ],
-                    check=True,
-                    capture_output=True,
-                )
-                audio_bytes = padded.read_bytes()
-            mime = "audio/wav"
-        if len(audio_bytes) > 15 * 1024 * 1024:
-            raise ValueError("Seedance reference audio exceeds 15 MiB")
-        digest = hashlib.sha256(audio_bytes).hexdigest()
-        data_url = f"data:{mime};base64,{base64.b64encode(audio_bytes).decode('ascii')}"
-        return (
-            {
-                "type": "audio_url",
-                "audio_url": {"url": data_url},
-                "role": "reference_audio",
-            },
-            digest,
-        )
-
     def _video_payload(
         self,
         prompt: str,
         image_url: str | None,
         duration: float,
-        reference_audio: Path | None,
         additional_image_urls: tuple[str, ...] = (),
-    ) -> tuple[dict, str | None]:
+    ) -> dict:
         content = [{"type": "text", "text": prompt}]
         if image_url is not None:
             content.append(
@@ -296,28 +231,16 @@ class PhanRouterMediaProvider(MediaProvider):
             }
             for additional_url in additional_image_urls
         )
-        reference_audio_sha256 = None
-        if reference_audio is not None:
-            audio_content, reference_audio_sha256 = self._reference_audio_content(reference_audio)
-            content.append(audio_content)
-        generate_audio = (
-            reference_audio is not None
-            or getattr(self.settings, "final_audio_policy", "locked_tts")
-            in NATIVE_VIDEO_AUDIO_POLICIES
-        )
-        return (
-            {
-                "model": self.settings.video_model,
-                "content": content,
-                "ratio": "9:16",
-                "resolution": "720p",
-                "duration": max(4, min(30, math.ceil(duration))),
-                "generate_audio": generate_audio,
-                "watermark": False,
-                "output_format": "mp4",
-            },
-            reference_audio_sha256,
-        )
+        return {
+            "model": self.settings.video_model,
+            "content": content,
+            "ratio": "9:16",
+            "resolution": "720p",
+            "duration": max(4, min(30, math.ceil(duration))),
+            "generate_audio": True,
+            "watermark": False,
+            "output_format": "mp4",
+        }
 
     def create_video(
         self,
@@ -325,7 +248,6 @@ class PhanRouterMediaProvider(MediaProvider):
         image: ImageResult | None,
         output: Path,
         duration: float,
-        reference_audio: Path | None = None,
         additional_images: tuple[Path, ...] = (),
     ) -> Path:
         for additional_image in additional_images:
@@ -336,11 +258,10 @@ class PhanRouterMediaProvider(MediaProvider):
             self._restore_image_url(ImageResult(path=path))
             for path in additional_images
         )
-        payload, reference_audio_sha256 = self._video_payload(
+        payload = self._video_payload(
             prompt,
             image_url,
             duration,
-            reference_audio,
             additional_image_urls,
         )
         request_sha256 = hashlib.sha256(
@@ -378,7 +299,6 @@ class PhanRouterMediaProvider(MediaProvider):
                         "model": self.settings.video_model,
                         "output_format": "mp4",
                         "request_sha256": request_sha256,
-                        "reference_audio_sha256": reference_audio_sha256,
                         "additional_image_sha256s": [
                             hashlib.sha256(path.read_bytes()).hexdigest()
                             for path in additional_images
@@ -424,58 +344,3 @@ class PhanRouterMediaProvider(MediaProvider):
                 raise RuntimeError(f"video generation failed: {data}")
             time.sleep(5)
         raise TimeoutError(f"video task timed out: {task_id}")
-
-    def synthesize(
-        self,
-        text: str,
-        output: Path,
-        *,
-        voice: str | None = None,
-        instructions: str | None = None,
-        speed: float | None = None,
-    ) -> Path:
-        if self.settings.tts_command:
-            output.parent.mkdir(parents=True, exist_ok=True)
-            command = shlex.split(self.settings.tts_command) + [
-                "--text", text,
-                "--voice", voice or self.settings.tts_voice,
-                "--output", str(output),
-            ]
-            if instructions:
-                command.extend(["--instructions", instructions])
-            if speed is not None:
-                command.extend(["--speed", f"{speed:.3f}"])
-            subprocess.run(command, check=True, capture_output=True, text=True)
-            if not output.is_file() or output.stat().st_size == 0:
-                raise RuntimeError("NOVEL_TTS_COMMAND did not create a non-empty output")
-            return output
-        if self.settings.local_tts_python and self.settings.local_tts_model_dir:
-            output.parent.mkdir(parents=True, exist_ok=True)
-            helper = Path(__file__).resolve().parents[1] / "local_tts_cli.py"
-            subprocess.run([
-                str(self.settings.local_tts_python), str(helper),
-                "--model-dir", str(self.settings.local_tts_model_dir),
-                "--model-file", self.settings.local_tts_model_file,
-                "--sid", str(int(voice) if voice and voice.isdigit() else self.settings.local_tts_sid),
-                "--output", str(output), "--speed", "1.12", text,
-            ], check=True, capture_output=True, text=True)
-            return output
-        base = str(self.settings.tts_base_url).rstrip("/")
-        response = self.client.post(
-            f"{base}/audio/speech",
-            headers={"Authorization": f"Bearer {self.settings.tts_api_key}"},
-            json={
-                "model": self.settings.tts_model,
-                "voice": voice or self.settings.tts_voice,
-                "input": text,
-                "response_format": "wav",
-                "speed": speed or 1.12,
-                **({"instructions": instructions} if instructions else {}),
-            },
-        )
-        response.raise_for_status()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        partial = output.with_suffix(output.suffix + ".partial")
-        partial.write_bytes(response.content)
-        os.replace(partial, output)
-        return output

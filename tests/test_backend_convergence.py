@@ -18,9 +18,6 @@ def test_series_assets_batch_base_before_edit(tmp_path: Path) -> None:
     class Provider:
         events: list[str] = []
 
-        def enter_stage(self, stage: str) -> None:
-            self.events.append(f"stage:{stage}")
-
         def create_image(self, prompt, output, reference=None):
             self.events.append("image:edit" if reference else "image:base")
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -45,12 +42,10 @@ def test_series_assets_batch_base_before_edit(tmp_path: Path) -> None:
     factory.build(tmp_path / "series_assets", bible)
 
     assert provider.events == [
-        "stage:image-base",
         "image:base",
         "image:base",
         "image:base",
         "image:base",
-        "stage:image-edit",
         "image:edit",
         "image:edit",
     ]
@@ -61,9 +56,6 @@ def test_series_assets_inherit_optional_style_master_without_copying_identity(
 ) -> None:
     class Provider:
         calls: list[tuple[str, Path | None]] = []
-
-        def enter_stage(self, stage: str) -> None:
-            pass
 
         def create_image(self, prompt, output, reference=None):
             self.calls.append((prompt, reference))
@@ -96,49 +88,6 @@ def test_series_assets_inherit_optional_style_master_without_copying_identity(
     assert provider.calls[2][1].name == "turnaround.jpeg"
 
 
-def test_command_provider_forwards_lifecycle_and_speech_speed(tmp_path: Path) -> None:
-    adapter = tmp_path / "adapter.py"
-    adapter.write_text(
-        """
-import argparse
-import json
-from pathlib import Path
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--stage')
-parser.add_argument('--text')
-parser.add_argument('--voice')
-parser.add_argument('--instructions')
-parser.add_argument('--speed')
-parser.add_argument('--output', type=Path)
-args = parser.parse_args()
-if args.output:
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(vars(args), default=str), encoding='utf-8')
-""".strip(),
-        encoding="utf-8",
-    )
-    command = f"{sys.executable} {adapter}"
-    provider = CommandMediaProvider(
-        Settings(
-            provider="command",
-            image_command=command,
-            video_command=command,
-            tts_command=command,
-            model_lifecycle_command=command,
-        )
-    )
-    output = tmp_path / "voice.json"
-
-    provider.enter_stage("audio")
-    provider.synthesize("一句台词", output, voice="deep_male", speed=1.15)
-
-    payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["text"] == "一句台词"
-    assert payload["voice"] == "deep_male"
-    assert payload["speed"] == "1.150"
-
-
 def test_command_provider_forwards_separate_image_edit_references(tmp_path: Path) -> None:
     adapter = tmp_path / "adapter.py"
     adapter.write_text(
@@ -166,7 +115,6 @@ args.output.write_text(json.dumps(vars(args), default=str), encoding='utf-8')
             provider="command",
             image_command=command,
             video_command=command,
-            tts_command=command,
         )
     )
     character = tmp_path / "character.jpeg"
@@ -203,10 +151,8 @@ def test_command_pipeline_routes_gpt_image_2_without_loading_local_image_stage(
             provider="command",
             image_model="gpt-image-2",
             phanrouter_image_api_key="runtime-only",
-            image_command="/models/local-image",
-            video_command="/models/h3-video",
-            tts_command="/models/indextts",
-            model_lifecycle_command="/models/lifecycle",
+                image_command="/models/local-image",
+                video_command="/models/video",
         )
     )
     assert provider.remote_image_provider is not None
@@ -216,7 +162,6 @@ def test_command_pipeline_routes_gpt_image_2_without_loading_local_image_stage(
     location = tmp_path / "location.jpeg"
     output = tmp_path / "keyframe.jpeg"
 
-    provider.enter_stage("image-edit")
     result = provider.create_image(
         "图1锁人物，图2锁空场",
         output,
@@ -274,127 +219,3 @@ def test_phanrouter_forwards_gpt_image_references_as_two_urls(tmp_path: Path) ->
     assert len(provider.client.payload["base64Files"]) == 2
     assert all(value == "anBlZw==" for value in provider.client.payload["base64Files"])
     assert "base64File" not in provider.client.payload
-
-
-def test_command_provider_forwards_h3_reference_audio(tmp_path: Path) -> None:
-    adapter = tmp_path / "adapter.py"
-    adapter.write_text(
-        """
-import argparse
-import json
-from pathlib import Path
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--prompt')
-parser.add_argument('--image')
-parser.add_argument('--additional-image', action='append')
-parser.add_argument('--reference-audio')
-parser.add_argument('--duration')
-parser.add_argument('--fps')
-parser.add_argument('--width')
-parser.add_argument('--height')
-parser.add_argument('--output', type=Path)
-args = parser.parse_args()
-args.output.write_text(json.dumps(vars(args), default=str), encoding='utf-8')
-""".strip(),
-        encoding="utf-8",
-    )
-    command = f"{sys.executable} {adapter}"
-    provider = CommandMediaProvider(
-        Settings(
-            provider="command",
-            image_command=command,
-            video_command=command,
-            tts_command=command,
-        )
-    )
-    image = tmp_path / "shot.jpeg"
-    audio = tmp_path / "driver.wav"
-    output = tmp_path / "clip.json"
-    image.write_bytes(b"jpeg")
-    audio.write_bytes(b"wav")
-
-    provider.create_video(
-        "动作链",
-        ImageResult(path=image),
-        output,
-        duration=8.0,
-        reference_audio=audio,
-    )
-
-    payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["reference_audio"] == str(audio)
-
-
-def test_command_provider_forwards_separate_h3_assets(tmp_path: Path) -> None:
-    adapter = tmp_path / "adapter.py"
-    adapter.write_text(
-        """
-import argparse
-import json
-from pathlib import Path
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--prompt')
-parser.add_argument('--image')
-parser.add_argument('--additional-image', action='append')
-parser.add_argument('--reference-audio')
-parser.add_argument('--duration')
-parser.add_argument('--fps')
-parser.add_argument('--width')
-parser.add_argument('--height')
-parser.add_argument('--output', type=Path)
-args = parser.parse_args()
-args.output.write_text(json.dumps(vars(args), default=str), encoding='utf-8')
-""".strip(),
-        encoding="utf-8",
-    )
-    command = f"{sys.executable} {adapter}"
-    provider = CommandMediaProvider(
-        Settings(
-            provider="command",
-            image_command=command,
-            video_command=command,
-            tts_command=command,
-        )
-    )
-    character = tmp_path / "character.jpeg"
-    scene = tmp_path / "scene.jpeg"
-    audio = tmp_path / "driver.wav"
-    output = tmp_path / "clip.json"
-    for path in (character, scene, audio):
-        path.write_bytes(b"asset")
-
-    provider.create_video(
-        "单人对白动作链",
-        ImageResult(path=character),
-        output,
-        duration=4.0,
-        reference_audio=audio,
-        additional_images=(scene,),
-    )
-
-    payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["image"] == str(character)
-    assert payload["additional_image"] == [str(scene)]
-
-
-def test_local_model_readiness_fails_closed(monkeypatch, tmp_path: Path) -> None:
-    output = tmp_path / "output"
-    manager = JobManager(
-        ApiConfig(
-            output_root=output,
-            upload_root=output / ".uploads",
-            state_root=output / ".jobs",
-            require_local_models=True,
-            model_supervisor_url="http://127.0.0.1:9",
-        )
-    )
-    manager.start()
-    try:
-        status = manager.runtime_status()
-        assert status["required"] is True
-        assert status["ready"] is False
-        assert manager.ready is False
-    finally:
-        manager.shutdown()

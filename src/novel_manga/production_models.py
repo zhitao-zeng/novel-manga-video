@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .models import (
     CameraPlan,
+    HandoffState,
     PerformancePlan,
     SceneAudioPlan,
     ShotIntent,
@@ -47,15 +48,10 @@ class RuntimeUnit(BaseModel):
     speaker_name: str
     speaking: bool
     delivery_mode: TurnDelivery = TurnDelivery.NARRATION
-    reference_audio_required: bool = False
     text: str = Field(min_length=1, max_length=500)
     emotion: str
     source_quote: str = Field(min_length=1, max_length=500)
     character_asset_ids: list[str] = Field(default_factory=list)
-    # A deliberately narrower cast used only by the direct character + empty
-    # location H3 route.  character_asset_ids remains the complete story cast
-    # needed by scene-aware keyframes and audit traces.
-    direct_video_character_asset_ids: list[str] = Field(default_factory=list)
     location_asset_id: str
     location_name: str = ""
     voice: str
@@ -72,14 +68,18 @@ class RuntimeUnit(BaseModel):
     shot_intent: ShotIntent = Field(default_factory=ShotIntent)
     audio_plan: SceneAudioPlan = Field(default_factory=SceneAudioPlan)
     action_physics_plan: "ActionPhysicsPlan | None" = None
-    audio_path: str
+    script_open_state: HandoffState | None = None
+    script_close_state: HandoffState | None = None
     keyframe_path: str
     raw_video_path: str
     segment_path: str
     subtitle_alignment: str = "pending"
     speech_start: float | None = None
     speech_end: float | None = None
-    audio_seconds: float | None = None
+    # The directing compiler owns generation duration. segment_seconds is a
+    # POST measurement and must not feed back into it.
+    planned_seconds: float = Field(default=4.0, ge=4.0, le=14.0)
+    performance_beat_indexes: list[int] = Field(default_factory=list)
     segment_seconds: float | None = None
     attempt: int = 0
 
@@ -150,8 +150,10 @@ class ShotContract(BaseModel):
     audible_roles: list[str] = Field(default_factory=list)
     reference_scopes: list[ReferenceScope] = Field(default_factory=list)
     open_state: str
+    open_handoff: HandoffState | None = None
     beat_timeline: list[ShotContractBeat] = Field(min_length=1, max_length=4)
     close_state: str
+    close_handoff: HandoffState | None = None
     camera_start: str
     camera_path: str
     camera_end: str
@@ -209,7 +211,7 @@ class EpisodeSequenceContract(BaseModel):
 
 
 class RuntimeVisualGroup(BaseModel):
-    """One continuous visual performance carrying one or more locked audio turns."""
+    """One continuous visual performance with video-model native audio."""
 
     group_id: str
     scene_id: str
@@ -217,19 +219,15 @@ class RuntimeVisualGroup(BaseModel):
     unit_ids: list[str] = Field(min_length=1)
     location_asset_id: str
     character_asset_ids: list[str] = Field(default_factory=list)
-    direct_video_character_asset_ids: list[str] = Field(default_factory=list)
     spatial_anchor: str
     combined_text: str = Field(min_length=1)
     keyframe_prompt: str = Field(min_length=1)
     motion_prompt: str = Field(min_length=1)
-    audio_path: str
-    video_audio_path: str
     keyframe_path: str
     raw_video_path: str
     segment_path: str
-    audio_seconds: float | None = None
+    planned_seconds: float = Field(default=4.0, ge=4.0, le=14.0)
     segment_seconds: float | None = None
-    speed_factor: float = Field(default=1.0, ge=1.0, le=1.12)
     visual_strategy: VisualStrategy = VisualStrategy.AUTO
     keyframe_reasons: list[str] = Field(default_factory=list)
     shot_contract: ShotContract | None = None
@@ -267,7 +265,7 @@ class ProductionPlan(BaseModel):
         referenced = {unit_id for shot in self.shots for unit_id in shot.unit_ids}
         if referenced != unit_ids:
             raise ValueError("every runtime unit must be referenced by exactly one shot set")
-        for field in ("audio_path", "keyframe_path", "raw_video_path", "segment_path"):
+        for field in ("keyframe_path", "raw_video_path", "segment_path"):
             values = [getattr(unit, field) for unit in self.units]
             if len(values) != len(set(values)):
                 raise ValueError(f"runtime units must not reuse complete {field} artifacts")
@@ -280,20 +278,28 @@ class ProductionPlan(BaseModel):
                 if unit.delivery_mode != TurnDelivery.VISIBLE_DIALOGUE:
                     raise ValueError("visible speaking units require visible_dialogue delivery")
             elif unit.role == "narrator":
-                if unit.delivery_mode != TurnDelivery.NARRATION:
-                    raise ValueError("narrator runtime units require narration delivery")
+                if unit.delivery_mode not in {
+                    TurnDelivery.NARRATION,
+                    TurnDelivery.TITLE_CARD,
+                }:
+                    raise ValueError(
+                        "narrator runtime units require narration or title_card delivery"
+                    )
             elif unit.delivery_mode not in {
                 TurnDelivery.OFFSCREEN_DIALOGUE,
                 TurnDelivery.INNER_VOICE,
+                TurnDelivery.SILENT_ACTION,
             }:
-                raise ValueError("non-visible character audio requires offscreen or inner delivery")
+                raise ValueError(
+                    "non-visible character units require offscreen, inner, or silent_action delivery"
+                )
         if self.visual_groups:
             grouped = [unit_id for group in self.visual_groups for unit_id in group.unit_ids]
             if len(grouped) != len(set(grouped)) or set(grouped) != unit_ids:
                 raise ValueError("visual groups must partition runtime units exactly once")
             if {group.scene_id for group in self.visual_groups} - scene_ids:
                 raise ValueError("visual groups reference unknown scenes")
-            for field in ("audio_path", "keyframe_path", "raw_video_path", "segment_path"):
+            for field in ("keyframe_path", "raw_video_path", "segment_path"):
                 values = [getattr(group, field) for group in self.visual_groups]
                 if len(values) != len(set(values)):
                     raise ValueError(f"visual groups must not reuse {field} artifacts")

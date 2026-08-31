@@ -16,6 +16,7 @@ from .models import (
     Character,
     Episode,
     EpisodePlan,
+    MotionActionType,
     MotionBeat,
     PerformancePlan,
     SpeechStrategy,
@@ -141,16 +142,6 @@ class SeriesAssetFactory:
             ),
             "image_command_sha256": (
                 sha256_text(self.settings.image_command) if self.settings.image_command else None
-            ),
-            "local_image_prompt_policy": (
-                self.settings.local_image_prompt_policy
-                if self.settings.provider == "command"
-                else None
-            ),
-            "model_lifecycle_command_sha256": (
-                sha256_text(self.settings.model_lifecycle_command)
-                if self.settings.model_lifecycle_command
-                else None
             ),
         }
         identity_hash = sha256_text(json.dumps(identity, sort_keys=True))
@@ -312,17 +303,7 @@ class SeriesAssetFactory:
         root.mkdir(parents=True, exist_ok=True)
         characters: list[AssetRecord] = []
         locations: list[AssetRecord] = []
-        voice_assignments = {"narrator": self.settings.voice_map.get("narrator", self.settings.tts_voice)}
-        # The bible carries gender for every character; a flat rotation over a
-        # mixed-gender voice list handed the male lead a 28-year-old female
-        # voice and the ingénue a male one as soon as the cast wasn't in the
-        # explicit voice map.  Fall back within the matching gender pool and
-        # keep the mixed list only for characters whose gender is unknown.
-        fallback_voices = ("coral", "verse", "sage", "ash", "nova", "alloy")
-        fallback_male_voices = ("verse", "ash", "alloy", "echo", "fable")
-        fallback_female_voices = ("coral", "nova", "sage")
-        male_cursor = 0
-        female_cursor = 0
+        voice_assignments = {"narrator": "native:narrator"}
         source_characters = bible.characters or [
             Character(
                 name="主角",
@@ -333,7 +314,6 @@ class SeriesAssetFactory:
         ]
         character_rows = []
         location_rows = []
-        self.provider.enter_stage("image-base")
         style_master = self.settings.style_master_path
         style_reference_guard = (
             "【系列母版继承】参考图只锁定线稿粗细、二维平涂、赛璐璐阴影、色彩亮度、"
@@ -406,21 +386,8 @@ class SeriesAssetFactory:
                 reference=style_master,
             )
             character_rows.append((character, asset_id, directory, prompt, primary))
-            gender = (character.gender or "").strip()
-            if "女" in gender:
-                default_voice = fallback_female_voices[
-                    female_cursor % len(fallback_female_voices)
-                ]
-                female_cursor += 1
-            elif "男" in gender:
-                default_voice = fallback_male_voices[
-                    male_cursor % len(fallback_male_voices)
-                ]
-                male_cursor += 1
-            else:
-                default_voice = fallback_voices[(index - 1) % len(fallback_voices)]
-            voice_assignments[character.name] = self.settings.voice_map.get(
-                character.name, default_voice
+            voice_assignments[character.name] = (
+                character.voice_profile_id or f"native:{asset_id}"
             )
         for index, location in enumerate(dict.fromkeys(bible.locations or ["原文主要场景"]), start=1):
             asset_id = f"location_{index:03d}"
@@ -457,7 +424,6 @@ class SeriesAssetFactory:
                 (asset_id, location, directory, prompt, image)
             )
 
-        self.provider.enter_stage("image-edit")
         for character, asset_id, directory, prompt, primary in character_rows:
             expression_prompt = self._expression_prompt(
                 bible, character.name, character.expression_profile
@@ -518,10 +484,6 @@ class SeriesAssetFactory:
                     prompt_sha256=sha256_text(prompt),
                 )
             )
-        # Voice-only roles such as an off-screen crowd or a phone caller need
-        # stable casting even when no reusable character image is required.
-        for role, voice in self.settings.voice_map.items():
-            voice_assignments.setdefault(role, voice)
         manifest = SeriesAssetManifest(
             style_fingerprint=bible.style_fingerprint,
             characters=characters,
@@ -821,6 +783,168 @@ def _performance_plan_for(shot, turn: ScriptTurn) -> PerformancePlan:
     )
 
 
+_SHOT_BEAT_SECONDS = {
+    "reaction": 4.0,
+    "transition": 4.0,
+    "establish": 5.0,
+    "advance": 5.0,
+    "pressure": 6.0,
+    "payoff": 6.0,
+    "withhold": 7.0,
+    "reveal": 7.0,
+    "cliffhanger": 9.0,
+}
+
+def _spoken_char_count(text: str) -> int:
+    """Count pronounceable text, excluding spacing and punctuation."""
+
+    return len(re.sub(r"[\s，。！？；：、…,.!?;:\"“”'‘’（）()]", "", text))
+
+
+def _motion_action_weight(action: str) -> float:
+    weight = 1.0 + min(0.8, len(action) / 48.0)
+    if any(token in action for token in ("走", "跑", "追", "绕", "穿过", "转身")):
+        weight += 0.55
+    if any(token in action for token in ("按", "握", "挡", "行礼", "回头", "推", "拉")):
+        weight += 0.3
+    return weight
+
+
+def _infer_motion_action_type(action: str) -> MotionActionType:
+    if any(token in action for token in ("拒绝", "绕过", "甩开", "不接", "不退")):
+        return MotionActionType.REFUSE
+    if any(token in action for token in ("质问", "发问", "追问", "？", "?")):
+        return MotionActionType.ASK
+    if any(token in action for token in ("直视", "挡住", "反击", "迎上", "逼近")):
+        return MotionActionType.CONFRONT
+    if any(token in action for token in ("走", "跑", "追", "绕", "穿过", "转身", "上前", "退后")):
+        return MotionActionType.MOVE
+    if any(token in action for token in ("揭开", "亮起", "显现", "出现", "展示", "照亮")):
+        return MotionActionType.REVEAL
+    if any(token in action for token in ("决定", "选择", "主动", "握紧")):
+        return MotionActionType.CHOOSE
+    if any(token in action for token in ("嘲讽", "施压", "压住", "逼问", "挑衅")):
+        return MotionActionType.PRESS
+    if any(token in action for token in ("等待", "停住", "保持", "站定")):
+        return MotionActionType.WAIT
+    return MotionActionType.REACT
+
+
+def _materialize_performance_timing(shot, plan: PerformancePlan) -> PerformancePlan:
+    """Fill legacy beat timing without overriding explicit direction values."""
+
+    beats = list(plan.motion_beats)
+    missing = [index for index, beat in enumerate(beats) if beat.seconds is None]
+    explicit = sum(float(beat.seconds or 0.0) for beat in beats)
+    allocated: dict[int, float] = {}
+    if missing:
+        default_total = _SHOT_BEAT_SECONDS[shot.shot_intent.dramatic_function]
+        remaining = max(0.5 * len(missing), default_total - explicit)
+        weights = [_motion_action_weight(beats[index].action) for index in missing]
+        weight_total = sum(weights) or 1.0
+        allocated = {
+            index: round(remaining * weight / weight_total, 3)
+            for index, weight in zip(missing, weights, strict=True)
+        }
+    timed = []
+    for index, beat in enumerate(beats):
+        update: dict[str, object] = {}
+        if beat.seconds is None:
+            update["seconds"] = allocated[index]
+        if not beat.end_state:
+            update["end_state"] = (
+                beat.expression_transition or beat.reaction or f"{beat.action}完成并落定"
+            )
+        if "action_type" not in beat.model_fields_set:
+            update["action_type"] = _infer_motion_action_type(beat.action)
+        timed.append(beat.model_copy(update=update))
+    return plan.model_copy(update={"motion_beats": timed})
+
+
+def _assign_motion_beat_indexes(
+    performance_plan: PerformancePlan,
+    unit_count: int,
+) -> list[list[int]]:
+    """Assign each ordered beat once to a phase-appropriate runtime unit."""
+
+    assignments = [[] for _ in range(unit_count)]
+    if unit_count == 1:
+        assignments[0] = list(range(len(performance_plan.motion_beats)))
+        return assignments
+    development = [
+        index
+        for index, beat in enumerate(performance_plan.motion_beats)
+        if beat.phase == "development"
+    ]
+    development_rank = {index: rank for rank, index in enumerate(development)}
+    last_unit = 0
+    for index, beat in enumerate(performance_plan.motion_beats):
+        if beat.phase == "opening":
+            preferred = 0
+        elif beat.phase == "resolution":
+            preferred = unit_count - 1
+        elif len(development) == 1:
+            preferred = (unit_count - 1) // 2
+        else:
+            ratio = (development_rank[index] + 1) / (len(development) + 1)
+            preferred = round(ratio * (unit_count - 1))
+        selected = max(last_unit, min(unit_count - 1, preferred))
+        assignments[selected].append(index)
+        last_unit = selected
+    return assignments
+
+
+def _performance_plan_for_unit(
+    plan: PerformancePlan,
+    beat_indexes: list[int],
+    *,
+    actor: str,
+) -> PerformancePlan | None:
+    if not beat_indexes:
+        return None
+    beats = []
+    for index in beat_indexes:
+        beat = plan.motion_beats[index]
+        beats.append(
+            beat.model_copy(
+                update={
+                    "actor": beat.actor or actor,
+                }
+            )
+        )
+    first_index = beat_indexes[0]
+    last_index = beat_indexes[-1]
+    start_state = (
+        plan.start_state
+        if first_index == 0
+        else plan.motion_beats[first_index - 1].end_state
+    )
+    end_state = (
+        plan.end_state
+        if last_index == len(plan.motion_beats) - 1
+        else plan.motion_beats[last_index].end_state
+    )
+    return PerformancePlan(
+        objective=plan.objective,
+        start_state=start_state,
+        motion_beats=beats,
+        end_state=end_state,
+    )
+
+
+def _planned_unit_seconds(turn: ScriptTurn, plan: PerformancePlan | None) -> float:
+    dialogue_seconds = (
+        0.0
+        if turn.delivery_mode
+        in {TurnDelivery.TITLE_CARD, TurnDelivery.SILENT_ACTION}
+        else _spoken_char_count(turn.text) / 4.0 + 1.0
+    )
+    beat_seconds = sum(
+        float(beat.seconds or 0.0) for beat in plan.motion_beats
+    ) if plan is not None else 0.0
+    return round(min(14.0, max(4.0, dialogue_seconds + beat_seconds)), 3)
+
+
 _CAMERA_MOVEMENT_CUES = (
     "进入", "走进", "冲入", "跑", "追", "后退", "上前", "离开",
     "揭开", "打开", "推开", "拉开", "发现", "出现", "现身", "登场", "闯入", "逼近",
@@ -1101,12 +1225,9 @@ def compile_production_plan(
     current_scene_key: tuple[str, str] | None = None
     scene_index = 0
     for shot in plan.shots:
-        if shot.audio_plan.speech_strategy not in {
-            SpeechStrategy.LOCKED,
-            SpeechStrategy.NATIVE,
-        }:
+        if shot.audio_plan.speech_strategy != SpeechStrategy.NATIVE:
             raise ValueError(
-                f"shot {shot.index} requests unresolved adaptive speech; choose locked or native"
+                f"shot {shot.index} requests legacy speech; native dialogue is required"
             )
         resolved_characters = visible_character_names_for_shot(
             shot,
@@ -1139,7 +1260,16 @@ def compile_production_plan(
         scene = scenes[-1]
         shot_id = f"shot_{shot.index:03d}"
         unit_ids = []
-        for turn_index, turn in enumerate(_turns_for_shot(shot), start=1):
+        shot_turns = _turns_for_shot(shot)
+        shot_performance_plan = _materialize_performance_timing(
+            shot,
+            _performance_plan_for(shot, shot_turns[0]),
+        )
+        performance_assignments = _assign_motion_beat_indexes(
+            shot_performance_plan,
+            len(shot_turns),
+        )
+        for turn_index, turn in enumerate(shot_turns, start=1):
             unit_id = f"{shot_id}_turn_{turn_index:02d}"
             source_quote = turn.source_quote or shot.source_quote
             if "".join(source_quote.split()) not in "".join(episode.source_text.split()):
@@ -1152,7 +1282,7 @@ def compile_production_plan(
                 )
             if (
                 turn.role != "narrator"
-                and turn.derivation != TurnDerivation.DERIVED
+                and turn.derivation == TurnDerivation.VERBATIM
                 and "".join(turn.text.split()) not in "".join(source_quote.split())
             ):
                 # Derived turns stage narration as speech; their citation is
@@ -1160,10 +1290,6 @@ def compile_production_plan(
                 # containment that applies to quoted lines cannot hold.
                 raise ValueError(
                     f"{unit_id} character utterance is not an exact substring of its grounded source quote"
-                )
-            if turn.role != "narrator" and turn.speaker_name not in assets.voice_assignments:
-                raise ValueError(
-                    f"{unit_id} character voice {turn.speaker_name!r} has no locked voice assignment"
                 )
             visible_character_ids = [
                 character_ids[name] for name in shot.characters if name in character_ids
@@ -1207,7 +1333,28 @@ def compile_production_plan(
                     and "看向左" in visual_context
                 ):
                     composition = _DIALOGUE_AXIS_COMPOSITIONS[0][0]
-            performance_plan = _performance_plan_for(shot, turn)
+            beat_indexes = performance_assignments[turn_index - 1]
+            default_actor = (
+                turn.speaker_name
+                if turn.role != "narrator"
+                else next(iter(shot.characters), "环境")
+            )
+            performance_plan = _performance_plan_for_unit(
+                shot_performance_plan,
+                beat_indexes,
+                actor=default_actor,
+            )
+            planned_seconds = _planned_unit_seconds(turn, performance_plan)
+            performance_start_state = (
+                performance_plan.start_state
+                if performance_plan is not None
+                else "承接上一单元动作终点，人物与道具位置不重置"
+            )
+            performance_end_state = (
+                performance_plan.end_state
+                if performance_plan is not None
+                else "保持承接状态完成本句，不新增与剧情无关的动作"
+            )
             action_physics_plan = _action_physics_plan_for(shot, turn)
             camera_mode, camera_motivation = camera_modes[shot.index]
             camera_plan = _camera_plan_for(
@@ -1279,19 +1426,16 @@ def compile_production_plan(
                     f"分镜视觉约束：{visual_context}。"
                     f"人物即将表达的剧情信息是“{turn.text}”，只把语义转化为表情、视线和动作，"
                     "画面中不得出现这句文字。"
-                    f"这是动作发生前一瞬的可运动起始帧：{performance_plan.start_state}。"
+                    f"这是动作发生前一瞬的可运动起始帧：{performance_start_state}。"
                     f"摄影机起始位置：{camera_plan.start_position}。{camera_plan.screen_direction}。"
                     "画面必须为人物后续动作保留空间，"
-                    f"不得提前画出动作终点“{performance_plan.end_state}”。"
+                    f"不得提前画出动作终点“{performance_end_state}”。"
                     f"{subject_rule}"
                 )
                 motion_prompt = build_sd_prompt(
                     turn.speaker_name,
                     turn.text,
                     shot.motion_prompt,
-                    use_reference_audio=(
-                        shot.audio_plan.speech_strategy == SpeechStrategy.LOCKED
-                    ),
                     actor_description=actor_identity,
                     composition_prompt=composition,
                     emotion=turn.emotion,
@@ -1318,10 +1462,10 @@ def compile_production_plan(
                     f"分镜视觉约束：{shot.visual_prompt}。"
                     f"当前叙事信息是“{turn.text}”，只用人物行为、道具和场景状态表达，"
                     "画面中不得出现这句文字。"
-                    f"这是动作发生前一瞬的起始帧：{performance_plan.start_state}。"
+                    f"这是动作发生前一瞬的起始帧：{performance_start_state}。"
                     f"摄影机起始位置：{camera_plan.start_position}。{camera_plan.screen_direction}。"
                     "必须为后续人物动作保留空间，"
-                    f"不要提前画出动作终点“{performance_plan.end_state}”。所有人物嘴巴自然闭合。"
+                    f"不要提前画出动作终点“{performance_end_state}”。所有人物嘴巴自然闭合。"
                     "同一角色在现实空间只允许出现一个实例，禁止分身、重复人物、多人设定稿拼贴；"
                     "镜面场景只允许本人及一个严格对应的倒影，道具特写允许人物不出镜。"
                     f"竖屏国漫构图，视觉风格严格遵循：{bible.visual_style}。"
@@ -1333,9 +1477,6 @@ def compile_production_plan(
                     "narrator",
                     turn.text,
                     shot.motion_prompt,
-                    use_reference_audio=(
-                        shot.audio_plan.speech_strategy == SpeechStrategy.LOCKED
-                    ),
                     composition_prompt=composition,
                     performance_plan=performance_plan,
                     camera_plan=camera_plan,
@@ -1374,7 +1515,10 @@ def compile_production_plan(
                     shot_intent=shot.shot_intent,
                     audio_plan=shot.audio_plan,
                     action_physics_plan=action_physics_plan,
-                    audio_path=f"work/turn_audio/{unit_id}.wav",
+                    script_open_state=shot.script_open_state,
+                    script_close_state=shot.script_close_state,
+                    planned_seconds=planned_seconds,
+                    performance_beat_indexes=beat_indexes,
                     keyframe_path=f"work/keyframes/{unit_id}.jpeg",
                     raw_video_path=f"work/raw_video/{unit_id}.mp4",
                     segment_path=f"work/segments/{unit_id}.mp4",
