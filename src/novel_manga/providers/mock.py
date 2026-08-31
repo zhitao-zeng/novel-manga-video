@@ -20,7 +20,13 @@ class MockMediaProvider(MediaProvider):
     def _font(self, size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(str(self.settings.font_path), size)
 
-    def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult:
+    def create_image(
+        self,
+        prompt: str,
+        output: Path,
+        reference: Path | None = None,
+        additional_references: tuple[Path, ...] = (),
+    ) -> ImageResult:
         output.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(prompt.encode("utf-8")).digest()
         top = tuple(35 + byte // 3 for byte in digest[:3])
@@ -49,7 +55,7 @@ class MockMediaProvider(MediaProvider):
         image: ImageResult,
         output: Path,
         duration: float,
-        reference_audio: Path | None = None,
+        additional_images: tuple[Path, ...] = (),
     ) -> Path:
         output.parent.mkdir(parents=True, exist_ok=True)
         frames = max(1, round(duration * self.settings.fps))
@@ -64,26 +70,4 @@ class MockMediaProvider(MediaProvider):
             "-t", f"{duration:.3f}", "-an", "-c:v", "libx264", "-preset", "veryfast",
             "-crf", "20", "-movflags", "+faststart", str(output),
         ])
-        return output
-
-    def synthesize(
-        self,
-        text: str,
-        output: Path,
-        *,
-        voice: str | None = None,
-        instructions: str | None = None,
-    ) -> Path:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.run(
-                ["espeak-ng", "-v", "cmn", "-s", "230", "-a", "150", "-w", str(output), text],
-                check=True, capture_output=True, text=True,
-            )
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            estimated = max(0.8, min(12.0, len(text) / 4.5))
-            run([
-                "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
-                "-t", f"{estimated:.3f}", "-c:a", "pcm_s16le", str(output),
-            ])
         return output

@@ -4,7 +4,18 @@ import re
 from pathlib import Path
 
 from .ingest import read_novel
-from .models import EpisodePlan, StoryBible
+from .models import (
+    ChapterDiagnosis,
+    EpisodePlan,
+    ScriptQualityReport,
+    SeriesState,
+    StoryBible,
+)
+from .script_planning import (
+    evaluate_script_quality,
+    validate_chapter_diagnosis,
+    validate_series_state,
+)
 from .util import atomic_write_json
 
 
@@ -32,17 +43,74 @@ def validate_planning_bundle(
     quote_valid = 0
     visible_speaker_violations = []
     unknown_shot_characters = []
+    unknown_showrunner_characters = []
     total_shots = 0
     total_turns = 0
     total_script_chars = 0
+    script_quality_failures = []
+    previous_state: SeriesState | None = None
 
     for episode in novel.episodes:
         plan_path = root / f"episode_{episode.index:03d}_plan.json"
+        diagnosis_path = root / f"episode_{episode.index:03d}_diagnosis.json"
+        quality_path = root / f"episode_{episode.index:03d}_script_quality.json"
+        state_path = root / f"episode_{episode.index:03d}_series_state.json"
         plan = EpisodePlan.model_validate_json(plan_path.read_text(encoding="utf-8"))
+        diagnosis = validate_chapter_diagnosis(
+            ChapterDiagnosis.model_validate_json(
+                diagnosis_path.read_text(encoding="utf-8")
+            ),
+            episode,
+            bible,
+        )
+        state = validate_series_state(
+            SeriesState.model_validate_json(state_path.read_text(encoding="utf-8")),
+            episode,
+            previous_state,
+        )
+        stored_quality = ScriptQualityReport.model_validate_json(
+            quality_path.read_text(encoding="utf-8")
+        )
+        quality = evaluate_script_quality(
+            plan,
+            diagnosis,
+            episode,
+            qualitative=stored_quality,
+            previous_state=previous_state,
+        )
+        previous_state = state
+        if not quality.passed:
+            script_quality_failures.append(
+                {
+                    "episode": episode.index,
+                    "issues": [issue.model_dump(mode="json") for issue in quality.issues],
+                }
+            )
         normalized_source = _normalized(episode.source_text)
         episode_quote_total = 0
         episode_quote_valid = 0
         episode_script_chars = 0
+
+        if plan.showrunner_plan is not None:
+            for fact in plan.showrunner_plan.information_states:
+                for awareness in fact.character_awareness:
+                    if awareness.character_name not in known_characters:
+                        unknown_showrunner_characters.append(
+                            {
+                                "episode": episode.index,
+                                "fact_id": fact.fact_id,
+                                "character": awareness.character_name,
+                            }
+                        )
+            for delta in plan.showrunner_plan.character_state_deltas:
+                if delta.character_name not in known_characters:
+                    unknown_showrunner_characters.append(
+                        {
+                            "episode": episode.index,
+                            "state_delta": delta.event_ids,
+                            "character": delta.character_name,
+                        }
+                    )
 
         for shot in plan.shots:
             total_shots += 1
@@ -93,6 +161,14 @@ def validate_planning_bundle(
                 "source_quote_valid_ratio": round(
                     episode_quote_valid / max(1, episode_quote_total), 6
                 ),
+                "script_quality_passed": quality.passed,
+                "critical_event_coverage": quality.critical_event_coverage,
+                "retention_beat_coverage": quality.retention_beat_coverage,
+                "max_attention_gap_ratio": quality.max_attention_gap_ratio,
+                "information_fact_grounding": quality.information_fact_grounding,
+                "character_delta_grounding": quality.character_delta_grounding,
+                "shot_intent_coverage": quality.shot_intent_coverage,
+                "audio_beat_coverage": quality.audio_beat_coverage,
             }
         )
 
@@ -103,12 +179,16 @@ def validate_planning_bundle(
             source_quote_valid_ratio == 1.0
             and not visible_speaker_violations
             and not unknown_shot_characters
+            and not unknown_showrunner_characters
+            and not script_quality_failures
         ),
         "story_bible_schema_valid": True,
         "episode_plan_schema_valid": True,
         "source_quote_valid_ratio": source_quote_valid_ratio,
         "visible_speaker_violations": visible_speaker_violations,
         "unknown_shot_characters": unknown_shot_characters,
+        "unknown_showrunner_characters": unknown_showrunner_characters,
+        "script_quality_failures": script_quality_failures,
         "shot_count": total_shots,
         "turn_count": total_turns,
         "script_chars": total_script_chars,

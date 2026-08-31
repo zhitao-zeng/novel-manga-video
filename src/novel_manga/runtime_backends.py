@@ -9,7 +9,6 @@ import tempfile
 from pathlib import Path
 
 from .config import Settings
-from .sd_dialogue import timed_subtitle_pages
 from .util import media_duration
 
 
@@ -40,6 +39,70 @@ def edit_distance(left: str, right: str) -> int:
             )
         previous = current
     return previous[-1]
+
+
+def correct_protected_lexicon(
+    hypothesis: str,
+    reference: str,
+    canonical_terms: list[str],
+    aliases: dict[str, str] | None = None,
+) -> tuple[str, list[dict[str, str | int]]]:
+    """Correct only named terms that the script contract explicitly expects."""
+
+    corrected = hypothesis
+    corrections: list[dict[str, str | int]] = []
+    for source, canonical in (aliases or {}).items():
+        if canonical not in reference or source not in corrected or source == canonical:
+            continue
+        count = corrected.count(source)
+        corrected = corrected.replace(source, canonical)
+        corrections.append(
+            {
+                "source": source,
+                "canonical": canonical,
+                "distance": edit_distance(normalize_text(source), normalize_text(canonical)),
+                "count": count,
+            }
+        )
+    for canonical in sorted(set(canonical_terms), key=len, reverse=True):
+        if len(canonical) < 2 or canonical not in reference or canonical in corrected:
+            continue
+        expected = reference.find(canonical) / max(1, len(reference))
+        center = round(expected * len(corrected))
+        radius = max(5, len(canonical) * 3)
+        best: tuple[int, int, int, str] | None = None
+        best_start = 0
+        best_width = 0
+        for width in range(max(1, len(canonical) - 1), len(canonical) + 2):
+            start_min = max(0, center - radius)
+            start_max = min(len(corrected) - width, center + radius)
+            for start in range(start_min, start_max + 1):
+                candidate = corrected[start : start + width]
+                normalized = normalize_text(candidate)
+                if not normalized:
+                    continue
+                distance = edit_distance(normalized, normalize_text(canonical))
+                rank = (distance, abs(start - center), abs(width - len(canonical)), candidate)
+                if best is None or rank < best:
+                    best = rank
+                    best_start = start
+                    best_width = width
+        threshold = max(1, len(normalize_text(canonical)) // 3)
+        if best is None or best[0] > threshold:
+            continue
+        source = corrected[best_start : best_start + best_width]
+        corrected = (
+            corrected[:best_start] + canonical + corrected[best_start + best_width :]
+        )
+        corrections.append(
+            {
+                "source": source,
+                "canonical": canonical,
+                "distance": best[0],
+                "count": 1,
+            }
+        )
+    return corrected, corrections
 
 
 def measured_speech_bounds(audio: Path) -> tuple[float, float]:
@@ -75,7 +138,7 @@ def measured_speech_bounds(audio: Path) -> tuple[float, float]:
 
 
 class RuntimeEvidenceBackends:
-    """Provider-neutral command adapters for subtitle alignment and ASR evidence."""
+    """Provider-neutral command adapter for ASR evidence."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -94,37 +157,10 @@ class RuntimeEvidenceBackends:
                 raise RuntimeError("evidence command did not create its JSON output")
             return json.loads(output.read_text(encoding="utf-8"))
 
-    def align(self, unit_id: str, text: str, audio: Path) -> dict:
-        if self.settings.align_command:
-            result = self._invoke(
-                self.settings.align_command,
-                ["--unit-id", unit_id, "--audio", str(audio), "--text", text],
-            )
-            events = result.get("events", [])
-            reconstructed = "".join(str(event.get("text", "")).replace(r"\N", "") for event in events)
-            if normalize_text(reconstructed) != normalize_text(text):
-                raise ValueError(f"aligner changed locked text for {unit_id}")
-            if not events or any(float(item["end"]) <= float(item["start"]) for item in events):
-                raise ValueError(f"aligner returned invalid events for {unit_id}")
-            return {
-                "unit_id": unit_id,
-                "backend": result.get("backend", "external-command"),
-                "evidence": "forced_alignment",
-                "speech_start": float(result.get("speech_start", events[0]["start"])),
-                "speech_end": float(result.get("speech_end", events[-1]["end"])),
-                "events": events,
-            }
-        start, end = measured_speech_bounds(audio)
-        return {
-            "unit_id": unit_id,
-            "backend": "ffmpeg-silencedetect",
-            "evidence": "coarse_audio_bounds_with_character_weighted_pages",
-            "speech_start": start,
-            "speech_end": end,
-            "events": timed_subtitle_pages(text, start, end),
-        }
-
     def transcribe(self, unit_id: str, reference: str, audio: Path) -> dict:
+        segments: list[dict] = []
+        speaker_count: int | None = None
+        speaker_ids: list[str] = []
         if self.settings.admission_mode == "preview" and not self.settings.asr_command:
             hypothesis = reference
             backend = "mock-exact-preview"
@@ -156,6 +192,18 @@ class RuntimeEvidenceBackends:
                 }
             hypothesis = str(result.get("hypothesis", result.get("text", "")))
             backend = str(result.get("backend", "external-command"))
+            raw_segments = result.get("segments", result.get("events", []))
+            if isinstance(raw_segments, list):
+                segments = [row for row in raw_segments if isinstance(row, dict)]
+            raw_speakers = result.get("speakers", result.get("speaker_ids", []))
+            if isinstance(raw_speakers, list):
+                speaker_ids = list(
+                    dict.fromkeys(str(value) for value in raw_speakers)
+                )
+            if result.get("speaker_count") is not None:
+                speaker_count = int(result["speaker_count"])
+            elif speaker_ids:
+                speaker_count = len(speaker_ids)
         reference_normalized = normalize_text(reference)
         hypothesis_normalized = normalize_text(hypothesis)
         errors = edit_distance(reference_normalized, hypothesis_normalized)
@@ -170,6 +218,9 @@ class RuntimeEvidenceBackends:
             "cer": round(errors / max(1, len(reference_normalized)), 6),
             "status": "passed",
             "backend": backend,
+            "segments": segments,
+            "speaker_count": speaker_count,
+            "speaker_ids": speaker_ids,
         }
 
 def aggregate_asr(rows: list[dict]) -> dict:

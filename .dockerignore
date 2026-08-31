@@ -1,7 +1,8 @@
 .git
-.venv
+.venv*
 .codex
 outputs
-tests
-examples
-**/__pycache__
+*.log
+*.partial
+docker/wheels
+vendor/Wan2.2

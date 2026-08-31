@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections import defaultdict
 from pathlib import Path
 
@@ -9,14 +10,19 @@ from .av_quality import (
     STATUS_PASSED,
     ass_layout,
     evaluate_asr,
+    evaluate_delivered_audio_energy,
     evaluate_subtitle_burn_in,
 )
-from .config import Settings
+from .config import (
+    NATIVE_DIALOGUE_POLICY,
+    Settings,
+)
 from .production_models import ProductionPlan
 from .sd_dialogue import PUNCTUATION
 
 
-ADMISSION_POLICY_REVISION = "novel-manga-av-v1.5-no-lip-review"
+ADMISSION_POLICY_REVISION = "novel-manga-av-v1.7-video-side-gates"
+CAMERA_POLICY_REVISION = "motivated-camera-v2-subtle-unbudgeted"
 
 
 def admission_backend_identity(settings: Settings) -> dict:
@@ -24,8 +30,13 @@ def admission_backend_identity(settings: Settings) -> dict:
         return hashlib.sha256(value.encode("utf-8")).hexdigest() if value else None
 
     return {
-        "align_command_sha256": digest(settings.align_command),
         "asr_command_sha256": digest(settings.asr_command),
+        "video_model": settings.video_model,
+        "final_audio_policy": settings.final_audio_policy,
+        "video_command_sha256": digest(settings.video_command),
+        "audio_workflow": "native-dialogue-asr-v1",
+        "camera_policy_revision": CAMERA_POLICY_REVISION,
+        "render_policy_revision": "transparent-outline-subs-story-art-endpoints-v2",
     }
 
 
@@ -34,6 +45,8 @@ def evaluate_subtitle_structure(
     events: list[dict],
     ass: Path,
     max_cps: float,
+    *,
+    native_asr: bool = False,
 ) -> dict:
     by_unit: dict[str, list[dict]] = defaultdict(list)
     for event in events:
@@ -46,7 +59,7 @@ def evaluate_subtitle_structure(
         reconstructed = "".join(
             "".join(str(row["text"]).replace(r"\N", "").split()) for row in rows
         )
-        if reconstructed != "".join(unit.text.split()):
+        if not native_asr and reconstructed != "".join(unit.text.split()):
             errors.append(f"{unit.unit_id}: subtitle text differs from locked turn")
         for row in rows:
             if str(row.get("role")) != unit.role:
@@ -66,8 +79,28 @@ def evaluate_subtitle_structure(
             cps = visible / max(0.001, end - start)
             if cps > max_cps:
                 reading_speed.append({"unit_id": unit.unit_id, "cps": round(cps, 6)})
-    missing = sorted({unit.unit_id for unit in plan.units} - set(by_unit))
-    if missing:
+    missing = (
+        []
+        if native_asr
+        else sorted({unit.unit_id for unit in plan.units} - set(by_unit))
+    )
+    if native_asr:
+        invalid_sources = sorted(
+            {
+                str(event.get("subtitle_source", "missing"))
+                for event in events
+                if event.get("subtitle_source")
+                not in {"native_audio_asr", "title_card_contract"}
+            }
+        )
+        if invalid_sources:
+            errors.append(
+                "native subtitles contain non-ASR sources: "
+                + ", ".join(invalid_sources)
+            )
+        if not events:
+            errors.append("native dialogue produced no ASR subtitle events")
+    elif missing:
         errors.append(f"missing subtitle units: {len(missing)}")
     if reading_speed:
         errors.append(f"subtitle pages above {max_cps:g} chars/s: {len(reading_speed)}")
@@ -76,7 +109,12 @@ def evaluate_subtitle_structure(
         errors.extend(layout["errors"])
     return {
         "status": STATUS_FAILED if errors else STATUS_PASSED,
-        "exact_locked_text": not any("text differs" in error for error in errors),
+        "exact_locked_text": (
+            None
+            if native_asr
+            else not any("text differs" in error for error in errors)
+        ),
+        "subtitle_source": "native_audio_asr" if native_asr else "locked_script_alignment",
         "missing_units": missing,
         "reading_speed_failures": reading_speed,
         "layout": layout,
@@ -95,8 +133,16 @@ def evaluate_episode_admission(
     subtitle_events: list[dict],
     asr_report: dict,
     face_consistency_report: dict | None = None,
+    video_quality_report: dict | None = None,
 ) -> dict:
-    subtitle = evaluate_subtitle_structure(plan, subtitle_events, ass, settings.max_subtitle_cps)
+    native_dialogue = settings.final_audio_policy == NATIVE_DIALOGUE_POLICY
+    subtitle = evaluate_subtitle_structure(
+        plan,
+        subtitle_events,
+        ass,
+        settings.max_subtitle_cps,
+        native_asr=native_dialogue,
+    )
     burn_in = evaluate_subtitle_burn_in(clean_video, delivered_video, subtitle_events)
     plan_dict = plan.model_dump(mode="json")
     speech = evaluate_asr(
@@ -105,13 +151,76 @@ def evaluate_episode_admission(
         aggregate_cer_max=settings.max_asr_cer,
         turn_cer_max=settings.max_turn_cer,
     )
+    audio_energy = evaluate_delivered_audio_energy(asr_report)
     checks = {
         "media_qc": {"status": STATUS_PASSED if media_qc.get("passed") else STATUS_FAILED, "report": media_qc},
         "subtitle_structure": subtitle,
         "subtitle_burn_in": burn_in,
         "speech_content": speech,
+        "delivered_audio_energy": audio_energy,
     }
-    evidence_passed = all(check["status"] == STATUS_PASSED for check in checks.values())
+    if video_quality_report is not None:
+        checks["video_side_quality"] = {
+            "status": (
+                STATUS_PASSED
+                if video_quality_report.get("passed")
+                else STATUS_FAILED
+            ),
+            "report": video_quality_report,
+        }
+    elif settings.admission_mode == "production":
+        checks["video_side_quality"] = {
+            "status": STATUS_FAILED,
+            "reason": "production admission requires the video-side quality report",
+        }
+    else:
+        checks["video_side_quality"] = {
+            "status": "skipped",
+            "reason": "preview has no video-side quality report",
+        }
+    if native_dialogue:
+        native_rows = asr_report.get("turns", [])
+        failed_native_rows = [
+            row
+            for row in native_rows
+            if not row.get("quality_route", {}).get("passed", False)
+        ]
+        checks["speech_content"] = {
+            "status": STATUS_PASSED,
+            "mode": "report_only",
+            "aggregate_cer": asr_report.get("cer"),
+            "legacy_aggregate_cer_max": settings.max_asr_cer,
+            "legacy_turn_cer_max": settings.max_turn_cer,
+            "turns": asr_report.get("turns", []),
+        }
+        checks["native_dialogue_hard_gate"] = {
+            "status": STATUS_FAILED if failed_native_rows else STATUS_PASSED,
+            "required_checks": [
+                "voice_energy_exists",
+                "cer_not_over_0_5_after_bounded_retry",
+                "single_speaker_contract",
+            ],
+            "failed_groups": [row.get("unit_id") for row in failed_native_rows],
+        }
+        if not native_rows:
+            checks["delivered_audio_energy"] = {
+                "status": STATUS_PASSED,
+                "reason": "episode contains title cards but no spoken native dialogue",
+            }
+        required_checks = tuple(
+            check
+            for name, check in checks.items()
+            if name != "video_side_quality"
+            or settings.admission_mode == "production"
+            or video_quality_report is not None
+        )
+    else:
+        raise ValueError(
+            "legacy audio admission is read-only; native_dialogue is required"
+        )
+    evidence_passed = all(
+        check["status"] == STATUS_PASSED for check in required_checks
+    )
     submission_eligible = settings.admission_mode == "production" and settings.provider != "mock"
     return {
         "schema_version": 2,
@@ -128,6 +237,7 @@ def evaluate_episode_admission(
         "thresholds": {
             "aggregate_asr_cer_max": settings.max_asr_cer,
             "turn_asr_cer_max": settings.max_turn_cer,
+            "native_dialogue_report_only_cer": native_dialogue,
             "subtitle_cps_max": settings.max_subtitle_cps,
         },
         "checks": checks,

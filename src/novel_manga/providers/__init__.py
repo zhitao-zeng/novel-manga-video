@@ -17,6 +17,8 @@ def build_planner(settings: Settings) -> Planner:
         settings.planner_backend == "auto" and settings.llm_base_url and settings.llm_api_key
     ):
         return OpenAICompatiblePlanner(settings)
+    # Deterministic fallback is intentionally faithful/chronological; it
+    # cannot make semantic short-drama selections without a planner model.
     return DeterministicPlanner()
 
 

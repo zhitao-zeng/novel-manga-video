@@ -29,6 +29,8 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
     video_streams = [stream for stream in data.get("streams", []) if stream.get("codec_type") == "video"]
     audio_streams = [stream for stream in data.get("streams", []) if stream.get("codec_type") == "audio"]
     stream = video_streams[0] if video_streams else {}
+    audio_stream = audio_streams[0] if audio_streams else {}
+    duration = float(data.get("format", {}).get("duration") or 0.0)
     fps = _rate(stream.get("avg_frame_rate", "0/1"))
     checks["playable"] = {"passed": bool(video_streams), "detail": "ffprobe decoded container metadata"}
     checks["resolution"] = {
@@ -37,7 +39,10 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
     }
     checks["fps"] = {"passed": abs(fps - settings.fps) < 0.05, "detail": round(fps, 3)}
     checks["video_codec"] = {"passed": stream.get("codec_name") == "h264", "detail": stream.get("codec_name")}
-    checks["audio"] = {"passed": bool(audio_streams), "detail": audio_streams[0].get("codec_name") if audio_streams else "missing"}
+    checks["audio"] = {
+        "passed": bool(audio_streams) and audio_stream.get("codec_name") == "aac",
+        "detail": audio_stream.get("codec_name") if audio_streams else "missing",
+    }
     checks["subtitles"] = {
         "passed": ass.is_file() and ass.read_text(encoding="utf-8").count("Dialogue:") > 0,
         "detail": "burned ASS source retained",
@@ -76,18 +81,35 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
     }
 
     silence = subprocess.run([
-        "ffmpeg", "-v", "info", "-i", str(video), "-af", "silencedetect=n=-45dB:d=2", "-vn", "-f", "null", "-",
+        "ffmpeg", "-v", "info", "-i", str(video), "-af", "silencedetect=n=-45dB:d=0.2", "-vn", "-f", "null", "-",
     ], capture_output=True, text=True)
     silence_durations = [float(item) for item in re.findall(r"silence_duration:\s*([0-9.]+)", silence.stderr)]
     max_silence = max(silence_durations, default=0.0)
-    checks["long_silence"] = {"passed": max_silence < 10.0, "detail": {"max_silence_seconds": max_silence}}
+    silence_seconds = sum(silence_durations)
+    silence_ratio = silence_seconds / duration if duration > 0 else 1.0
+    checks["long_silence"] = {
+        "passed": max_silence <= 4.5,
+        "detail": {"max_silence_seconds": round(max_silence, 6)},
+    }
+    checks["silence_ratio"] = {
+        "passed": silence_ratio <= 0.35,
+        "detail": {
+            "silence_seconds": round(silence_seconds, 6),
+            "duration_seconds": round(duration, 6),
+            "ratio": round(silence_ratio, 6),
+            "threshold_db": -45,
+        },
+    }
 
     freeze = subprocess.run([
-        "ffmpeg", "-v", "info", "-i", str(video), "-vf", "freezedetect=n=-50dB:d=6", "-an", "-f", "null", "-",
+        "ffmpeg", "-v", "info", "-i", str(video), "-vf", "freezedetect=n=-50dB:d=2", "-an", "-f", "null", "-",
     ], capture_output=True, text=True)
     freeze_durations = [float(item) for item in re.findall(r"freeze_duration:\s*([0-9.]+)", freeze.stderr)]
     max_freeze = max(freeze_durations, default=0.0)
-    checks["long_freeze"] = {"passed": max_freeze < 8.0, "detail": {"max_freeze_seconds": max_freeze}}
+    checks["long_freeze"] = {
+        "passed": max_freeze <= 3.5,
+        "detail": {"max_freeze_seconds": round(max_freeze, 6)},
+    }
 
     result = {"passed": all(item["passed"] for item in checks.values()), "checks": checks}
     atomic_write_json(report, result)

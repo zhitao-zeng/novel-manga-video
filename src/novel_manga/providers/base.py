@@ -16,7 +16,13 @@ class ImageResult:
 
 class MediaProvider(ABC):
     @abstractmethod
-    def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult: ...
+    def create_image(
+        self,
+        prompt: str,
+        output: Path,
+        reference: Path | None = None,
+        additional_references: tuple[Path, ...] = (),
+    ) -> ImageResult: ...
 
     @abstractmethod
     def create_video(
@@ -25,19 +31,8 @@ class MediaProvider(ABC):
         image: ImageResult,
         output: Path,
         duration: float,
-        reference_audio: Path | None = None,
+        additional_images: tuple[Path, ...] = (),
     ) -> Path: ...
-
-    @abstractmethod
-    def synthesize(
-        self,
-        text: str,
-        output: Path,
-        *,
-        voice: str | None = None,
-        instructions: str | None = None,
-    ) -> Path: ...
-
 
 @dataclass
 class ProviderBundle:
