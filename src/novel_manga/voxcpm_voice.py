@@ -96,7 +96,7 @@ def voice_cache_name(voice: str | None) -> str:
 
 def extract_performance_style(instructions: str | None) -> str:
     text = str(instructions or "")
-    match = re.search(r"(?:语义表演|角色语气)[：:]\s*([^。；;]+)", text)
+    match = re.search(r"(?:语义表演|角色语气|表演意图)[：:]\s*([^。；;]+)", text)
     parts = [match.group(1).strip()] if match else []
     if "画外旁白" in text:
         parts.append("画外旁白，叙事感自然")

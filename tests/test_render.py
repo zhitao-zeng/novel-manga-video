@@ -148,6 +148,7 @@ def test_visual_audio_driver_mutes_narration_without_timeline_drift(
     assert "volume=0,asetpts=PTS-STARTPTS[a0]" in graph
     assert "[1:a]aresample=48000" in graph
     assert "volume=0,asetpts=PTS-STARTPTS[a1]" not in graph
+    assert "atempo" not in graph
     assert seconds == 5.1
     assert offsets == [0.0, 2.1]
     assert speed == 1.0
@@ -188,6 +189,7 @@ def test_delivery_group_audio_peak_normalizes_turns_without_changing_timing(
     graph = commands[0][commands[0].index("-filter_complex") + 1]
     assert "volume=34.600dB" in graph
     assert "volume=-1.000dB" in graph
+    assert "atempo" not in graph
     assert seconds == 3.5
     assert offsets == [0.0, 1.5]
     assert speed == 1.0

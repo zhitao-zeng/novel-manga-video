@@ -20,7 +20,13 @@ class MockMediaProvider(MediaProvider):
     def _font(self, size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.truetype(str(self.settings.font_path), size)
 
-    def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult:
+    def create_image(
+        self,
+        prompt: str,
+        output: Path,
+        reference: Path | None = None,
+        additional_references: tuple[Path, ...] = (),
+    ) -> ImageResult:
         output.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(prompt.encode("utf-8")).digest()
         top = tuple(35 + byte // 3 for byte in digest[:3])

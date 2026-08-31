@@ -559,7 +559,7 @@ def create_app(
 
     application = FastAPI(
         title="中文小说生成漫剧 SUT",
-        version="0.12.0",
+        version="0.13.0",
         lifespan=lifespan,
     )
     application.state.job_manager = job_manager

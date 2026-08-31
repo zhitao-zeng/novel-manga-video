@@ -24,7 +24,13 @@ class MediaProvider(ABC):
         """
 
     @abstractmethod
-    def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult: ...
+    def create_image(
+        self,
+        prompt: str,
+        output: Path,
+        reference: Path | None = None,
+        additional_references: tuple[Path, ...] = (),
+    ) -> ImageResult: ...
 
     @abstractmethod
     def create_video(

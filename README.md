@@ -2,6 +2,8 @@
 
 短剧化改编、Showrunner 留存/信息差/人物状态、人物设计、自适应关键帧、生图 / Seedance 提示词和声音分工见
 [`docs/short-drama-methodology.md`](docs/short-drama-methodology.md)。
+镜头契约、双参考范围、provider 短提示词、连续性输入输出和失败迭代见
+[`docs/shot-contract-pipeline.md`](docs/shot-contract-pipeline.md)。
 
 把 `txt / markdown / docx / pdf` 小说转为 9:16 国漫画风漫剧。生产控制器是普通 Python 程序，不依赖
 Codex；故事规划、生图、生视频、TTS、ASR 和强制对齐均为可替换 provider。
@@ -27,10 +29,10 @@ GET  /download/image/1_1_ending
 API 镜像接口冒烟测试：
 
 ```bash
-docker build -t novel-manga-video:0.12.0 .
+docker build -t novel-manga-video:0.13.0 .
 docker run --rm -p 8080:80 -v /path/to/output:/output \
   -e NOVEL_PROVIDER=mock -e NOVEL_ADMISSION_MODE=preview \
-  novel-manga-video:0.12.0
+  novel-manga-video:0.13.0
 
 curl http://127.0.0.1:8080/ready
 curl -F novel_id=1 -F file=@/path/to/novel.txt \
@@ -52,9 +54,10 @@ API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能�
      → 一次完成全书系列圣经和各章审稿方案
      → 单人角色资产 + 无人物场景资产（全书复用）
      → scene → shot → PerformancePlan + CameraPlan + AudioPlan → turn
-     → 必须准确的逐句音频 + ASR + 对齐
-     → 自适应人物/场景直出或剧情锚点关键帧 + 专用封面
-     → 旁白/画外镜头视频 + 可见对白参考音频视频
+     → EpisodeSequenceContract → ShotContract → ProviderPromptAdapter
+     → AudioPlan 选择 locked reference audio 或 video-model native audio
+     → 普通单人/空镜直连复用资产，多人走位/关键交互生成剧情锚点关键帧
+     → 原生音轨或参考音频视频 + clip 级动作/精确同框/额外物体门
      → 轻量人脸一致性评分（仅监测，不重生成、不阻断）
      → 无字幕成片 → ASS 烧录 → 媒体/字幕/ASR 最终准入
 ```
@@ -66,7 +69,7 @@ API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能�
 | 规划 | OpenAI-compatible 或命令适配器 | Qwen3.5-27B-AWQ |
 | 基础资产 | PhanRouter 图像 API | Z-Image-Turbo |
 | 资产/关键帧/封面编辑 | PhanRouter 图像 API | Qwen-Image-Edit-2511 |
-| TTS | API/命令 TTS | VoxCPM2（可选 Qwen 回退） |
+| TTS | API/命令 TTS | IndexTTS 2.5（模型内部语速控制） |
 | 视频 | Seedance 2.5 API | MiniMax H3 Ref2VA（ComfyUI，本地音频驱动） |
 | ASR/对齐 | 外部命令 | Qwen3-ASR / ForcedAligner |
 
@@ -78,33 +81,39 @@ API 与纯本地镜像共用下面这一份 Core；LLM 和媒体模型都不能�
 
 - 有章节时严格一章一集；无章节时只在句子或段落边界按 3,000—6,000 字拆分。
 - 角色 `turnaround.jpeg`、`expressions.jpeg` 与场景 `establishing.jpeg` 先生成、全书复用。
-- 复用身份和场景资产，不复用不同说话人的完整构图；相邻同场景 turn 会按音频时长合并为连续视觉组，
-  可见对白组仍优先建立清晰的说话人近景。
+- 复用身份和场景资产，不复用不同说话人的完整构图；API 路线不跨 shot 合并，也不把不同可见说话者、
+  旁白、画外声或内心声合并为同一生成表演。离线 H3 可显式启用同一 delivery identity 的短镜合并。
   可见对白镜头优先锁定当前说话人的角色资产；旁白和连续多人镜头使用场景与不超过两名角色的参考板。
 - 每个 turn 绑定同一份锁定文本、固定音色、音频、字幕对齐、视觉输入决策和视频片段；
   普通单人/空镜可复用人物与场景资产，关键构图才生成剧情锚点帧。
-- 每个 shot 必须先形成结构化表演计划和摄影机计划：动作按“触发→动作→反应→收束”排列；摄影机默认
-  `locked`，只有明确的人物位移、空间揭示、情绪/权力转折才允许一次克制的短轨迹。全集移动镜头不超过约
-  三分之一、强调运镜不超过约十分之一，相邻镜头不得连续明显运镜；连续视觉组最终只保留一份摄影机计划。
-  运行时按真实参考音频长度重新分配表演时间段。
+- 每个 shot 必须先形成结构化表演计划和摄影机计划：动作按“触发→动作→反应→收束”排列；空间建立、
+  明确位移、信息揭示与权力变化可使用一次极慢推进或短跟拍。普通克制运镜可相邻，只有强调型大运镜受
+  20% 预算限制；显式 shot 计划优先，不能被全集预算强行改回固定机位。连续视觉组最终只保留一份摄影机计划，
+  运行时按语音、动作复杂度和尾部反应估算交付时长。
 - 每集在分镜执行前形成 `ShowrunnerPlan`：4–8 个相对留存节点覆盖 hook、question、payoff/reversal 和
   cliffhanger；信息状态明确观众与各角色分别知道或误解什么；人物状态增量只记录有当前章证据的社会地位、
   关系、力量、情绪、信心和服装变化。门禁拒绝中段注意力空窗、无证据信息和无实际变化的状态增量。
 - 每镜 `ShotIntent` 先声明戏剧功能、权力关系、目标情绪、观众焦点及留存节点，再决定景别、构图、关键帧和
   运镜；`AudioBeat` 以 0–1 相对位置记录由台词、动作、揭示或反应触发的静音、环境、冲击、音乐起落、duck
   和收束。它们进入视频提示和审计，但非语言声音的最终混音仍需媒体后端或后续素材执行器。
+- 每个场次编译 `SceneSpatialContract`，记录地点资产版本、前中后景职责、固定锚点、真实光源和行动轴；
+  `EpisodeSequenceContract` 同时记录视觉母题、对话覆盖类型与运镜节奏。同一说话者保持屏幕侧，但在胸像、
+  紧肩部近景和较宽腰上景之间轮换，避免连续复制同一人物构图。
+- 碎裂、撞击、奔跑、战气与强视效镜头才生成 `ActionPhysicsPlan`，按准备、发力、接触、反作用和落定组织，
+  并只附加少量同方向环境反馈；普通对白不套动作物理模板。
 - 参考图只锚定人物身份、服装、环境和画风，不锁定静态姿势、人物画面位置或原始机位；关键帧生成的是
   “动作发生前一瞬”，为后续人物表演保留构图空间。摄影机始终留在同一行动轴一侧；同场对话中角色的
   左右位置和视线方向由稳定角色槽位决定，不随镜号随机交换。
 - 实际提交的关键帧提示词、视频提示词和参考板哈希会写入该 turn 的 `.mp4.request.json`，便于审计和续跑失效判断。
 - 封面不复用普通片头卡：优先选择人物较多且靠前的冲突关键帧作为参考，独立调用生图后端重新构图；
   可见文字只允许章节主标题艺术字、小说名和集数角标，禁止把旁白、台词或字幕写到封面上。
-- 对白逐字写入视频提示词，并把最终锁定音频作为 `reference_audio`；API 后端使用 `sd2.5`，离线后端
-  使用 MiniMax H3 Ref2VA。H3 每个镜头都接收专用表演音轨：画面内可见对白保留原声，
-  旁白、内心声和画外对白变成等长静音，因此不会让画中人物替旁白张嘴。最终仍重新混入
-  完整锁定 TTS；不执行口型截图、SyncNet、LatentSync 或闭嘴尾帧修复。
+- 对白逐字写入视频提示词。生产准确性路线先锁定音频并作为 `reference_audio`；API 预览也可选择
+  `sd25_native_original`，让 SD2.5 直接生成并保留原声音轨，禁止 TTS 覆盖。原声音轨未跑 ASR 时只能标记为
+  preview，不能冒充 production。离线 H3 仍使用专用表演音轨并在最终混入完整锁定 TTS；两条路线都不执行
+  口型截图、SyncNet、LatentSync 或闭嘴尾帧修复。
 - LatentSync 被硬禁用；旧口型环境变量或包含 `latentsync` 的视频模型/命令会在启动时被拒绝。
-- 生产成功必须同时通过媒体、字幕结构、字幕像素烧录和逐句 ASR 门禁。
+- 生成片段先通过原生音轨、时长、动作发生、精确可见角色、额外角色/物体和屏幕方向门；身份相似分数只监测。
+  Production 成功还必须通过最终媒体、字幕结构、字幕像素烧录和逐句 ASR 门禁。
 - 输出固定为 1080×1920、25/30 fps、H.264/AAC MP4，以及 1080×1920 JPEG 封面和结束画面。
 
 运行 `novel-manga contract` 可取得 `StoryBible`、`ChapterDiagnosis`、内含 `ShowrunnerPlan` 的 `EpisodePlan`、
@@ -130,7 +139,7 @@ uv run novel-manga plan /input/novel.txt \
 `planning_manifest.json`。OpenAI-compatible 后端按“章节事实诊断 → 独立 Showrunner → 剧本 → 独立审稿 → 连续性状态更新”
 五阶段运行；命令规划后端使用同一五阶段契约，确定性后端生成带 warning 的保守 Showrunner 回退；所有后端都必须经过同一组事件覆盖、篇幅、因果和章末边界硬门禁。
 模型输出不合格时，控制器把结构化错误反馈给模型并限次修订；默认最多修订 2 次，通过
-`NOVEL_PLANNER_MAX_REVISIONS=0..2` 配置。达到上限仍不合格会在任何 TTS、生图或生视频调用前失败。
+`NOVEL_PLANNER_MAX_REVISIONS=0..6` 配置。达到上限仍不合格会在任何 TTS、生图或生视频调用前失败。
 
 对于超过 3000 个有效字的章节，默认门禁要求至少 800 字左右的有效剧本、18 个 Turn、16 个镜头；
 章节诊断为 dense 时要求至少 20 个 Turn。所有 critical 事件必须映射到分镜和改编账本，结尾必须落在
@@ -153,6 +162,32 @@ uv run novel-manga validate-plan /input/novel.txt \
 uv run novel-manga compile-plan /input/novel.txt \
   --bundle outputs/plans/demo --novel-id demo --title 小说名
 ```
+
+## 第一集混合关键帧 / SD2.5 原声复现脚本
+
+仓库保留了本次第一集修复的可审计执行器，生成媒体仍写入已忽略的 `outputs/`：
+
+```bash
+# 编译 15 个条件关键帧组 + 5 个资产直连组，不提交媒体
+uv run python scripts/prepare_episode1_sd25_direct.py \
+  --source /path/to/chapter.txt --novel-dir /path/to/novel-output \
+  --video-id episode_1 --hybrid-keyframes
+
+# GPT Image 2 条件首帧 + SD2.5 两并发原声视频；不传 reference_audio
+uv run python scripts/render_episode1_sd25_hybrid_native.py \
+  --novel-dir /path/to/novel-output --video-id episode_1 --execute
+
+# 三帧审片表、动作/精确同框门、原声装配与最终媒体 QC
+uv run python scripts/build_episode_video_review_sheet.py \
+  --episode-dir /path/to/episode --output-dir /path/to/review
+uv run python scripts/evaluate_episode1_video_quality.py \
+  --episode-dir /path/to/episode --director-review /path/to/director_review.json
+uv run python scripts/assemble_episode1_sd25_native_audio.py \
+  --episode-dir /path/to/episode --video-id episode_1
+```
+
+执行器按 prompt、参考图、模型、时长与输入策略哈希续跑；任务侧车不含凭据。原声路线跳过 ASR 时只通过
+preview admission，Production 仍必须补齐最终音轨 ASR。
 
 ## 离线预览
 
@@ -191,7 +226,8 @@ uv run novel-manga generate /input/novel.docx \
 受 Python 状态机约束的规划 Agent：它负责章节诊断、剧本、独立审稿、连续性状态和校验失败后的修订；章节切割、资产缓存、
 并发、GPU 调用、合成和准入仍由确定性控制器执行。
 
-仓库同时提供常驻的 Qwen3-TTS OpenAI-compatible 适配器，避免每个 turn 重复加载模型：
+托管/API 部署仍可选择常驻的 Qwen3-TTS OpenAI-compatible 适配器；A100 离线镜像默认使用
+IndexTTS 2.5：
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 QWEN_TTS_API_KEY=local-dev \
@@ -303,7 +339,7 @@ API 版使用默认 `Dockerfile`；完全离线单 A100 版使用 `Dockerfile.of
 [`docs/offline-single-image.md`](docs/offline-single-image.md)。
 
 ```bash
-docker build -t novel-manga-video:0.12.0 .
+docker build -t novel-manga-video:0.13.0 .
 
 docker run --rm --gpus 'device=0' --cpus 4 --memory 32g -p 8080:80 \
   -v /path/to/output:/output \
@@ -312,14 +348,14 @@ docker run --rm --gpus 'device=0' --cpus 4 --memory 32g -p 8080:80 \
   -e PHANROUTER_API_KEY \
   -e NOVEL_PLANNER_COMMAND -e NOVEL_TTS_COMMAND \
   -e NOVEL_ASR_COMMAND -e NOVEL_ALIGN_COMMAND \
-  novel-manga-video:0.12.0
+  novel-manga-video:0.13.0
 ```
 
 镜像包含完整 Python runtime 和诊断脚本，但不包含 `.codex`；删除 Codex 环境不影响执行。模型、权重和
 适配器通过 `/models` 挂载。需要在镜像内直接使用旧 CLI 时显式覆盖入口，例如：
 
 ```bash
-docker run --rm --entrypoint novel-manga novel-manga-video:0.12.0 --help
+docker run --rm --entrypoint novel-manga novel-manga-video:0.13.0 --help
 ```
 
 ## 输出目录

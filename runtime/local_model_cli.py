@@ -119,8 +119,15 @@ def _planner(args: argparse.Namespace) -> None:
 
 
 def _invoke(operation: str, args: argparse.Namespace, fields: list[str]) -> None:
+    def json_value(value: Any) -> Any:
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, (list, tuple)):
+            return [json_value(item) for item in value]
+        return value
+
     payload = {
-        field.replace("-", "_"): str(value) if isinstance(value, Path) else value
+        field.replace("-", "_"): json_value(value)
         for field in fields
         if (value := getattr(args, field.replace("-", "_"), None)) is not None
     }
@@ -148,7 +155,8 @@ def _video(args: argparse.Namespace) -> None:
         stable_generation_seed,
     )
 
-    client = MiniMaxH3Client(MiniMaxH3Config.from_env())
+    config = MiniMaxH3Config.from_env()
+    client = MiniMaxH3Client(config)
     images = (args.image, *(args.additional_image or ()))
     seed = stable_generation_seed(
         prompt=args.prompt,
@@ -169,7 +177,7 @@ def _video(args: argparse.Namespace) -> None:
     audit.write_text(
         json.dumps(
             {
-                "backend": "MiniMax-H3-Ref2VA",
+                **config.audit_identity(),
                 "prompt_compiler_revision": H3_PROMPT_COMPILER_REVISION,
                 "generation_seed": seed,
                 "picture_count": len(images),
@@ -220,6 +228,7 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     image.add_argument("--reference", type=Path)
+    image.add_argument("--additional-reference", type=Path, action="append")
     image.add_argument("--width", type=int, required=True)
     image.add_argument("--height", type=int, required=True)
     image.add_argument("--output", type=Path, required=True)
@@ -261,7 +270,15 @@ def main() -> int:
         _invoke(
             "image",
             args,
-            ["prompt", "prompt_policy", "reference", "width", "height", "output"],
+            [
+                "prompt",
+                "prompt_policy",
+                "reference",
+                "additional_reference",
+                "width",
+                "height",
+                "output",
+            ],
         )
     elif args.command == "video":
         _video(args)

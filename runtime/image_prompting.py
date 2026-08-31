@@ -10,6 +10,7 @@ LOCAL_IMAGE_PROMPT_POLICY = "native-v5"
 DEFAULT_IMAGE_STYLE_PROFILE = "cinematic-realism"
 SUPPORTED_IMAGE_STYLE_PROFILES = {
     DEFAULT_IMAGE_STYLE_PROFILE,
+    "3d-donghua",
     "premium-2d-cel",
     "painterly-donghua",
     "polished-manhua",
@@ -334,10 +335,11 @@ def _style_anchor(style_family: str) -> str:
         )
     if style_family == "3d-donghua":
         return (
-            "高端国产半写实3D国漫动画正片（high-end Chinese 3D donghua CG）；"
-            "年龄合宜的东方审美面孔，自然皮肤明暗而非塑料蜡像；细密独立发丝；"
-            "PBR丝绸、皮革和金属，电影柔光、可信全局照明、克制体积光与真实景深；"
-            "不是二维插画、真人摄影或游戏角色创建界面"
+            "高品质风格化中国3D国漫动画正片（premium stylized Chinese 3D donghua）；"
+            "年龄合宜且彼此可区分的东方人物，简化雕塑式面部结构，略大但非Q版的表现型眼睛，"
+            "哑光无毛孔皮肤，束状设计发丝和自然稳定人体比例；服装、木石和金属采用克制的"
+            "Toon-PBR材质，电影柔光、可信全局照明、清楚中间调和受控景深；"
+            "不是二维插画、真人摄影、塑料玩偶、欧美卡通、写实游戏截图或角色创建界面"
         )
     if style_family == "2d-cel":
         return (
@@ -506,6 +508,12 @@ def _reference_instruction(task_kind: str, reference_mode: str | None) -> str:
             "输入图只提供唯一说话角色的脸、发型、年龄、身材、服装和画风身份。"
             "保留这个人的身份，但不要保留定妆照的纯色背景、站姿、画面位置和摄影机角度"
         )
+    if reference_mode == "visible_speaker_and_location":
+        return (
+            "图1只提供唯一说话角色的脸、发型、年龄、身材、服装和画风身份；"
+            "图2只提供空场的建筑结构、材质、色彩和光线。保留两张图各自负责的锚点，"
+            "按剧情重构为一张透视和光照统一的连续画面，不复制人物定妆站姿或空场摄影机角度"
+        )
     if task_kind == "character-expression":
         return (
             "输入图是唯一人物的身份母版。严格锁定脸型、五官比例、年龄、发型、服装结构、"
@@ -626,6 +634,11 @@ def _qwen_edit_prompt_v3(
                 "图1是分栏参考板：第一栏锁定场景结构与光线，其余栏分别锁定角色的脸、发型和服装；"
                 "将这些身份锚点融合到同一个透视与光照统一的连续场景中"
             )
+        elif reference_mode == "visible_speaker_and_location":
+            reference = (
+                f"图1只锁定{identity}；图2只锁定空场的建筑结构、材质、色彩和光线；"
+                "保持同一角色身份，把角色放入图2对应的场景，并按剧情重新安排姿势、景别和摄影机角度"
+            )
         else:
             reference = (
                 f"图1只锁定{identity}；保持同一身份，重新安排剧情背景、姿势、景别和摄影机角度"
@@ -636,6 +649,15 @@ def _qwen_edit_prompt_v3(
         action_text = _normalize_test_device(
             start or director_visual or "动作开始前一瞬"
         )
+        if reference_mode == "visible_speaker_and_location":
+            scene_text = (
+                "严格使用图2锁定的空场建筑、材质、色彩和光线；"
+                "场景中的对话对象、长辈、群众和其他人物全部在画外"
+            )
+            action_text = (
+                f"只有{subject}一人位于图2场景内，处在动作开始前一瞬；"
+                "用视线、表情、姿态和留白表达其面对画外人物"
+            )
         camera_text = camera or "竖屏中近景，主体和动作方向清楚"
         # Group-level screen direction is the stable continuity contract.  A
         # stale per-shot prose camera phrase must not mirror the actor.
@@ -659,11 +681,17 @@ def _qwen_edit_prompt_v3(
         if "测试装置" in normalized_visual and "测试装置" not in scene_text:
             scene_text = f"{scene_text}；{normalized_visual}"
         emotion_text = f"情绪：{emotion}。" if emotion else ""
+        population_guard = (
+            f"最终画面恰好只呈现{subject}一名人物，嘴巴自然闭合；"
+            "不得生成第二个人、背景群众、人脸、头部、身体剪影或镜中倒影，"
+            if reference_mode == "visible_speaker_and_location"
+            else f"最终画面只呈现{subject}，人物数量与描述一致，嘴巴自然闭合，"
+        )
         return (
             f"{reference}。重绘一张图生视频的单幅剧情起始帧。"
             f"场景：{scene_text}。动作时刻：{action_text}。{emotion_text}"
             f"摄影机：{camera_text}。"
-            f"渲染：{style}。最终画面只呈现{subject}，人物数量与描述一致，嘴巴自然闭合，"
+            f"渲染：{style}。{population_guard}"
             "是一张无边框的连续画面；背景入口是连续纯木横梁，布面保持完整单色，"
             "测试装置、墙体和立柱都呈现大面积连续素面材质，"
             "画面内没有汉字、字母、数字或其他可读符号。"
@@ -695,11 +723,17 @@ def _qwen_edit_prompt_v5(
             "测试装置、墙体和立柱都呈现大面积连续素面材质，",
             "；",
         )
+    reference_scope = (
+        "图1只锁定性别、年龄段、发型轮廓、身份识别点和服装结构，"
+        "图2只锁定必要的场景结构；"
+        if reference_mode == "visible_speaker_and_location"
+        else "图1只锁定性别、年龄段、发型轮廓、身份识别点、服装结构与必要的场景结构；"
+    )
     repaint = (
-        "艺术指导优先于参考图原有渲染。图1只锁定性别、年龄段、发型轮廓、身份识别点、"
-        "服装结构与必要的场景结构；允许依照下述艺术指导重新塑造脸部平面、眼鼻唇体积和皮肤质感，"
+        "艺术指导优先于参考图原有渲染。" + reference_scope +
+        "允许依照下述艺术指导重新塑造脸部平面、眼鼻唇体积和皮肤质感，"
         "不要像素级锁定参考图的大眼比例与光滑脸型。"
-        "不要继承图1的塑料皮肤、镜面皮衣、橡胶布料、手游PBR高光、过饱和蓝金配色、"
+        "不要继承参考图的塑料皮肤、镜面皮衣、橡胶布料、手游PBR高光、过饱和蓝金配色、"
         "超大玻璃眼、圆润幼童脸、尖细假鼻、过曝天空、平铺空广场、站桩海报构图或伪文字。"
         "整幅画必须统一重绘，不可只套滤镜。"
     )
@@ -710,6 +744,7 @@ def _qwen_edit_prompt_v5(
         "polished-manhua": "必须是连贯剧情中的精致彩漫画格，不要三维游戏CG、真人照片、Q版或站桩海报。",
         "ink-fantasy": "必须保持人物面部可读和空间透视，不要真人照片、三维塑料感、平面日漫色块或可读书法文字。",
         "dark-cinematic": "暗部必须保留五官、服装和场景细节，不要纯黑死影、恐怖血腥、塑料游戏CG或荧光高饱和。",
+        "3d-donghua": "必须是高品质风格化中国3D国漫动画，不要二维线稿、真人照片、塑料玩偶、写实游戏截图或角色创建界面。",
     }.get(style_family, "")
     return (
         repaint
@@ -746,11 +781,26 @@ def compile_image_prompt(
     # Native-v5 is an intentional art-direction migration. Old bibles and
     # cached source prompts can still contain v4 PBR/game-CG wording, so the
     # selected policy—not stale prose—must win the style decision.
-    style_family = (
-        style_profile or DEFAULT_IMAGE_STYLE_PROFILE
-        if policy == "native-v5"
-        else _style_family(prompt)
-    )
+    if policy == "native-v5":
+        if style_profile is not None:
+            style_family = style_profile
+        elif any(
+            marker in prompt.casefold()
+            for marker in (
+                "批准3d国漫",
+                "已批准的3d国漫",
+                "3d_guoman_rendering",
+                "approved 3d guoman",
+            )
+        ):
+            # An explicit, versioned series contract is authoritative.  Mere
+            # legacy mentions such as "PBR game CG" still fall back to the
+            # native-v5 cinematic-realism migration used by older bibles.
+            style_family = "3d-donghua"
+        else:
+            style_family = DEFAULT_IMAGE_STYLE_PROFILE
+    else:
+        style_family = _style_family(prompt)
     task_kind = _task_kind(prompt)
     if policy == "legacy":
         return CompiledImagePrompt(

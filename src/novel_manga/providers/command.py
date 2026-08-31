@@ -13,8 +13,25 @@ class CommandMediaProvider(MediaProvider):
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.remote_image_provider = None
+        normalized_image_model = "".join(
+            character
+            for character in settings.image_model.casefold()
+            if character.isalnum()
+        )
+        if normalized_image_model == "gptimage2" and (
+            settings.phanrouter_image_api_key or settings.phanrouter_api_key
+        ):
+            from .phanrouter import PhanRouterMediaProvider
+
+            self.remote_image_provider = PhanRouterMediaProvider(settings)
 
     def enter_stage(self, stage: str) -> None:
+        if self.remote_image_provider is not None and stage in {
+            "image-base",
+            "image-edit",
+        }:
+            return
         if not self.settings.model_lifecycle_command:
             return
         subprocess.run(
@@ -38,7 +55,20 @@ class CommandMediaProvider(MediaProvider):
         if not output.is_file() or output.stat().st_size == 0:
             raise RuntimeError(f"provider command did not create a non-empty output: {output}")
 
-    def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult:
+    def create_image(
+        self,
+        prompt: str,
+        output: Path,
+        reference: Path | None = None,
+        additional_references: tuple[Path, ...] = (),
+    ) -> ImageResult:
+        if self.remote_image_provider is not None:
+            return self.remote_image_provider.create_image(
+                prompt,
+                output,
+                reference=reference,
+                additional_references=additional_references,
+            )
         arguments = ["--prompt", prompt, "--width", str(self.settings.width), "--height", str(self.settings.height)]
         if self.settings.local_image_prompt_policy:
             arguments.extend(
@@ -46,6 +76,8 @@ class CommandMediaProvider(MediaProvider):
             )
         if reference:
             arguments.extend(["--reference", str(reference)])
+        for additional_reference in additional_references:
+            arguments.extend(["--additional-reference", str(additional_reference)])
         self._run(self.settings.image_command, arguments, output)
         return ImageResult(path=output)
 

@@ -4,13 +4,13 @@ FROM ${BASE_IMAGE}
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY=127.0.0.1,localhost
+ARG INDEXTTS_SOURCE_REVISION=ee40fa7d6c6b8a2c7f06105f9f1e65775b74868c
 
 LABEL org.opencontainers.image.title="novel-manga-video-offline-a100" \
       org.opencontainers.image.description="Single-image offline novel-to-manga production runtime" \
       io.novel-manga.video-backend="MiniMax-H3-Ref2VA-ComfyUI" \
       io.novel-manga.diffusers-version="0.38.0" \
-      io.novel-manga.voxcpm-version="2.0.3" \
-      io.novel-manga.qwen-tts-version="0.1.1" \
+      io.novel-manga.indextts-version="2.5" \
       io.novel-manga.qwen-asr-version="0.0.6"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -34,10 +34,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NOVEL_LOCAL_VISUAL_STRATEGY=keyframe \
     NOVEL_VIDEO_REQUIRES_AUDIO=1 \
     NOVEL_VIDEO_MAX_SECONDS=8 \
-    NOVEL_TTS_MODEL=VoxCPM2 \
-    NOVEL_TTS_BACKEND=voxcpm2 \
-    NOVEL_TTS_QWEN_FALLBACK=1 \
-    NOVEL_VOXCPM_VOICE_CACHE_DIR=/output/.runtime/voxcpm2-voices \
+    NOVEL_TTS_MODEL=IndexTTS-2.5 \
+    NOVEL_TTS_BACKEND=indextts \
+    NOVEL_INDEXTTS_USE_BF16=1 \
+    NOVEL_INDEXTTS_USE_QWEN_EMO=1 \
     NOVEL_PLANNER_BACKEND=command \
     NOVEL_PLANNER_COMMAND="/opt/venvs/controller/bin/python /app/runtime/local_model_cli.py planner" \
     NOVEL_IMAGE_COMMAND="/opt/venvs/controller/bin/python /app/runtime/local_model_cli.py image" \
@@ -58,8 +58,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NOVEL_MINIMAX_H3_WIDTH=480 \
     NOVEL_MINIMAX_H3_HEIGHT=832 \
     NOVEL_MINIMAX_H3_STEPS=20 \
+    NOVEL_MINIMAX_H3_SAMPLER=res_multistep \
     NOVEL_MINIMAX_H3_SCHEDULER=simple \
     NOVEL_MINIMAX_H3_REF_IMAGE_SIZE=match \
+    NOVEL_MINIMAX_H3_CACHE_LRU=auto \
+    NOVEL_MINIMAX_H3_CACHE_MIN_TOTAL_MIB=80000 \
+    NOVEL_MINIMAX_H3_CACHE_MIN_FREE_MIB=70000 \
     NOVEL_MINIMAX_H3_URL=http://127.0.0.1:18100 \
     NOVEL_MODEL_SUPERVISOR_URL=http://127.0.0.1:18090 \
     NOVEL_MODEL_WORKER_URL=http://127.0.0.1:18100
@@ -77,6 +81,10 @@ RUN sed -i \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+RUN git clone --filter=blob:none https://github.com/index-tts/index-tts.git /opt/index-tts \
+    && git -C /opt/index-tts checkout --detach "${INDEXTTS_SOURCE_REVISION}" \
+    && rm -rf /opt/index-tts/.git
 
 # Each heavyweight stack is isolated, but inherits the CUDA-enabled Torch from
 # the pinned vLLM base image. This keeps one deliverable image without copying
@@ -103,6 +111,17 @@ RUN uv venv --system-site-packages --python /usr/bin/python3 /opt/venvs/audio \
       "onnxruntime==1.24.3" \
       "qwen-omni-utils==0.0.9" \
       "soynlp==0.0.493"
+
+COPY docker/indextts-requirements.txt /tmp/indextts-requirements.txt
+RUN uv venv --python /usr/bin/python3.10 /opt/venvs/indextts \
+    && uv pip install --python /opt/venvs/indextts/bin/python \
+      --default-index https://pypi.tuna.tsinghua.edu.cn/simple \
+      --index https://download.pytorch.org/whl/cu128 \
+      --index-strategy unsafe-best-match \
+      "torch==2.8.0+cu128" "torchaudio==2.8.0+cu128" \
+    && uv pip install --python /opt/venvs/indextts/bin/python \
+      -r /tmp/indextts-requirements.txt \
+    && uv pip install --python /opt/venvs/indextts/bin/python --no-deps /opt/index-tts
 
 COPY docker/h3-requirements.txt /tmp/h3-requirements.txt
 # The base image already supplies its matched CUDA 12.9 Torch trio. H3's
@@ -134,7 +153,8 @@ RUN useradd --create-home --uid 10001 runner \
     && mkdir -p /input /output /models /run/novel-manga \
     && chown -R runner:runner /app /input /output /run/novel-manga
 
-LABEL org.opencontainers.image.version="0.12.0" \
+LABEL org.opencontainers.image.version="0.13.0" \
+      io.novel-manga.indextts-source-revision="ee40fa7d6c6b8a2c7f06105f9f1e65775b74868c" \
       io.novel-manga.comfyui-revision="6f7cd7fceaaf60d2669b554936394a7412c6fde5" \
       io.novel-manga.comfyui-patch="headless-template-gallery-warning" \
       io.novel-manga.qwen-image-tools-revision="6b5e1f5cec987d404be5ac6657db3b9aacb56a89" \

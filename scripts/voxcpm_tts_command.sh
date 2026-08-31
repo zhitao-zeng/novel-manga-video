@@ -4,7 +4,7 @@
 
 SHARED_HOST="/mnt/disk1/zengzhitao/novel-manga-video/.codex/research-loop/evidence/v53/output"
 SHARED_CONTAINER="/output"
-CONTAINER="novel-manga-v53-probes"
+CONTAINER="${NOVEL_VOXCPM_CONTAINER:-novel-manga-v53-probes}"
 
 OUTPUT_HOST=""
 TEXT=""

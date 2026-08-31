@@ -29,7 +29,7 @@ def test_native_zimage_compiles_long_3d_prompt_without_opaque_fingerprint() -> N
 
     assert compiled.style_family == "3d-donghua"
     assert compiled.task_kind == "character-asset"
-    assert "高端国产半写实3D国漫动画正片" in compiled.positive_prompt
+    assert "高品质风格化中国3D国漫动画正片" in compiled.positive_prompt
     assert "deadbeef1234" not in compiled.positive_prompt
     assert "画面内恰好一名人物" in compiled.positive_prompt
     assert "九宫格" not in compiled.positive_prompt
@@ -137,6 +137,22 @@ def test_native_v5_overrides_stale_game_cg_with_cinematic_realism() -> None:
     assert len(compiled.positive_prompt) <= image_prompting.ZIMAGE_PROMPT_CHARACTER_BUDGET
 
 
+def test_native_v5_honors_explicit_approved_3d_guoman_contract() -> None:
+    compiled = image_prompting.compile_image_prompt(
+        "Qwen Image Edit双参考3D国漫剧情关键帧；保持已批准的3D国漫渲染和"
+        "3d_guoman_rendering，动作发生前一瞬。",
+        stage="image-edit",
+        policy="native-v5",
+        reference_mode="visible_speaker_and_location",
+    )
+
+    assert compiled.style_family == "3d-donghua"
+    assert "高品质风格化中国3D国漫动画正片" in compiled.positive_prompt
+    assert "哑光无毛孔皮肤" in compiled.positive_prompt
+    assert "Toon-PBR" in compiled.positive_prompt
+    assert "真实大小的虹膜与瞳孔" not in compiled.positive_prompt
+
+
 def test_native_v5_qwen_repaints_reference_instead_of_preserving_plastic_style() -> None:
     compiled = image_prompting.compile_image_prompt(
         "视觉风格：高精度半写实3D国漫CG，PBR石材。"
@@ -163,6 +179,7 @@ def test_native_v5_qwen_repaints_reference_instead_of_preserving_plastic_style()
     ("profile", "expected_anchor"),
     (
         ("cinematic-realism", "高预算中国国漫动画电影"),
+        ("3d-donghua", "高品质风格化中国3D国漫动画正片"),
         ("premium-2d-cel", "精品二维国漫番剧正片"),
         ("painterly-donghua", "高级半厚涂国漫动画"),
         ("polished-manhua", "高完成度东方彩色漫画"),
@@ -260,6 +277,26 @@ def test_native_qwen_does_not_forward_locked_dialogue_as_drawable_text() -> None
 
     assert "不要开门" not in compiled.positive_prompt
     assert "画面信息" not in compiled.positive_prompt
+
+
+def test_native_qwen_assigns_character_and_location_references_separately() -> None:
+    compiled = image_prompting.compile_image_prompt(
+        "视觉风格：国风2.5D半写实动态漫。"
+        "这是连续长镜头的唯一动作起始帧。"
+        "剧情画面：萧炎站在木结构大厅内，抬眼看向父亲。"
+        "本镜唯一构图要求：竖屏中近景。"
+        "可见说话者萧炎必须清楚位于竖屏安全区。",
+        stage="image-edit",
+        policy="native-v5",
+        reference_mode="visible_speaker_and_location",
+    )
+
+    assert "图1只锁定" in compiled.positive_prompt
+    assert "图2只锁定空场" in compiled.positive_prompt
+    assert "把角色放入图2对应的场景" in compiled.positive_prompt
+    assert "最终画面恰好只呈现萧炎一名人物" in compiled.positive_prompt
+    assert "场景中的对话对象、长辈、群众和其他人物全部在画外" in compiled.positive_prompt
+    assert "分栏参考板" not in compiled.positive_prompt
 
 
 def test_rejects_unknown_prompt_policy() -> None:

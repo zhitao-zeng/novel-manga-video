@@ -47,18 +47,22 @@ def stable_generation_seed(
 
 
 H3_PROMPT_COMPILER_REVISION = "h3-drama-v2-camera-contract"
+H3_VIDEO_SIGMA_SHIFT = 12.0
+H3_AUDIO_SIGMA_SHIFT = 3.0
 
 
 @dataclass(frozen=True)
 class MiniMaxH3Config:
     server_url: str = "http://127.0.0.1:18100"
     model: str = "minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+    model_revision: str = ""
     text_encoder: str = "qwen3vl_32b_minimax_h3_int8_convrot.safetensors"
     video_vae: str = "minimax_h3_video_vae_fp16.safetensors"
     audio_vae: str = "minimax_h3_audio_vae_fp32.safetensors"
     width: int = 480
     height: int = 832
     steps: int = 20
+    sampler: str = "res_multistep"
     scheduler: str = "simple"
     ref_image_size: str = "match"
     use_sageattention: bool = False
@@ -70,6 +74,9 @@ class MiniMaxH3Config:
         return cls(
             server_url=os.getenv("NOVEL_MINIMAX_H3_URL", cls.server_url),
             model=os.getenv("NOVEL_MINIMAX_H3_MODEL", cls.model),
+            model_revision=os.getenv(
+                "NOVEL_MINIMAX_H3_MODEL_REVISION", cls.model_revision
+            ),
             text_encoder=os.getenv(
                 "NOVEL_MINIMAX_H3_TEXT_ENCODER", cls.text_encoder
             ),
@@ -78,6 +85,7 @@ class MiniMaxH3Config:
             width=int(os.getenv("NOVEL_MINIMAX_H3_WIDTH", str(cls.width))),
             height=int(os.getenv("NOVEL_MINIMAX_H3_HEIGHT", str(cls.height))),
             steps=int(os.getenv("NOVEL_MINIMAX_H3_STEPS", str(cls.steps))),
+            sampler=os.getenv("NOVEL_MINIMAX_H3_SAMPLER", cls.sampler),
             scheduler=os.getenv("NOVEL_MINIMAX_H3_SCHEDULER", cls.scheduler),
             ref_image_size=os.getenv(
                 "NOVEL_MINIMAX_H3_REF_IMAGE_SIZE", cls.ref_image_size
@@ -93,6 +101,20 @@ class MiniMaxH3Config:
                 os.getenv("NOVEL_MINIMAX_H3_TIMEOUT", str(cls.timeout_seconds))
             ),
         )
+
+    def audit_identity(self) -> dict[str, Any]:
+        """Return the exact checkpoint and sampling bundle used by ComfyUI."""
+
+        return {
+            "backend": "MiniMax-H3-Ref2VA",
+            "model": self.model,
+            "model_revision": self.model_revision or None,
+            "steps": self.steps,
+            "sampler": self.sampler,
+            "scheduler": self.scheduler,
+            "sigma_shift_video": H3_VIDEO_SIGMA_SHIFT,
+            "sigma_shift_audio": H3_AUDIO_SIGMA_SHIFT,
+        }
 
 
 def aligned_frame_count(duration_seconds: float, fps: int = 24) -> int:
@@ -214,6 +236,8 @@ class MiniMaxH3Client:
             raise ValueError("MiniMax H3 width and height must be divisible by 32")
         if config.steps < 1:
             raise ValueError("MiniMax H3 steps must be positive")
+        if config.sampler not in {"res_multistep", "euler"}:
+            raise ValueError("MiniMax H3 sampler must be res_multistep or euler")
         if config.scheduler not in {"simple", "beta", "normal"}:
             raise ValueError("MiniMax H3 scheduler must be simple, beta, or normal")
         if config.ref_image_size not in {"match", "max"}:
@@ -309,7 +333,11 @@ class MiniMaxH3Client:
             },
             "2": {
                 "class_type": "MiniMaxH3SigmaShift",
-                "inputs": {"model": ["1", 0], "shift_video": 12.0, "shift_audio": 3.0},
+                "inputs": {
+                    "model": ["1", 0],
+                    "shift_video": H3_VIDEO_SIGMA_SHIFT,
+                    "shift_audio": H3_AUDIO_SIGMA_SHIFT,
+                },
             },
             "4": {
                 "class_type": "CLIPLoader",
@@ -358,7 +386,7 @@ class MiniMaxH3Client:
             },
             "13": {
                 "class_type": "KSamplerSelect",
-                "inputs": {"sampler_name": "res_multistep"},
+                "inputs": {"sampler_name": self.config.sampler},
             },
             "14": {
                 "class_type": "BasicScheduler",

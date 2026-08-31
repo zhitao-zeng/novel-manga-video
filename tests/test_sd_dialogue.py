@@ -159,6 +159,71 @@ def test_seedance25_payload_clamps_to_documented_duration_range() -> None:
     assert long["duration"] == 30
     assert short["generate_audio"] is False
 
+    provider.settings = SimpleNamespace(
+        video_model="sd2.5",
+        final_audio_policy="seedance_native_unchecked",
+    )
+    native, digest = provider._video_payload(
+        "人物直接说出台词", "https://example.test/frame.png", 4.0, None
+    )
+    assert native["generate_audio"] is True
+    assert digest is None
+    assert all(item.get("type") != "audio_url" for item in native["content"])
+
+    provider.settings = SimpleNamespace(
+        video_model="sd2.5",
+        final_audio_policy="sd25_native_original",
+    )
+    sd25_native, digest = provider._video_payload(
+        "保留SD2.5原声", "https://example.test/frame.png", 4.0, None
+    )
+    assert sd25_native["generate_audio"] is True
+    assert digest is None
+
+
+def test_seedance25_payload_keeps_ordered_character_and_scene_cards() -> None:
+    provider = object.__new__(PhanRouterMediaProvider)
+    provider.settings = SimpleNamespace(video_model="sd2.5")
+
+    payload, _ = provider._video_payload(
+        "图1是角色卡，图2是场景卡",
+        "data:image/jpeg;base64,character",
+        4.0,
+        None,
+        ("data:image/jpeg;base64,scene",),
+    )
+
+    images = [
+        item
+        for item in payload["content"]
+        if item.get("type") == "image_url"
+    ]
+    assert [item["image_url"]["url"] for item in images] == [
+        "data:image/jpeg;base64,character",
+        "data:image/jpeg;base64,scene",
+    ]
+    assert all(item["role"] == "reference_image" for item in images)
+
+
+def test_seedance25_payload_supports_text_to_video_without_image() -> None:
+    provider = object.__new__(PhanRouterMediaProvider)
+    provider.settings = SimpleNamespace(
+        video_model="sd2.5",
+        final_audio_policy="seedance_native_unchecked",
+    )
+
+    payload, _ = provider._video_payload(
+        "纯文本生成楚烟儿镜头",
+        None,
+        4.0,
+        None,
+    )
+
+    assert payload["generate_audio"] is True
+    assert payload["content"] == [
+        {"type": "text", "text": "纯文本生成楚烟儿镜头"}
+    ]
+
 
 def test_seedance25_can_inline_a_locked_local_reference_image(tmp_path) -> None:
     frame = tmp_path / "frame.png"
@@ -222,7 +287,9 @@ def test_seedream_image_submit_download_and_sanitized_metadata(tmp_path) -> None
     assert "runtime-secret" not in json.dumps(metadata)
 
 
-def test_seedance25_submit_poll_download_and_sanitized_task_metadata(tmp_path) -> None:
+def test_seedance25_retries_succeeded_task_until_cdn_file_is_ready(
+    tmp_path, monkeypatch
+) -> None:
     audio = tmp_path / "line.wav"
     with wave.open(str(audio), "wb") as stream:
         stream.setnchannels(1)
@@ -231,8 +298,10 @@ def test_seedance25_submit_poll_download_and_sanitized_task_metadata(tmp_path) -
         stream.writeframes(b"\x00\x00" * 50400)
 
     submitted: dict = {}
+    media_requests = 0
 
     def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal media_requests
         if request.method == "POST":
             assert request.url.path.endswith("/api/v3/contents/generations/tasks")
             assert request.headers["Authorization"] == "Bearer runtime-secret"
@@ -256,6 +325,11 @@ def test_seedance25_submit_poll_download_and_sanitized_task_metadata(tmp_path) -
                 },
             )
         if request.url == httpx.URL("https://media.test/result.mp4"):
+            media_requests += 1
+            if media_requests == 1:
+                raise httpx.ReadTimeout("slow CDN", request=request)
+            if media_requests == 2:
+                return httpx.Response(404, content=b"not replicated yet")
             return httpx.Response(200, content=b"seedance25-mp4")
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
@@ -267,6 +341,7 @@ def test_seedance25_submit_poll_download_and_sanitized_task_metadata(tmp_path) -
     )
     provider.video_headers = {"Authorization": "Bearer runtime-secret"}
     provider.client = httpx.Client(transport=httpx.MockTransport(handle), timeout=2.0)
+    monkeypatch.setattr("novel_manga.providers.phanrouter.time.sleep", lambda _: None)
     output = tmp_path / "clip.mp4"
     try:
         provider.create_video(
@@ -283,6 +358,7 @@ def test_seedance25_submit_poll_download_and_sanitized_task_metadata(tmp_path) -
         provider.client.close()
 
     assert output.read_bytes() == b"seedance25-mp4"
+    assert media_requests == 3
     assert submitted["model"] == "sd2.5"
     assert submitted["watermark"] is False
     assert submitted["output_format"] == "mp4"

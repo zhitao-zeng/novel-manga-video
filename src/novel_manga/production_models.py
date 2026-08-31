@@ -16,6 +16,12 @@ class AssetRecord(BaseModel):
     asset_id: str
     kind: str
     name: str
+    version: str = "v001"
+    approval_status: str = "approved"
+    rights_status: str = "project-generated"
+    identity_invariants: list[str] = Field(default_factory=list)
+    state_variables: dict[str, str] = Field(default_factory=dict)
+    reference_scope: dict[str, list[str]] = Field(default_factory=dict)
     spec_path: str
     primary_image: str
     secondary_image: str | None = None
@@ -51,6 +57,7 @@ class RuntimeUnit(BaseModel):
     # needed by scene-aware keyframes and audit traces.
     direct_video_character_asset_ids: list[str] = Field(default_factory=list)
     location_asset_id: str
+    location_name: str = ""
     voice: str
     visual_prompt: str
     motion_instruction: str = ""
@@ -64,6 +71,7 @@ class RuntimeUnit(BaseModel):
     keyframe_reasons: list[str] = Field(default_factory=list)
     shot_intent: ShotIntent = Field(default_factory=ShotIntent)
     audio_plan: SceneAudioPlan = Field(default_factory=SceneAudioPlan)
+    action_physics_plan: "ActionPhysicsPlan | None" = None
     audio_path: str
     keyframe_path: str
     raw_video_path: str
@@ -93,6 +101,111 @@ class RuntimeScene(BaseModel):
     location_asset_id: str
     narrative_job: str
     shot_ids: list[str] = Field(default_factory=list)
+    spatial_contract: "SceneSpatialContract | None" = None
+
+
+class SceneSpatialContract(BaseModel):
+    location_version_id: str
+    time_of_day: str = "unspecified"
+    zones: dict[str, str] = Field(default_factory=dict)
+    anchor_objects: list[str] = Field(default_factory=list)
+    allowed_asset_ids: list[str] = Field(default_factory=list)
+    lighting_source: str = "approved location reference"
+    action_axis: str
+    continuity_notes: list[str] = Field(default_factory=list)
+
+
+class ActionPhysicsPlan(BaseModel):
+    trigger: str
+    preparation: str
+    force: str
+    contact: str
+    reaction: str
+    settling: str
+    environment_feedback: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ReferenceScope(BaseModel):
+    reference_id: str
+    kind: str
+    inherit: list[str] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
+
+
+class ShotContractBeat(BaseModel):
+    start_seconds: float = Field(ge=0.0)
+    end_seconds: float = Field(gt=0.0)
+    actor_or_source: str
+    trigger: str = ""
+    action: str
+    reaction: str = ""
+    end_state: str = ""
+
+
+class ShotContract(BaseModel):
+    contract_version: str = "hell-grind-adapted-v1"
+    narrative_goal: str
+    duration_seconds: float = Field(gt=0.0, le=14.0)
+    visible_asset_ids: list[str] = Field(default_factory=list)
+    audible_roles: list[str] = Field(default_factory=list)
+    reference_scopes: list[ReferenceScope] = Field(default_factory=list)
+    open_state: str
+    beat_timeline: list[ShotContractBeat] = Field(min_length=1, max_length=4)
+    close_state: str
+    camera_start: str
+    camera_path: str
+    camera_end: str
+    continuity_in: str
+    continuity_out: str
+    must_hold: list[str] = Field(default_factory=list, max_length=8)
+    changes_here: list[str] = Field(default_factory=list, max_length=5)
+    must_not_appear: list[str] = Field(default_factory=list, max_length=5)
+    risk_focus: list[str] = Field(default_factory=list, max_length=3)
+    exact_dialogue: list[str] = Field(default_factory=list)
+    external_audio_is_master: bool = True
+
+
+class ProviderPromptAdapter(BaseModel):
+    adapter_version: str = "runtime-compact-v1"
+    provider: str
+    image_model: str
+    video_model: str
+    contract_sha256: str
+    reference_order: list[str] = Field(default_factory=list)
+    image_prompt: str
+    video_prompt: str
+
+
+class ImagePromptContract(BaseModel):
+    contract_version: str = "hell-grind-adapted-v1"
+    purpose: str = "shot_start_keyframe"
+    exact_subject_count: int = Field(ge=0, le=6)
+    subject_asset_version_ids: list[str] = Field(default_factory=list)
+    location_asset_version_id: str
+    reference_scopes: list[ReferenceScope] = Field(default_factory=list)
+    spatial_anchors: list[str] = Field(default_factory=list, max_length=4)
+    action_moment: str
+    composition: str
+    perspective_focus: str
+    lighting: str
+    color_material: str
+    risk_focus: list[str] = Field(default_factory=list, max_length=3)
+    delivery: str = "9:16 portrait JPEG keyframe; no burned-in text"
+
+
+class EpisodeSequenceContract(BaseModel):
+    sequence_version: str = "hell-grind-adapted-v1"
+    sequence_goal: str
+    exact_generation_count: int = Field(ge=1)
+    ordered_group_ids: list[str] = Field(min_length=1)
+    narrative_progression: list[str] = Field(min_length=1)
+    visual_motifs: list[str] = Field(default_factory=list, max_length=8)
+    coverage_rhythm: list[str] = Field(min_length=1)
+    camera_rhythm: list[str] = Field(min_length=1)
+    lighting_continuity: str
+    audio_continuity: str
+    transition_rules: list[str] = Field(default_factory=list)
+    final_landing: str
 
 
 class RuntimeVisualGroup(BaseModel):
@@ -119,6 +232,9 @@ class RuntimeVisualGroup(BaseModel):
     speed_factor: float = Field(default=1.0, ge=1.0, le=1.12)
     visual_strategy: VisualStrategy = VisualStrategy.AUTO
     keyframe_reasons: list[str] = Field(default_factory=list)
+    shot_contract: ShotContract | None = None
+    image_contract: ImagePromptContract | None = None
+    prompt_adapter: ProviderPromptAdapter | None = None
 
 
 class ProductionPlan(BaseModel):
@@ -133,6 +249,7 @@ class ProductionPlan(BaseModel):
     shots: list[RuntimeShot] = Field(min_length=1)
     units: list[RuntimeUnit] = Field(min_length=1)
     visual_groups: list[RuntimeVisualGroup] = Field(default_factory=list)
+    sequence_contract: EpisodeSequenceContract | None = None
 
     @model_validator(mode="after")
     def validate_hierarchy(self) -> "ProductionPlan":

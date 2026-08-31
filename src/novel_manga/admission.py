@@ -13,13 +13,13 @@ from .av_quality import (
     evaluate_delivered_audio_energy,
     evaluate_subtitle_burn_in,
 )
-from .config import Settings
+from .config import NATIVE_VIDEO_AUDIO_POLICIES, Settings
 from .production_models import ProductionPlan
 from .sd_dialogue import PUNCTUATION
 
 
-ADMISSION_POLICY_REVISION = "novel-manga-av-v1.6-long-shot-audio-energy"
-CAMERA_POLICY_REVISION = "motivated-camera-v1"
+ADMISSION_POLICY_REVISION = "novel-manga-av-v1.7-video-side-gates"
+CAMERA_POLICY_REVISION = "motivated-camera-v2-subtle-unbudgeted"
 
 
 def admission_backend_identity(settings: Settings) -> dict:
@@ -30,6 +30,7 @@ def admission_backend_identity(settings: Settings) -> dict:
         "align_command_sha256": digest(settings.align_command),
         "asr_command_sha256": digest(settings.asr_command),
         "video_model": settings.video_model,
+        "final_audio_policy": settings.final_audio_policy,
         "video_command_sha256": digest(settings.video_command),
         "tts_model": settings.tts_model,
         "tts_command_sha256": digest(settings.tts_command),
@@ -110,6 +111,7 @@ def evaluate_episode_admission(
     subtitle_events: list[dict],
     asr_report: dict,
     face_consistency_report: dict | None = None,
+    video_quality_report: dict | None = None,
 ) -> dict:
     subtitle = evaluate_subtitle_structure(plan, subtitle_events, ass, settings.max_subtitle_cps)
     burn_in = evaluate_subtitle_burn_in(clean_video, delivered_video, subtitle_events)
@@ -128,7 +130,55 @@ def evaluate_episode_admission(
         "speech_content": speech,
         "delivered_audio_energy": audio_energy,
     }
-    evidence_passed = all(check["status"] == STATUS_PASSED for check in checks.values())
+    if video_quality_report is not None:
+        checks["video_side_quality"] = {
+            "status": (
+                STATUS_PASSED
+                if video_quality_report.get("passed")
+                else STATUS_FAILED
+            ),
+            "report": video_quality_report,
+        }
+    elif settings.admission_mode == "production":
+        checks["video_side_quality"] = {
+            "status": STATUS_FAILED,
+            "reason": "production admission requires the video-side quality report",
+        }
+    else:
+        checks["video_side_quality"] = {
+            "status": "skipped",
+            "reason": "preview has no video-side quality report",
+        }
+    if settings.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES:
+        checks["speech_content"] = {
+            "status": "skipped",
+            "reason": "creative preview keeps Seedance native speech without ASR",
+        }
+        checks["delivered_audio_energy"] = {
+            "status": "skipped",
+            "reason": "media QC verifies that the preview contains an audio stream",
+        }
+        required_checks = (
+            checks["media_qc"],
+            checks["subtitle_structure"],
+            checks["subtitle_burn_in"],
+            *(
+                (checks["video_side_quality"],)
+                if video_quality_report is not None
+                else ()
+            ),
+        )
+    else:
+        required_checks = tuple(
+            check
+            for name, check in checks.items()
+            if name != "video_side_quality"
+            or settings.admission_mode == "production"
+            or video_quality_report is not None
+        )
+    evidence_passed = all(
+        check["status"] == STATUS_PASSED for check in required_checks
+    )
     submission_eligible = settings.admission_mode == "production" and settings.provider != "mock"
     return {
         "schema_version": 2,

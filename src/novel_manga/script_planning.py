@@ -3,7 +3,9 @@ from __future__ import annotations
 import math
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from .models import (
     AdaptationLedgerItem,
@@ -24,11 +26,13 @@ from .models import (
 from .creative_direction import SHORT_DRAMA_PROFILE
 
 
-SCRIPT_POLICY_REVISION = "novel-manga-script-v6-showrunner"
+SCRIPT_POLICY_REVISION = "novel-manga-script-v7-active-drama"
 # A turn is a complete TTS breath/meaning group, not one subtitle page.  The
 # renderer paginates and times subtitles independently after audio alignment.
-SHORT_DRAMA_TURN_TARGET_MAX = 36
-SHORT_DRAMA_TURN_HARD_MAX = 60
+SHORT_DRAMA_TURN_TARGET_MAX = 14
+SHORT_DRAMA_TURN_HARD_MAX = 20
+SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX = 0.35
+SHORT_DRAMA_NAMED_CONFLICT_RATIO_MIN = 0.20
 # Showrunner state deltas are only worth gating on once most of the chapter's
 # declared changes carry evidence; below this the state layer is decorative.
 CHARACTER_DELTA_GROUNDING_FLOOR = 0.6
@@ -72,6 +76,44 @@ _ADDRESSED_SPEECH = re.compile(r"[我你您]")
 # Bracketed annotations belong in delivery_mode and performance_plan, never in
 # the text a voice actor speaks.
 _STAGE_DIRECTION = re.compile(r"[（(【\[][^）)】\]]{0,8}[）)】\]]")
+
+_ACTIVE_ACTION_TOKENS = (
+    "走",
+    "按",
+    "直视",
+    "转身",
+    "绕",
+    "追",
+    "握",
+    "发问",
+    "追问",
+    "拒绝",
+    "反击",
+    "挡",
+    "抬手",
+    "开口",
+    "决定",
+    "选择",
+    "推",
+    "拉",
+    "冲",
+    "抓",
+    "离开",
+)
+_NAMED_CONFLICT_TOKENS = (
+    "嘲讽",
+    "对立",
+    "压制",
+    "阻止",
+    "拒绝",
+    "挡",
+    "冲突",
+    "站队",
+    "嫉妒",
+    "反击",
+    "攻击",
+    "羞辱",
+)
 
 
 def _spoken_lines(source_quote: str) -> list[str]:
@@ -145,8 +187,11 @@ def _relax_policy(policy: "ScriptPolicy") -> "ScriptPolicy":
     # does not count toward the spoken-script total, so a draft that started
     # near the bar can land well under it after being cleaned up.  The floor has
     # to leave room for that.
+    scale = float(os.getenv("NOVEL_SCRIPT_RELAXED_SCALE", "0.45"))
+    if not 0.2 <= scale <= 1.0:
+        raise ValueError("NOVEL_SCRIPT_RELAXED_SCALE must be between 0.2 and 1.0")
     return ScriptPolicy(
-        min_script_chars=int(policy.min_script_chars * 0.45),
+        min_script_chars=int(policy.min_script_chars * scale),
         min_turns=int(policy.min_turns * 0.75),
         min_shots=int(policy.min_shots * 0.75),
     )
@@ -187,6 +232,22 @@ def script_policy(
     return ScriptPolicy(floor, turns, 14)
 
 
+def effective_script_policy(
+    source_chars: int,
+    density: str,
+    creative_profile: str = "faithful-chronological-v1",
+) -> ScriptPolicy:
+    """Return the same size policy used by the final quality gate.
+
+    Planner-side expansion must not target the strict floor while the selected
+    relaxed mode later evaluates against a smaller one.  Keeping this in one
+    helper prevents pointless resampling toward a bar the final gate does not
+    require.
+    """
+
+    return _relax_policy(script_policy(source_chars, density, creative_profile))
+
+
 def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
     """Fix the mechanical mislabels a planner reliably makes, before gating.
 
@@ -207,8 +268,30 @@ def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
     for shot in plan.shots:
         turns = []
         for turn in shot.turns:
-            text_key = _quote_key(turn.text)
             update: dict[str, object] = {}
+            spoken_text = _STAGE_DIRECTION.sub("", turn.text).strip()
+            if spoken_text and spoken_text != turn.text:
+                update["text"] = spoken_text
+            else:
+                spoken_text = turn.text
+            text_key = _quote_key(spoken_text)
+
+            cited_spoken = [
+                (line, _quote_key(line))
+                for line in _spoken_lines(turn.source_quote)
+                if _quote_key(line)
+            ]
+            if (
+                turn.derivation == TurnDerivation.VERBATIM
+                and len(cited_spoken) == 1
+                and len(text_key) >= 5
+                and SequenceMatcher(None, text_key, cited_spoken[0][1]).ratio() >= 0.92
+            ):
+                # A single cited line leaves no attribution ambiguity.  Restore
+                # a near-verbatim model edit to the author's exact words rather
+                # than accepting the paraphrase or spending a full rewrite.
+                spoken_text, text_key = cited_spoken[0]
+                update["text"] = spoken_text
 
             # A two-character interjection is contained in half the chapter by
             # accident; only treat a line as copied when there is enough of it
@@ -249,7 +332,7 @@ def repair_machine_draft(plan: EpisodePlan, episode: Episode) -> EpisodePlan:
                 # A speaker naming themselves is third-person prose whatever
                 # its length; the 25-character floor only ever applied to the
                 # verbatim-lift test beside it.
-                if not quoted and (
+                if not quoted and not _spoken_lines(turn.source_quote) and (
                     (speaker_key and speaker_key in text_key) or lifted
                 ):
                     # Third-person prose wearing a character's voice: hand it
@@ -308,7 +391,13 @@ def normalize_chronological_plan(
         "shots": shots,
         "adaptation_ledger": ledger,
     }
-    if plan.creative_profile != SHORT_DRAMA_PROFILE:
+    if plan.creative_profile == SHORT_DRAMA_PROFILE:
+        updates["hook"] = (
+            plan.dramaturgy.cold_open
+            if plan.dramaturgy is not None
+            else shots[0].narration
+        )
+    else:
         updates.update(
             {
                 "video_title": episode.source_title,
@@ -445,7 +534,9 @@ def evaluate_script_quality(
     previous_state: SeriesState | None = None,
 ) -> ScriptQualityReport:
     source_chars = len(_normalized(episode.source_text))
-    policy = _relax_policy(script_policy(source_chars, diagnosis.density, plan.creative_profile))
+    policy = effective_script_policy(
+        source_chars, diagnosis.density, plan.creative_profile
+    )
     turns = [turn for shot in plan.shots for turn in shot.turns]
     script_chars = sum(len(_normalized(turn.text)) for turn in turns)
     narration_chars = sum(
@@ -462,6 +553,71 @@ def evaluate_script_quality(
     critical = {event.event_id for event in diagnosis.events if event.importance == "critical"}
     coverage = len(critical & covered) / len(critical) if critical else 0.0
     issues: list[ScriptReviewIssue] = []
+
+    character_scores: Counter[str] = Counter()
+    for event in diagnosis.events:
+        weight = 3 if event.importance == "critical" else 1
+        for character in event.characters:
+            character_scores[character] += weight
+    protagonist_name = (
+        character_scores.most_common(1)[0][0] if character_scores else ""
+    )
+
+    def performance_text(shot) -> str:
+        plan_text = (
+            shot.performance_plan.model_dump_json()
+            if shot.performance_plan is not None
+            else ""
+        )
+        return " ".join(
+            (
+                shot.visual_prompt,
+                shot.motion_prompt,
+                shot.shot_intent.power_relation,
+                plan_text,
+            )
+        )
+
+    protagonist_agency_shots = [
+        shot.index
+        for shot in plan.shots
+        if protagonist_name
+        and protagonist_name in performance_text(shot)
+        and any(token in performance_text(shot) for token in _ACTIVE_ACTION_TOKENS)
+    ]
+    protagonist_agency_floor = max(1, math.ceil(len(plan.shots) / 3))
+    named_conflict_shots = [
+        shot.index
+        for shot in plan.shots
+        if protagonist_name in shot.characters
+        and len(set(shot.characters)) >= 2
+        and any(token in performance_text(shot) for token in _NAMED_CONFLICT_TOKENS)
+    ]
+    named_conflict_ratio = (
+        len(named_conflict_shots) / len(plan.shots) if plan.shots else 0.0
+    )
+    changed_shots = [
+        shot.index
+        for shot in plan.shots
+        if shot.change.strip() or "变化：" in shot.scene_job
+    ]
+    shot_change_coverage = (
+        len(changed_shots) / len(plan.shots) if plan.shots else 0.0
+    )
+    last_shot = plan.shots[-1] if plan.shots else None
+    visible_cliffhanger = bool(
+        last_shot is not None
+        and last_shot.shot_intent.dramatic_function == "cliffhanger"
+        and last_shot.performance_plan is not None
+        and last_shot.performance_plan.motion_beats
+        and (
+            any("？" in turn.text or "?" in turn.text for turn in last_shot.turns)
+            or any(
+                token in performance_text(last_shot)
+                for token in ("亮", "出现", "握", "抬眼", "打开", "看", "追问")
+            )
+        )
+    )
 
     def block(
         code: str,
@@ -644,6 +800,79 @@ def evaluate_script_quality(
         if turn.derivation == TurnDerivation.DERIVED
     )
     derived_char_ratio = derived_chars / script_chars if script_chars else 0.0
+    verbatim_turn_ratio = (
+        verbatim_turn_count / len(turns) if turns else 0.0
+    )
+
+    if plan.creative_profile == SHORT_DRAMA_PROFILE:
+        missing_change_shots = sorted(
+            set(shot.index for shot in plan.shots) - set(changed_shots)
+        )
+        if missing_change_shots:
+            block(
+                "shot_change_missing",
+                "每镜必须明确填写这一镜改变了什么；没有新增信息、关系变化或动作结果的镜头应删除或合并",
+                shot_indexes=missing_change_shots,
+            )
+        if protagonist_agency_shots and len(protagonist_agency_shots) < protagonist_agency_floor:
+            block(
+                "protagonist_agency_too_low",
+                f"主角{protagonist_name}只有{len(protagonist_agency_shots)}镜主动动作，"
+                f"至少需要{protagonist_agency_floor}镜；站立、低头和被动听话不计主动动作",
+                shot_indexes=[
+                    shot.index
+                    for shot in plan.shots
+                    if shot.index not in protagonist_agency_shots
+                ][: max(1, protagonist_agency_floor - len(protagonist_agency_shots))],
+            )
+        elif not protagonist_agency_shots:
+            block(
+                "protagonist_has_no_active_action",
+                f"主角{protagonist_name or '未识别'}没有可见的选择、反击、追问或改变局面的动作",
+            )
+        named_conflict_applicable = (
+            len(character_scores) >= 2 and len(plan.shots) >= 3
+        )
+        if (
+            named_conflict_applicable
+            and named_conflict_ratio < SHORT_DRAMA_NAMED_CONFLICT_RATIO_MIN
+        ):
+            block(
+                "named_conflict_ratio_too_low",
+                f"有具名对手参与的冲突镜占比{named_conflict_ratio:.1%}低于"
+                f"{SHORT_DRAMA_NAMED_CONFLICT_RATIO_MIN:.0%}；匿名人群氛围不能替代具体对手",
+                shot_indexes=[
+                    shot.index
+                    for shot in plan.shots
+                    if protagonist_name in shot.characters
+                    and shot.index not in named_conflict_shots
+                ],
+            )
+        if (
+            len(turns) >= 2
+            and verbatim_turn_ratio > SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX
+        ):
+            block(
+                "verbatim_turn_ratio_too_high",
+                f"逐字原文turn占比{verbatim_turn_ratio:.1%}超过上限"
+                f"{SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX:.0%}；保真应由事实、因果和source trace保证，"
+                "不能靠整段照抄小说台词",
+                shot_indexes=[
+                    shot.index
+                    for shot in plan.shots
+                    if any(
+                        turn.derivation == TurnDerivation.VERBATIM
+                        for turn in shot.turns
+                    )
+                ],
+            )
+        if len(plan.shots) >= 3 and not visible_cliffhanger:
+            block(
+                "visible_cliffhanger_missing",
+                "最后一镜必须在画面或声音中主动抛出问题、异象、决定或后果；"
+                "只在注释中写“原因未揭晓”不算章末钩子",
+                shot_indexes=[last_shot.index] if last_shot is not None else [],
+            )
 
     turn_lengths = [len(_normalized(turn.text)) for turn in turns]
     target_overflow_shots = sorted(
@@ -792,6 +1021,14 @@ def evaluate_script_quality(
                 plan.creative_profile == SHORT_DRAMA_PROFILE
                 and issue.code == "opening_spoils_resolution"
             )
+            and not (
+                not hard_overflow_shots
+                and (
+                    "TURN_LENGTH" in issue.code.upper()
+                    or "TURN_TOO_LONG" in issue.code.upper()
+                    or "TTS_OVERFLOW" in issue.code.upper()
+                )
+            )
         )
         if not qualitative.passed and not any(
             issue.severity == "blocking" for issue in qualitative.issues
@@ -844,22 +1081,21 @@ def evaluate_script_quality(
     ]
     camera_move_ratio = len(moving_shots) / len(plan.shots) if plan.shots else 0.0
     if plan.creative_profile == SHORT_DRAMA_PROFILE:
-        adjacent_moves = [
-            right
-            for left, right in zip(moving_shots, moving_shots[1:])
-            if right == left + 1
+        emphasis_shots = [
+            shot.index
+            for shot in plan.shots
+            if shot.camera_plan is not None
+            and shot.camera_plan.mode == "motivated_emphasis"
         ]
-        if camera_move_ratio > 0.34:
+        emphasis_ratio = (
+            len(emphasis_shots) / len(plan.shots) if plan.shots else 0.0
+        )
+        if emphasis_ratio > 0.20:
             block(
-                "camera_movement_budget_exceeded",
-                f"移动镜头占比{camera_move_ratio:.1%}超过短剧预算；普通对白和反应镜头应保持固定机位",
-                shot_indexes=moving_shots,
-            )
-        if adjacent_moves:
-            block(
-                "adjacent_camera_moves",
-                "相邻镜头不得连续使用明显运镜；运镜必须由揭示、位移或权力变化触发",
-                shot_indexes=sorted({index for right in adjacent_moves for index in (right - 1, right)}),
+                "camera_emphasis_budget_exceeded",
+                f"强调型大运镜占比{emphasis_ratio:.1%}超过20%；"
+                "普通慢推、短跟拍和同轴重新构图不受此预算限制",
+                shot_indexes=emphasis_shots,
             )
 
     retention_beat_coverage = 0.0
@@ -1077,6 +1313,9 @@ def evaluate_script_quality(
     historical_characters = {
         character.name for character in (previous_state.characters if previous_state else [])
     }
+    diagnosed_characters = {
+        character for event in diagnosis.events for character in event.characters
+    }
     ungrounded_characters = sorted(
         {
             character
@@ -1084,6 +1323,7 @@ def evaluate_script_quality(
             for character in shot.characters
             if _normalized(character) not in current_source
             and character not in historical_characters
+            and character not in diagnosed_characters
         }
     )
     if ungrounded_characters:
@@ -1128,6 +1368,15 @@ def evaluate_script_quality(
         verbatim_turn_count=verbatim_turn_count,
         derived_turn_count=derived_turn_count,
         derived_char_ratio=round(derived_char_ratio, 6),
+        verbatim_turn_ratio=round(verbatim_turn_ratio, 6),
+        verbatim_turn_ratio_max=SHORT_DRAMA_VERBATIM_TURN_RATIO_MAX,
+        shot_change_coverage=round(shot_change_coverage, 6),
+        protagonist_name=protagonist_name,
+        protagonist_agency_shot_count=len(protagonist_agency_shots),
+        protagonist_agency_floor=protagonist_agency_floor,
+        named_conflict_shot_count=len(named_conflict_shots),
+        named_conflict_ratio=round(named_conflict_ratio, 6),
+        visible_cliffhanger=visible_cliffhanger,
         issues=issues,
     )
 

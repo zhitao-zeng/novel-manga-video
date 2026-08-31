@@ -79,6 +79,8 @@ class NovelPipeline:
             ),
             "llm_model": self.settings.llm_model,
             "planner_max_revisions": self.settings.planner_max_revisions,
+            "bounded_review_fallback": self.settings.bounded_review_fallback,
+            "script_relaxed_scale": self.settings.script_relaxed_scale,
             "planning_policy_revision": "novel-manga-plan-v3-script-quality",
         }
 
@@ -134,6 +136,7 @@ class NovelPipeline:
         meta = path.with_suffix(path.suffix + ".request.json")
         identity_payload = {
             **self._planner_identity(),
+            "episode_content_direction_revision": "hell-grind-content-v1",
             "episode_index": episode.index,
             "source_sha256": hashlib.sha256(episode.source_text.encode("utf-8")).hexdigest(),
             "style_fingerprint": bible.style_fingerprint,

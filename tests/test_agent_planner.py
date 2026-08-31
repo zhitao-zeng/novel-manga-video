@@ -5,10 +5,22 @@ from pathlib import Path
 
 import pytest
 
+import novel_manga.planner as planner_module
 from novel_manga.config import Settings
 from novel_manga.ingest import read_novel
-from novel_manga.models import Character, StoryBible
+from novel_manga.models import (
+    Character,
+    EpisodeDramaturgy,
+    EpisodePlan,
+    ScriptQualityReport,
+    ScriptTurn,
+    ShotIntent,
+    StoryBible,
+    TurnDelivery,
+)
 from novel_manga.planner import OpenAICompatiblePlanner, _loads_json_object
+from novel_manga.script_planning import deterministic_chapter_diagnosis
+from novel_manga.script_planning import evaluate_script_quality, normalize_chronological_plan
 
 
 class _Response:
@@ -39,6 +51,177 @@ def test_model_json_parser_repairs_only_missing_comma() -> None:
         "a": {"b": 1},
         "c": 2,
     }
+
+
+def test_dialogue_source_span_accepts_a_long_verbatim_substring() -> None:
+    planner = OpenAICompatiblePlanner(
+        Settings(
+            planner_backend="openai-compatible",
+            llm_base_url="http://127.0.0.1:18001/v1",
+            llm_api_key="local",
+        )
+    )
+    source = '"战之气：七段！"\n"楚媚，战之气：七段！级别：高级！"'
+
+    span = planner._dialogue_source_span("战之气：七段！级别：高级！", source)
+
+    assert span is not None
+    assert '"楚媚，战之气：七段！级别：高级！"' in span
+
+
+def test_script_turn_normalizes_chinese_narrator_role() -> None:
+    turn = ScriptTurn.model_validate(
+        {
+            "role": "旁白",
+            "speaker_name": "旁白",
+            "text": "三年前，他的力量突然消失。",
+            "speaking": True,
+            "delivery_mode": "narration",
+            "source_quote": "三年之前，他接受到了最残酷的打击。",
+            "derivation": "derived",
+        }
+    )
+
+    assert turn.role == "narrator"
+    assert turn.speaking is False
+    assert turn.delivery_mode == TurnDelivery.NARRATION
+
+
+@pytest.mark.parametrize(
+    ("retention_function", "shot_function"),
+    [
+        ("hook", "establish"),
+        ("question", "withhold"),
+        ("escalation", "pressure"),
+        ("reversal", "reveal"),
+        ("climax", "payoff"),
+    ],
+)
+def test_shot_intent_normalizes_retention_function_aliases(
+    retention_function: str,
+    shot_function: str,
+) -> None:
+    intent = ShotIntent.model_validate({"dramatic_function": retention_function})
+
+    assert intent.dramatic_function == shot_function
+
+
+def test_short_drama_normalization_uses_actual_cold_open_as_hook(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚")).model_copy(
+        update={
+            "creative_profile": "short-drama-adaptive-v1",
+            "hook": "把章末反转也写进了hook",
+            "dramaturgy": EpisodeDramaturgy(
+                genre_engine="suspense",
+                dramatic_question="门外是谁？",
+                cold_open="林晚听见门外脚步逼近。",
+                cold_open_source_quote=source,
+                status_before="尚未确认危险",
+                status_after="林晚决定阻止开门",
+                conflict_beats=["脚步逼近"],
+                cliffhanger="门外的人会进来吗？",
+                narration_budget_ratio=0.2,
+            ),
+        }
+    )
+
+    normalized = normalize_chronological_plan(
+        plan,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        novel.episodes[0],
+    )
+
+    assert normalized.hook == "林晚听见门外脚步逼近。"
+
+
+@pytest.mark.parametrize(
+    "review_code", ["TURN_LENGTH_OVERFLOW", "TTS_OVERFLOW_RISK"]
+)
+def test_independent_review_turn_length_issue_defers_to_deterministic_count(
+    tmp_path: Path,
+    review_code: str,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚"))
+    qualitative = ScriptQualityReport(
+        passed=False,
+        script_char_count=68,
+        shot_count=1,
+        turn_count=1,
+        critical_event_coverage=1.0,
+        causal_chain_complete=True,
+        character_introductions_complete=True,
+        opening_no_spoiler=True,
+        ending_at_chapter_boundary=True,
+        issues=[
+            {
+                "code": review_code,
+                "severity": "blocking",
+                "message": "reviewer estimated 68 chars",
+                "shot_indexes": [1],
+                "event_ids": [],
+            }
+        ],
+    )
+
+    report = evaluate_script_quality(
+        plan,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        novel.episodes[0],
+        qualitative=qualitative,
+    )
+
+    assert review_code not in {issue.code for issue in report.issues}
+
+
+def test_real_turn_length_overflow_keeps_independent_review_issue(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    payload["shots"][0]["turns"][0].update(
+        {
+            "text": "不" * 61,
+            "source_quote": source,
+            "derivation": "derived",
+        }
+    )
+    plan = EpisodePlan.model_validate(payload)
+    qualitative = ScriptQualityReport(
+        passed=False,
+        script_char_count=61,
+        shot_count=1,
+        turn_count=1,
+        critical_event_coverage=1.0,
+        causal_chain_complete=True,
+        character_introductions_complete=True,
+        opening_no_spoiler=True,
+        ending_at_chapter_boundary=True,
+        issues=[
+            {
+                "code": "TURN_LENGTH_OVERFLOW",
+                "severity": "blocking",
+                "message": "real overflow",
+                "shot_indexes": [1],
+                "event_ids": [],
+            }
+        ],
+    )
+
+    report = evaluate_script_quality(
+        plan,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        novel.episodes[0],
+        qualitative=qualitative,
+    )
+
+    assert "TURN_LENGTH_OVERFLOW" in {issue.code for issue in report.issues}
 
 
 def _plan(source: str, speaker: str) -> dict:
@@ -185,6 +368,87 @@ def test_openai_compatible_planner_stops_after_bounded_revisions(tmp_path: Path)
     assert len(client.requests) == 2
 
 
+def test_screenplay_retries_switch_from_repair_to_independent_resample(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    settings = Settings(
+        **{
+            **settings.__dict__,
+            "output_root": tmp_path / "outputs",
+            "planner_max_revisions": 3,
+        }
+    )
+    source = novel.episodes[0].source_text
+    client = _Client([_plan(source, "陌生人") for _ in range(4)])
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+    planner._diagnose_episode = (  # type: ignore[method-assign]
+        lambda episode, bible, previous_state: deterministic_chapter_diagnosis(episode)
+    )
+
+    with pytest.raises(ValueError, match="script quality gate remained invalid"):
+        planner.plan_episode_bundle(novel, novel.episodes[0], bible)
+
+    assert len(client.requests) == 4
+    initial, repair, resample, resample_repair = [
+        request["json"] for request in client.requests
+    ]
+    assert initial["temperature"] == 0.2
+    assert any(message["role"] == "assistant" for message in repair["messages"])
+    assert repair["temperature"] == 0.2
+    assert all(message["role"] != "assistant" for message in resample["messages"])
+    assert "重新独立创作" in resample["messages"][-1]["content"]
+    assert resample["temperature"] == 1.0
+    assert resample["top_p"] == 0.95
+    assert isinstance(resample["seed"], int)
+    assert any(message["role"] == "assistant" for message in resample_repair["messages"])
+    assert resample_repair["temperature"] == 0.2
+
+
+def test_screenplay_json_parse_errors_stay_inside_the_retry_budget(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    settings = Settings(
+        **{
+            **settings.__dict__,
+            "output_root": tmp_path / "outputs",
+            "planner_max_revisions": 1,
+        }
+    )
+    source = novel.episodes[0].source_text
+    responses: list[dict | ValueError] = [
+        json.JSONDecodeError("Expecting ',' delimiter", "{}", 1),
+        _plan(source, "陌生人"),
+    ]
+    planner = OpenAICompatiblePlanner(settings)
+    planner._diagnose_episode = (  # type: ignore[method-assign]
+        lambda episode, bible, previous_state: deterministic_chapter_diagnosis(episode)
+    )
+
+    def fake_json(*args, **kwargs):
+        response = responses.pop(0)
+        if isinstance(response, ValueError):
+            raise response
+        return response
+
+    planner._json = fake_json  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="script quality gate remained invalid"):
+        planner.plan_episode_bundle(novel, novel.episodes[0], bible)
+
+    validation = json.loads(
+        (
+            tmp_path
+            / "outputs/agent-test/script_drafts/episode_001/draft_01_validation.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert validation["passed"] is False
+    assert validation["errors"][0]["type"] == "JSONDecodeError"
+    assert responses == []
+
+
 def test_openai_compatible_planner_grounds_approximate_quote_without_repair(
     tmp_path: Path,
 ) -> None:
@@ -231,14 +495,7 @@ def test_openai_planner_normalizes_location_and_interrupted_dialogue(
             "text": "不要走。快关门。",
             "speaking": True,
             "source_quote": "不要走。快关门。",
-        },
-        {
-            "role": "林晚",
-            "speaker_name": "林晚",
-            "text": "这里怎么突然这么黑？",
-            "speaking": True,
-            "source_quote": shot["source_quote"],
-        },
+        }
     ]
     client = _Client([payload])
     planner = OpenAICompatiblePlanner(settings)
@@ -249,8 +506,147 @@ def test_openai_planner_normalizes_location_and_interrupted_dialogue(
     assert plan.shots[0].location == "昏暗的门内走廊"
     assert plan.shots[0].turns[0].speaking is True
     assert "她停了一下" in plan.shots[0].turns[0].source_quote
-    assert plan.shots[0].turns[1].speaking is False
-    assert plan.shots[0].turns[1].role == "narrator"
+
+
+def test_openai_planner_keeps_untraceable_dialogue_with_its_speaker(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    payload["shots"][0]["turns"][0]["text"] = "这里怎么突然这么黑？"
+    planner = OpenAICompatiblePlanner(settings)
+
+    plan = planner._validate_episode_data(payload, novel.episodes[0], bible)
+
+    turn = plan.shots[0].turns[0]
+    assert turn.role == "林晚"
+    assert turn.speaker_name == "林晚"
+    assert turn.speaking is True
+
+
+def test_openai_planner_removes_stage_direction_already_encoded_by_delivery_mode(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    payload["shots"][0]["turns"][0].update(
+        {
+            "text": "（内心声）不要开门。",
+            "speaking": False,
+            "delivery_mode": "inner_voice",
+        }
+    )
+    planner = OpenAICompatiblePlanner(settings)
+
+    plan = planner._validate_episode_data(payload, novel.episodes[0], bible)
+
+    assert plan.shots[0].turns[0].text == "不要开门。"
+    assert plan.shots[0].turns[0].delivery_mode == TurnDelivery.INNER_VOICE
+
+
+def test_openai_planner_restores_one_near_verbatim_line_to_source(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = "第一章 门外\n林晚说：“以前你曾经说过，要能放下，才能拿起。”"
+    novel = novel.model_copy(
+        update={
+            "text": source,
+            "episodes": [
+                novel.episodes[0].model_copy(
+                    update={"source_text": source, "text_count": len(source)}
+                )
+            ],
+        }
+    )
+    payload = _plan(source, "林晚")
+    payload["shots"][0]["turns"][0].update(
+        {
+            "text": "以前你说过，要能放下，才能拿起。",
+            "source_quote": "林晚说：“以前你曾经说过，要能放下，才能拿起。”",
+            "derivation": "verbatim",
+        }
+    )
+    planner = OpenAICompatiblePlanner(settings)
+
+    plan = planner._validate_episode_data(payload, novel.episodes[0], bible)
+
+    assert plan.shots[0].turns[0].text == "以前你曾经说过，要能放下，才能拿起。"
+    assert plan.shots[0].turns[0].derivation.value == "verbatim"
+
+
+def test_openai_planner_anchors_abstract_flashback_between_one_scene(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    shots = []
+    for index, location in enumerate(("门外", "回忆/虚空", "门外"), 1):
+        shot = {**payload["shots"][0], "index": index, "location": location}
+        shots.append(shot)
+    payload["shots"] = shots
+    planner = OpenAICompatiblePlanner(settings)
+
+    plan = planner._canonicalize_characters(EpisodePlan.model_validate(payload), bible)
+
+    assert [shot.location for shot in plan.shots] == ["门外", "门外", "门外"]
+
+
+def test_openai_planner_anchors_flashback_to_its_trigger_scene(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    bible = bible.model_copy(update={"locations": ["门外", "室内"]})
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    shots = []
+    for index, location in enumerate(("门外", "回忆/虚空", "室内"), 1):
+        shot = {**payload["shots"][0], "index": index, "location": location}
+        shots.append(shot)
+    payload["shots"] = shots
+    planner = OpenAICompatiblePlanner(settings)
+
+    plan = planner._canonicalize_characters(EpisodePlan.model_validate(payload), bible)
+
+    assert plan.shots[1].location == "门外"
+
+
+def test_openai_planner_anchors_adjacent_exterior_to_previous_asset(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    bible = bible.model_copy(update={"locations": ["家族广场"]})
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    payload["shots"] = [
+        {**payload["shots"][0], "index": 1, "location": "家族广场"},
+        {**payload["shots"][0], "index": 2, "location": "广场外"},
+    ]
+    planner = OpenAICompatiblePlanner(settings)
+
+    plan = planner._canonicalize_characters(EpisodePlan.model_validate(payload), bible)
+
+    assert [shot.location for shot in plan.shots] == ["家族广场", "家族广场"]
+
+
+def test_openai_planner_keeps_unrelated_unknown_location_for_validation(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    payload["shots"] = [
+        {**payload["shots"][0], "index": 1, "location": "门外"},
+        {**payload["shots"][0], "index": 2, "location": "陌生宫殿"},
+    ]
+    planner = OpenAICompatiblePlanner(settings)
+
+    plan = planner._canonicalize_characters(EpisodePlan.model_validate(payload), bible)
+
+    assert plan.shots[1].location == "陌生宫殿"
 
 
 def test_openai_compatible_planner_can_bound_qwen_output(tmp_path: Path) -> None:
@@ -272,6 +668,457 @@ def test_openai_compatible_planner_can_bound_qwen_output(tmp_path: Path) -> None
     request = client.requests[0]["json"]
     assert request["max_tokens"] == 4096
     assert request["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_semantic_repair_prompt_requires_observable_earlier_setup(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    client = _Client([{}])
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+
+    planner._json(
+        "system",
+        "user",
+        {
+            "revision": 1,
+            "previous_response": {"shots": []},
+            "validation_errors": [
+                {
+                    "message": (
+                        "MISSING_CAUSALITY at shot 8; "
+                        "CHARACTER_MOTIVATION_UNCLEAR at shot 11"
+                    )
+                },
+                {
+                    "message": (
+                        "causal_chain_broken: event_006 lacks event_005; "
+                        "narrator_summarises_dialogue at shot 3"
+                    )
+                },
+            ],
+        },
+    )
+
+    repair_prompt = client.requests[0]["json"]["messages"][-1]["content"]
+    assert "更小shot index" in repair_prompt
+    assert "后置台词不能反向补足" in repair_prompt
+    assert "不得只润色" in repair_prompt
+    assert "前置event_id加入更小shot index" in repair_prompt
+    assert "把原文对白逐条完整恢复给具体角色" in repair_prompt
+
+
+def test_showrunner_prompt_binds_causal_prerequisites_to_first_twenty_percent(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    settings = Settings(
+        **{**settings.__dict__, "planner_max_revisions": 0}
+    )
+    planner = OpenAICompatiblePlanner(settings)
+    captured: dict[str, str] = {}
+
+    def fail_after_capture(system, user, repair=None, *, token_budget=None):
+        captured["system"] = system
+        raise ValueError("capture only")
+
+    planner._json = fail_after_capture  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="plan_showrunner remained invalid"):
+        planner._plan_showrunner(
+            novel.episodes[0],
+            deterministic_chapter_diagnosis(novel.episodes[0]),
+            bible,
+            None,
+        )
+
+    assert "target_start_ratio<=0.20" in captured["system"]
+    assert "不能只写在audience_question或promise" in captured["system"]
+    assert "secondary branch只能在主角核心问题" in captured["system"]
+    assert "行动之后的对白不能反向补足" in captured["system"]
+
+
+def test_script_expansion_prompt_locks_existing_and_quoted_turns(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚"))
+    expansion = {
+        "shots": [
+            {
+                "shot_index": 1,
+                "turns": [
+                    turn.model_dump(mode="json") for turn in plan.shots[0].turns
+                ],
+            }
+        ]
+    }
+    client = _Client([expansion])
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+
+    planner._expand_script_turns(
+        novel.episodes[0],
+        bible,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        plan,
+        required_chars=1,
+        previous_state=None,
+    )
+
+    system_prompt = client.requests[0]["json"]["messages"][0]["content"]
+    assert "现有turn是事实与角色归属基线" in system_prompt
+    assert "若过长、重复、书面化或导致逐字比例超限" in system_prompt
+    assert "一条原文引号对白必须作为一个完整turn逐字复制" in system_prompt
+    assert "不得把同一条对白拆成多个turn" in system_prompt
+
+
+def test_script_expansion_repairs_changes_to_existing_turns(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚"))
+    original_turns = [
+        turn.model_dump(mode="json") for turn in plan.shots[0].turns
+    ]
+    changed_turns = [{**original_turns[0], "text": "不要把门打开。"}]
+    client = _Client(
+        [
+            {"shots": [{"shot_index": 1, "turns": changed_turns}]},
+            {"shots": [{"shot_index": 1, "turns": original_turns}]},
+        ]
+    )
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+
+    expanded = planner._expand_script_turns(
+        novel.episodes[0],
+        bible,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        plan,
+        required_chars=1,
+        previous_state=None,
+    )
+
+    assert expanded.shots[0].turns == plan.shots[0].turns
+    assert len(client.requests) == 2
+    repair_prompt = client.requests[1]["json"]["messages"][-1]["content"]
+    assert "must preserve every existing turn exactly" in repair_prompt
+
+
+def test_script_expansion_repairs_a_still_short_patch(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚"))
+    original_turns = [
+        turn.model_dump(mode="json") for turn in plan.shots[0].turns
+    ]
+    added_turn = {
+        "role": "narrator",
+        "speaker_name": "旁白",
+        "text": "门外脚步逼近。",
+        "speaking": False,
+        "delivery_mode": "narration",
+        "emotion": "紧张",
+        "source_quote": source,
+        "derivation": "derived",
+    }
+    client = _Client(
+        [
+            {"shots": [{"shot_index": 1, "turns": original_turns}]},
+            {
+                "shots": [
+                    {
+                        "shot_index": 1,
+                        "turns": [*original_turns, added_turn],
+                    }
+                ]
+            },
+        ]
+    )
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+
+    expanded = planner._expand_script_turns(
+        novel.episodes[0],
+        bible,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        plan,
+        required_chars=12,
+        previous_state=None,
+    )
+
+    assert len(expanded.shots[0].turns) == 2
+    assert len(client.requests) == 2
+    repair_prompt = client.requests[1]["json"]["messages"][-1]["content"]
+    assert "script expansion remains too short" in repair_prompt
+
+
+def test_script_expansion_accepts_exact_source_restoration(
+    tmp_path: Path,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = "第一章 门外\n林晚低声说：“你千万不要开门。”"
+    novel = novel.model_copy(
+        update={
+            "text": source,
+            "episodes": [
+                novel.episodes[0].model_copy(
+                    update={"source_text": source, "text_count": len(source)}
+                )
+            ],
+        }
+    )
+    payload = _plan(source, "林晚")
+    payload["shots"][0]["turns"][0].update(
+        {
+            "text": "你千万不要打开门。",
+            "source_quote": "林晚低声说：“你千万不要开门。”",
+            "derivation": "derived",
+        }
+    )
+    plan = EpisodePlan.model_validate(payload)
+    restored_turn = {
+        **plan.shots[0].turns[0].model_dump(mode="json"),
+        "text": "你千万不要开门。",
+        "derivation": "verbatim",
+    }
+    client = _Client(
+        [{"shots": [{"shot_index": 1, "turns": [restored_turn]}]}]
+    )
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+
+    expanded = planner._expand_script_turns(
+        novel.episodes[0],
+        bible,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        plan,
+        required_chars=1,
+        previous_state=None,
+    )
+
+    assert expanded.shots[0].turns[0].text == "你千万不要开门。"
+    assert expanded.shots[0].turns[0].derivation.value == "verbatim"
+
+
+def test_turn_attribution_patch_is_exact_and_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚"))
+    failure = ScriptQualityReport(
+        passed=False,
+        script_char_count=5,
+        shot_count=1,
+        turn_count=1,
+        critical_event_coverage=1.0,
+        causal_chain_complete=True,
+        character_introductions_complete=True,
+        opening_no_spoiler=True,
+        ending_at_chapter_boundary=True,
+        issues=[
+            {
+                "code": "narrator_summarises_dialogue",
+                "severity": "blocking",
+                "message": "restore quoted dialogue",
+                "shot_indexes": [1],
+                "event_ids": [],
+            }
+        ],
+    )
+    success = failure.model_copy(update={"passed": True, "issues": []})
+    original_turns = [
+        turn.model_dump(mode="json") for turn in plan.shots[0].turns
+    ]
+    client = _Client(
+        [
+            {"shots": []},
+            {"shots": [{"shot_index": 1, "turns": original_turns}]},
+        ]
+    )
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+    monkeypatch.setattr(
+        planner_module,
+        "evaluate_script_quality",
+        lambda *args, **kwargs: success,
+    )
+
+    repaired = planner._repair_turn_attribution(
+        novel.episodes[0],
+        bible,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        plan,
+        failure,
+        None,
+    )
+
+    assert repaired.shots[0].turns == plan.shots[0].turns
+    assert len(client.requests) == 2
+    system_prompt = client.requests[0]["json"]["messages"][0]["content"]
+    assert "只修输入列出的镜头turns" in system_prompt
+    assert "必须返回一次" in system_prompt
+    repair_prompt = client.requests[1]["json"]["messages"][-1]["content"]
+    assert "at least 1 item" in repair_prompt
+
+
+def test_review_content_patch_is_targeted_and_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    plan = EpisodePlan.model_validate(_plan(source, "林晚"))
+    failure = ScriptQualityReport(
+        passed=False,
+        script_char_count=5,
+        shot_count=1,
+        turn_count=1,
+        critical_event_coverage=1.0,
+        causal_chain_complete=True,
+        character_introductions_complete=True,
+        opening_no_spoiler=True,
+        ending_at_chapter_boundary=True,
+        issues=[
+            {
+                "code": "CHARACTER_MOTIVATION_UNCLEAR",
+                "severity": "blocking",
+                "message": "先展示过去关系，再展示当前选择",
+                "shot_indexes": [1],
+                "event_ids": ["event_001"],
+            }
+        ],
+    )
+    success = failure.model_copy(update={"passed": True, "issues": []})
+    client = _Client(
+        [
+            {"shots": [{"shot_index": 99, "motion_prompt": "wrong target"}]},
+            {"shots": [{"shot_index": 1, "motion_prompt": "林晚先回头，再挡住门。"}]},
+            {
+                "shots": [
+                    {
+                        "shot_index": 1,
+                        "motion_prompt": "林晚曾经信任对方，如今先回头，再挡住门。",
+                    }
+                ]
+            },
+        ]
+    )
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+    monkeypatch.setattr(
+        planner_module,
+        "evaluate_script_quality",
+        lambda *args, **kwargs: success,
+    )
+
+    repaired = planner._repair_review_content(
+        novel.episodes[0],
+        bible,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        plan,
+        failure,
+        None,
+    )
+
+    assert repaired.shots[0].motion_prompt == "林晚曾经信任对方，如今先回头，再挡住门。"
+    assert len(client.requests) == 3
+    system_prompt = client.requests[0]["json"]["messages"][0]["content"]
+    assert "只允许shot_index以及turns" in system_prompt
+    assert "不得修改event_ids" in system_prompt
+    assert "具体年龄" in system_prompt
+    assert "放在结果揭示之前" in system_prompt
+    repair_prompt = client.requests[1]["json"]["messages"][-1]["content"]
+    assert "non-target shot indexes" in repair_prompt
+    relationship_prompt = client.requests[2]["json"]["messages"][-1]["content"]
+    assert "must include current-chapter evidence of the past relationship" in relationship_prompt
+
+
+def test_missing_causality_review_code_routes_to_targeted_content_patch() -> None:
+    assert any(
+        token in "MISSING_CAUSALITY"
+        for token in planner_module.REVIEW_CONTENT_PATCH_TOKENS
+    )
+
+
+def test_review_content_patch_repairs_causal_context_in_an_earlier_shot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    novel, bible, settings = _fixture(tmp_path)
+    source = novel.episodes[0].source_text
+    payload = _plan(source, "林晚")
+    payload["shots"] = [
+        {**payload["shots"][0], "index": 1},
+        {**payload["shots"][0], "index": 2},
+    ]
+    plan = EpisodePlan.model_validate(payload)
+    failure = ScriptQualityReport(
+        passed=False,
+        script_char_count=10,
+        shot_count=2,
+        turn_count=2,
+        critical_event_coverage=1.0,
+        causal_chain_complete=True,
+        character_introductions_complete=True,
+        opening_no_spoiler=True,
+        ending_at_chapter_boundary=True,
+        issues=[
+            {
+                "code": "MISSING_CAUSAL_CONTEXT",
+                "severity": "blocking",
+                "message": "setup must precede reveal",
+                "shot_indexes": [2],
+                "event_ids": ["event_001"],
+            }
+        ],
+    )
+    success = failure.model_copy(update={"passed": True, "issues": []})
+    client = _Client(
+        [
+            {"shots": [{"shot_index": 2, "motion_prompt": "too late"}]},
+            {"shots": [{"shot_index": 1, "motion_prompt": "昔日天才"}]},
+            {
+                "shots": [
+                    {
+                        "shot_index": 1,
+                        "motion_prompt": "十一岁凝聚气旋，成为百年最年轻战者",
+                    }
+                ]
+            },
+        ]
+    )
+    planner = OpenAICompatiblePlanner(settings)
+    planner.client = client  # type: ignore[assignment]
+    monkeypatch.setattr(
+        planner_module,
+        "evaluate_script_quality",
+        lambda *args, **kwargs: success,
+    )
+
+    repaired = planner._repair_review_content(
+        novel.episodes[0],
+        bible,
+        deterministic_chapter_diagnosis(novel.episodes[0]),
+        plan,
+        failure,
+        None,
+    )
+
+    assert repaired.shots[0].motion_prompt == "十一岁凝聚气旋，成为百年最年轻战者"
+    assert len(client.requests) == 3
+    order_prompt = client.requests[1]["json"]["messages"][-1]["content"]
+    assert "must edit an earlier shot than the reveal" in order_prompt
+    detail_prompt = client.requests[2]["json"]["messages"][-1]["content"]
+    assert "must add concrete age, level, mechanism" in detail_prompt
 
 
 def test_planner_revision_budget_is_hard_capped() -> None:
@@ -388,5 +1235,7 @@ def test_openai_planner_runs_diagnosis_script_review_and_state_stages(
     prompts = [request["json"]["messages"][0]["content"] for request in client.requests]
     assert "事实编辑" in prompts[0]
     assert "逐章编剧" in prompts[1]
+    assert "落笔前执行前置条件先行" in prompts[1]
+    assert "后续对白不能反向补足" in prompts[1]
     assert "独立的漫剧剧本审稿人" in prompts[2]
     assert "连续剧状态管理员" in prompts[3]

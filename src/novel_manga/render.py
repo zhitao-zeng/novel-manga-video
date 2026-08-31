@@ -246,7 +246,7 @@ class Renderer:
                 f"crop={self.settings.width}:{self.settings.height},fps={self.settings.fps},format=yuv420p,"
                 f"setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration={pause_after + 1.0:.3f}[v];"
                 # One-pass loudnorm has a long analysis window and can erase
-                # sub-two-second dialogue. VoxCPM output is already levelled;
+                # sub-two-second dialogue. TTS output is already levelled;
                 # preserve it here and normalize only after episode assembly.
                 f"[1:a]aresample=48000,"
                 f"apad=pad_dur={pause_after:.3f},atrim=duration={duration:.3f},asetpts=PTS-STARTPTS[a]"
@@ -279,11 +279,11 @@ class Renderer:
         audible: list[bool] | None = None,
         gap: float = 0.10,
         target_seconds: float = 13.4,
-        max_speed: float = 1.12,
+        max_speed: float = 1.0,
     ) -> tuple[Path, float, list[float], float]:
         """Join locked turns for one continuous shot and return scaled turn offsets.
 
-        VoxCPM can preserve the requested emotion while producing very
+        Neural TTS can preserve the requested emotion while producing very
         different amplitudes between turns.  Peak-normalize only the delivery
         mix, before concatenation, so every spoken turn remains audible.  The
         H3 performance driver (``audible`` is not ``None``) keeps the original
@@ -295,11 +295,13 @@ class Renderer:
             raise ValueError("audible flags must match visual-group audio inputs")
         durations = [media_duration(path) for path in audios]
         unscaled = sum(durations) + gap * max(0, len(audios) - 1)
-        speed = min(max_speed, max(1.0, unscaled / target_seconds))
-        if unscaled / speed > target_seconds + 0.03:
+        if max_speed != 1.0:
+            raise ValueError("speech speed must be controlled inside the TTS model")
+        speed = 1.0
+        if unscaled > target_seconds + 0.03:
             raise ValueError(
                 f"visual group audio {unscaled:.3f}s cannot fit {target_seconds:.3f}s "
-                f"at max speed {max_speed:.3f}"
+                "without post-processing speed changes"
             )
         filters: list[str] = []
         concat_inputs: list[str] = []
@@ -326,7 +328,7 @@ class Renderer:
                 concat_inputs.append(f"[g{index}]")
         filters.append(
             "".join(concat_inputs)
-            + f"concat=n={len(concat_inputs)}:v=0:a=1,atempo={speed:.8f}[out]"
+            + f"concat=n={len(concat_inputs)}:v=0:a=1[out]"
         )
         output.parent.mkdir(parents=True, exist_ok=True)
         command = ["ffmpeg", "-y", "-v", "error"]
@@ -351,7 +353,7 @@ class Renderer:
         offsets: list[float] = []
         cursor = 0.0
         for duration in durations:
-            offsets.append(cursor / speed)
+            offsets.append(cursor)
             cursor += duration + gap
         return output, media_duration(output), offsets, speed
 

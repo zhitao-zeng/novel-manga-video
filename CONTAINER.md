@@ -15,7 +15,7 @@ docker run --rm --user "$(id -u):$(id -g)" \
   -e PHANROUTER_API_KEY \
   -e NOVEL_PLANNER_COMMAND -e NOVEL_TTS_COMMAND \
   -e NOVEL_ASR_COMMAND -e NOVEL_ALIGN_COMMAND \
-  novel-manga-video:0.12.0
+  novel-manga-video:0.13.0
 ```
 
 For an entirely local stack, build `Dockerfile.offline`. It runs the same Core
@@ -32,5 +32,5 @@ processes against the same `/output` directory is not supported.
 The old CLI remains available for diagnostics by overriding the image entrypoint:
 
 ```bash
-docker run --rm --entrypoint novel-manga novel-manga-video:0.12.0 --help
+docker run --rm --entrypoint novel-manga novel-manga-video:0.13.0 --help
 ```

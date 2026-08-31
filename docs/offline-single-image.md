@@ -18,7 +18,8 @@ reproducible and model stacks cannot silently upgrade each other:
 | planner | base-image `/usr/local` runtime | local Qwen3.5 OpenAI-compatible planner process |
 | image | `/opt/venvs/image` | Z-Image-Turbo and Qwen-Image-Edit-2511 |
 | h3 | `/opt/venvs/h3` | ComfyUI + MiniMax H3 Ref2VA |
-| audio | `/opt/venvs/audio` | VoxCPM2, optional Qwen3-TTS fallback, Qwen3-ASR/ForcedAligner and SenseVoice evidence |
+| IndexTTS | `/opt/venvs/indextts` | IndexTTS 2.5 synthesis with model-native duration and emotion control |
+| audio evidence | `/opt/venvs/audio` | Qwen3-ASR/ForcedAligner evidence |
 
 All runtimes are built into the same image. The user never activates an
 environment or starts a sidecar.
@@ -34,18 +35,42 @@ resolved target must stay under `/models`.
 /models/z-image-turbo/
 /models/qwen-image-edit-2511/
 /models/minimax-h3/
-  diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors
+  diffusion_models/<NOVEL_MINIMAX_H3_MODEL>
   text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors
   vae/minimax_h3_video_vae_fp16.safetensors
   vae/minimax_h3_audio_vae_fp32.safetensors
-/models/voxcpm2/
+/models/indextts-2.5/
+/models/indextts-references/
+  deep_male.wav
+  young_male.wav
+  ... one prompt audio per used voice profile
 /models/qwen3-asr/
 /models/qwen3-forced-aligner-0.6b/
 ```
 
-`/models/qwen3-tts-customvoice/` is optional when the default
-`NOVEL_TTS_BACKEND=voxcpm2` is used. If mounted, it provides per-line automatic
-fallback. It becomes required only when `NOVEL_TTS_BACKEND=qwen` is selected.
+The checked-in default remains the 20-step baseline. The independently mounted
+PulpCut Turbo INT8 output-major checkpoint can be selected for a controlled
+comparison without replacing that file:
+
+```text
+NOVEL_VIDEO_MODEL=MiniMax-H3-Ref2VA-Turbo-INT8-8step
+NOVEL_MINIMAX_H3_MODEL=minimax_h3_ref2va_pruned_turbo_int8_convrot.safetensors
+NOVEL_MINIMAX_H3_MODEL_REVISION=6395b6922e1a82694401e752b731aedf85ff8ac9
+NOVEL_MINIMAX_H3_STEPS=8
+NOVEL_MINIMAX_H3_SAMPLER=euler
+NOVEL_MINIMAX_H3_SCHEDULER=simple
+```
+
+`NOVEL_VIDEO_MODEL` is deliberately distinct so episode and visual caches made
+by the 20-step baseline are not reused. Each generated video sidecar records
+the selected checkpoint, revision, step count, sampler, scheduler and sigma
+shifts. The Turbo artifact source, license, byte size and SHA256 are pinned in
+`runtime/model_manifest.json`.
+
+IndexTTS also requires its offline auxiliary weights under
+`/models/indextts-2.5/hf_cache` and at least one non-empty reference audio under
+`/models/indextts-references`. A requested voice fails explicitly if its stable
+profile file is absent; it never silently changes to another speaker.
 
 Readiness has two levels:
 
@@ -68,7 +93,7 @@ parse/split (CPU)
   -> image/base: all no-reference character and scene assets
   -> image/edit: all reusable character expressions
   -> for each episode:
-       audio: VoxCPM2 locked WAVs, ASR and forced alignment
+       audio: IndexTTS locked WAVs, ASR and forced alignment
        image/edit: continuous-shot keyframes and dedicated cover art
        MiniMax H3 Ref2VA: all shots receive a timing/performance WAV
        visible dialogue: locked TTS remains audible and drives the mouth
@@ -81,11 +106,13 @@ The final render always remuxes the locked TTS WAV. H3-generated audio is
 not allowed to replace or truncate the source dialogue. LatentSync and any lip
 inspection/remediation stage remain disabled.
 
-VoxCPM2 voice references are generated deterministically from fixed role
-profiles and persisted under `/output/.runtime/voxcpm2-voices`. A user-provided
-reference directory may be selected through `NOVEL_VOXCPM_REFERENCE_DIR`.
-Delivered speech is normalized to -18 LUFS, resampled to 48 kHz and then passed
-through the existing ASR/retry and forced-alignment gates.
+IndexTTS voice references are mounted read-only and named by the existing stable
+role profiles (for example `deep_male.wav` and `warm_female.wav`). The pipeline's
+speed multiplier keeps its public meaning (`1.25` means 25% faster) and is
+translated to IndexTTS `duration_factor=1/speed`. No ffmpeg `atempo` filter is
+used on IndexTTS output. Delivered speech is normalized to -18 LUFS, resampled
+to 48 kHz and then passed through the existing ASR/retry and forced-alignment
+gates.
 
 ## Batching and concurrency
 
@@ -97,6 +124,13 @@ through the existing ASR/retry and forced-alignment gates.
 - H3 starts with ComfyUI `--gpu-only --disable-async-offload`: its roughly
   52 GB model/encoder/VAEs fit on the A100-80GB, while default CPU weight
   offload would exceed the leaderboard's 32 GB host-memory limit.
+- H3 uses a resource-aware cache policy. The default
+  `NOVEL_MINIMAX_H3_CACHE_LRU=auto` enables the validated LRU-8
+  cache only when the container exposes exactly one GPU with at least 80,000
+  MiB total and 70,000 MiB free after stage handoff. Set it to `0` for the
+  low-memory `cache-none` fallback, or to `8` only when the GPU is reserved.
+  Selected production probes improved by 1.14x-1.40x, but peak device memory
+  rose to about 63 GB; do not co-locate it with another large resident model.
 - Planner, image, video and audio workers are not concurrently resident. This
   is enforced by the supervisor rather than relying on prompt discipline.
 - A failed request keeps its content-addressed inputs and partial output but
@@ -168,13 +202,13 @@ git -C vendor/ComfyUI checkout --detach 6f7cd7fceaaf60d2669b554936394a7412c6fde5
 
 ```bash
 docker build -f Dockerfile.offline \
-  -t novel-manga-video:0.12.0-offline-a100 .
+  -t novel-manga-video:0.13.0-offline-a100 .
 
 docker run --rm --gpus 'device=0' --cpus 4 --memory 32g \
   -p 80:80 \
   -v /path/to/models:/models:ro \
   -v /path/to/output:/output \
-  novel-manga-video:0.12.0-offline-a100
+  novel-manga-video:0.13.0-offline-a100
 ```
 
 The container exposes `/ready`, `/upload_novel`, `/generate_progress`, and
@@ -193,8 +227,8 @@ image label and runtime manifest:
 
 - ComfyUI: `6f7cd7fceaaf60d2669b554936394a7412c6fde5`
 - Diffusers package: `0.38.0`
-- VoxCPM package: `2.0.3`
-- Qwen3-TTS package: `0.1.1`
+- IndexTTS source: `ee40fa7d6c6b8a2c7f06105f9f1e65775b74868c`
+- IndexTTS 2.5 model: `c39ce5ba981572cb187443877ff559dfb246ce63`
 - Qwen3-ASR package: `0.0.6`
 - Qwen-Image examples/tools: `6b5e1f5cec987d404be5ac6657db3b9aacb56a89`
 
@@ -214,8 +248,8 @@ Primary upstreams:
 - <https://github.com/Comfy-Org/ComfyUI>
 - <https://github.com/huggingface/diffusers>
 - <https://github.com/QwenLM/Qwen-Image>
-- <https://github.com/OpenBMB/VoxCPM>
-- <https://github.com/QwenLM/Qwen3-TTS>
+- <https://github.com/index-tts/index-tts>
+- <https://huggingface.co/IndexTeam/IndexTTS-2.5>
 - <https://github.com/QwenLM/Qwen3-ASR>
 
 ## Acceptance sequence

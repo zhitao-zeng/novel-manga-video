@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shutil
 from pathlib import Path
@@ -22,13 +23,16 @@ from .models import (
     StoryBible,
     TurnDelivery,
     TurnDerivation,
+    VisualStrategy,
 )
 from .production_models import (
+    ActionPhysicsPlan,
     AssetRecord,
     ProductionPlan,
     RuntimeScene,
     RuntimeShot,
     RuntimeUnit,
+    SceneSpatialContract,
     SeriesAssetManifest,
 )
 from .providers.base import ImageResult, MediaProvider
@@ -110,12 +114,31 @@ class SeriesAssetFactory:
         output: Path,
         *,
         reference: Path | None = None,
+        additional_references: tuple[Path, ...] = (),
     ) -> ImageResult:
         identity = {
             "prompt_sha256": sha256_text(prompt),
             "reference_sha256": sha256_file(reference) if reference and reference.is_file() else None,
+            "additional_reference_sha256s": [
+                sha256_file(path) for path in additional_references
+            ],
             "provider": self.settings.provider,
             "image_model": self.settings.image_model,
+            "image_transport": (
+                "phanrouter-gpt-image-2"
+                if self.settings.provider == "command"
+                and "".join(
+                    character
+                    for character in self.settings.image_model.casefold()
+                    if character.isalnum()
+                )
+                == "gptimage2"
+                and (
+                    self.settings.phanrouter_image_api_key
+                    or self.settings.phanrouter_api_key
+                )
+                else self.settings.provider
+            ),
             "image_command_sha256": (
                 sha256_text(self.settings.image_command) if self.settings.image_command else None
             ),
@@ -166,7 +189,17 @@ class SeriesAssetFactory:
                 },
             )
             return ImageResult(path=output)
-        result = self.provider.create_image(prompt, output, reference=reference)
+        if additional_references:
+            result = self.provider.create_image(
+                prompt,
+                output,
+                reference=reference,
+                additional_references=additional_references,
+            )
+        else:
+            # Keep simple provider test doubles and hosted backends compatible
+            # when a task genuinely has only one reference.
+            result = self.provider.create_image(prompt, output, reference=reference)
         atomic_write_json(
             meta,
             {
@@ -179,6 +212,24 @@ class SeriesAssetFactory:
     @staticmethod
     def _rendering_direction(bible: StoryBible) -> str:
         style = bible.visual_style.casefold()
+        # Positive art-direction terms must win over exclusions such as
+        # "禁止2.5D厚涂". Checking the bare ``2.5D`` token first incorrectly
+        # routed an explicitly 2D cartoon bible into the semi-realistic branch.
+        if any(token in style for token in ("二维", "卡通", "赛璐璐", "2d")):
+            return (
+                "二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，"
+                "明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；"
+                "表情动作清楚易读，保持自然人体比例但不做幼儿Q版；"
+                "不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光"
+            )
+        if any(token in style for token in ("2.5d", "2．5d", "二点五维")):
+            return (
+                "国风2.5D半写实动态漫人物资产，保留精致手绘轮廓与可控线条，"
+                "同时用真实体块、柔和材质、电影体积光和分层景深塑造空间；"
+                "东方审美面孔、自然人体比例、细腻发丝、克制皮肤质感，"
+                "服装与器物具有稳定结构但不做塑料游戏建模感；"
+                "不要纯二维平涂、全写实真人照片、全3D游戏CG、Q版或欧美卡通"
+            )
         if any(token in style for token in ("3d", "三维", "cg", "pbr")):
             return (
                 "高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，"
@@ -283,6 +334,14 @@ class SeriesAssetFactory:
         character_rows = []
         location_rows = []
         self.provider.enter_stage("image-base")
+        style_master = self.settings.style_master_path
+        style_reference_guard = (
+            "【系列母版继承】参考图只锁定线稿粗细、二维平涂、赛璐璐阴影、色彩亮度、"
+            "光影方向和整体动画制作规格；不得照抄参考图人物身份、脸型、发型、服装、姿势、"
+            "场景结构或具体构图，必须严格按当前资产描述重新设计。"
+            if style_master is not None
+            else ""
+        )
         for index, character in enumerate(source_characters, start=1):
             asset_id = f"character_{index:03d}"
             directory = root / "characters" / asset_id
@@ -297,7 +356,7 @@ class SeriesAssetFactory:
                 hair=character.hair,
                 palette=character.palette,
                 motion_signature=character.motion_signature,
-            )
+            ) + style_reference_guard
             spec = {
                 "asset_id": asset_id,
                 "name": character.name,
@@ -317,11 +376,35 @@ class SeriesAssetFactory:
                 "expression_profile": character.expression_profile,
                 "motion_signature": character.motion_signature,
                 "voice_profile_id": character.voice_profile_id,
+                "version": "v001",
+                "identity_invariants": [
+                    value
+                    for value in (
+                        character.appearance,
+                        *character.face_anchors,
+                        character.silhouette,
+                        character.hair,
+                    )
+                    if value
+                ],
+                "state_variables": {
+                    "costume": character.base_costume or character.wardrobe,
+                    "injury": "none unless changed by source events",
+                    "carried_prop": character.signature_prop or "none",
+                },
+                "reference_scope": {
+                    "inherit": ["identity", "hair", "costume", "2d_rendering"],
+                    "exclude": ["pose", "composition", "camera", "background", "lighting"],
+                },
                 "style_fingerprint": bible.style_fingerprint,
                 "prompt": prompt,
             }
             atomic_write_json(directory / "spec.json", spec)
-            primary = self._ensure_image(prompt, directory / "turnaround.jpeg")
+            primary = self._ensure_image(
+                prompt,
+                directory / "turnaround.jpeg",
+                reference=style_master,
+            )
             character_rows.append((character, asset_id, directory, prompt, primary))
             gender = (character.gender or "").strip()
             if "女" in gender:
@@ -343,6 +426,7 @@ class SeriesAssetFactory:
             asset_id = f"location_{index:03d}"
             directory = root / "locations" / asset_id
             prompt = self._location_prompt(bible, location)
+            prompt += style_reference_guard
             atomic_write_json(
                 directory / "spec.json",
                 {
@@ -350,10 +434,25 @@ class SeriesAssetFactory:
                     "name": location,
                     "style_fingerprint": bible.style_fingerprint,
                     "continuity": "固定空间布局、物品锚点、天气、时间、光线方向",
+                    "version": "v001",
+                    "identity_invariants": [f"{location}固定建筑、出入口和空间层级"],
+                    "state_variables": {
+                        "time_of_day": "approved_reference_state",
+                        "weather": "approved_reference_state",
+                        "damage": "none unless changed by source events",
+                    },
+                    "reference_scope": {
+                        "inherit": ["architecture", "space", "color", "lighting", "2d_rendering"],
+                        "exclude": ["composition", "camera", "temporary_people", "text"],
+                    },
                     "prompt": prompt,
                 },
             )
-            image = self._ensure_image(prompt, directory / "establishing.jpeg")
+            image = self._ensure_image(
+                prompt,
+                directory / "establishing.jpeg",
+                reference=style_master,
+            )
             location_rows.append(
                 (asset_id, location, directory, prompt, image)
             )
@@ -373,6 +472,25 @@ class SeriesAssetFactory:
                     asset_id=asset_id,
                     kind="character",
                     name=character.name,
+                    identity_invariants=[
+                        value
+                        for value in (
+                            character.appearance,
+                            *character.face_anchors,
+                            character.silhouette,
+                            character.hair,
+                        )
+                        if value
+                    ],
+                    state_variables={
+                        "costume": character.base_costume or character.wardrobe,
+                        "injury": "none unless changed by source events",
+                        "carried_prop": character.signature_prop or "none",
+                    },
+                    reference_scope={
+                        "inherit": ["identity", "hair", "costume", "2d_rendering"],
+                        "exclude": ["pose", "composition", "camera", "background", "lighting"],
+                    },
                     spec_path=str((directory / "spec.json").relative_to(root.parent)),
                     primary_image=str(primary.path.relative_to(root.parent)),
                     secondary_image=str(secondary.path.relative_to(root.parent)),
@@ -385,6 +503,16 @@ class SeriesAssetFactory:
                     asset_id=asset_id,
                     kind="location",
                     name=location,
+                    identity_invariants=[f"{location}固定建筑、出入口和空间层级"],
+                    state_variables={
+                        "time_of_day": "approved_reference_state",
+                        "weather": "approved_reference_state",
+                        "damage": "none unless changed by source events",
+                    },
+                    reference_scope={
+                        "inherit": ["architecture", "space", "color", "lighting", "2d_rendering"],
+                        "exclude": ["composition", "camera", "temporary_people", "text"],
+                    },
                     spec_path=str((directory / "spec.json").relative_to(root.parent)),
                     primary_image=str(image.path.relative_to(root.parent)),
                     prompt_sha256=sha256_text(prompt),
@@ -508,8 +636,16 @@ _DIALOGUE_COMPOSITIONS = (
 )
 
 _DIALOGUE_AXIS_COMPOSITIONS = (
-    "左前方四分之三胸像，人物位于画面右侧三分线，目光朝画面左侧内收，左后方保留场景标志物",
-    "右前方四分之三胸像，人物位于画面左侧三分线，目光朝画面右侧内收，右后方保留场景标志物",
+    (
+        "左前方四分之三胸像，人物位于画面右侧三分线，目光朝画面左侧内收，左后方保留场景标志物",
+        "较紧的左前方四分之三肩部近景，人物仍在画面右侧三分线，目光朝画面左侧，背景只保留一处柔化锚点",
+        "较宽的左前方四分之三腰上景，人物位于画面右侧三分线，目光朝画面左侧，前景保留与当前地点一致的固定空间锚点",
+    ),
+    (
+        "右前方四分之三胸像，人物位于画面左侧三分线，目光朝画面右侧内收，右后方保留场景标志物",
+        "较紧的右前方四分之三肩部近景，人物仍在画面左侧三分线，目光朝画面右侧，背景只保留一处柔化锚点",
+        "较宽的右前方四分之三腰上景，人物位于画面左侧三分线，目光朝画面右侧，前景保留与当前地点一致的固定空间锚点",
+    ),
 )
 
 
@@ -526,9 +662,9 @@ def _dialogue_composition(
     screen direction continuous while retaining some episode-level variety.
     """
 
-    del shot_index, turn_index
     if speaker_slot is not None:
-        return _DIALOGUE_AXIS_COMPOSITIONS[speaker_slot % 2]
+        side_variants = _DIALOGUE_AXIS_COMPOSITIONS[speaker_slot % 2]
+        return side_variants[(shot_index + turn_index - 2) % len(side_variants)]
     stable_index = int(hashlib.sha256(speaker_name.encode("utf-8")).hexdigest()[:8], 16)
     return _DIALOGUE_COMPOSITIONS[stable_index % len(_DIALOGUE_COMPOSITIONS)]
 
@@ -551,6 +687,8 @@ def _dialogue_visual_context(shot, speaker_name: str) -> str:
     swaps.  Clause filtering preserves the current speaker's position and
     props while leaving the listener off screen.
     """
+    if shot.visual_strategy == VisualStrategy.STORY_KEYFRAME:
+        return shot.visual_prompt
     other_characters = [name for name in shot.characters if name != speaker_name]
     clauses = [
         clause.strip()
@@ -565,15 +703,53 @@ def _dialogue_visual_context(shot, speaker_name: str) -> str:
     return "，".join(safe)
 
 
+_OFFSCREEN_ENTITY_MARKERS = (
+    "画外",
+    "画面外",
+    "镜外",
+    "不入画",
+    "不出现",
+    "只作为视线对象",
+)
+
+
+def visible_character_names_for_shot(
+    shot,
+    available_names: list[str] | tuple[str, ...],
+) -> list[str]:
+    """Resolve visible named actors from the shot, not merely its speaker."""
+
+    resolved = list(
+        dict.fromkeys(name for name in shot.characters if name in available_names)
+    )
+    searchable = "；".join(
+        value for value in (shot.visual_prompt, shot.motion_prompt) if value
+    )
+    clauses = [
+        clause.strip()
+        for clause in re.split(r"[，,；;。]+", searchable)
+        if clause.strip()
+    ]
+    for name in available_names:
+        mentions = [clause for clause in clauses if name in clause]
+        if mentions and any(
+            not any(marker in clause for marker in _OFFSCREEN_ENTITY_MARKERS)
+            for clause in mentions
+        ):
+            resolved.append(name)
+    for turn in shot.turns:
+        if turn.speaking and turn.speaker_name in available_names:
+            resolved.append(turn.speaker_name)
+    return list(dict.fromkeys(resolved))
+
+
 def _performance_plan_for(shot, turn: ScriptTurn) -> PerformancePlan:
     other_characters = (
         [name for name in shot.characters if name != turn.speaker_name]
         if turn.speaking
         else []
     )
-    if shot.performance_plan is not None and not any(
-        name in shot.performance_plan.model_dump_json() for name in other_characters
-    ):
+    if shot.performance_plan is not None:
         return shot.performance_plan
     visible_action = shot.visual_prompt.split("，内容健康克制", 1)[0].rstrip("。，")
     if turn.speaking:
@@ -675,21 +851,48 @@ def _camera_mode_for(shot, turn: ScriptTurn) -> tuple[str, str, int]:
     ).casefold()
     has_emphasis = any(cue in text for cue in _CAMERA_EMPHASIS_CUES)
     has_displacement_or_reveal = any(cue in text for cue in _CAMERA_MOVEMENT_CUES)
-    if requested_mode == "motivated_emphasis":
-        return requested_mode, requested_motivation, 400
+    dramatic_function = shot.shot_intent.dramatic_function
+    if requested_plan is not None:
+        return (
+            requested_mode,
+            requested_motivation or "分镜显式摄影机计划",
+            500 if requested_mode == "motivated_emphasis" else 450,
+        )
+    if dramatic_function in {"payoff", "cliffhanger"}:
+        return (
+            "motivated_emphasis",
+            "镜头叙事落点需要一次克制的强调性重新构图",
+            350,
+        )
     if has_emphasis:
         return (
             "motivated_emphasis",
             "关键冲突、权力变化或信息揭示需要一次强调性重新构图",
             300,
         )
-    if requested_mode == "motivated_subtle":
-        return requested_mode, requested_motivation, 250
+    if dramatic_function == "reveal":
+        return (
+            "motivated_subtle",
+            "新信息被角色读懂时进行一次轻微的视觉收紧",
+            220,
+        )
+    if dramatic_function == "pressure":
+        return (
+            "motivated_subtle",
+            "人物承受压力或形成反抗时进行一次轻微的视觉收紧",
+            230,
+        )
     if has_displacement_or_reveal:
         return (
             "motivated_subtle",
             "人物发生明确位移或画面需要揭示新信息",
             200,
+        )
+    if dramatic_function == "establish":
+        return (
+            "motivated_subtle",
+            "建立空间时使用一次极慢推进或短距离重新构图",
+            180,
         )
     return (
         "locked",
@@ -712,8 +915,13 @@ def _camera_plan_for(
         mode = forced_mode
         motivation = forced_motivation or motivation
     action_axis = f"{location}首次建立的人物视线或运动轴；摄影机始终停留在同一侧"
+    visible_subject = (
+        turn.speaker_name
+        if turn.speaking
+        else next((name for name in shot.characters if name), "当前可见主体")
+    )
     screen_direction = (
-        f"{turn.speaker_name}始终保持“{composition}”所建立的画面侧和目光方向；"
+        f"{visible_subject}始终保持“{composition}”所建立的画面侧和目光方向；"
         "除非画面完整展示走位，否则人物不得左右互换"
     )
     if mode == "locked":
@@ -739,6 +947,31 @@ def _camera_plan_for(
             ],
             end_position="与起始机位相同的稳定机位",
         )
+    dramatic_function = shot.shot_intent.dramatic_function
+    if dramatic_function in {"pressure", "payoff", "cliffhanger"}:
+        push_amount = "约5%" if mode == "motivated_subtle" else "约8%"
+        return CameraPlan(
+            mode=mode,
+            motivation=motivation,
+            action_axis=action_axis,
+            screen_direction=screen_direction,
+            start_position=composition,
+            camera_beats=[
+                CameraBeat(
+                    phase="opening",
+                    trajectory=f"由关键信息或情绪落点触发，沿行动轴同侧极慢推近{push_amount}",
+                    framing="只收紧到更清楚的面部或手部反应，不改变屏幕侧",
+                    parallax=f"{location}近景层产生轻微视差，批准的固定空间锚点方向不变",
+                ),
+                CameraBeat(
+                    phase="resolution",
+                    trajectory="唯一一次推近完成后减速停住，不追加横移、环绕或升降",
+                    framing="在最终表情或动作结果上停留至少一拍",
+                    parallax="背景运动自然收束，光源和空间锚点不换边",
+                ),
+            ],
+            end_position="行动轴同侧略收紧的稳定机位，为下一镜保留视线接点",
+        )
     amplitude = "短距离" if mode == "motivated_subtle" else "明确但克制的短距离"
     return CameraPlan(
         mode=mode,
@@ -751,7 +984,7 @@ def _camera_plan_for(
                 phase="opening",
                 trajectory=f"由人物位移或信息揭示触发，沿行动轴同侧{amplitude}横移一次",
                 framing="只跟随主要动作重新构图，保留动作方向一侧的空间",
-                parallax=f"{location}近处门框、桌沿或货架移动较快，远处背景移动较慢",
+                parallax=f"{location}近处固定空间锚点移动较快，远处背景移动较慢",
             ),
             CameraBeat(
                 phase="resolution",
@@ -761,6 +994,93 @@ def _camera_plan_for(
             ),
         ],
         end_position="行动轴同侧的稳定机位，为下一镜保留方向一致的衔接",
+    )
+
+
+def _action_physics_plan_for(shot, turn: ScriptTurn) -> ActionPhysicsPlan | None:
+    text = " ".join(
+        filter(None, (shot.visual_prompt, shot.motion_prompt, turn.text))
+    )
+    action_tokens = (
+        "碎", "裂", "撞", "击", "拳", "爆", "冲", "跑", "追",
+        "投", "扔", "推开", "拉开", "跌", "倒", "挥", "劈",
+    )
+    if not any(token in text for token in action_tokens):
+        return None
+    if any(token in text for token in ("碎", "裂")):
+        return ActionPhysicsPlan(
+            trigger="人物对道具施加持续压力",
+            preparation="手指与掌心先稳定接触唯一道具，手腕保持承力",
+            force="手指逐渐收紧，力量从掌心向接触面集中",
+            contact="裂纹从真实接触点向外扩散",
+            reaction="道具破裂后手腕受到轻微反作用，不挥臂",
+            settling="碎片和粉末受重力向下落定，人物保持原站位",
+            environment_feedback=["桌面或地面接住少量碎片", "衣袖只产生低幅滞后"],
+        )
+    energy_actions = (
+        "战气爆发", "战气外放", "战气汇聚", "战气涌出", "释放战气",
+        "能量爆发", "能量外放", "能量汇聚", "气旋凝聚",
+    )
+    if any(token in text for token in energy_actions):
+        return ActionPhysicsPlan(
+            trigger="人物力量状态发生明确变化",
+            preparation="重心先稳定，肩背和衣料仍处于平静状态",
+            force="能量从躯干中心沿单一方向向外扩散",
+            contact="能量边缘先作用于近身衣摆和发梢",
+            reaction="衣摆、发梢和近处轻尘按同一方向延迟响应",
+            settling="能量强度停止增长并保持可读轮廓",
+            environment_feedback=["近处轻尘向外移动后沉降", "固定光源方向不改变"],
+        )
+    if any(token in text for token in ("跑", "追", "冲")):
+        return ActionPhysicsPlan(
+            trigger="人物决定快速位移",
+            preparation="重心先移向支撑脚，上身朝运动方向倾斜",
+            force="支撑脚蹬地，步频与步幅逐渐增加",
+            contact="脚掌按路径连续接触地面，不滑移穿地",
+            reaction="衣摆和头发晚于身体响应，随速度形成同向滞后",
+            settling="人物减速并在明确位置重新站稳",
+            environment_feedback=["脚步反馈匹配地面材质", "运动方向跨镜保持"],
+        )
+    return ActionPhysicsPlan(
+        trigger="剧情事件触发一次主要身体或道具动作",
+        preparation="人物先调整视线、接触和身体重心",
+        force="力量沿一个明确方向释放",
+        contact="手脚或道具在明确位置完成接触",
+        reaction="人物、道具和衣料产生幅度克制的反作用",
+        settling="动作完成后姿态、道具和环境状态稳定落定",
+        environment_feedback=["接触阴影与道具位置保持", "下一镜继承落定状态"],
+    )
+
+
+def _scene_spatial_contract(
+    location: AssetRecord,
+    location_name: str,
+) -> SceneSpatialContract:
+    version_id = f"{location.asset_id}@{location.version}"
+    time_of_day = location.state_variables.get("time_of_day", "unspecified")
+    lighting_source = location.state_variables.get("lighting_source")
+    anchors = location.identity_invariants or [f"{location_name}固定建筑与出入口"]
+    return SceneSpatialContract(
+        location_version_id=version_id,
+        time_of_day=time_of_day,
+        zones={
+            "foreground": "可用于尺度或过肩关系，不自动增加人物",
+            "action_zone": "主要表演、对话或道具接触发生区",
+            "background": "保留批准建筑锚点，不增加未登记人物",
+        },
+        anchor_objects=anchors,
+        lighting_source=lighting_source
+        or (
+            "批准场景资产中固定的白昼窗光"
+            if "day" in time_of_day
+            else "批准场景资产中的固定真实光源"
+        ),
+        action_axis=f"{location_name}首次建立的对话或运动轴",
+        continuity_notes=[
+            "换机位不重建房间",
+            "屏幕方向变化必须由可见转身或中性镜头解释",
+            "未登记状态默认保持",
+        ],
     )
 
 
@@ -781,12 +1101,24 @@ def compile_production_plan(
     current_scene_key: tuple[str, str] | None = None
     scene_index = 0
     for shot in plan.shots:
-        if shot.audio_plan.speech_strategy != SpeechStrategy.LOCKED:
+        if shot.audio_plan.speech_strategy not in {
+            SpeechStrategy.LOCKED,
+            SpeechStrategy.NATIVE,
+        }:
             raise ValueError(
-                f"shot {shot.index} requests native speech, but the production runtime "
-                "currently supports locked speech only"
+                f"shot {shot.index} requests unresolved adaptive speech; choose locked or native"
             )
+        resolved_characters = visible_character_names_for_shot(
+            shot,
+            tuple(character_ids),
+        )
+        if resolved_characters != shot.characters:
+            shot = shot.model_copy(update={"characters": resolved_characters})
         location_id = _resolve_location_id(shot.location, assets)
+        location_record = next(
+            record for record in assets.locations if record.asset_id == location_id
+        )
+        location_name = shot.location or location_record.name
         scene_key = (location_id, shot.scene_job)
         if scene_key != current_scene_key:
             scene_index += 1
@@ -798,6 +1130,10 @@ def compile_production_plan(
                     location_asset_id=location_id,
                     narrative_job=shot.scene_job,
                     shot_ids=[],
+                    spatial_contract=_scene_spatial_contract(
+                        location_record,
+                        location_name,
+                    ),
                 )
             )
         scene = scenes[-1]
@@ -832,7 +1168,11 @@ def compile_production_plan(
             visible_character_ids = [
                 character_ids[name] for name in shot.characters if name in character_ids
             ]
-            if turn.speaking and turn.speaker_name in character_ids:
+            if (
+                turn.speaking
+                and turn.speaker_name in character_ids
+                and shot.visual_strategy != VisualStrategy.STORY_KEYFRAME
+            ):
                 speaker_id = character_ids[turn.speaker_name]
                 # Dialogue units are deliberately single-speaker close-ups.
                 # Other shot characters remain represented by their own turns,
@@ -860,14 +1200,15 @@ def compile_production_plan(
                     and "画面左侧" in visual_context
                     and "看向右" in visual_context
                 ):
-                    composition = _DIALOGUE_AXIS_COMPOSITIONS[1]
+                    composition = _DIALOGUE_AXIS_COMPOSITIONS[1][0]
                 elif (
                     turn.speaker_name in visual_context
                     and "画面右侧" in visual_context
                     and "看向左" in visual_context
                 ):
-                    composition = _DIALOGUE_AXIS_COMPOSITIONS[0]
+                    composition = _DIALOGUE_AXIS_COMPOSITIONS[0][0]
             performance_plan = _performance_plan_for(shot, turn)
+            action_physics_plan = _action_physics_plan_for(shot, turn)
             camera_mode, camera_motivation = camera_modes[shot.index]
             camera_plan = _camera_plan_for(
                 shot,
@@ -886,6 +1227,41 @@ def compile_production_plan(
             if turn.speaking:
                 speaker = character_specs[turn.speaker_name]
                 actor_identity = _character_identity(speaker)
+                story_keyframe_characters = [
+                    character_specs[name]
+                    for name in shot.characters
+                    if name in character_specs
+                ]
+                is_multi_character_keyframe = (
+                    shot.visual_strategy == VisualStrategy.STORY_KEYFRAME
+                    and len(story_keyframe_characters) >= 2
+                )
+                if is_multi_character_keyframe:
+                    identity_rule = (
+                        "参考图分别锁定以下具名角色的身份、服装和画风："
+                        + "；".join(
+                            _character_identity(character)
+                            for character in story_keyframe_characters
+                        )
+                        + "；不得交换身份、服装或空间位置。"
+                    )
+                    subject_rule = (
+                        f"恰好画出{len(story_keyframe_characters)}名具名角色："
+                        + "、".join(
+                            character.name for character in story_keyframe_characters
+                        )
+                        + f"；只有{turn.speaker_name}说话，其余角色闭嘴并只做剧情要求的反应。"
+                    )
+                else:
+                    identity_rule = (
+                        f"参考图只锁定唯一角色身份、服装和画风：{actor_identity}；"
+                        "不要复制参考图中的静态姿势、画面位置或摄影机构图。"
+                    )
+                    subject_rule = (
+                        f"只画{turn.speaker_name}单人，情绪为{turn.emotion}，"
+                        "脸和完整嘴部位于竖屏安全区，嘴巴自然闭合且无遮挡。"
+                        "不得出现被对话者、其他前景人物、文字、字幕、气泡、Logo或水印。"
+                    )
                 keyframe_contract = (
                     "【剧情锚点关键帧】原因："
                     + "、".join(shot.keyframe_reasons or ["导演指定构图"])
@@ -898,8 +1274,7 @@ def compile_production_plan(
                     +
                     f"系列风格指纹 {bible.style_fingerprint}。视觉风格：{bible.visual_style}。"
                     f"{intent_contract}"
-                    f"参考图只锁定唯一角色身份、服装和画风：{actor_identity}；"
-                    "不要复制参考图中的静态姿势、画面位置或摄影机构图。"
+                    f"{identity_rule}"
                     f"场景明确为{shot.location or assets.locations[0].name}，背景适度虚化。"
                     f"分镜视觉约束：{visual_context}。"
                     f"人物即将表达的剧情信息是“{turn.text}”，只把语义转化为表情、视线和动作，"
@@ -908,15 +1283,15 @@ def compile_production_plan(
                     f"摄影机起始位置：{camera_plan.start_position}。{camera_plan.screen_direction}。"
                     "画面必须为人物后续动作保留空间，"
                     f"不得提前画出动作终点“{performance_plan.end_state}”。"
-                    f"只画{turn.speaker_name}单人，情绪为{turn.emotion}，"
-                    "脸和完整嘴部位于竖屏安全区，嘴巴自然闭合且无遮挡。"
-                    "不得出现被对话者、其他前景人物、文字、字幕、气泡、Logo或水印。"
+                    f"{subject_rule}"
                 )
                 motion_prompt = build_sd_prompt(
                     turn.speaker_name,
                     turn.text,
                     shot.motion_prompt,
-                    use_reference_audio=True,
+                    use_reference_audio=(
+                        shot.audio_plan.speech_strategy == SpeechStrategy.LOCKED
+                    ),
                     actor_description=actor_identity,
                     composition_prompt=composition,
                     emotion=turn.emotion,
@@ -958,7 +1333,9 @@ def compile_production_plan(
                     "narrator",
                     turn.text,
                     shot.motion_prompt,
-                    use_reference_audio=True,
+                    use_reference_audio=(
+                        shot.audio_plan.speech_strategy == SpeechStrategy.LOCKED
+                    ),
                     composition_prompt=composition,
                     performance_plan=performance_plan,
                     camera_plan=camera_plan,
@@ -982,6 +1359,7 @@ def compile_production_plan(
                     source_quote=source_quote,
                     character_asset_ids=visible_character_ids,
                     location_asset_id=location_id,
+                    location_name=location_name,
                     voice=voice,
                     visual_prompt=shot.visual_prompt,
                     motion_instruction=shot.motion_prompt,
@@ -995,6 +1373,7 @@ def compile_production_plan(
                     keyframe_reasons=shot.keyframe_reasons,
                     shot_intent=shot.shot_intent,
                     audio_plan=shot.audio_plan,
+                    action_physics_plan=action_physics_plan,
                     audio_path=f"work/turn_audio/{unit_id}.wav",
                     keyframe_path=f"work/keyframes/{unit_id}.jpeg",
                     raw_video_path=f"work/raw_video/{unit_id}.mp4",
@@ -1015,6 +1394,23 @@ def compile_production_plan(
             )
         )
         scene.shot_ids.append(shot_id)
+    units_by_scene: dict[str, list[RuntimeUnit]] = {}
+    for unit in units:
+        units_by_scene.setdefault(unit.scene_id, []).append(unit)
+    for scene in scenes:
+        if scene.spatial_contract is None:
+            continue
+        scene.spatial_contract = scene.spatial_contract.model_copy(
+            update={
+                "allowed_asset_ids": list(
+                    dict.fromkeys(
+                        asset_id
+                        for unit in units_by_scene.get(scene.scene_id, [])
+                        for asset_id in unit.character_asset_ids
+                    )
+                )
+            }
+        )
     return ProductionPlan(
         video_id=video_id,
         source_title=episode.source_title,
@@ -1031,47 +1427,24 @@ def compile_production_plan(
 def _camera_movement_budget(plan: EpisodePlan) -> dict[int, tuple[str, str]]:
     """Normalize legacy/model camera plans before compiling media requests.
 
-    The planner may still return a moving legacy CameraPlan without the new
-    mode field.  Runtime policy, rather than prompt wording, is authoritative:
-    roughly two thirds of shots stay locked, emphasis moves stay sparse, and
-    adjacent shots never both receive a moving camera.
+    Preserve explicit and story-motivated subtle moves.  Only emphasis moves
+    consume a sparse budget; a slow push or follow shot is not a spectacle and
+    must not be disabled merely because the neighbouring shot also moves.
     """
 
-    movement_budget = max(1, len(plan.shots) // 3) if len(plan.shots) >= 3 else 0
-    emphasis_budget = max(1, len(plan.shots) // 10) if len(plan.shots) >= 10 else 0
-    candidates: list[tuple[int, int, str, str]] = []
-    for shot in plan.shots:
-        mode, motivation, priority = _camera_mode_for(shot, _turns_for_shot(shot)[0])
-        if mode != "locked":
-            candidates.append((priority, shot.index, mode, motivation))
-
-    selected: dict[int, tuple[str, str]] = {}
+    emphasis_budget = max(1, math.floor(len(plan.shots) * 0.20))
+    normalized_modes: dict[int, tuple[str, str]] = {}
     emphasis = 0
-    for _, shot_index, proposed_mode, motivation in sorted(
-        candidates,
-        key=lambda row: (-row[0], row[1]),
-    ):
-        if len(selected) >= movement_budget:
-            break
-        if shot_index - 1 in selected or shot_index + 1 in selected:
-            continue
+    for shot in plan.shots:
+        proposed_mode, motivation, _ = _camera_mode_for(
+            shot,
+            _turns_for_shot(shot)[0],
+        )
         selected_mode = proposed_mode
-        if proposed_mode == "motivated_emphasis" and emphasis >= emphasis_budget:
+        if selected_mode == "motivated_emphasis" and emphasis >= emphasis_budget:
             selected_mode = "motivated_subtle"
             motivation = f"{motivation}；受强调运镜预算约束，降为克制短移"
-        selected[shot_index] = (selected_mode, motivation)
+        normalized_modes[shot.index] = (selected_mode, motivation)
         if selected_mode == "motivated_emphasis":
             emphasis += 1
-
-    normalized_modes: dict[int, tuple[str, str]] = {}
-    for shot in plan.shots:
-        if shot.index in selected:
-            normalized_modes[shot.index] = selected[shot.index]
-            continue
-        proposed_mode, motivation, _ = _camera_mode_for(
-            shot, _turns_for_shot(shot)[0]
-        )
-        if proposed_mode != "locked":
-            motivation = "本集运镜预算、优先级或相邻运镜约束要求本镜固定机位"
-        normalized_modes[shot.index] = ("locked", motivation)
     return normalized_modes

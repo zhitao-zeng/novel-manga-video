@@ -21,6 +21,9 @@ def _default_font_path() -> Path:
 
 
 DEFAULT_FONT_PATH = _default_font_path()
+NATIVE_VIDEO_AUDIO_POLICIES = frozenset(
+    {"seedance_native_unchecked", "sd25_native_original"}
+)
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,7 @@ class Settings:
     intro_seconds: float = 4.0
     outro_seconds: float = 4.0
     output_root: Path = Path("outputs")
+    style_master_path: Path | None = None
     font_path: Path = DEFAULT_FONT_PATH
     bgm_path: Path | None = None
     phanrouter_base_url: str = "https://cloud.phanthy.com/phanrouter"
@@ -41,6 +45,7 @@ class Settings:
     image_model: str = "gpt-image-2"
     video_model: str = "sd2.5"
     video_requires_audio: bool = False
+    final_audio_policy: str = "locked_tts"
     video_max_seconds: float = 14.0
     image_command: str | None = None
     local_image_prompt_policy: str | None = None
@@ -59,6 +64,8 @@ class Settings:
     planner_backend: str = "auto"
     planner_command: str | None = None
     planner_max_revisions: int = 2
+    bounded_review_fallback: bool = False
+    script_relaxed_scale: float = 0.45
     tts_base_url: str | None = None
     tts_api_key: str | None = None
     tts_model: str = "gpt-4o-mini-tts"
@@ -122,6 +129,11 @@ class Settings:
             intro_seconds=float(os.getenv("NOVEL_INTRO_SECONDS", "0")),
             outro_seconds=float(os.getenv("NOVEL_OUTRO_SECONDS", "4")),
             output_root=Path(output_root),
+            style_master_path=(
+                Path(os.environ["NOVEL_STYLE_MASTER_PATH"])
+                if os.getenv("NOVEL_STYLE_MASTER_PATH")
+                else None
+            ),
             font_path=Path(os.getenv("NOVEL_FONT_PATH", str(DEFAULT_FONT_PATH))),
             bgm_path=Path(bgm_path) if bgm_path else None,
             phanrouter_base_url=os.getenv("PHANROUTER_BASE_URL", cls.phanrouter_base_url),
@@ -137,6 +149,9 @@ class Settings:
                 "NOVEL_VIDEO_REQUIRES_AUDIO", "0"
             ).strip().lower()
             in {"1", "true", "yes", "on"},
+            final_audio_policy=os.getenv(
+                "NOVEL_FINAL_AUDIO_POLICY", "locked_tts"
+            ),
             video_max_seconds=float(os.getenv("NOVEL_VIDEO_MAX_SECONDS", "14")),
             image_command=os.getenv("NOVEL_IMAGE_COMMAND"),
             local_image_prompt_policy=(
@@ -175,6 +190,13 @@ class Settings:
             planner_backend=os.getenv("NOVEL_PLANNER_BACKEND", "auto"),
             planner_command=os.getenv("NOVEL_PLANNER_COMMAND"),
             planner_max_revisions=int(os.getenv("NOVEL_PLANNER_MAX_REVISIONS", "2")),
+            bounded_review_fallback=os.getenv(
+                "NOVEL_BOUNDED_REVIEW_FALLBACK", "0"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
+            script_relaxed_scale=float(
+                os.getenv("NOVEL_SCRIPT_RELAXED_SCALE", "0.45")
+            ),
             tts_base_url=os.getenv("NOVEL_TTS_BASE_URL"),
             tts_api_key=os.getenv("NOVEL_TTS_API_KEY"),
             tts_model=os.getenv("NOVEL_TTS_MODEL", cls.tts_model),
@@ -207,6 +229,13 @@ class Settings:
             raise ValueError("fps must be 25 or 30")
         if self.admission_mode not in {"preview", "production"}:
             raise ValueError("admission_mode must be preview or production")
+        if (
+            self.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES
+            and self.admission_mode != "preview"
+        ):
+            raise ValueError(
+                "native video audio without ASR is a preview-only audio policy"
+            )
         if self.intro_seconds < 0 or self.outro_seconds < 0:
             raise ValueError("intro_seconds and outro_seconds must be non-negative")
         if self.creative_profile not in {
@@ -223,6 +252,10 @@ class Settings:
         # samples, which do pay off, so allow a few more.
         if not 0 <= self.planner_max_revisions <= 6:
             raise ValueError("NOVEL_PLANNER_MAX_REVISIONS must be between 0 and 6")
+        if not 0.2 <= self.script_relaxed_scale <= 1.0:
+            raise ValueError(
+                "NOVEL_SCRIPT_RELAXED_SCALE must be between 0.2 and 1.0"
+            )
         if not 512 <= self.llm_max_tokens <= 32768:
             raise ValueError("NOVEL_LLM_MAX_TOKENS must be between 512 and 32768")
         if not 1 <= self.media_workers <= 8:
@@ -231,6 +264,14 @@ class Settings:
             raise ValueError("NOVEL_VIDEO_WORKERS must be between 1 and 8")
         if not 4.0 <= self.video_max_seconds <= 14.0:
             raise ValueError("NOVEL_VIDEO_MAX_SECONDS must be between 4 and 14")
+        if self.final_audio_policy not in {
+            "locked_tts",
+            *NATIVE_VIDEO_AUDIO_POLICIES,
+        }:
+            raise ValueError(
+                "NOVEL_FINAL_AUDIO_POLICY must be locked_tts, "
+                "seedance_native_unchecked, or sd25_native_original"
+            )
         if not 1 <= self.max_unit_attempts <= 4:
             raise ValueError("NOVEL_MAX_UNIT_ATTEMPTS must be between 1 and 4")
         for name, value in (
@@ -242,6 +283,10 @@ class Settings:
                 raise ValueError(f"{name} must be between 0.5 and 2.0")
         if self.request_timeout <= 0 or self.poll_timeout <= 0:
             raise ValueError("request and poll timeouts must be positive")
+        if self.style_master_path is not None and not self.style_master_path.is_file():
+            raise ValueError(
+                f"NOVEL_STYLE_MASTER_PATH not found: {self.style_master_path}"
+            )
         if self.local_image_prompt_policy not in {
             None,
             "legacy",
@@ -298,7 +343,12 @@ class Settings:
             remote_tts = bool(self.tts_base_url and self.tts_api_key)
             local_tts = bool(self.local_tts_python and self.local_tts_model_dir)
             command_tts = bool(self.tts_command)
-            if not remote_tts and not local_tts and not command_tts:
+            if (
+                self.final_audio_policy not in NATIVE_VIDEO_AUDIO_POLICIES
+                and not remote_tts
+                and not local_tts
+                and not command_tts
+            ):
                 missing.append("remote TTS pair, local TTS model, or NOVEL_TTS_COMMAND")
             if missing:
                 raise ValueError("production provider missing environment variables: " + ", ".join(missing))

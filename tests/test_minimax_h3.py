@@ -35,6 +35,41 @@ def test_h3_graph_locks_picture_and_audio_references() -> None:
     assert graph["10"]["class_type"] == "VRGDG_MiniMaxH3AudioDrive"
     assert graph["18"]["inputs"]["audio"] == ["10", 1]
     assert "女孩转头" in conditioning["prompt"]
+    assert graph["13"]["inputs"]["sampler_name"] == "res_multistep"
+
+
+def test_h3_turbo_sampling_bundle_is_audited_and_wired() -> None:
+    config = MiniMaxH3Config(
+        model="minimax_h3_ref2va_pruned_turbo_int8_convrot.safetensors",
+        model_revision="6395b6922e1a82694401e752b731aedf85ff8ac9",
+        steps=8,
+        sampler="euler",
+        scheduler="simple",
+    )
+    client = MiniMaxH3Client(config)
+    graph = client.build_graph(
+        image_name="shot.jpeg",
+        audio_name="driver.wav",
+        duration_seconds=4.0,
+        prompt="人物抬眼。",
+        output_prefix="test/h3-turbo",
+        seed=7,
+    )
+
+    assert graph["1"]["inputs"]["unet_name"] == config.model
+    assert graph["13"]["inputs"]["sampler_name"] == "euler"
+    assert graph["14"]["inputs"]["steps"] == 8
+    assert graph["14"]["inputs"]["scheduler"] == "simple"
+    assert config.audit_identity() == {
+        "backend": "MiniMax-H3-Ref2VA",
+        "model": config.model,
+        "model_revision": config.model_revision,
+        "steps": 8,
+        "sampler": "euler",
+        "scheduler": "simple",
+        "sigma_shift_video": 12.0,
+        "sigma_shift_audio": 3.0,
+    }
 
 
 def test_h3_graph_accepts_separate_character_and_environment_assets() -> None:

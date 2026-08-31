@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageOps
 
-from ..config import Settings
+from ..config import NATIVE_VIDEO_AUDIO_POLICIES, Settings
 from ..util import atomic_write_json, retry
 from .base import ImageResult, MediaProvider
 
@@ -99,11 +99,19 @@ class PhanRouterMediaProvider(MediaProvider):
             raise ValueError("PhanRouter image task metadata has no task_id")
         return self._poll_image_url(str(task_id))
 
-    def create_image(self, prompt: str, output: Path, reference: Path | None = None) -> ImageResult:
+    def create_image(
+        self,
+        prompt: str,
+        output: Path,
+        reference: Path | None = None,
+        additional_references: tuple[Path, ...] = (),
+    ) -> ImageResult:
         if self.settings.image_model in {
             "doubao-seedream-5.0-lite",
             "doubao-seedream-4.5",
         }:
+            if additional_references:
+                raise ValueError("Seedream image generation accepts only one reference")
             return self._create_seedream_image(prompt, output, reference)
 
         payload: dict[str, object] = {
@@ -113,7 +121,12 @@ class PhanRouterMediaProvider(MediaProvider):
             "resolution": "2K",
             "thinking": "high",
         }
-        if reference:
+        if reference and additional_references:
+            payload["base64Files"] = [
+                base64.b64encode(path.read_bytes()).decode("ascii")
+                for path in (reference, *additional_references)
+            ]
+        elif reference:
             payload["base64File"] = base64.b64encode(reference.read_bytes()).decode("ascii")
 
         def submit() -> httpx.Response:
@@ -261,18 +274,37 @@ class PhanRouterMediaProvider(MediaProvider):
     def _video_payload(
         self,
         prompt: str,
-        image_url: str,
+        image_url: str | None,
         duration: float,
         reference_audio: Path | None,
+        additional_image_urls: tuple[str, ...] = (),
     ) -> tuple[dict, str | None]:
-        content = [
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": image_url}, "role": "reference_image"},
-        ]
+        content = [{"type": "text", "text": prompt}]
+        if image_url is not None:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_url},
+                    "role": "reference_image",
+                }
+            )
+        content.extend(
+            {
+                "type": "image_url",
+                "image_url": {"url": additional_url},
+                "role": "reference_image",
+            }
+            for additional_url in additional_image_urls
+        )
         reference_audio_sha256 = None
         if reference_audio is not None:
             audio_content, reference_audio_sha256 = self._reference_audio_content(reference_audio)
             content.append(audio_content)
+        generate_audio = (
+            reference_audio is not None
+            or getattr(self.settings, "final_audio_policy", "locked_tts")
+            in NATIVE_VIDEO_AUDIO_POLICIES
+        )
         return (
             {
                 "model": self.settings.video_model,
@@ -280,7 +312,7 @@ class PhanRouterMediaProvider(MediaProvider):
                 "ratio": "9:16",
                 "resolution": "720p",
                 "duration": max(4, min(30, math.ceil(duration))),
-                "generate_audio": reference_audio is not None,
+                "generate_audio": generate_audio,
                 "watermark": False,
                 "output_format": "mp4",
             },
@@ -290,19 +322,26 @@ class PhanRouterMediaProvider(MediaProvider):
     def create_video(
         self,
         prompt: str,
-        image: ImageResult,
+        image: ImageResult | None,
         output: Path,
         duration: float,
         reference_audio: Path | None = None,
         additional_images: tuple[Path, ...] = (),
     ) -> Path:
-        if additional_images:
-            raise ValueError(
-                "separate reusable video assets are supported only by the local MiniMax H3 adapter"
-            )
-        image_url = self._restore_image_url(image)
+        for additional_image in additional_images:
+            if not additional_image.is_file():
+                raise FileNotFoundError(additional_image)
+        image_url = self._restore_image_url(image) if image is not None else None
+        additional_image_urls = tuple(
+            self._restore_image_url(ImageResult(path=path))
+            for path in additional_images
+        )
         payload, reference_audio_sha256 = self._video_payload(
-            prompt, image_url, duration, reference_audio
+            prompt,
+            image_url,
+            duration,
+            reference_audio,
+            additional_image_urls,
         )
         request_sha256 = hashlib.sha256(
             json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -340,7 +379,11 @@ class PhanRouterMediaProvider(MediaProvider):
                         "output_format": "mp4",
                         "request_sha256": request_sha256,
                         "reference_audio_sha256": reference_audio_sha256,
-                        "generate_audio": reference_audio is not None,
+                        "additional_image_sha256s": [
+                            hashlib.sha256(path.read_bytes()).hexdigest()
+                            for path in additional_images
+                        ],
+                        "generate_audio": bool(payload["generate_audio"]),
                     },
                 )
         if not task_id:
@@ -358,7 +401,23 @@ class PhanRouterMediaProvider(MediaProvider):
                 url = data.get("url") or data.get("video_url")
                 if not url:
                     raise ValueError("successful video task returned no URL")
-                self._download(str(url), output)
+                try:
+                    self._download(str(url), output)
+                except httpx.TimeoutException:
+                    # The generation is already paid and succeeded; a slow
+                    # proxy/CDN read must resume the same task rather than
+                    # allocate a new generation attempt.
+                    time.sleep(5)
+                    continue
+                except httpx.HTTPStatusError as error:
+                    # A newly succeeded Seedance task can be visible in the
+                    # task API a few seconds before its signed CDN object is
+                    # replicated. Keep polling this same paid task instead of
+                    # consuming a fresh generation attempt.
+                    if error.response.status_code == 404:
+                        time.sleep(5)
+                        continue
+                    raise
                 return output
             if status in {"failed", "failure", "cancelled"}:
                 task_path.unlink(missing_ok=True)

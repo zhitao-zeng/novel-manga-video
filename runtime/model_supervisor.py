@@ -48,8 +48,11 @@ def _checkpoint_complete(path: Path) -> tuple[bool, str | None]:
         marker = next(path.rglob(pattern), None)
         if marker is not None:
             return False, f"incomplete download marker: {marker.name}"
-    if not (path / "config.json").is_file() and not (path / "model_index.json").is_file():
-        return False, "config.json/model_index.json missing"
+    if not any(
+        (path / filename).is_file()
+        for filename in ("config.json", "model_index.json", "config.yaml")
+    ):
+        return False, "config.json/model_index.json/config.yaml missing"
     indexes = list(path.glob("*.safetensors.index.json")) + list(
         path.glob("**/*.safetensors.index.json")
     )
@@ -73,9 +76,55 @@ def _checkpoint_complete(path: Path) -> tuple[bool, str | None]:
     return (True, None) if has_weight else (False, "model weights missing")
 
 
-def _h3_checkpoint_complete(path: Path) -> tuple[bool, str | None]:
+def _indextts_checkpoint_complete(path: Path) -> tuple[bool, str | None]:
     required = {
-        "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+        "config.yaml",
+        "gpt.pth",
+        "s2mel.pth",
+        "codec.pth",
+        "feat1.pt",
+        "feat2.pt",
+        "wav2vec2bert_stats.pt",
+        "qwen0.6bemo4-merge/config.json",
+        "qwen0.6bemo4-merge/model.safetensors",
+        "hf_cache/w2v-bert-2.0/config.json",
+        "hf_cache/w2v-bert-2.0/model.safetensors",
+        "hf_cache/w2v-bert-2.0/conformer_shaw.pt",
+        "hf_cache/semantic_codec_model.safetensors",
+        "hf_cache/campplus_cn_common.bin",
+        "hf_cache/bigvgan/config.json",
+        "hf_cache/bigvgan/bigvgan_generator.pt",
+    }
+    if not path.is_dir():
+        return False, "directory missing"
+    missing = [name for name in sorted(required) if not (path / name).is_file()]
+    if missing:
+        return False, "missing IndexTTS files: " + ", ".join(missing)
+    empty = [name for name in sorted(required) if (path / name).stat().st_size == 0]
+    return (False, "empty IndexTTS files: " + ", ".join(empty)) if empty else (True, None)
+
+
+def _indextts_references_complete(path: Path) -> tuple[bool, str | None]:
+    if not path.is_dir():
+        return False, "directory missing"
+    references = [
+        item
+        for suffix in ("*.wav", "*.flac", "*.mp3")
+        for item in path.glob(suffix)
+        if item.is_file() and item.stat().st_size > 44
+    ]
+    if not references:
+        return False, "no non-empty voice reference audio"
+    return True, None
+
+
+def _h3_checkpoint_complete(path: Path) -> tuple[bool, str | None]:
+    diffusion_model = os.getenv(
+        "NOVEL_MINIMAX_H3_MODEL",
+        "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+    )
+    required = {
+        f"diffusion_models/{diffusion_model}",
         "text_encoders/qwen3vl_32b_minimax_h3_int8_convrot.safetensors",
         "vae/minimax_h3_video_vae_fp16.safetensors",
         "vae/minimax_h3_audio_vae_fp32.safetensors",
@@ -89,6 +138,66 @@ def _h3_checkpoint_complete(path: Path) -> tuple[bool, str | None]:
     return (False, "empty H3 files: " + ", ".join(empty)) if empty else (True, None)
 
 
+def _visible_gpu_memory_mib() -> list[tuple[int, int]] | None:
+    """Return ``(total, free)`` MiB for GPUs visible inside this container."""
+
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.total,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        rows = []
+        for line in completed.stdout.splitlines():
+            if not line.strip():
+                continue
+            total, free = (int(value.strip()) for value in line.split(",", 1))
+            rows.append((total, free))
+        return rows
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _h3_cache_arguments() -> list[str]:
+    raw = os.getenv("NOVEL_MINIMAX_H3_CACHE_LRU", "auto").strip().casefold()
+    if raw == "auto":
+        memory = _visible_gpu_memory_mib()
+        # H3 selects the first visible CUDA device.  Auto-routing therefore
+        # requires the deployment contract used by production: exactly one
+        # visible GPU.  Ambiguous multi-GPU containers take the safe fallback.
+        if memory is None or len(memory) != 1:
+            return ["--cache-none"]
+        total_mib, free_mib = memory[0]
+        min_total_mib = int(
+            os.getenv("NOVEL_MINIMAX_H3_CACHE_MIN_TOTAL_MIB", "80000")
+        )
+        min_free_mib = int(
+            os.getenv("NOVEL_MINIMAX_H3_CACHE_MIN_FREE_MIB", "70000")
+        )
+        if min_total_mib < 0 or min_free_mib < 0:
+            raise ValueError("H3 cache memory thresholds must be non-negative")
+        return (
+            ["--cache-lru", "8"]
+            if total_mib >= min_total_mib and free_mib >= min_free_mib
+            else ["--cache-none"]
+        )
+    try:
+        cache_lru = int(raw)
+    except ValueError as error:
+        raise ValueError(
+            "NOVEL_MINIMAX_H3_CACHE_LRU must be 'auto' or a non-negative integer"
+        ) from error
+    if cache_lru < 0:
+        raise ValueError("NOVEL_MINIMAX_H3_CACHE_LRU must be non-negative")
+    return ["--cache-none"] if cache_lru == 0 else ["--cache-lru", str(cache_lru)]
+
+
 class ModelSupervisor:
     def __init__(self) -> None:
         self.models, self.optional_models = _load_manifest()
@@ -97,16 +206,22 @@ class ModelSupervisor:
         self.log_stream = None
         self.active_stage: str | None = None
         self.last_error: str | None = None
+        self.last_command: list[str] | None = None
         LOG_ROOT.mkdir(parents=True, exist_ok=True)
 
     def model_status(self) -> dict[str, dict[str, object]]:
         rows: dict[str, dict[str, object]] = {}
         for name, path in self.models.items():
-            ready, error = (
-                _h3_checkpoint_complete(path)
-                if name == "video"
-                else _checkpoint_complete(path)
-            )
+            if name == "video":
+                ready, error = _h3_checkpoint_complete(path)
+            elif name == "tts" and os.getenv(
+                "NOVEL_TTS_BACKEND", "indextts"
+            ).strip().casefold() == "indextts":
+                ready, error = _indextts_checkpoint_complete(path)
+            elif name == "tts-references":
+                ready, error = _indextts_references_complete(path)
+            else:
+                ready, error = _checkpoint_complete(path)
             rows[name] = {
                 "path": str(path),
                 "ready": ready,
@@ -130,12 +245,10 @@ class ModelSupervisor:
         if stage == "audio-evidence":
             return ["asr", "aligner"]
         if stage == "audio":
-            backend = os.getenv("NOVEL_TTS_BACKEND", "voxcpm2").strip().casefold()
-            if backend == "voxcpm2":
-                return ["tts", "asr", "aligner"]
-            if backend == "qwen":
-                return ["tts-qwen", "asr", "aligner"]
-            raise ValueError("NOVEL_TTS_BACKEND must be voxcpm2 or qwen")
+            backend = os.getenv("NOVEL_TTS_BACKEND", "indextts").strip().casefold()
+            if backend != "indextts":
+                raise ValueError("NOVEL_TTS_BACKEND must be indextts")
+            return ["tts", "tts-references", "asr", "aligner"]
         raise ValueError(f"unsupported model stage: {stage}")
 
     def _command(self, stage: str) -> list[str]:
@@ -183,7 +296,18 @@ class ModelSupervisor:
                 # async CPU offload exceeds the leaderboard's 32 GB RAM cap.
                 "--gpu-only",
                 "--disable-async-offload",
-                "--cache-none",
+                *_h3_cache_arguments(),
+            ]
+        if stage == "audio":
+            return [
+                "/opt/venvs/controller/bin/python",
+                "/app/runtime/audio_router.py",
+                "--host",
+                HOST,
+                "--port",
+                str(WORKER_PORT),
+                "--manifest",
+                str(MANIFEST_PATH),
             ]
         runtime = "image" if stage.startswith("image-") else "audio"
         return [
@@ -309,13 +433,15 @@ class ModelSupervisor:
                     "PYTHONPATH": "/app/src",
                 }
             )
+            command = self._command(normalized)
             self.process = subprocess.Popen(
-                self._command(normalized),
+                command,
                 stdout=self.log_stream,
                 stderr=subprocess.STDOUT,
                 env=env,
                 start_new_session=True,
             )
+            self.last_command = command
             self.active_stage = normalized
             try:
                 self._wait_ready(normalized)
@@ -333,6 +459,7 @@ class ModelSupervisor:
                 "all_models_ready": self.all_models_ready,
                 "active_stage": self.active_stage,
                 "worker_pid": self.process.pid if self.process and self.process.poll() is None else None,
+                "worker_command": self.last_command,
                 "last_error": self.last_error,
                 "models": self.model_status(),
             }

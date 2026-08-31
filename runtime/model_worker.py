@@ -21,6 +21,7 @@ from image_prompting import (
     infer_reference_mode,
 )
 from novel_manga.voxcpm_voice import (
+    extract_performance_style,
     resolve_voice_profile,
     stable_voice_seed,
     styled_clone_text,
@@ -150,9 +151,12 @@ class ImageService:
         )
         style_profile = str(style_profile_value).strip() or None
         reference = payload.get("reference")
-        reference_mode = str(payload.get("reference_mode") or "") or infer_reference_mode(
-            reference
-        )
+        additional_references = tuple(payload.get("additional_reference") or ())
+        reference_mode = str(payload.get("reference_mode") or "")
+        if not reference_mode and additional_references:
+            reference_mode = "visible_speaker_and_location"
+        if not reference_mode:
+            reference_mode = infer_reference_mode(reference) or ""
         compiled = compile_image_prompt(
             str(payload["prompt"]),
             stage=self.stage,
@@ -175,10 +179,12 @@ class ImageService:
         else:
             if not reference:
                 raise ValueError("image-edit requires a reference image")
-            with Image.open(reference) as source:
-                reference_image = source.convert("RGB")
+            reference_images = []
+            for reference_path in (reference, *additional_references):
+                with Image.open(reference_path) as source:
+                    reference_images.append(source.convert("RGB").copy())
             result = self.pipeline(
-                image=[reference_image],
+                image=reference_images,
                 negative_prompt=compiled.negative_prompt,
                 num_inference_steps=int(os.getenv("NOVEL_QWEN_IMAGE_STEPS", "30")),
                 true_cfg_scale=4.0,
@@ -204,7 +210,7 @@ class ImageService:
         }
 
 
-class AudioService:
+class LegacyAudioService:
     VOICES = {
         "alloy": "Uncle_Fu",
         "coral": "Serena",
@@ -536,11 +542,228 @@ class AudioService:
         raise ValueError(f"audio worker does not implement {operation}")
 
 
+class IndexTTSService:
+    def __init__(self, models: dict[str, Path]) -> None:
+        import torch
+        from indextts.infer_v2_5 import IndexTTS2
+
+        from novel_manga.indextts import find_reference_audio, indextts_synthesis_text
+
+        backend = os.getenv("NOVEL_TTS_BACKEND", "indextts").strip().casefold()
+        if backend != "indextts":
+            raise ValueError("NOVEL_TTS_BACKEND must be indextts")
+        self.torch = torch
+        self.find_reference_audio = find_reference_audio
+        self.synthesis_text = indextts_synthesis_text
+        self.model_dir = models["tts"]
+        self.reference_dir = models["tts-references"]
+        self._call_counts: dict[str, int] = {}
+        self.tts = IndexTTS2(
+            cfg_path=str(self.model_dir / "config.yaml"),
+            model_dir=str(self.model_dir),
+            use_bf16=os.getenv("NOVEL_INDEXTTS_USE_BF16", "1") == "1",
+            device=os.getenv("NOVEL_INDEXTTS_DEVICE", "cuda:0"),
+            use_cuda_kernel=os.getenv("NOVEL_INDEXTTS_CUDA_KERNEL", "0") == "1",
+            use_qwen_emo=os.getenv("NOVEL_INDEXTTS_USE_QWEN_EMO", "1") == "1",
+        )
+
+    @staticmethod
+    def _requested_speed(payload: dict[str, Any]) -> tuple[float, float]:
+        from novel_manga.indextts import speed_to_duration_factor
+
+        requested = payload.get("speed")
+        speed = float(
+            requested if requested is not None else os.getenv("NOVEL_TTS_SPEED", "1.25")
+        )
+        return speed, speed_to_duration_factor(speed)
+
+    @staticmethod
+    def _postprocess_tts(source: Path, output: Path) -> None:
+        analysis = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-nostats",
+                "-i",
+                str(source),
+                "-filter:a",
+                "ebur128=peak=true",
+                "-f",
+                "null",
+                "-",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        loudness_values = re.findall(
+            r"I:\s+(-?\d+(?:\.\d+)?)\s+LUFS",
+            analysis.stderr,
+        )
+        input_lufs = float(loudness_values[-1]) if loudness_values else -18.0
+        gain_db = min(24.0, max(-12.0, -18.0 - input_lufs))
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-v",
+                "error",
+                "-i",
+                str(source),
+                "-filter:a",
+                f"volume={gain_db:.2f}dB,"
+                "alimiter=limit=0.8414:level=false:attack=5:release=50",
+                "-ar",
+                "48000",
+                "-c:a",
+                "pcm_s16le",
+                str(output),
+            ],
+            check=True,
+        )
+
+    def _tts(self, payload: dict[str, Any]) -> dict[str, Any]:
+        output = Path(payload["output"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        requested_voice = str(payload.get("voice") or "alloy")
+        reference = self.find_reference_audio(self.reference_dir, requested_voice)
+        locked_text = str(payload["text"])
+        text = self.synthesis_text(locked_text)
+        instructions = str(payload.get("instructions") or "")
+        style = extract_performance_style(instructions)
+        speed, duration_factor = self._requested_speed(payload)
+        counter_key = hashlib.sha256(
+            f"{requested_voice}\0{text}\0{instructions}\0{speed}".encode("utf-8")
+        ).hexdigest()
+        attempt = self._call_counts.get(counter_key, 0)
+        self._call_counts[counter_key] = attempt + 1
+        seed = stable_voice_seed(requested_voice, f"{counter_key}:{attempt}")
+        self.torch.manual_seed(seed)
+        self.torch.cuda.manual_seed_all(seed)
+        with tempfile.TemporaryDirectory(prefix="indextts-") as directory:
+            raw = Path(directory) / "raw.wav"
+            self.tts.infer(
+                spk_audio_prompt=str(reference),
+                text=text,
+                output_path=str(raw),
+                lang="ZH",
+                use_emo_text=bool(style),
+                emo_text=style or None,
+                emo_alpha=float(os.getenv("NOVEL_INDEXTTS_EMO_ALPHA", "0.8")),
+                use_random=False,
+                duration_factor=duration_factor,
+                verbose=False,
+            )
+            if not raw.is_file() or raw.stat().st_size <= 44:
+                raise RuntimeError("IndexTTS returned no audio")
+            self._postprocess_tts(raw, output)
+        return {
+            "output": str(output),
+            "backend": "indextts-2.5-local",
+            "voice": resolve_voice_profile(requested_voice).key,
+            "reference_audio": str(reference),
+            "speed": speed,
+            "duration_factor": duration_factor,
+            "speed_control": "indextts-duration-factor",
+            "emotion_text": style or None,
+            "locked_text": locked_text,
+            "synthesis_text": text,
+        }
+
+    def invoke(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if operation != "tts":
+            raise ValueError(f"IndexTTS worker does not implement {operation}")
+        return self._tts(payload)
+
+
+class AudioEvidenceService:
+    def __init__(self, models: dict[str, Path]) -> None:
+        import torch
+        from qwen_asr import Qwen3ASRModel, Qwen3ForcedAligner
+
+        self.asr = Qwen3ASRModel.from_pretrained(
+            str(models["asr"]),
+            dtype=torch.bfloat16,
+            device_map="cuda:0",
+            attn_implementation="sdpa",
+            max_inference_batch_size=8,
+            max_new_tokens=512,
+        )
+        self.aligner = Qwen3ForcedAligner.from_pretrained(
+            str(models["aligner"]),
+            dtype=torch.bfloat16,
+            device_map="cuda:0",
+            attn_implementation="sdpa",
+        )
+
+    @staticmethod
+    def _subtitle_pages(text: str, start: float, end: float) -> list[dict[str, Any]]:
+        clean = "".join(text.split())
+        pages = [clean[index : index + 36] for index in range(0, len(clean), 36)] or [""]
+        total = max(1, sum(len(page) for page in pages))
+        cursor = start
+        events = []
+        for index, page in enumerate(pages):
+            page_end = (
+                end
+                if index == len(pages) - 1
+                else cursor + (end - start) * len(page) / total
+            )
+            lines = [page[i : i + 18] for i in range(0, len(page), 18)]
+            events.append(
+                {
+                    "start": round(cursor, 6),
+                    "end": round(max(cursor + 0.05, page_end), 6),
+                    "text": r"\N".join(lines),
+                }
+            )
+            cursor = page_end
+        return events
+
+    def _asr(self, payload: dict[str, Any]) -> dict[str, Any]:
+        results = self.asr.transcribe(
+            audio=str(payload["audio"]),
+            context=str(payload.get("text") or ""),
+            language="Chinese",
+            return_time_stamps=False,
+        )
+        if not results:
+            raise RuntimeError("Qwen3-ASR returned no result")
+        return {"backend": "qwen3-asr-1.7b-local", "hypothesis": results[0].text}
+
+    def _align(self, payload: dict[str, Any]) -> dict[str, Any]:
+        text = str(payload["text"])
+        results = self.aligner.align(
+            audio=str(payload["audio"]), text=text, language="Chinese"
+        )
+        if not results or not results[0]:
+            raise RuntimeError("Qwen3 ForcedAligner returned no timestamp")
+        start = float(results[0][0].start_time)
+        end = float(results[0][-1].end_time)
+        return {
+            "backend": "qwen3-forced-aligner-0.6b-local",
+            "speech_start": start,
+            "speech_end": end,
+            "events": self._subtitle_pages(text, start, end),
+        }
+
+    def invoke(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if operation == "asr":
+            return self._asr(payload)
+        if operation == "align":
+            return self._align(payload)
+        raise ValueError(f"audio evidence worker does not implement {operation}")
+
+
 def build_service(stage: str, models: dict[str, Path]):
     if stage in {"image-base", "image-edit"}:
         return ImageService(stage, models)
-    if stage in {"audio", "audio-evidence"}:
-        return AudioService(models, load_tts=stage == "audio")
+    if stage == "audio-voxcpm":
+        return LegacyAudioService(models, load_tts=True)
+    if stage == "audio-tts":
+        return IndexTTSService(models)
+    if stage == "audio-evidence":
+        return AudioEvidenceService(models)
     raise ValueError(f"unsupported worker stage: {stage}")
 
 

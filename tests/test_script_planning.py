@@ -4,14 +4,44 @@ import json
 from pathlib import Path
 
 from novel_manga.ingest import read_novel
-from novel_manga.models import Episode, EpisodePlan, ScriptTurn, SeriesState, Shot, StoryBible
+from novel_manga.models import (
+    ChapterDiagnosis,
+    ChapterEvent,
+    Episode,
+    EpisodePlan,
+    ScriptTurn,
+    SeriesState,
+    Shot,
+    StoryBible,
+)
 from novel_manga.script_planning import (
     deterministic_chapter_diagnosis,
+    effective_script_policy,
     evaluate_script_quality,
     normalize_chronological_plan,
     validate_chapter_diagnosis,
     validate_series_state,
 )
+
+
+def test_relaxed_expansion_uses_the_same_floor_as_the_final_gate(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("NOVEL_SCRIPT_RELAXED_SCALE", raising=False)
+    monkeypatch.setenv("NOVEL_SCRIPT_STRICTNESS", "strict")
+    strict = effective_script_policy(2705, "normal", "short-drama-adaptive-v1")
+    monkeypatch.setenv("NOVEL_SCRIPT_STRICTNESS", "relaxed")
+    relaxed = effective_script_policy(2705, "normal", "short-drama-adaptive-v1")
+    monkeypatch.setenv("NOVEL_SCRIPT_RELAXED_SCALE", "0.40")
+    task_relaxed = effective_script_policy(
+        2705, "normal", "short-drama-adaptive-v1"
+    )
+
+    assert strict.min_script_chars == 595
+    assert relaxed.min_script_chars == 267
+    assert relaxed.min_turns == 12
+    assert relaxed.min_shots == 10
+    assert task_relaxed.min_script_chars == 238
 
 
 def _synthetic_long_episode() -> Episode:
@@ -85,9 +115,117 @@ def test_script_quality_rejects_long_spoken_turn_without_requiring_more_shots() 
     for shot in semantic_plan.shots:
         shot.turns = [ScriptTurn(text=complete_utterance, source_quote=shot.source_quote)]
     semantic_report = evaluate_script_quality(semantic_plan, diagnosis, episode)
-    assert 36 < semantic_report.max_turn_char_count <= 60
-    assert semantic_report.hard_overflow_turn_count == 0
-    assert not any(issue.code == "spoken_turn_too_long" for issue in semantic_report.issues)
+    assert semantic_report.max_turn_char_count > 20
+    assert semantic_report.hard_overflow_turn_count == len(diagnosis.events)
+
+    short_plan = plan.model_copy(deep=True)
+    for shot in short_plan.shots:
+        shot.turns = [ScriptTurn(text="结果出来了，先别笑。", source_quote=shot.source_quote)]
+    short_report = evaluate_script_quality(short_plan, diagnosis, episode)
+    assert short_report.max_turn_char_count <= 14
+    assert short_report.hard_overflow_turn_count == 0
+    assert not any(issue.code == "spoken_turn_too_long" for issue in short_report.issues)
+
+
+def test_short_drama_quality_blocks_slideshow_objective() -> None:
+    source_rows = (
+        "楚焱站在碑前。",
+        "楚媚笑着说你输了。",
+        "楚焱低头离开。",
+    )
+    source = "".join(source_rows)
+    episode = Episode(
+        index=1,
+        source_title="第一章",
+        source_text=source,
+        text_count=len(source),
+        source_start=0,
+        source_end=len(source),
+    )
+    diagnosis = ChapterDiagnosis(
+        source_chapter="第一章",
+        density="balanced",
+        core_event="楚焱受辱后离开",
+        chapter_start_state="楚焱等待测验",
+        chapter_end_state="楚焱离开",
+        episode_state_change="楚焱受到公开羞辱",
+        strongest_hook_candidate=source_rows[1],
+        hook_source_quote=source_rows[1],
+        ending_type="emotion",
+        events=[
+            ChapterEvent(
+                event_id=f"event_{index:03d}",
+                order=index,
+                description=row,
+                source_quote=row,
+                importance="critical",
+                narrative_role=("setup", "turning_point", "resolution")[index - 1],
+                characters=["楚焱"] if index != 2 else ["楚焱", "楚媚"],
+                causes=[] if index == 1 else [f"event_{index - 1:03d}"],
+                state_change=row,
+            )
+            for index, row in enumerate(source_rows, 1)
+        ],
+    )
+    plan = EpisodePlan(
+        video_title="陨落",
+        hook="楚焱受辱",
+        summary="楚焱被动受辱后离开",
+        creative_profile="short-drama-adaptive-v1",
+        dramaturgy={
+            "genre_engine": "公开羞辱",
+            "dramatic_question": "楚焱会反击吗？",
+            "cold_open": source_rows[1],
+            "cold_open_source_quote": source_rows[1],
+            "status_before": "等待测验",
+            "status_after": "受辱离开",
+            "conflict_beats": ["测验", "羞辱", "离开"],
+            "cliffhanger": "没有可见钩子",
+            "narration_budget_ratio": 0.5,
+        },
+        shots=[
+            Shot(
+                index=index,
+                narration=row,
+                subtitle=row,
+                visual_prompt=(
+                    "楚焱和楚媚站着不动"
+                    if index == 2
+                    else "楚焱站着不动"
+                ),
+                motion_prompt="站着不动",
+                characters=["楚焱"] if index != 2 else ["楚焱", "楚媚"],
+                source_quote=row,
+                event_ids=[f"event_{index:03d}"],
+                turns=[
+                    ScriptTurn(
+                        text=row,
+                        source_quote=row,
+                        derivation="verbatim",
+                    )
+                ],
+            )
+            for index, row in enumerate(source_rows, 1)
+        ],
+        adaptation_ledger=[
+            {
+                "event_id": f"event_{index:03d}",
+                "disposition": "preserved",
+                "shot_indexes": [index],
+                "rationale": "测试",
+            }
+            for index in range(1, 4)
+        ],
+    )
+
+    report = evaluate_script_quality(plan, diagnosis, episode)
+    codes = {issue.code for issue in report.issues}
+
+    assert "shot_change_missing" in codes
+    assert "protagonist_has_no_active_action" in codes
+    assert "named_conflict_ratio_too_low" in codes
+    assert "verbatim_turn_ratio_too_high" in codes
+    assert "visible_cliffhanger_missing" in codes
 
 
 def test_chronological_normalizer_keeps_raw_draft_separate() -> None:

@@ -260,24 +260,35 @@ def _default_showrunner_plan(
     for event in diagnosis.events:
         if not event.state_change or not event.characters:
             continue
-        for character_name in event.characters:
-            deltas.append(
-                CharacterStateDelta(
-                    character_name=character_name,
-                    event_ids=[event.event_id],
-                    before=CharacterDramaticState(
-                        social_status=diagnosis.chapter_start_state,
-                        emotional_state="事件发生前状态",
-                    ),
-                    after=CharacterDramaticState(
-                        social_status=event.state_change,
-                        emotional_state="事件结果后的状态",
-                    ),
-                    source_quote=event.source_quote,
-                    visual_consequence="只改变本集可见的姿态、表情或有原文依据的服装状态",
-                    performance_consequence="表演从事件前状态过渡到原文明确的结果状态",
-                )
+        deltas.append(
+            CharacterStateDelta(
+                character_name=event.characters[0],
+                event_ids=[event.event_id],
+                before=CharacterDramaticState(
+                    social_status=diagnosis.chapter_start_state,
+                    emotional_state="事件发生前状态",
+                ),
+                after=CharacterDramaticState(
+                    social_status=event.state_change,
+                    emotional_state="事件结果后的状态",
+                ),
+                source_quote=event.source_quote,
+                visual_consequence="只改变本集可见的姿态、表情或有原文依据的服装状态",
+                performance_consequence="表演从事件前状态过渡到原文明确的结果状态",
             )
+        )
+    if len(deltas) > 12:
+        overflow_event_ids = [
+            event_id for delta in deltas[12:] for event_id in delta.event_ids
+        ]
+        deltas = deltas[:12]
+        deltas[-1] = deltas[-1].model_copy(
+            update={
+                "event_ids": list(
+                    dict.fromkeys([*deltas[-1].event_ids, *overflow_event_ids])
+                )
+            }
+        )
     return ShowrunnerPlan(
         planning_mode="inferred_fallback",
         retention=RetentionPlan(
@@ -291,7 +302,7 @@ def _default_showrunner_plan(
             ),
         ),
         information_states=[information],
-        character_state_deltas=deltas[:12],
+        character_state_deltas=deltas,
     )
 
 

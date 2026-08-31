@@ -175,7 +175,7 @@ class ScriptReviewIssue(BaseModel):
 
 
 class ScriptQualityReport(BaseModel):
-    policy_revision: str = "novel-manga-script-v6-showrunner"
+    policy_revision: str = "novel-manga-script-v7-active-drama"
     passed: bool
     script_char_count: int = Field(ge=0)
     shot_count: int = Field(ge=0)
@@ -204,6 +204,15 @@ class ScriptQualityReport(BaseModel):
     verbatim_turn_count: int = Field(default=0, ge=0)
     derived_turn_count: int = Field(default=0, ge=0)
     derived_char_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    verbatim_turn_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    verbatim_turn_ratio_max: float = Field(default=1.0, ge=0.0, le=1.0)
+    shot_change_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
+    protagonist_name: str = ""
+    protagonist_agency_shot_count: int = Field(default=0, ge=0)
+    protagonist_agency_floor: int = Field(default=0, ge=0)
+    named_conflict_shot_count: int = Field(default=0, ge=0)
+    named_conflict_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    visible_cliffhanger: bool = False
     issues: list[ScriptReviewIssue] = Field(default_factory=list)
 
 
@@ -316,6 +325,13 @@ class ScriptTurn(BaseModel):
     emotion: str = "克制自然"
     source_quote: str = Field(default="", max_length=500)
     derivation: TurnDerivation = TurnDerivation.VERBATIM
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_narrator_role(cls, data):
+        if isinstance(data, dict) and str(data.get("role", "")).strip() == "旁白":
+            return {**data, "role": "narrator"}
+        return data
 
     @model_validator(mode="after")
     def validate_speaker(self) -> "ScriptTurn":
@@ -555,6 +571,23 @@ class ShotIntent(BaseModel):
     viewer_focus: str = "当前主要动作与反应"
     retention_beat_id: str = ""
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_retention_function_alias(cls, data):
+        if not isinstance(data, dict):
+            return data
+        aliases = {
+            "hook": "establish",
+            "question": "withhold",
+            "escalation": "pressure",
+            "reversal": "reveal",
+            "climax": "payoff",
+        }
+        value = str(data.get("dramatic_function", "")).strip()
+        if value in aliases:
+            return {**data, "dramatic_function": aliases[value]}
+        return data
+
 
 class EpisodeDramaturgy(BaseModel):
     """Source-grounded short-drama intent before sentence-level shots exist."""
@@ -581,6 +614,7 @@ class Shot(BaseModel):
     location: str = ""
     source_quote: str = Field(min_length=1, max_length=120)
     scene_job: str = "推进"
+    change: str = Field(default="", max_length=240)
     event_ids: list[str] = Field(default_factory=list)
     shot_scale: str = "中近景"
     turns: list[ScriptTurn] = Field(default_factory=list)
@@ -610,6 +644,36 @@ class EpisodePlan(BaseModel):
         if actual != expected:
             raise ValueError(f"shot indexes must be consecutive: {actual}")
         return self
+
+
+class ShotContentPatch(BaseModel):
+    shot_index: int = Field(ge=1)
+    turns: list[ScriptTurn] | None = None
+    visual_prompt: str | None = Field(default=None, min_length=1)
+    motion_prompt: str | None = Field(default=None, min_length=1)
+    performance_plan: PerformancePlan | None = None
+    change: str | None = Field(default=None, min_length=1, max_length=240)
+    shot_intent: ShotIntent | None = None
+
+    @model_validator(mode="after")
+    def require_one_edit(self) -> "ShotContentPatch":
+        if all(
+            value is None
+            for value in (
+                self.turns,
+                self.visual_prompt,
+                self.motion_prompt,
+                self.performance_plan,
+                self.change,
+                self.shot_intent,
+            )
+        ):
+            raise ValueError("shot content patch requires at least one edited field")
+        return self
+
+
+class ScriptContentPatch(BaseModel):
+    shots: list[ShotContentPatch] = Field(min_length=1)
 
 
 class EpisodePlanningBundle(BaseModel):

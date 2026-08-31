@@ -180,7 +180,7 @@ def _normalize_camera_plan(camera_plan: CameraPlan) -> CameraPlan:
 
 
 def _timed_beats(duration: float, count: int) -> list[tuple[float, float]]:
-    usable = max(4.0, min(14.0, duration))
+    usable = max(0.8, min(14.0, duration))
     return [
         (usable * index / count, usable * (index + 1) / count)
         for index in range(count)

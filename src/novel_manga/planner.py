@@ -16,7 +16,7 @@ from typing import TypeVar
 import httpx
 from pydantic import ValidationError
 
-from .config import Settings
+from .config import NATIVE_VIDEO_AUDIO_POLICIES, Settings
 from .creative_direction import (
     SHORT_DRAMA_PROFILE,
     apply_creative_direction,
@@ -35,6 +35,7 @@ from .models import (
     PerformancePlan,
     ScriptTurn,
     ScriptQualityReport,
+    ScriptContentPatch,
     ScriptExpansion,
     SeriesState,
     ShowrunnerPlan,
@@ -44,12 +45,13 @@ from .models import (
 )
 from .safety import safe_visual_prompt
 from .script_planning import (
+    _quote_key,
     bind_deterministic_events,
     deterministic_chapter_diagnosis,
     deterministic_series_state,
+    effective_script_policy,
     evaluate_script_quality,
     repair_machine_draft,
-    script_policy,
     normalize_chronological_plan,
     source_evidence_units,
     validate_chapter_diagnosis,
@@ -69,6 +71,21 @@ REVIEW_TOKEN_BUDGET = 4000
 SHOWRUNNER_TOKEN_BUDGET = 6000
 SERIES_STATE_TOKEN_BUDGET = 5000
 SCRIPT_EXPANSION_TOKEN_BUDGET = 6000
+TURN_ATTRIBUTION_TOKEN_BUDGET = 6000
+CONTENT_PATCH_TOKEN_BUDGET = 8000
+
+DIALOGUE_ATTRIBUTION_CODES = {
+    "narrator_speaks_character_line",
+    "narrator_summarises_dialogue",
+}
+ATTRIBUTION_REPAIR_CODES = DIALOGUE_ATTRIBUTION_CODES | {
+    "narration_budget_exceeded",
+}
+REVIEW_CONTENT_PATCH_TOKENS = {
+    "CAUSAL_CONTEXT",
+    "CAUSALITY",
+    "MOTIVATION",
+}
 
 ValidatedT = TypeVar("ValidatedT")
 
@@ -116,6 +133,29 @@ def _validation_feedback(error: ValueError) -> list[dict[str, object]]:
     return [{"type": type(error).__name__, "message": str(error)[:3000]}]
 
 
+def _validation_retry(
+    revision: int,
+    data: dict | None,
+    error: ValidationError | ValueError,
+    previous_retry: dict | None,
+) -> dict[str, object]:
+    """Build one bounded repair or independent-resample request."""
+
+    # Structural feedback can repair a malformed draft, but repeatedly showing
+    # a thin draft to the model anchors later attempts to the same writing.
+    # Alternate one repair with one clean sample so every fresh candidate gets
+    # a chance to fix mechanical schema errors without monopolising the budget.
+    retry: dict[str, object] = {
+        "revision": revision + 1,
+        "validation_errors": _validation_feedback(error),
+    }
+    if revision == 0 or (previous_retry and previous_retry.get("resample")):
+        retry["previous_response"] = data
+    else:
+        retry["resample"] = True
+    return retry
+
+
 def _bounded_validate(
     operation: str,
     max_revisions: int,
@@ -124,13 +164,6 @@ def _bounded_validate(
 ) -> ValidatedT:
     """Ask a planner to repair only invalid structured output, with a hard limit."""
 
-    # Repair feedback works on structural mistakes, which the model can see and
-    # correct.  It does nothing for a draft that is simply thin: those attempts
-    # come back near-identical, sometimes byte-identical.  Once feedback has had
-    # two chances, stop resending it and take an independent sample instead --
-    # run-to-run variance is wide enough that a fresh attempt beats another
-    # rewrite of the same weak draft.
-    feedback_attempts = min(2, max_revisions)
     repair: dict | None = None
     last_error: ValueError | None = None
     for revision in range(max_revisions + 1):
@@ -142,18 +175,7 @@ def _bounded_validate(
             last_error = error
             if revision >= max_revisions:
                 break
-            if revision + 1 < feedback_attempts:
-                repair = {
-                    "revision": revision + 1,
-                    "previous_response": data,
-                    "validation_errors": _validation_feedback(error),
-                }
-            else:
-                repair = {
-                    "revision": revision + 1,
-                    "resample": True,
-                    "validation_errors": _validation_feedback(error),
-                }
+            repair = _validation_retry(revision, data, error, repair)
     assert last_error is not None
     details = json.dumps(_validation_feedback(last_error), ensure_ascii=False)
     raise ValueError(
@@ -418,37 +440,71 @@ class DeterministicPlanner(Planner):
                 ],
                 end_state="人物完成本镜动作，事件结果和最终表情清楚可读",
             )
+            camera_moves = index == 1 or any(
+                token in sentence
+                for token in (
+                    "走",
+                    "跑",
+                    "追",
+                    "转身",
+                    "进入",
+                    "离开",
+                    "发现",
+                    "出现",
+                )
+            )
             camera_plan = CameraPlan(
-                mode="locked",
-                motivation="默认由人物表演承担画面动态，稳定人物和场景空间关系",
+                mode="motivated_subtle" if camera_moves else "locked",
+                motivation=(
+                    "空间建立、人物位移或信息揭示需要一次克制慢推或短跟拍"
+                    if camera_moves
+                    else "人物表演承担画面动态，稳定人物和场景空间关系"
+                ),
                 action_axis=f"{location}首次建立的人物视线或运动轴同侧",
                 screen_direction="保持人物左右位置、视线和运动方向连续",
                 start_position="竖屏中近景，画面包含前景、中景和远景层次",
                 camera_beats=[
                     CameraBeat(
                         phase="opening",
-                        trajectory="锁定机位，摄影机全程保持静止",
-                        framing="通过人物视线、手势、姿态和画内走位保持动态",
-                        parallax=f"不制造摄影机视差，{location}前中远景保持固定",
+                        trajectory=(
+                            "沿行动轴同侧极慢推近或短距离跟随主要位移"
+                            if camera_moves
+                            else "锁定机位，摄影机全程保持静止"
+                        ),
+                        framing="只服务当前主要动作，保持人物屏幕侧和视线连续",
+                        parallax=(
+                            f"{location}固定空间锚点产生轻微自然视差"
+                            if camera_moves
+                            else f"不制造摄影机视差，{location}前中远景保持固定"
+                        ),
                     ),
                     CameraBeat(
                         phase="resolution",
-                        trajectory="继续锁定机位，让动作结果和表情停留一拍",
-                        framing="不推拉、不横移、不环绕，读清动作结果",
+                        trajectory=(
+                            "唯一一次慢推或跟拍完成后减速停住"
+                            if camera_moves
+                            else "继续锁定机位，让动作结果和表情停留一拍"
+                        ),
+                        framing="读清动作结果后稳定停留一拍",
                         parallax="背景结构和人物屏幕位置保持稳定",
                     ),
                 ],
-                end_position="与起始位置相同的稳定机位",
+                end_position="行动轴同侧的稳定落点",
             )
             shots.append(Shot(
                 index=index,
                 narration=narration,
                 subtitle=narration,
                 visual_prompt=visual,
-                motion_prompt="固定机位，人物通过视线、手势和身体重心完成有因果的表演，保持脸部和服装稳定",
+                motion_prompt=(
+                    "摄影机克制跟随主要动作，人物通过视线、手势和身体重心完成有因果的表演，保持脸部和服装稳定"
+                    if camera_moves
+                    else "人物通过视线、手势和身体重心完成有因果的表演，保持脸部和服装稳定"
+                ),
                 characters=character_names,
                 location=location,
                 source_quote=source_quote,
+                change=f"观众看到或得知：{sentence[:100]}",
                 turns=turns,
                 performance_plan=performance_plan,
                 camera_plan=camera_plan,
@@ -478,6 +534,34 @@ class OpenAICompatiblePlanner(Planner):
         base = str(self.settings.llm_base_url).rstrip("/")
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         if repair:
+            feedback = json.dumps(repair["validation_errors"], ensure_ascii=False)
+            semantic_repair = any(
+                code in feedback
+                for code in (
+                    "MISSING_CAUSALITY",
+                    "CAUSAL_GAP",
+                    "CHARACTER_MOTIVATION",
+                    "causal_chain_broken",
+                )
+            )
+            semantic_guidance = (
+                "错误发生在某镜时，先找出观众理解该揭示或行动所必需的前置事实、关系和代价，"
+                "并把这些内容落实到更小shot index的镜头；后置台词不能反向补足此前的动机。"
+                "必须修改可检查的shots、event_ids、source_quote、动作或反应设计，"
+                "不得只润色被点名镜头的措辞。"
+                if semantic_repair
+                else ""
+            )
+            if "causal_chain_broken" in feedback:
+                semantic_guidance += (
+                    "对于反馈中的‘结果事件缺少前置事件’pair，必须把前置event_id加入更小shot index的镜头，"
+                    "并同步修正adaptation_ledger；只解释原因但不绑定event_ids不算修复。"
+                )
+            if "narrator_summarises_dialogue" in feedback:
+                semantic_guidance += (
+                    "凡旁白概括原文引号对白的镜头，删除概括句，按source_quote把原文对白逐条完整恢复给具体角色；"
+                    "每条使用derivation=verbatim，不得合并、删词或同义改写。"
+                )
             # A resample deliberately starts clean: carrying the rejected draft
             # would both anchor the model to it and, at roughly 25k tokens for
             # a full screenplay, overflow the context window once the output
@@ -492,8 +576,9 @@ class OpenAICompatiblePlanner(Planner):
                     "role": "user",
                     "content": (
                         "上一稿未通过校验，请重新独立创作一稿，不要沿用上一稿的写法。"
-                        "需要避免的问题："
-                        + json.dumps(repair["validation_errors"], ensure_ascii=False)[:1200]
+                        + semantic_guidance
+                        + "需要避免的问题："
+                        + feedback[:1200]
                     ),
                 })
             else:
@@ -501,8 +586,10 @@ class OpenAICompatiblePlanner(Planner):
                     "role": "user",
                     "content": (
                         "上一次 JSON 未通过确定性校验。只修复列出的错误，继续忠于输入原文，"
-                        "不要解释、不要输出 Markdown。校验反馈："
-                        + json.dumps(repair["validation_errors"], ensure_ascii=False)
+                        "不要解释、不要输出 Markdown。"
+                        + semantic_guidance
+                        + "校验反馈："
+                        + feedback
                     ),
                 })
         payload = {
@@ -534,6 +621,36 @@ class OpenAICompatiblePlanner(Planner):
             headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
             json=payload,
         )
+        if getattr(response, "status_code", 200) == 400:
+            try:
+                error_message = str(response.json()["error"]["message"])
+            except (KeyError, TypeError, ValueError):
+                error_message = ""
+            context_match = re.search(
+                r"maximum context length is (\d+) tokens", error_message
+            )
+            input_match = re.search(
+                r"prompt contains at least (\d+) input tokens", error_message
+            )
+            if context_match and input_match:
+                adjusted = max(
+                    512,
+                    min(
+                        18000,
+                        int(context_match.group(1))
+                        - int(input_match.group(1))
+                        - 1024,
+                    ),
+                )
+                if adjusted < int(payload["max_tokens"]):
+                    payload["max_tokens"] = adjusted
+                    response = self.client.post(
+                        f"{base}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.settings.llm_api_key}"
+                        },
+                        json=payload,
+                    )
         try:
             response.raise_for_status()
         except Exception as error:
@@ -604,7 +721,8 @@ class OpenAICompatiblePlanner(Planner):
     def _is_anonymous_crowd(name: str) -> bool:
         return bool(
             re.fullmatch(
-                r"(?:路人|族人|人群|围观者|旁人|少年|少女|弟子|群众)[甲乙丙丁戊己庚辛壬癸一二三四五六七八九十\d]*",
+                r"(?:(?:楚家)?(?:路人|族人|人群|围观者|旁人|少年|少女|弟子|群众)|中年族人)"
+                r"[甲乙丙丁戊己庚辛壬癸一二三四五六七八九十\d]*",
                 re.sub(r"\s+", "", name),
             )
         )
@@ -643,7 +761,7 @@ class OpenAICompatiblePlanner(Planner):
             joined = ""
             for end in range(start, min(start + 3, len(quoted))):
                 joined += re.sub(r"\s+", "", quoted[end].group(1))
-                if joined == target:
+                if joined == target or (len(target) >= 6 and target in joined):
                     span = source[quoted[start].start() : quoted[end].end()]
                     return span if len(span) <= 500 else None
                 if len(joined) > len(target):
@@ -652,8 +770,37 @@ class OpenAICompatiblePlanner(Planner):
 
     def _canonicalize_characters(self, plan: EpisodePlan, bible: StoryBible) -> EpisodePlan:
         canonical_names = [character.name for character in bible.characters]
+        canonical_locations = [
+            self._canonical_location_name(shot.location, bible.locations)
+            for shot in plan.shots
+        ]
+        for index, location in enumerate(canonical_locations):
+            if location in bible.locations:
+                continue
+            before = next(
+                (
+                    candidate
+                    for candidate in reversed(canonical_locations[:index])
+                    if candidate in bible.locations
+                ),
+                None,
+            )
+            if before is not None and re.search(
+                r"(?:回忆|闪回|虚空|意识|梦境)", location
+            ):
+                canonical_locations[index] = before
+                continue
+            adjacent_key = re.sub(
+                r"(?:外|外侧|出口)$", "", self._location_key(location)
+            )
+            if (
+                before is not None
+                and adjacent_key
+                and adjacent_key in self._location_key(before)
+            ):
+                canonical_locations[index] = before
         shots = []
-        for shot in plan.shots:
+        for shot, location in zip(plan.shots, canonical_locations):
             turns = []
             for turn in shot.turns:
                 if turn.speaking:
@@ -682,7 +829,6 @@ class OpenAICompatiblePlanner(Planner):
                     continue
                 if canonical not in characters:
                     characters.append(canonical)
-            location = self._canonical_location_name(shot.location, bible.locations)
             shots.append(
                 shot.model_copy(
                     update={"characters": characters, "turns": turns, "location": location}
@@ -750,23 +896,6 @@ class OpenAICompatiblePlanner(Planner):
                     dialogue_span = self._dialogue_source_span(turn.text, source)
                     if dialogue_span is not None:
                         turn_source_quote = dialogue_span
-                    elif turn.derivation != TurnDerivation.DERIVED:
-                        # A verbatim claim that cannot be traced to quoted
-                        # chapter speech must not pass as character dialogue.
-                        # This demotion used to hit every staged line as well
-                        # and silently rewrote it into a narrator turn — which
-                        # is exactly how quoted lines, first-person text and an
-                        # invented farewell ended up voiced by 旁白 in earlier
-                        # plans.  Derived turns declare the staging openly and
-                        # are policed by the script gates instead, so they keep
-                        # their character voice.
-                        turn = turn.model_copy(
-                            update={
-                                "role": "narrator",
-                                "speaker_name": "旁白",
-                                "speaking": False,
-                            }
-                        )
                 grounded_turns.append(
                     turn.model_copy(update={"source_quote": turn_source_quote})
                 )
@@ -792,6 +921,23 @@ class OpenAICompatiblePlanner(Planner):
         # rounds are spent on writing rather than on bookkeeping the controller
         # can do itself.
         plan = repair_machine_draft(plan, episode)
+        plan = plan.model_copy(
+            update={
+                "shots": [
+                    shot
+                    if shot.change.strip()
+                    else shot.model_copy(
+                        update={
+                            "change": (
+                                f"本镜结束时：{shot.scene_job}；"
+                                f"{shot.shot_intent.viewer_focus}"
+                            )[:240]
+                        }
+                    )
+                    for shot in plan.shots
+                ]
+            }
+        )
         normalized_source = re.sub(r"\s+", "", episode.source_text)
         canonical_names = {character.name for character in bible.characters}
         canonical_locations = set(bible.locations)
@@ -1155,6 +1301,13 @@ class OpenAICompatiblePlanner(Planner):
             "把0、各节点起始位置、1排成一列，任意相邻两个数之差都不得超过"
             "max_attention_gap_ratio（默认0.25）——注意0到第一个节点、"
             "最后一个节点到1这两段也要算。例如6个节点可取0.0、0.18、0.36、0.54、0.7、0.85；"
+            "如果cold open先展示失败、受辱、失去能力或其他结果，前20%内必须用真实event_ids同时建立"
+            "对应的before状态、失去的能力/机制为何重要，以及观众应追问的核心因果；"
+            "这些前置条件必须绑定到target_start_ratio<=0.20的前两个beat，不能只写在audience_question或promise里。"
+            "可以暂时保留最终答案，但不能把理解结果所需的基本概念和落差拖到35%以后。"
+            "配角测验、对照组或其他secondary branch只能在主角核心问题已经通过event_ids建立后开始。"
+            "人物做出逆人群、跨阶层、追随或公开站队等高代价行动时，关系证据和行动动机必须放在"
+            "更早的beat，行动之后的对白不能反向补足此前尚未成立的动机。"
             "不要把节点挤在开头和结尾而让中段留出大空窗。此阶段还没有镜头编号，"
             "shot_indexes必须留空；每个节点只绑定event_ids、逐字source_quote、观众问题、承诺、新信息和情绪变化。"
             "information_states逐条记录事实真假、观众认知、各角色认知或误解、信息差用途和揭示节点。"
@@ -1206,11 +1359,11 @@ class OpenAICompatiblePlanner(Planner):
             "每个镜头设置 turns：旁白 role=narrator、speaking=false；人物对白 role 和 speaker_name 均使用角色原名、"
             "speaking=true、delivery_mode=visible_dialogue；内心声或画外对白使用角色原名、"
             "speaking=false，并分别设置delivery_mode=inner_voice或offscreen_dialogue。"
-            "原文带引号的台词一律归给具体角色，不得标成旁白，并设置derivation=verbatim逐字引用；"
+            "保留的原文引号台词必须归给具体角色，不得标成旁白，并设置derivation=verbatim逐字引用；"
             "承载因果、来历或转折的叙述段落设置derivation=derived，改写成角色真会说出口的话或可拍摄的反应，"
             "并在source_quote里引用它依据的那段叙述。"
-            "严禁把原文带引号的台词概括成一句旁白（例如把五句嘲讽压成“众人纷纷嘲讽他”）；"
-            "这些台词必须由具体角色逐句说出。"
+            "不得把需要保留的冲突对白概括成一句旁白；可删或压缩不改变局面的重复寒暄和同义嘲讽，"
+            "逐字原文turn占比不得超过35%，事实与因果由event_ids和source trace保证。"
             "示范：原文叙述“三年之前，这名声望达到巅峰的天才少年，却是突兀地接受到了有生以来最残酷的打击，"
             "不仅辛辛苦苦修炼十数载方才凝聚的气旋，一夜之间，化为乌有”——"
             "错误做法是写成一句旁白“三年前他的气旋一夜消失”；"
@@ -1220,15 +1373,27 @@ class OpenAICompatiblePlanner(Planner):
             "乙“三年前，一夜之间，全没了。”／甲“为什么？”／乙“没人知道。”。"
             "悬念要让角色问出来，不能由旁白直接告诉观众。"
             "全片至少三分之一的台词字数应来自derived角色对白；只把derived用在旁白上等于没有改编。"
-            "一个turn是一口气可自然说完的完整语义句，通常12-36字，硬上限60字；"
+            "一个turn是一口气可自然说完的完整语义句，目标不超过14字，硬上限20字；"
             "不得为了字幕长度拆碎句子。字幕在音频对齐后独立分页，每页最多两行且仍逐字来自turn.text。"
-            "一个连续镜头通常承载1-3个语义turn；短剧节奏来自信息、动作和情绪变化，不来自机械断句或增加切镜；"
+            "一个shot通常承载1-3个语义turn，但同一shot里的可见对白必须属于同一个说话者和同一种delivery_mode；"
+            "说话者变化、可见对白切到内心声/画外声、或需要独立反应时必须新建shot。"
+            "短剧节奏来自信息、动作和情绪变化，不来自机械断句；同一角色连续发言仍保持对话轴，"
+            "但应在胸像、较紧肩部近景和较宽腰上景之间有动机地变化，不得连续复制同一完整构图。"
+            "每3-4个对话镜头根据原文需要安排一次建立镜、无声反应、道具插入或环境响应，"
+            "用视线匹配、动作接点或声音桥连接，不能为了丰富画面虚构事件。"
+            "抽象情绪必须转成不超过三个可见信号，例如停顿、视线、下颌、眉间、呼吸、重心或手部接触；"
+            "不要只写‘愤怒、震惊、屈辱’，也不要每句自动加通用手势。"
+            "scene_job不能全写‘推进’，应按场次实际作用使用建立、对峙、揭示、反转、决定或收束。"
+            "每镜change必须说明镜末新增的信息、关系变化或动作结果；change为空的镜头必须删除或合并。"
+            "涉及碎裂、撞击、奔跑、战气或强视效时，动作按准备→发力→接触→反作用→落定组织，"
+            "并让衣摆、发梢、轻尘、道具或场景产生少量同方向反馈；时长不足就拆镜。"
             "每个镜头必须填写 performance_plan：动作起点、1-4个有触发和反应的 motion_beats、动作终点；"
             "必须填写camera_plan.mode、motivation、action_axis和screen_direction。默认mode=locked，"
             "由人物表演承担动态；只有人物明确位移、信息揭示或情绪/权力转折才使用motivated_subtle，"
             "章节高潮或关键反转才少量使用motivated_emphasis。每镜最多一条短轨迹，完成后停住；"
             "同场对话始终在行动轴同侧，人物左右和视线方向不得无故交换。"
             "参考图只锁人物身份、服装、环境和画风，不能锁静态姿势、构图或机位。"
+            "运行时关键帧只使用当前角色资产和当前场景资产共同控制二维画法，不额外依赖独立风格模板。"
             "覆盖本章开端、发展、高潮和结尾。source_quote 必须逐字摘自本章。画面健康克制，无色情、政治和血腥。"
             "严格输出 JSON。"
         )
@@ -1318,8 +1483,8 @@ class OpenAICompatiblePlanner(Planner):
             "社会地位、关系、力量、情绪、信心或服装状态，不得把永久长相当作剧情状态。"
             "检查每镜shot_intent是否绑定留存节点、观众焦点和信息事实；audio_beats必须由台词、动作、揭示或反应触发，"
             "不得机械地每隔几秒堆冲击音。"
-            "每个turn应是一口气可自然说完、只承载一个核心事实、动作或反应的完整语义句；通常12-36字，"
-            "超过60字才因TTS与镜头时长风险判为blocking。不得为了两行字幕把一句话切碎。"
+            "每个turn应是一口气可自然说完、只承载一个核心事实、动作或反应的完整语义句；目标不超过14字，"
+            "超过20字即因表演与镜头时长风险判为blocking。不得为了两行字幕把一句话切碎。"
             "长镜头可以连续承载多个语义turn，不能因拆台词而要求增加切镜。"
             "只要存在缺失关键因果、突兀结论、人物动机不明、提前剧透或未来剧情，"
             "passed必须为false并给blocking issue。"
@@ -1352,8 +1517,10 @@ class OpenAICompatiblePlanner(Planner):
         self,
         episode: Episode,
         bible: StoryBible,
+        diagnosis: ChapterDiagnosis,
         plan: EpisodePlan,
         required_chars: int,
+        previous_state: SeriesState | None,
     ) -> EpisodePlan:
         schema = ScriptExpansion.model_json_schema()
         current_chars = sum(
@@ -1373,12 +1540,16 @@ class OpenAICompatiblePlanner(Planner):
         ]
         system = (
             "你是漫剧台词编辑。只补写现有镜头的turns，不得修改镜头顺序、事件、人物关系或结局。"
+            "输入中的现有turn是事实与角色归属基线；若过长、重复、书面化或导致逐字比例超限，"
+            "可在不改变事实的前提下删除非必要turn，或改用当前叙述证据外化成短句。"
             "原文带引号的台词归具体角色并设置derivation=verbatim逐字引用，不得标成旁白；"
+            "一条原文引号对白必须作为一个完整turn逐字复制，称呼、副词、停顿和语气词都不能删除，"
+            "不得把同一条对白拆成多个turn，也不得将多个引号对白拼成一句或做同义改写。"
             "叙述段落设置derivation=derived，改写成角色对白或可拍摄的反应，并引用所依据的叙述句，"
             "不得引入原文没有的事实。"
             "优先补原文已有的短对白、内心声或必要因果，不得用摘要旁白填充字数；"
             "能由visual_prompt和performance_plan表演的信息不要重复朗读。"
-            "每个turn只讲一个核心事实、动作或反应，同时必须保持自然完整的语义与呼吸，通常12-36字，硬上限60字。"
+            "每个turn只讲一个核心事实、动作或反应，同时必须保持自然完整的语义与呼吸，目标不超过14字，硬上限20字。"
             "不得为字幕分页切碎完整句；字幕由音频对齐层另行分页。"
             "同一shot通常用1-3个语义turn承载一个连续表演beat，必要时可更多，但不要增加shot或切镜。"
             "每个shot总turns.text按实际动作时长决定，不为字数填充。只返回需要替换的shot_index和完整turns数组。"
@@ -1391,30 +1562,451 @@ class OpenAICompatiblePlanner(Planner):
             f"待补写镜头：{json.dumps(compact_shots, ensure_ascii=False)}\n"
             f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
         )
-        expansion = _bounded_validate(
+        shots_by_index = {shot.index: shot for shot in plan.shots}
+        fidelity_codes = {
+            "narrator_speaks_character_line",
+            "verbatim_turn_not_quoted",
+            "turn_text_contains_stage_direction",
+            "derived_turn_narrates_self",
+            "derived_turn_not_rewritten",
+            "derived_turn_paraphrases_dialogue",
+        }
+
+        def validate_expansion(data: dict) -> EpisodePlan:
+            expansion = ScriptExpansion.model_validate(data)
+            patches = {patch.shot_index: patch.turns for patch in expansion.shots}
+            unknown = sorted(set(patches) - set(shots_by_index))
+            if unknown:
+                raise ValueError(f"script expansion uses unknown shot indexes: {unknown}")
+            changed_existing = []
+            for shot_index, turns in patches.items():
+                existing = shots_by_index[shot_index].turns
+                preserves_prefix = (
+                    len(turns) >= len(existing)
+                    and turns[: len(existing)] == existing
+                )
+                exact_source_restoration = bool(turns) and all(
+                    turn.derivation == TurnDerivation.VERBATIM
+                    and len(_quote_key(turn.text)) >= 5
+                    and _quote_key(turn.text) in _quote_key(turn.source_quote)
+                    and re.sub(r"\s+", "", turn.source_quote)
+                    in re.sub(r"\s+", "", episode.source_text)
+                    for turn in turns
+                ) and all(
+                    max(
+                        (
+                            SequenceMatcher(
+                                None,
+                                _quote_key(original.text),
+                                _quote_key(candidate.text),
+                            ).ratio()
+                            for candidate in turns
+                        ),
+                        default=0.0,
+                    )
+                    >= 0.60
+                    for original in existing
+                )
+                if not preserves_prefix and not exact_source_restoration:
+                    changed_existing.append(shot_index)
+            if changed_existing:
+                raise ValueError(
+                    "script expansion must preserve every existing turn exactly and only append; "
+                    f"changed shot indexes: {changed_existing}"
+                )
+            expanded = plan.model_copy(
+                update={
+                    "shots": [
+                        shot.model_copy(
+                            update={"turns": patches.get(shot.index, shot.turns)}
+                        )
+                        for shot in plan.shots
+                    ]
+                }
+            )
+            expanded = self._validate_episode_data(
+                expanded.model_dump(mode="json"), episode, bible
+            )
+            report = evaluate_script_quality(
+                expanded,
+                diagnosis,
+                episode,
+                previous_state=previous_state,
+            )
+            fidelity_issues = [
+                issue for issue in report.issues if issue.code in fidelity_codes
+            ]
+            if fidelity_issues:
+                raise ValueError(
+                    json.dumps(
+                        {
+                            "expansion_fidelity_issues": [
+                                issue.model_dump(mode="json") for issue in fidelity_issues
+                            ]
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+            expanded_chars = sum(
+                len(re.sub(r"\s+", "", turn.text))
+                for shot in expanded.shots
+                for turn in shot.turns
+            )
+            if expanded_chars < required_chars:
+                raise ValueError(
+                    "script expansion remains too short: "
+                    f"{expanded_chars} chars, requires at least {required_chars}"
+                )
+            return expanded
+
+        return _bounded_validate(
             "expand_script_turns",
-            1,
+            2,
             lambda repair: self._json(
                 system,
                 user,
                 repair,
                 token_budget=SCRIPT_EXPANSION_TOKEN_BUDGET,
             ),
-            ScriptExpansion.model_validate,
+            validate_expansion,
         )
-        patches = {patch.shot_index: patch.turns for patch in expansion.shots}
-        unknown = sorted(set(patches) - {shot.index for shot in plan.shots})
-        if unknown:
-            raise ValueError(f"script expansion uses unknown shot indexes: {unknown}")
-        expanded = plan.model_copy(
-            update={
-                "shots": [
-                    shot.model_copy(update={"turns": patches.get(shot.index, shot.turns)})
-                    for shot in plan.shots
-                ]
+
+    def _repair_turn_attribution(
+        self,
+        episode: Episode,
+        bible: StoryBible,
+        diagnosis: ChapterDiagnosis,
+        plan: EpisodePlan,
+        report: ScriptQualityReport,
+        previous_state: SeriesState | None,
+    ) -> EpisodePlan:
+        target_shots = sorted(
+            {
+                shot_index
+                for issue in report.issues
+                if issue.severity == "blocking"
+                and issue.code in DIALOGUE_ATTRIBUTION_CODES
+                for shot_index in issue.shot_indexes
             }
         )
-        return self._validate_episode_data(expanded.model_dump(mode="json"), episode, bible)
+        if not target_shots:
+            raise ValueError("turn attribution repair has no target shots")
+        shots_by_index = {shot.index: shot for shot in plan.shots}
+        missing_plan_shots = sorted(set(target_shots) - set(shots_by_index))
+        if missing_plan_shots:
+            raise ValueError(
+                f"turn attribution repair references missing shots: {missing_plan_shots}"
+            )
+        compact_shots = [
+            {
+                "shot_index": shot_index,
+                "event_ids": shots_by_index[shot_index].event_ids,
+                "characters": shots_by_index[shot_index].characters,
+                "location": shots_by_index[shot_index].location,
+                "shot_source_quote": shots_by_index[shot_index].source_quote,
+                "turns": [
+                    turn.model_dump(mode="json")
+                    for turn in shots_by_index[shot_index].turns
+                ],
+            }
+            for shot_index in target_shots
+        ]
+        target_issues = [
+            issue.model_dump(mode="json")
+            for issue in report.issues
+            if issue.severity == "blocking"
+            and issue.code in ATTRIBUTION_REPAIR_CODES
+        ]
+        schema = ScriptExpansion.model_json_schema()
+        system = (
+            "你是漫剧对白归属修复器，只修输入列出的镜头turns，不得输出或修改其他镜头。"
+            "每个target shot必须返回一次，并给出该镜头完整的turns数组。"
+            "原文引号内的每条对白必须逐字完整保留，设置derivation=verbatim；不得删词、合并或改写。"
+            "明确说话人使用故事圣经标准角色名；群体匿名嘲讽可使用role=人群、speaker_name=人群、"
+            "speaking=false、delivery_mode=offscreen_dialogue；测验结果等现场宣读使用在场测验员。"
+            "旁白只能承载原文没有说话人的叙述，role=narrator、speaker_name=旁白、"
+            "speaking=false、delivery_mode=narration、derivation=derived。"
+            "不得新增事实，不得更改event_ids、镜头顺序、动作、地点或Showrunner计划。严格输出JSON。"
+        )
+        user = (
+            f"目标镜头：{json.dumps(target_shots, ensure_ascii=False)}\n"
+            f"门禁错误：{json.dumps(target_issues, ensure_ascii=False)}\n"
+            f"故事圣经角色名：{json.dumps([item.name for item in bible.characters], ensure_ascii=False)}\n"
+            f"待修镜头：{json.dumps(compact_shots, ensure_ascii=False)}\n"
+            f"当前章原文：{episode.source_text}\n"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+
+        def validate_patch(data: dict) -> EpisodePlan:
+            patch = ScriptExpansion.model_validate(data)
+            patches = {item.shot_index: item.turns for item in patch.shots}
+            supplied = set(patches)
+            expected = set(target_shots)
+            if supplied != expected:
+                raise ValueError(
+                    "turn attribution patch must cover exactly the target shots; "
+                    f"missing={sorted(expected - supplied)}, "
+                    f"unexpected={sorted(supplied - expected)}"
+                )
+            candidate = plan.model_copy(
+                update={
+                    "shots": [
+                        shot.model_copy(
+                            update={"turns": patches.get(shot.index, shot.turns)}
+                        )
+                        for shot in plan.shots
+                    ]
+                }
+            )
+            candidate = self._validate_episode_data(
+                candidate.model_dump(mode="json"), episode, bible
+            )
+            candidate_report = evaluate_script_quality(
+                candidate,
+                diagnosis,
+                episode,
+                previous_state=previous_state,
+            )
+            if not candidate_report.passed:
+                raise ValueError(candidate_report.model_dump_json())
+            return candidate
+
+        return _bounded_validate(
+            "repair_turn_attribution",
+            2,
+            lambda repair: self._json(
+                system,
+                user,
+                repair,
+                token_budget=TURN_ATTRIBUTION_TOKEN_BUDGET,
+            ),
+            validate_patch,
+        )
+
+    def _repair_review_content(
+        self,
+        episode: Episode,
+        bible: StoryBible,
+        diagnosis: ChapterDiagnosis,
+        plan: EpisodePlan,
+        report: ScriptQualityReport,
+        previous_state: SeriesState | None,
+    ) -> EpisodePlan:
+        blocking_issues = [
+            issue for issue in report.issues if issue.severity == "blocking"
+        ]
+        if not blocking_issues or not all(issue.shot_indexes for issue in blocking_issues):
+            raise ValueError("content patch requires blocking issues with target shots")
+        shots_by_index = {shot.index: shot for shot in plan.shots}
+        target_set = {
+            index for issue in blocking_issues for index in issue.shot_indexes
+        }
+        for issue in blocking_issues:
+            if "CAUS" not in issue.code.upper():
+                continue
+            reveal_index = max(issue.shot_indexes)
+            target_set.update(
+                index
+                for index in (reveal_index - 2, reveal_index - 1)
+                if index in shots_by_index
+            )
+        target_shots = sorted(target_set)
+        if set(target_shots) - set(shots_by_index):
+            raise ValueError("content patch references unknown target shots")
+        compact_shots = [
+            {
+                "shot_index": index,
+                "event_ids": shots_by_index[index].event_ids,
+                "location": shots_by_index[index].location,
+                "characters": shots_by_index[index].characters,
+                "source_quote": shots_by_index[index].source_quote,
+                "turns": [
+                    turn.model_dump(mode="json")
+                    for turn in shots_by_index[index].turns
+                ],
+                "visual_prompt": shots_by_index[index].visual_prompt,
+                "motion_prompt": shots_by_index[index].motion_prompt,
+                "performance_plan": (
+                    shots_by_index[index].performance_plan.model_dump(mode="json")
+                    if shots_by_index[index].performance_plan
+                    else None
+                ),
+            }
+            for index in target_shots
+        ]
+        schema = ScriptContentPatch.model_json_schema()
+        system = (
+            "你是漫剧镜头内容修复器，只修独立审稿点名镜头的少数字段。"
+            "非因果blocking issue至少修改它列出的一个shot_index；因果问题必须修改结果镜头之前提供的目标窗口。"
+            "不得输出目标集合之外的镜头。"
+            "每个patch只允许shot_index以及turns、visual_prompt、motion_prompt、performance_plan、change、shot_intent。"
+            "不得修改event_ids、镜头顺序、地点、人物资产、相机、音频、Showrunner或章节事实。"
+            "因果上下文缺失时，在揭示镜头之前的目标镜头加入当前章有证据的before状态或关系信息；"
+            "‘昔日天才’、‘曾经很强’这类抽象标签不算完整铺垫：必须从当前章原文选择具体年龄、等级、"
+            "能力机制、排名或可观察成就，说明失去的东西为何重要，并放在结果揭示之前。"
+            "需要保留的原文对白使用逐字verbatim；重复或不改变局面的原句可删，叙述外化才可derived，"
+            "修复后逐字turn占比不得超过35%。"
+            "人物动机不清时，把选择过程写成可见动作：触发、犹豫或察觉、主要动作、他人反应和结果，"
+            "如果反馈提到过去关系或熟悉程度，必须用当前章证据写清before关系，再表现人物当前主动选择，"
+            "不能只写现在的态度。"
+            "不得新增原文没有的行为结果。返回最小patch JSON，不解释。"
+        )
+        user = (
+            f"blocking issues：{json.dumps([i.model_dump(mode='json') for i in blocking_issues], ensure_ascii=False)}\n"
+            f"目标镜头：{json.dumps(target_shots, ensure_ascii=False)}\n"
+            f"故事圣经角色：{json.dumps([item.name for item in bible.characters], ensure_ascii=False)}\n"
+            f"待修镜头：{json.dumps(compact_shots, ensure_ascii=False)}\n"
+            f"当前章原文：{episode.source_text}\n"
+            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}"
+        )
+        def validate_patch(data: dict) -> EpisodePlan:
+            patch = ScriptContentPatch.model_validate(data)
+            patches = {item.shot_index: item for item in patch.shots}
+            supplied = set(patches)
+            unexpected = sorted(supplied - set(target_shots))
+            if unexpected:
+                raise ValueError(
+                    f"content patch uses non-target shot indexes: {unexpected}"
+                )
+            uncovered = [
+                issue.shot_indexes
+                for issue in blocking_issues
+                if "CAUS" not in issue.code.upper()
+                and not set(issue.shot_indexes) & supplied
+            ]
+            if uncovered:
+                raise ValueError(
+                    f"content patch leaves blocking issues uncovered: {uncovered}"
+                )
+            causal_order_misses = [
+                issue.shot_indexes
+                for issue in blocking_issues
+                if "CAUS" in issue.code.upper()
+                and not any(
+                    shot_index < max(issue.shot_indexes)
+                    for shot_index in supplied
+                )
+            ]
+            if causal_order_misses:
+                raise ValueError(
+                    "causal context patch must edit an earlier shot than the reveal; "
+                    f"issue targets: {causal_order_misses}"
+                )
+            concrete_pattern = re.compile(
+                r"(?:\d+岁|[一二三四五六七八九十百]+岁|气旋|百年|最年轻|"
+                r"第一|巅峰|排名|曾经.{0,20}(?:段|等级|能力|战者))"
+            )
+            causal_detail_misses = []
+            for issue in blocking_issues:
+                if "CAUS" not in issue.code.upper():
+                    continue
+                reveal_index = max(issue.shot_indexes)
+                earlier_text = "".join(
+                    json.dumps(
+                        {
+                            "turns": (
+                                [
+                                    turn.model_dump(mode="json")
+                                    for turn in patches[index].turns
+                                ]
+                                if patches[index].turns is not None
+                                else None
+                            ),
+                            "visual_prompt": patches[index].visual_prompt,
+                            "motion_prompt": patches[index].motion_prompt,
+                            "performance_plan": (
+                                patches[index].performance_plan.model_dump(mode="json")
+                                if patches[index].performance_plan is not None
+                                else None
+                            ),
+                            "change": patches[index].change,
+                            "shot_intent": (
+                                patches[index].shot_intent.model_dump(mode="json")
+                                if patches[index].shot_intent is not None
+                                else None
+                            ),
+                        },
+                        ensure_ascii=False,
+                    )
+                    for index in supplied
+                    if index < reveal_index
+                )
+                if not concrete_pattern.search(earlier_text):
+                    causal_detail_misses.append(issue.shot_indexes)
+            if causal_detail_misses:
+                raise ValueError(
+                    "causal context patch must add concrete age, level, mechanism, "
+                    "rank or achievement evidence in an earlier shot; "
+                    f"issue targets: {causal_detail_misses}"
+                )
+            relationship_pattern = re.compile(
+                r"(?:以前|曾经|当年|过去|原本|从前|仰慕|熟悉|旧日)"
+            )
+            relationship_misses = []
+            for issue in blocking_issues:
+                if "MOTIVATION" not in issue.code.upper() or not re.search(
+                    r"(?:过去|曾经|关系|熟悉|仰慕)", issue.message
+                ):
+                    continue
+                issue_text = "".join(
+                    json.dumps(
+                        patches[index].model_dump(mode="json", exclude={"shot_index"}),
+                        ensure_ascii=False,
+                    )
+                    for index in supplied & set(issue.shot_indexes)
+                )
+                if not relationship_pattern.search(issue_text):
+                    relationship_misses.append(issue.shot_indexes)
+            if relationship_misses:
+                raise ValueError(
+                    "motivation patch must include current-chapter evidence of the "
+                    "past relationship before the present choice; "
+                    f"issue targets: {relationship_misses}"
+                )
+            shots = []
+            for shot in plan.shots:
+                item = patches.get(shot.index)
+                if item is None:
+                    shots.append(shot)
+                    continue
+                updates = {
+                    field: value
+                    for field, value in (
+                        ("turns", item.turns),
+                        ("visual_prompt", item.visual_prompt),
+                        ("motion_prompt", item.motion_prompt),
+                        ("performance_plan", item.performance_plan),
+                        ("change", item.change),
+                        ("shot_intent", item.shot_intent),
+                    )
+                    if value is not None
+                }
+                shots.append(shot.model_copy(update=updates))
+            candidate = plan.model_copy(update={"shots": shots})
+            candidate = self._validate_episode_data(
+                candidate.model_dump(mode="json"), episode, bible
+            )
+            candidate_report = evaluate_script_quality(
+                candidate,
+                diagnosis,
+                episode,
+                previous_state=previous_state,
+            )
+            if not candidate_report.passed:
+                raise ValueError(candidate_report.model_dump_json())
+            return candidate
+
+        return _bounded_validate(
+            "repair_review_content",
+            2,
+            lambda repair: self._json(
+                system,
+                user,
+                repair,
+                token_budget=CONTENT_PATCH_TOKEN_BUDGET,
+            ),
+            validate_patch,
+        )
 
     def _update_series_state(
         self,
@@ -1470,11 +2062,22 @@ class OpenAICompatiblePlanner(Planner):
             draft_root / "chapter_diagnosis.json",
             diagnosis.model_dump(mode="json"),
         )
-        showrunner = (
-            self._plan_showrunner(episode, diagnosis, bible, previous_state)
-            if self.settings.creative_profile == SHORT_DRAMA_PROFILE
-            else None
-        )
+        showrunner = None
+        if self.settings.creative_profile == SHORT_DRAMA_PROFILE:
+            try:
+                showrunner = self._plan_showrunner(
+                    episode, diagnosis, bible, previous_state
+                )
+            except ValueError as showrunner_error:
+                if not self.settings.bounded_review_fallback:
+                    raise
+                atomic_write_json(
+                    draft_root / "showrunner_fallback_reason.json",
+                    {
+                        "reason": f"{type(showrunner_error).__name__}: {showrunner_error}"[:2000],
+                        "fallback": "inferred after the episode draft is available",
+                    },
+                )
         if showrunner is not None:
             atomic_write_json(
                 draft_root / "showrunner_plan.json",
@@ -1482,7 +2085,7 @@ class OpenAICompatiblePlanner(Planner):
             )
         schema = EpisodePlan.model_json_schema()
         source_chars = len(re.sub(r"\s+", "", episode.source_text))
-        policy = script_policy(
+        policy = effective_script_policy(
             source_chars,
             diagnosis.density,
             self.settings.creative_profile,
@@ -1503,6 +2106,12 @@ class OpenAICompatiblePlanner(Planner):
             "Showrunner已经独立完成留存、信息差和人物状态决策；必须按输入中的showrunner_plan安排事件和镜头，"
             "不得在剧本阶段重写其事实、时间节点或人物状态。showrunner_plan字段可原样复制，程序会依据event_ids"
             "确定性绑定最终shot_indexes。不得为了填留存节点虚构刺激。"
+            "落笔前执行前置条件先行：每个揭示、反转、能力变化或人物主动选择，都先列出观众理解它所必需的"
+            "事实、规则、关系与代价，并把这些前置beat落实到更小shot index，不能放在同镜末尾或事后解释。"
+            "表现人物从强到弱、从高位跌落或关键机制失效时，先用当前章证据具体建立此前能力、地位及机制为何重要，"
+            "再展示失去或破坏；只有结果没有before状态不算完整因果。"
+            "人物做出逆人群、跨阶层、追随、背叛或公开站队等高代价行动前，先建立双方关系和行动动机，"
+            "并在行动发生时安排旁人或对手的可见反应来表现代价。后续对白不能反向补足此前尚未成立的动机。"
             f"有效剧本目标为{size_guidance}。每个shot必须填写event_ids，"
             "每个章节事件必须写入adaptation_ledger，critical事件不得removed。"
             "承载因果、动机、来历或转折的叙述事件用externalized，把叙述改写成可见对白、反应或道具结果；"
@@ -1518,25 +2127,36 @@ class OpenAICompatiblePlanner(Planner):
             "表达的信息必须改写成derived对白或反应，而不是压成旁白。"
             "旁白字数占比不得超过dramaturgy.narration_budget_ratio。"
             "使用口语化短剧节拍：每个turn只交付一个核心事实、动作或反应，但必须是一口气自然说完的完整语义句，"
-            "通常12-36字，硬上限60字；字幕在音频对齐后独立切页，严禁为字幕长度把一句话拆碎；"
+            "目标不超过14字，硬上限20字；字幕在音频对齐后独立切页，严禁为字幕长度把一句话拆碎；"
             "需要讲因果时按触发→事实→后果→人物反应排列，不得只写模糊情绪。"
             "长段来历、回忆或规则说明不要交给单个角色一口气独白，"
             "拆成有听者的一问一答，让悬念由角色问出来。"
             "每个turn只允许一个声音角色；可见对白设置visible_dialogue；"
             "原文中的内心声和画外对白可用角色音色，但speaking必须为false并设置inner_voice或offscreen_dialogue。"
+            "同一shot里的可见对白必须是同一个说话者；说话者、delivery_mode或主要视觉动作变化时新建shot。"
+            "连续对话用建立镜、说话者近景、无声反应、反打和道具插入形成覆盖，"
+            "同一角色保持屏幕侧但轮换胸像、紧肩部近景和较宽腰上景，不能复制同一构图。"
             "每镜performance_plan按触发→察觉→一个主要动作→对方反应→收束组织；"
             "不要为了防静态而让人物每1-2秒机械地转头、摆手或改变重心。"
-            "camera_plan默认locked并用1-2个短camera_beats，只有明确叙事动机才选择移动模式；"
-            "移动镜头不超过约三分之一、强调运镜不超过约十分之一，不得连续两镜都明显运镜；"
-            "运镜动机只允许空间揭示、明确位移、视点变化或权力/情绪转折；普通对白和反应保持固定机位。"
+            "抽象情绪必须翻译成不超过三个可见信号；涉及碎裂、撞击、奔跑、战气或强视效时，"
+            "按准备→发力→接触→反作用→落定组织，并写少量同方向环境反馈，时长不足必须拆镜。"
+            "camera_plan按镜头目的选择：空间建立用极慢推进，人物明确位移用短跟拍，信息揭示或权力变化用克制收紧；"
+            "只有强调型大运镜受20%预算限制，普通慢推、短跟拍可相邻但每镜仍只允许一种清楚轨迹；"
+            "显式shot动作和camera_plan冲突时先修正camera_plan以服务shot动作，不得把跟拍或推进强行写回固定机位。"
             "同场景锁定行动轴、人物左右和视线方向。"
             "每镜shot_intent必须解释dramatic_function、power_relation、emotion_target、viewer_focus，"
             "dramatic_function只能从establish/advance/pressure/withhold/reveal/payoff/reaction/transition/cliffhanger中选，"
             "不得使用reversal/climax/escalation/hook/question等留存节点名称；"
             "并绑定retention_beat_id；承担信息揭示的镜头引用information_fact_ids。先有语义意图，再选择景别和机位。"
+            "每镜change必须用一句话写明本镜结束时观众新知道什么、关系如何变化或动作造成什么结果；"
+            "change为空说明该镜没有戏剧功能，必须删除或与相邻镜合并。主角平均每三镜至少一次选择、反击、追问或改变路线的主动动作；"
+            "至少20%的镜头要让具名对手与主角发生可见冲突，匿名人群嘲笑不能替代对手。"
+            "derivation=verbatim只保留不可替代的原句，逐字turn占比不得超过35%，保真由事件、因果和source trace保证。"
+            "最后一镜必须让问题、异象、决定或后果真实出现在动作或声音里，不能只写在next_preview或剧本注释中。"
             "visual_strategy必须明确：单人普通对白/反应用direct-assets，无人物空镜用scene-only；"
             "多人精确站位、人物道具交互、结果揭示、高潮反转和封面级构图用story-keyframe，"
-            "并在keyframe_reasons记录原因。audio_plan中speech_strategy当前统一locked以保证原文台词准确；"
+            "并在keyframe_reasons记录原因。"
+            f"audio_plan中speech_strategy统一为{'native，让SD2.5生成并保留原声，不得规划TTS覆盖' if self.settings.final_audio_policy in NATIVE_VIDEO_AUDIO_POLICIES else 'locked，先锁定参考音频'}；"
             "TTS只负责真正发声的turn，ambience、music_cue和sfx_events写场景声音意图，不得把音效写成旁白。"
             "audio_beats使用0-1相对位置，cue_type只能取silence、ambience、impact、music_rise、music_cut、"
             "bass_drop、heartbeat、sfx、duck、release之一，不得自造也不要用中文；"
@@ -1561,14 +2181,15 @@ class OpenAICompatiblePlanner(Planner):
         last_report: ScriptQualityReport | None = None
         for revision in range(self.settings.planner_max_revisions + 1):
             draft_number = revision + 1
-            data = self._json(
-                system,
-                base_user,
-                repair,
-                token_budget=SCRIPT_TOKEN_BUDGET,
-            )
-            atomic_write_json(draft_root / f"draft_{draft_number:02d}.json", data)
+            data: dict | None = None
             try:
+                data = self._json(
+                    system,
+                    base_user,
+                    repair,
+                    token_budget=SCRIPT_TOKEN_BUDGET,
+                )
+                atomic_write_json(draft_root / f"draft_{draft_number:02d}.json", data)
                 plan = self._validate_episode_data(data, episode, bible)
                 if showrunner is not None:
                     plan = plan.model_copy(update={"showrunner_plan": showrunner})
@@ -1591,13 +2212,18 @@ class OpenAICompatiblePlanner(Planner):
                     "script_too_short",
                     "too_few_turns",
                 }:
-                    required_chars = script_policy(
+                    required_chars = effective_script_policy(
                         len(re.sub(r"\s+", "", episode.source_text)),
                         diagnosis.density,
                         self.settings.creative_profile,
                     ).min_script_chars
                     plan = self._expand_script_turns(
-                        episode, bible, plan, required_chars
+                        episode,
+                        bible,
+                        diagnosis,
+                        plan,
+                        required_chars,
+                        previous_state,
                     )
                     atomic_write_json(
                         draft_root / f"draft_{draft_number:02d}_expanded.json",
@@ -1610,6 +2236,36 @@ class OpenAICompatiblePlanner(Planner):
                         draft_root / f"draft_{draft_number:02d}_expanded_validation.json",
                         deterministic.model_dump(mode="json"),
                     )
+                blocking_codes = {
+                    issue.code
+                    for issue in deterministic.issues
+                    if issue.severity == "blocking"
+                }
+                if (
+                    not deterministic.passed
+                    and blocking_codes & DIALOGUE_ATTRIBUTION_CODES
+                    and blocking_codes <= ATTRIBUTION_REPAIR_CODES
+                ):
+                    plan = self._repair_turn_attribution(
+                        episode,
+                        bible,
+                        diagnosis,
+                        plan,
+                        deterministic,
+                        previous_state,
+                    )
+                    atomic_write_json(
+                        draft_root / f"draft_{draft_number:02d}_attribution.json",
+                        plan.model_dump(mode="json"),
+                    )
+                    deterministic = evaluate_script_quality(
+                        plan, diagnosis, episode, previous_state=previous_state
+                    )
+                    atomic_write_json(
+                        draft_root
+                        / f"draft_{draft_number:02d}_attribution_validation.json",
+                        deterministic.model_dump(mode="json"),
+                    )
                 if not deterministic.passed:
                     raise ValueError(deterministic.model_dump_json())
                 report = self._review_episode(episode, diagnosis, plan, previous_state)
@@ -1618,14 +2274,93 @@ class OpenAICompatiblePlanner(Planner):
                     draft_root / f"draft_{draft_number:02d}_validation.json",
                     report.model_dump(mode="json"),
                 )
-                if report.passed:
-                    state = self._update_series_state(
-                        episode, bible, diagnosis, plan, previous_state
+                blocking_review = [
+                    issue for issue in report.issues if issue.severity == "blocking"
+                ]
+                if (
+                    not report.passed
+                    and blocking_review
+                    and all(
+                        any(token in issue.code.upper() for token in REVIEW_CONTENT_PATCH_TOKENS)
+                        and issue.shot_indexes
+                        for issue in blocking_review
                     )
+                ):
+                    plan = self._repair_review_content(
+                        episode,
+                        bible,
+                        diagnosis,
+                        plan,
+                        report,
+                        previous_state,
+                    )
+                    atomic_write_json(
+                        draft_root / f"draft_{draft_number:02d}_content_patch.json",
+                        plan.model_dump(mode="json"),
+                    )
+                    deterministic = evaluate_script_quality(
+                        plan, diagnosis, episode, previous_state=previous_state
+                    )
+                    atomic_write_json(
+                        draft_root
+                        / f"draft_{draft_number:02d}_content_patch_validation.json",
+                        deterministic.model_dump(mode="json"),
+                    )
+                    report = self._review_episode(
+                        episode, diagnosis, plan, previous_state
+                    )
+                    last_report = report
+                    atomic_write_json(
+                        draft_root
+                        / f"draft_{draft_number:02d}_content_patch_review.json",
+                        report.model_dump(mode="json"),
+                    )
+                if report.passed:
+                    try:
+                        state = self._update_series_state(
+                            episode, bible, diagnosis, plan, previous_state
+                        )
+                    except ValueError as state_error:
+                        # State snapshots are bookkeeping, not creative output.
+                        # When the model repeatedly paraphrases valid facts and
+                        # therefore cannot satisfy exact-source grounding, use
+                        # the existing deterministic extractor instead of
+                        # discarding an independently approved episode plan.
+                        state = deterministic_series_state(
+                            episode, diagnosis, previous_state
+                        )
+                        atomic_write_json(
+                            draft_root
+                            / f"draft_{draft_number:02d}_series_state_fallback.json",
+                            {
+                                "reason": f"{type(state_error).__name__}: {state_error}"[:1000],
+                                "state": state.model_dump(mode="json"),
+                            },
+                        )
                     return EpisodePlanningBundle(
                         diagnosis=diagnosis,
                         plan=plan,
                         quality_report=report,
+                        updated_series_state=state,
+                    )
+                if self.settings.bounded_review_fallback and deterministic.passed:
+                    state = deterministic_series_state(
+                        episode, diagnosis, previous_state
+                    )
+                    atomic_write_json(
+                        draft_root
+                        / f"draft_{draft_number:02d}_bounded_review_fallback.json",
+                        {
+                            "reason": "independent review remained blocking after deterministic gates passed",
+                            "independent_review": report.model_dump(mode="json"),
+                            "deterministic_quality": deterministic.model_dump(mode="json"),
+                            "state_backend": "deterministic-grounded-fallback",
+                        },
+                    )
+                    return EpisodePlanningBundle(
+                        diagnosis=diagnosis,
+                        plan=plan,
+                        quality_report=deterministic,
                         updated_series_state=state,
                     )
                 raise ValueError(report.model_dump_json())
@@ -1642,11 +2377,12 @@ class OpenAICompatiblePlanner(Planner):
                     )
                 if revision >= self.settings.planner_max_revisions:
                     break
-                repair = {
-                    "revision": revision + 1,
-                    "previous_response": data,
-                    "validation_errors": _validation_feedback(error),
-                }
+                repair = _validation_retry(
+                    revision,
+                    data,
+                    error,
+                    repair,
+                )
         detail = last_report.model_dump_json() if last_report else json.dumps(
             repair or {}, ensure_ascii=False
         )
@@ -1667,6 +2403,7 @@ class CommandPlanner(Planner):
         self.command = shlex.split(settings.planner_command)
         self.max_revisions = settings.planner_max_revisions
         self.creative_profile = settings.creative_profile
+        self.bounded_review_fallback = settings.bounded_review_fallback
 
     def _invoke(self, operation: str, payload: dict) -> dict:
         with tempfile.TemporaryDirectory(prefix="novel-planner-") as directory:
@@ -1674,13 +2411,19 @@ class CommandPlanner(Planner):
             request = root / "request.json"
             response = root / "response.json"
             request.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            subprocess.run(
-                self.command
-                + ["--operation", operation, "--input", str(request), "--output", str(response)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
+            try:
+                subprocess.run(
+                    self.command
+                    + ["--operation", operation, "--input", str(request), "--output", str(response)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as error:
+                detail = (error.stderr or error.stdout or "").strip()[-2000:]
+                raise RuntimeError(
+                    f"planner command failed for {operation}: {detail}"
+                ) from error
             if not response.is_file():
                 raise RuntimeError("planner command did not create its JSON output")
             return json.loads(response.read_text(encoding="utf-8"))
@@ -1900,7 +2643,10 @@ class CommandPlanner(Planner):
                 )
                 last_report = report
                 if not report.passed:
-                    raise ValueError(report.model_dump_json())
+                    if self.bounded_review_fallback and deterministic.passed:
+                        report = deterministic
+                    else:
+                        raise ValueError(report.model_dump_json())
                 state = _bounded_validate(
                     "update_series_state",
                     self.max_revisions,

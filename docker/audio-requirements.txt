@@ -5,9 +5,7 @@ nagisa==0.2.11
 onnxruntime==1.24.3
 qwen-asr==0.0.6
 qwen-omni-utils==0.0.9
-qwen-tts==0.1.1
 soundfile==0.13.1
 sox==1.5.0
 soynlp==0.0.493
 transformers==4.57.3
-voxcpm==2.0.3
