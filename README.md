@@ -4,6 +4,8 @@
 [`docs/short-drama-methodology.md`](docs/short-drama-methodology.md)。
 镜头契约、双参考范围、provider 短提示词、连续性输入输出和失败迭代见
 [`docs/shot-contract-pipeline.md`](docs/shot-contract-pipeline.md)。
+本轮实现范围、提交、门禁、验证结果和未验证边界见
+[`docs/short-drama-change-record.md`](docs/short-drama-change-record.md)。
 
 把 `txt / markdown / docx / pdf` 小说转为 9:16 国漫画风漫剧。生产控制器是普通 Python 程序，不依赖
 Codex；故事规划、生图、生视频、TTS、ASR 和强制对齐均为可替换 provider。
