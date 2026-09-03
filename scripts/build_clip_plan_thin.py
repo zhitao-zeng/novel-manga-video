@@ -27,7 +27,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v8.2-aliases"
+POLICY = "thin-clip-plan-v8.3-chat-message"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -62,6 +62,8 @@ def shot_seconds(shot: dict) -> float:
             seconds += spoken_chars(turn["text"]) / 4.0 + 1.0
         elif mode == "silent_action":
             seconds += 3.0
+        elif mode == "chat_message":
+            seconds += spoken_chars(turn["text"]) / 5.0 + 1.5
     return max(3.0, round(seconds, 2))
 
 
@@ -195,11 +197,11 @@ def lint_stage(shot: dict) -> list[str]:
         issues.append("camera_move_words")
     if ABSTRACT.search(start + event + end):
         issues.append("abstract_wording")
-    if READABLE_TEXT.search(start + event + end + light):
+    if READABLE_TEXT.search(start + event + end + light) and not chat_turns(shot):
         issues.append("readable_text")
     if len(compact(start)) > 120:
         issues.append("start_state_over_120_chars")
-    if not any(t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "silent_action"} for t in shot["turns"]):
+    if not any(t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "silent_action", "chat_message"} for t in shot["turns"]):
         issues.append("no_audible_or_visible_action")
     return issues
 
@@ -209,6 +211,21 @@ def load_grammar(path: Path | None, episode_dir: Path) -> dict | None:
     if candidate and candidate.is_file():
         return json.loads(candidate.read_text(encoding="utf-8"))
     return None
+
+
+def chat_turns(shot: dict) -> list[dict]:
+    return [t for t in shot["turns"] if t["delivery_mode"] == "chat_message" and t["text"].strip()]
+
+
+def screen_clause(shot: dict) -> str:
+    """What the phone screen shows: the group-chat messages, verbatim, as the
+    only readable text the video may contain."""
+    turns = chat_turns(shot)
+    if not turns:
+        return ""
+    bubbles = "；".join(f"【{t['speaker_name']}】「{t['text'].strip()}」" for t in turns)
+    return (f"屏幕内容：手机屏幕特写占画面主体、屏幕正对镜头，微信群聊界面上依次弹出{len(turns)}条消息气泡，"
+            f"气泡内文字为清晰可读的简体中文、字迹端正无乱码、与下列内容逐字一致：{bubbles}。")
 
 
 def sound_clause(shot: dict) -> str:
@@ -229,6 +246,8 @@ def sound_clause(shot: dict) -> str:
             parts.append(f"中文普通话，{emotion}，{voice}说：{{{turn['text']}}}，画面中无人开口")
     if shot.get("sfx"):
         parts.append(f"<{shot['sfx']}>")
+    if chat_turns(shot):
+        parts.append("<手机消息提示音>")
     if not parts:
         parts.append("只有环境声，无人说话")
     return "；".join(parts)
@@ -336,7 +355,7 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
         source_light = carried("light", "光源")
         lines.append(
             f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{compact(shot['motion_prompt'])}。"
-            f"声音：{sound_clause(shot)}。结束时：{compact(shot['end_state'])}。"
+            f"{screen_clause(shot)}声音：{sound_clause(shot)}。结束时：{compact(shot['end_state'])}。"
         )
     scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))
     ambience = list(dict.fromkeys(shot["sfx"] for shot in shots if shot.get("sfx")))
@@ -344,7 +363,10 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     lines.append(f"画面呈现{(grammar or {}).get('style_line') or bible.visual_style}。")
     lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")
     lines.append(f"声音包括角色对白、<{ambience_text}>和与动作同步的音效；无背景音乐；不要字幕。")
-    lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、字幕、Logo或水印；不出现血液和伤口；不新增具名人物。")
+    if any(chat_turns(shot) for shot in shots):
+        lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；除手机屏幕上指定的聊天消息外，画面中不出现其他文字、数字、字幕、Logo或水印；屏幕上的消息文字必须与指定内容逐字一致、简体中文、无乱码；不出现血液和伤口；不新增具名人物。")
+    else:
+        lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、字幕、Logo或水印；不出现血液和伤口；不新增具名人物。")
     avoid = [compact(shot.get("avoid", "")) for shot in shots if shot.get("avoid")]
     avoid = list(dict.fromkeys(a for a in avoid if a))
     rejects = [str(r) for r in (grammar or {}).get("rejects", []) if r]
@@ -441,6 +463,7 @@ def main() -> int:
             "cast": cast,
             "references": references,
             "lines": lines,
+            "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip()} for shot in clip["shots"] for t in chat_turns(shot)],
             "spoken_text": "".join(line["text"] for line in lines),
             "prompt": prompt,
             "prompt_chars": len(prompt),

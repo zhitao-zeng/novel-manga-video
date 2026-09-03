@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.8-resilient"
+POLICY = "thin-review-v1.9-chat-text"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -423,6 +423,8 @@ CLIP_SCHEMA = obj({
     "time_of_day_ok": {"type": "boolean"},
     "location_issue": {"type": "string"},
     "text_or_watermark": {"type": "boolean"},
+    "chat_text_ok": {"type": "boolean"},
+    "chat_text_issue": {"type": "string"},
     "visual_defects": {"type": "boolean"},
     "defect_issue": {"type": "string"},
     "severity": {"type": "string", "enum": ["pass", "minor", "fail"]},
@@ -464,15 +466,18 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     expected_time = location_time.get(location, "")
     background = [name for name in clip.get("background_only", []) if name in by_name]
     lines = "；".join(f"{row.get('speaker_name') or '旁白'}：{row['text']}" for row in clip.get("lines", []))
+    chats = "；".join(f"【{row.get('speaker_name')}】「{row['text']}」" for row in clip.get("chat_lines", []))
     text = (
         "这是一段动画短剧视频的抽帧，前面几张是本段人物的角色卡（身份依据）。\n" + "，".join(legend) + "。\n"
         f"本段设定：地点 {location}" + (f"（{expected_time}）" if expected_time else "") + f"；出场人物 {'、'.join(cast) or '无具名角色'}"
         + "".join(f"\n- {describe(by_name[n])}" for n in cast)
         + (f"\n允许出现在远处背景、不入近景不说话的角色：{'、'.join(background)}（他们出现在背景里是正常的，不算多出）" if background else "")
         + f"\n预期台词：{lines or '无'}\n语音识别出的台词：{hypothesis or '无'}\n"
-        "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色是否与其角色卡一致、没有两个角色长成同一人、没有角色被画成另一个角色的服装发型、近景里没有多出的具名角色（远处模糊背景里的人不算），不一致时在 identity_issue 写清是谁、哪一帧；"
-        "location_ok 与 time_of_day_ok 是否符合地点和时间设定；text_or_watermark 画面是否出现文字、字幕、水印、Logo；visual_defects 是否有明显崩坏（多手、面部扭曲、肢体错位、人物穿模）；"
-        "severity：identity 不一致、文字水印或严重崩坏为 fail；仅地点时间存疑或轻微瑕疵为 minor；否则 pass。feedback 为一句给视频模型的修正指令（fail 时必填，指明谁应该长什么样、避免什么）。只输出JSON。"
+        + (f"手机屏幕上应显示的群消息（这些文字允许出现）：{chats}\n" if chats else "")
+        + "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色是否与其角色卡一致、没有两个角色长成同一人、没有角色被画成另一个角色的服装发型、近景里没有多出的具名角色（远处模糊背景里的人不算），不一致时在 identity_issue 写清是谁、哪一帧；"
+        "location_ok 与 time_of_day_ok 是否符合地点和时间设定；text_or_watermark 画面是否出现手机屏幕聊天消息以外的文字、字幕、水印、Logo；"
+        "chat_text_ok：若本段有应显示的群消息，帧里手机屏幕上的文字是否是清晰的简体中文且内容与预期一致（允许只显示部分或截断，不允许乱码、错字连篇或无关文字），没有预期消息时填 true，不一致时在 chat_text_issue 写清；visual_defects 是否有明显崩坏（多手、面部扭曲、肢体错位、人物穿模）；"
+        "severity：identity 不一致、屏幕消息乱码或不符、文字水印或严重崩坏为 fail；仅地点时间存疑或轻微瑕疵为 minor；否则 pass。feedback 为一句给视频模型的修正指令（fail 时必填，指明谁应该长什么样、避免什么）。只输出JSON。"
     )
     parts.append({"type": "text", "text": text})
     return ask_json(parts, CLIP_SCHEMA, name="clip_review", max_tokens=600)
@@ -485,7 +490,9 @@ def compose_feedback(verdict: dict) -> str:
     sentence, which names who should look like what."""
     parts = []
     if verdict.get("text_or_watermark"):
-        parts.append("画面中不得出现任何文字、字幕、弹幕或水印，台词只以语音出现")
+        parts.append("除手机屏幕上指定的聊天消息外，画面中不得出现任何文字、字幕、弹幕或水印，台词只以语音出现")
+    if verdict.get("chat_text_ok") is False:
+        parts.append("手机屏幕上的消息文字必须是清晰端正的简体中文，内容与指定的消息逐字一致，不得乱码或出现无关文字；屏幕要正对镜头、占画面主体")
     if not verdict.get("identity_ok", True) or verdict.get("visual_defects"):
         note = str(verdict.get("feedback") or "").strip()
         if note and not re.search(r"字幕|文字", note):
