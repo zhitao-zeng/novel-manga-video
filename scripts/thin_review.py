@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.9-chat-text"
+POLICY = "thin-review-v1.10-chat-frames"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -452,7 +452,8 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
         path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and ref["path"].endswith("turnaround.jpeg")), None)
         if path is not None and (bible_root(work_dir) / path).is_file():  # a card being rebuilt is simply not shown
             cards.append((name, path))
-    frame_count = min(FRAMES_PER_CLIP, MAX_IMAGES - len(cards))
+    # Clips with on-screen chat get more frames: stray text tends to flash briefly.
+    frame_count = min(6 if clip.get("chat_lines") else FRAMES_PER_CLIP, MAX_IMAGES - len(cards))
     frames = clip_frames(video, work_dir, frame_count)
     parts = []
     legend = []
