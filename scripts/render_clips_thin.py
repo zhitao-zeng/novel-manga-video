@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v12-selective-assets"
+POLICY = "thin-media-v12.1-demuxer-join"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -817,13 +817,30 @@ class ThinMediaRunner:
             self.renderer.make_cover(cover_frame, cover, novel_title=self.bible.novel_title, art_title=art_title, episode_label=f"第{episode_number:02d}集")
             self.renderer.make_card(ending_frame, ending, self.bible.novel_title, "未完待续", "敬请期待下一集")
         final_video = self.episode_dir / f"{video_id}.mp4"
-        # FFmpeg 4.4 on this host freezes an input at its first frame inside
-        # multi-input xfade chains (the renderer only avoids that above 16
-        # segments).  Short drama cuts hard anyway, so join with concat.
-        original_join = self.renderer._join_with_crossfade
+        # FFmpeg 4.4 on this host freezes inputs inside multi-input filter
+        # graphs (xfade chains, and on re-muxed segments the concat filter too:
+        # ep10 came back with a 12 s hold after a re-assembly).  Short drama
+        # cuts hard anyway: normalise every segment to constant frame rate and
+        # uniform audio, then join with the concat demuxer, no filter graph.
+        fps, width, height = self.settings.fps, self.settings.width, self.settings.height
 
         def hard_cut_join(sequence, durations, output, *, crossfade_seconds=0.15):
-            return original_join(sequence, durations, output, crossfade_seconds=0.0)
+            normalized = []
+            for index, path in enumerate(sequence):
+                target = output.parent / f"join_{index:02d}.mp4"
+                run(["ffmpeg", "-y", "-v", "error", "-i", str(path),
+                     "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p",
+                     "-vsync", "cfr", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                     "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(target)])
+                normalized.append(target)
+            list_file = output.parent / "join_list.txt"
+            list_file.write_text("".join(f"file '{p}'\n" for p in normalized), encoding="utf-8")
+            run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", "-movflags", "+faststart", str(output)])
+            offsets, cumulative = [], 0.0
+            for path in normalized:
+                offsets.append(cumulative)
+                cumulative += media_duration(path)
+            return offsets
 
         self.renderer._join_with_crossfade = hard_cut_join
         final, ass, joined, events = self.renderer.assemble_production(cover, ending, turn_segments, final_video, self.work)
