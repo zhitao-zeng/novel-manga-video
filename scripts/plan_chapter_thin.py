@@ -46,7 +46,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v7.11-soft-floor"
+POLICY = "thin-chapter-plan-v7.12-lyric-check"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -535,7 +535,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                     characters.append(speaker)
                 if speaker not in names:
                     errors.append(f"{position}: singing 的 speaker_name 必须是 StoryBible 角色")
-                if re.search(r"[，,]|的|了|你|我|他|她", text) and len(compact(text)) > 12 and not re.search(r"哼唱|旋律|曲调", text):
+                if len(compact(text)) > 12 and not re.search(r"哼|唱|旋律|曲调|歌声|声音|嗓|吟", text):  # a manner description names the singing; lyrics do not
                     errors.append(f"{position}: singing 的 text 疑似歌词：{text[:20]!r}，只写演唱方式（如“轻声哼唱一段温柔的无词旋律”），不得写歌词")
             elif mode == "chat_message":
                 if not speaker:
