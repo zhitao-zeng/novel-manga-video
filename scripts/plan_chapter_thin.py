@@ -46,7 +46,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v7.9-chat-message"
+POLICY = "thin-chapter-plan-v7.10-singing"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -64,7 +64,7 @@ MIN_SPOKEN_CHARS = 220
 ANONYMOUS_SPEAKERS = ["无名测验员", "无名族人", "无名少年", "无名少女", "无名群声"]
 SCENE_JOBS = ["建立", "推进", "对峙", "揭示", "反转", "决定", "收束"]
 SHOT_SCALES = ["特写", "近景", "中近景", "中景", "全景"]
-DELIVERY_MODES = ["visible_dialogue", "offscreen_dialogue", "silent_action", "title_card", "chat_message"]
+DELIVERY_MODES = ["visible_dialogue", "offscreen_dialogue", "silent_action", "title_card", "chat_message", "singing"]
 CHAT_MAX_CHARS = 24
 SPLIT_PUNCT = "，。！？；：、…—,.!?;:"
 STRIP_PUNCT = r"[\s　，。！？；：、…—,.!?;:\"“”'‘’（）()]"
@@ -84,6 +84,8 @@ def stage_seconds(turns: list[dict]) -> float:
             seconds += 3.0
         elif mode == "chat_message":
             seconds += spoken_chars(str(turn.get("text", ""))) / 5.0 + 1.5
+        elif mode == "singing":
+            seconds += 6.0
     return max(3.0, round(seconds, 2))
 
 
@@ -111,7 +113,7 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
 硬规则：
 1. 只用当前章的事实、人物和顺序。不得引入后文信息、新事件、新地点，或StoryBible之外的具名角色。
 2. 原文已切成8个连续区段 seg_1 到 seg_8。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段至少被一个阶段引用；纯景物或纯议论的区段可以跳过，写进 skipped_segments 并给理由，最多跳过3个。
-3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。另有一种不发声的 chat_message：手机或电脑屏幕上显示的聊天消息，speaker_name 写发消息的人，text 写消息原文，逐字取自原文、不超过24字（长消息只取前半句）；一个阶段最多三条；含 chat_message 的阶段，start_state 和 event 必须写明手机屏幕特写、屏幕正对镜头、消息气泡清晰可读，以及看手机的人的反应。原文里的群聊内容优先用 chat_message 呈现，不要改成画外音。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
+3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。另有一种不发声的 chat_message：手机或电脑屏幕上显示的聊天消息，speaker_name 写发消息的人，text 写消息原文，逐字取自原文、不超过24字（长消息只取前半句）；一个阶段最多三条；含 chat_message 的阶段，start_state 和 event 必须写明手机屏幕特写、屏幕正对镜头、消息气泡清晰可读，以及看手机的人的反应。原文里的群聊内容优先用 chat_message 呈现，不要改成画外音。唱歌场景用 singing：speaker_name 写唱歌的人，text 只写演唱方式（如"轻声哼唱一段温柔的无词旋律"），绝不写任何歌词、歌名或已有歌曲，观众的反应用其他阶段的画面和画外音表现。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
 4. 台词取舍：推动剧情和人物关系的原文台词必须保留，可以只删子句、不改词序；重复表达同一意思的群众议论要合并成一两句或删掉。叙述里承载来历、规则和身份的信息（谁曾经是什么、某条规则意味着什么、某个称号指谁）用一两句无名族人的画外议论或角色问答说出来，改成口语但不新增原文没有的事实。内心独白不要改成出声自语，改成可见反应。
 5. 每条turn的text不超过26个汉字，长句拆成多条turn。
 6. 阶段字段：start_state写开始时画面（谁在哪、站位、朝向、表情、道具）；event写这几秒内的一个主要动作或事件；end_state写结束时能直接看到的状态（人物位置、朝向、表情、道具归属）；sfx写环境声或动作音效（如"人群低语""脚步声"），没有就空字符串，不要写"寂静声""注视声"这类不是声音的词；shot_scale写景别。情绪一律写成可见表现（眼神、眉头、嘴角、呼吸、手部动作），不写"气质如清莲""闪过一丝痛苦"这类拍不出来的词。不描述镜头运动、文字、字幕、Logo。相邻阶段不要重复同一个开始画面。
@@ -528,6 +530,13 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                     errors.append(f"{position}: offscreen speaker {speaker!r} unknown; use a StoryBible name or 无名 role")
             elif mode in {"silent_action", "title_card"}:
                 speaker = ""
+            elif mode == "singing":
+                if speaker in names and speaker not in characters:
+                    characters.append(speaker)
+                if speaker not in names:
+                    errors.append(f"{position}: singing 的 speaker_name 必须是 StoryBible 角色")
+                if re.search(r"[，,]|的|了|你|我|他|她", text) and len(compact(text)) > 12 and not re.search(r"哼唱|旋律|曲调", text):
+                    errors.append(f"{position}: singing 的 text 疑似歌词：{text[:20]!r}，只写演唱方式（如“轻声哼唱一段温柔的无词旋律”），不得写歌词")
             elif mode == "chat_message":
                 if not speaker:
                     errors.append(f"{position}: chat_message needs speaker_name（发消息的人）")
@@ -662,6 +671,8 @@ def to_episode_plan(raw: dict, shots: list[dict], location_map: dict[str, str], 
             }
             if mode == "silent_action":
                 turns.append(ScriptTurn(role="action", speaker_name="", speaking=False, delivery_mode=TurnDelivery.SILENT_ACTION, derivation=TurnDerivation.DERIVED, **common))
+            elif mode == "singing":
+                turns.append(ScriptTurn(role="action", speaker_name="", speaking=False, delivery_mode=TurnDelivery.SILENT_ACTION, derivation=TurnDerivation.DERIVED, **{**common, "text": f"{turn['speaker_name']}哼唱：{text}"}))
             elif mode == "chat_message":  # the legacy plan model has no chat kind; keep it as a silent on-screen action
                 turns.append(ScriptTurn(role="action", speaker_name="", speaking=False, delivery_mode=TurnDelivery.SILENT_ACTION, derivation=TurnDerivation.DERIVED, **{**common, "text": f"屏幕消息 {turn['speaker_name']}：{text}"}))
             elif mode == "title_card":
@@ -763,6 +774,7 @@ MODE_LABEL = {
     "silent_action": "动作",
     "title_card": "字幕卡",
     "chat_message": "群消息",
+    "singing": "哼唱",
 }
 
 

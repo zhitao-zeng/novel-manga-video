@@ -27,7 +27,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v8.5-chat-template"
+POLICY = "thin-clip-plan-v8.6-singing"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -64,6 +64,8 @@ def shot_seconds(shot: dict) -> float:
             seconds += 3.0
         elif mode == "chat_message":
             seconds += spoken_chars(turn["text"]) / 5.0 + 1.5
+        elif mode == "singing":
+            seconds += 6.0
     return max(3.0, round(seconds, 2))
 
 
@@ -201,7 +203,7 @@ def lint_stage(shot: dict) -> list[str]:
         issues.append("readable_text")
     if len(compact(start)) > 120:
         issues.append("start_state_over_120_chars")
-    if not any(t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "silent_action", "chat_message"} for t in shot["turns"]):
+    if not any(t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "silent_action", "chat_message", "singing"} for t in shot["turns"]):
         issues.append("no_audible_or_visible_action")
     return issues
 
@@ -262,6 +264,9 @@ def sound_clause(shot: dict) -> str:
         who = turn["speaker_name"]
         if mode == "visible_dialogue":
             parts.append(f"中文普通话，{emotion}，{who}开口说：{{{turn['text']}}}")
+        elif mode == "singing":
+            manner = turn["text"].strip() or "轻声哼唱一段温柔的无词旋律"
+            parts.append(f"{who}{manner}：原创的、没有歌词的哼唱，不是任何已有歌曲，口型为哼唱，音量柔和")
         elif mode == "offscreen_dialogue":
             voice = ANON_VOICE.get(who, f"画外的{who}")
             if who in {"无名族人", "无名少年", "无名少女"}:
