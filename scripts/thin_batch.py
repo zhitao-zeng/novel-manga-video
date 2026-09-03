@@ -274,7 +274,11 @@ class Batch:
             row["render"] = status
             self.fill_result(chapter)
             if self.reviewing:
-                self.review_episode(chapter)
+                try:
+                    self.review_episode(chapter)
+                except Exception as error:  # noqa: BLE001
+                    row["note"] = f"review failed: {type(error).__name__}: {str(error)[:120]}"
+                    log(f"ch{chapter}: episode review failed ({type(error).__name__}: {str(error)[:120]})")
             return
         if self.args.dry_run:
             row["render"] = f"would render ({status})"
@@ -309,7 +313,11 @@ class Batch:
                 row["note"] = problem
             self.fill_result(chapter)
             if self.reviewing and status in {"done", "done_with_warnings"}:
-                self.review_episode(chapter)
+                try:
+                    self.review_episode(chapter)
+                except Exception as error:  # noqa: BLE001 - the episode is done; a review failure is a note
+                    row["note"] = f"review failed: {type(error).__name__}: {str(error)[:120]}"
+                    log(f"ch{chapter}: episode review failed ({type(error).__name__}: {str(error)[:120]})")
             if self.args.prune and self.render_status(chapter) in {"done", "done_with_warnings"}:
                 prune_episode(directory)
         finally:
@@ -392,8 +400,12 @@ class Batch:
                 if self.plan_status(chapter) == "planned":
                     futures.append(pool.submit(self.render, chapter))
                 self.volume_checkpoint(chapter, chapters)
-            for future in futures:
-                future.result()
+            for chapter, future in zip([ch for ch in chapters if self.plan_status(ch) == "planned"], futures):
+                try:
+                    future.result()
+                except Exception as error:  # noqa: BLE001 - one episode's thread must not end the batch
+                    self.rows[chapter]["note"] = f"render thread failed: {type(error).__name__}: {str(error)[:120]}"
+                    log(f"ch{chapter}: render thread failed ({type(error).__name__}: {str(error)[:120]})")
 
     def volume_checkpoint(self, chapter: int, chapters: list[int]) -> None:
         size = max(1, self.args.volume_size)
@@ -523,7 +535,12 @@ def main() -> int:
         batch.assets(chapters)
     if args.stage == "render":
         with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
-            list(pool.map(batch.render, chapters))
+            for chapter, future in [(ch, pool.submit(batch.render, ch)) for ch in chapters]:
+                try:
+                    future.result()
+                except Exception as error:  # noqa: BLE001
+                    batch.rows[chapter]["note"] = f"render thread failed: {type(error).__name__}: {str(error)[:120]}"
+                    log(f"ch{chapter}: render thread failed ({type(error).__name__}: {str(error)[:120]})")
     return batch.report(chapters)
 
 

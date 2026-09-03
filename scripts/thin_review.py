@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.7-one-fix-per-card"
+POLICY = "thin-review-v1.8-resilient"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -448,7 +448,7 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     cards = []
     for name in cast[:MAX_IMAGES - 3]:
         path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and ref["path"].endswith("turnaround.jpeg")), None)
-        if path is not None:
+        if path is not None and (bible_root(work_dir) / path).is_file():  # a card being rebuilt is simply not shown
             cards.append((name, path))
     frame_count = min(FRAMES_PER_CLIP, MAX_IMAGES - len(cards))
     frames = clip_frames(video, work_dir, frame_count)
@@ -524,7 +524,12 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
                 continue
             asr = video.parent / ("stale_asr.json" if "stale" in video_name else "asr.json")
             hypothesis = json.loads(asr.read_text(encoding="utf-8")).get("hypothesis", "") if asr.is_file() else ""
-        verdict = judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)
+        try:
+            verdict = judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)
+        except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
+            log(f"episode {episode_dir.name} {clip_id}: review error {type(error).__name__}: {str(error)[:120]}")
+            report["clips"][clip_id] = {"video": str(video), "severity": "review_error", "error": f"{type(error).__name__}: {str(error)[:300]}"}
+            continue
         report["clips"][clip_id] = {"video": str(video), **verdict}
         if verdict.get("severity") == "fail":
             report["flags"].append(f"{clip_id}: {verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}")
