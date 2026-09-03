@@ -33,6 +33,7 @@ from PIL import Image
 from novel_manga.config import Settings
 from novel_manga.models import StoryBible
 from novel_manga.production import SeriesAssetFactory
+from novel_manga.production_models import AssetRecord, SeriesAssetManifest
 from novel_manga.production_runtime import EpisodeProductionRuntime
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from novel_manga.qc import inspect_media
@@ -46,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v11.1-review-feedback"
+POLICY = "thin-media-v12-selective-assets"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -114,6 +115,86 @@ class FramedAssetFactory(SeriesAssetFactory):
     def _location_prompt(self, bible, location):  # type: ignore[override]
         prompt = SeriesAssetFactory._location_prompt(bible, location)
         return prompt.replace("9:16", self.frame_text.split("屏")[-1]).replace("竖屏", self.frame_text[:2]) if self.frame_text != "竖屏9:16" else prompt
+
+    def build_selected(self, root: Path, bible: StoryBible, character_ids: set[str], location_ids: set[str]) -> SeriesAssetManifest:
+        """Build (or reuse) only the listed assets; ids stay the bible positions.
+
+        The base ``build`` renders every character and location in the bible.
+        A long novel's bible grows to hundreds of entries, so an episode only
+        pays for the cards it references; records are merged into the manifest.
+        """
+        root.mkdir(parents=True, exist_ok=True)
+        style_master = self.settings.style_master_path
+        guard = (
+            "【系列母版继承】参考图只锁定线稿粗细、二维平涂、赛璐璐阴影、色彩亮度、"
+            "光影方向和整体动画制作规格；不得照抄参考图人物身份、脸型、发型、服装、姿势、"
+            "场景结构或具体构图，必须严格按当前资产描述重新设计。"
+            if style_master is not None else ""
+        )
+        manifest_path = root / "manifest.json"
+        existing = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+        characters = {row["asset_id"]: row for row in existing.get("characters", [])}
+        locations = {row["asset_id"]: row for row in existing.get("locations", [])}
+        voices = dict(existing.get("voice_assignments") or {"narrator": "native:narrator"})
+        for index, character in enumerate(bible.characters, start=1):
+            asset_id = f"character_{index:03d}"
+            if asset_id not in character_ids:
+                continue
+            directory = root / "characters" / asset_id
+            prompt = self._character_prompt(
+                bible, character.name, character.appearance, character.base_costume or character.wardrobe,
+                visual_archetype=character.visual_archetype, face_anchors=character.face_anchors, silhouette=character.silhouette,
+                hair=character.hair, palette=character.palette, motion_signature=character.motion_signature,
+            ) + guard
+            invariants = [value for value in (character.appearance, *character.face_anchors, character.silhouette, character.hair) if value]
+            state = {"costume": character.base_costume or character.wardrobe, "injury": "none unless changed by source events", "carried_prop": character.signature_prop or "none"}
+            scope = {"inherit": ["identity", "hair", "costume", "2d_rendering"], "exclude": ["pose", "composition", "camera", "background", "lighting"]}
+            atomic_write_json(directory / "spec.json", {
+                "asset_id": asset_id, "name": character.name, "role": character.role, "gender": character.gender, "age": character.age,
+                "appearance": character.appearance, "wardrobe": character.wardrobe, "visual_archetype": character.visual_archetype,
+                "face_anchors": character.face_anchors, "silhouette": character.silhouette, "hair": character.hair, "palette": character.palette,
+                "base_costume": character.base_costume, "episode_costumes": character.episode_costumes, "signature_prop": character.signature_prop,
+                "expression_profile": character.expression_profile, "motion_signature": character.motion_signature, "voice_profile_id": character.voice_profile_id,
+                "version": "v001", "identity_invariants": invariants, "state_variables": state, "reference_scope": scope,
+                "style_fingerprint": bible.style_fingerprint, "prompt": prompt,
+            })
+            primary = self._ensure_image(prompt, directory / "turnaround.jpeg", reference=style_master)
+            expression_prompt = self._expression_prompt(bible, character.name, character.expression_profile)
+            secondary = self._ensure_image(expression_prompt, directory / "expressions.jpeg", reference=primary.path)
+            characters[asset_id] = AssetRecord(
+                asset_id=asset_id, kind="character", name=character.name, identity_invariants=invariants, state_variables=state, reference_scope=scope,
+                spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(primary.path.relative_to(root.parent)),
+                secondary_image=str(secondary.path.relative_to(root.parent)), prompt_sha256=sha256_text(prompt + expression_prompt),
+            ).model_dump(mode="json")
+            voices[character.name] = character.voice_profile_id or f"native:{asset_id}"
+        for index, location in enumerate(dict.fromkeys(bible.locations), start=1):
+            asset_id = f"location_{index:03d}"
+            if asset_id not in location_ids:
+                continue
+            directory = root / "locations" / asset_id
+            prompt = self._location_prompt(bible, location) + guard
+            invariants = [f"{location}固定建筑、出入口和空间层级"]
+            state = {"time_of_day": "approved_reference_state", "weather": "approved_reference_state", "damage": "none unless changed by source events"}
+            scope = {"inherit": ["architecture", "space", "color", "lighting", "2d_rendering"], "exclude": ["composition", "camera", "temporary_people", "text"]}
+            atomic_write_json(directory / "spec.json", {
+                "asset_id": asset_id, "name": location, "style_fingerprint": bible.style_fingerprint,
+                "continuity": "固定空间布局、物品锚点、天气、时间、光线方向", "version": "v001",
+                "identity_invariants": invariants, "state_variables": state, "reference_scope": scope, "prompt": prompt,
+            })
+            image = self._ensure_image(prompt, directory / "establishing.jpeg", reference=style_master)
+            locations[asset_id] = AssetRecord(
+                asset_id=asset_id, kind="location", name=location, identity_invariants=invariants, state_variables=state, reference_scope=scope,
+                spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(image.path.relative_to(root.parent)),
+                prompt_sha256=sha256_text(prompt),
+            ).model_dump(mode="json")
+        manifest = SeriesAssetManifest(
+            style_fingerprint=bible.style_fingerprint,
+            characters=[AssetRecord(**characters[key]) for key in sorted(characters)],
+            locations=[AssetRecord(**locations[key]) for key in sorted(locations)],
+            voice_assignments=voices,
+        )
+        atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
+        return manifest
 
 
 def sha256_text(value: str) -> str:
@@ -302,19 +383,10 @@ class ThinMediaRunner:
 
     # ---- assets ----
     def build_assets(self):
-        needed_characters = 0
-        needed_locations = 0
-        for clip in self.clip_plan["clips"]:
-            for ref in clip.get("references", []):
-                if ref["role"] == "character":
-                    needed_characters = max(needed_characters, asset_index(ref["asset_id"]))
-                else:
-                    needed_locations = max(needed_locations, asset_index(ref["asset_id"]))
-        filtered = self.bible.model_copy(update={
-            "characters": self.bible.characters[:needed_characters],
-            "locations": self.bible.locations[:needed_locations],
-        })
-        log(f"assets: {needed_characters} characters x2 images + {needed_locations} locations")
+        character_ids = {ref["asset_id"] for clip in self.clip_plan["clips"] for ref in clip.get("references", []) if ref["role"] == "character"}
+        location_ids = {ref["asset_id"] for clip in self.clip_plan["clips"] for ref in clip.get("references", []) if ref["role"] != "character"}
+        wanted = character_ids | location_ids
+        log(f"assets: {len(character_ids)} characters x2 images + {len(location_ids)} locations (only what this episode references)")
         factory = FramedAssetFactory(self.settings, self.provider)
         factory.frame_text = self.frame_spec["text"]
         log(f"profile: style={self.profile['style']} frame={self.profile['frame']} canvas={self.settings.width}x{self.settings.height}")
@@ -330,7 +402,7 @@ class ThinMediaRunner:
         manifest = None
         for attempt in range(1, ASSET_BUILD_ROUNDS + 1):
             try:
-                manifest = factory.build(self.novel_dir / "series_assets", filtered)
+                manifest = factory.build_selected(self.novel_dir / "series_assets", self.bible, character_ids, location_ids)
             except (RuntimeError, TimeoutError, OSError) as error:
                 # The hosted image service returns "图片生成失败，请稍后重试" during
                 # its own incidents.  That is transient, so back off instead of
@@ -340,7 +412,7 @@ class ThinMediaRunner:
                 log(f"assets: round {attempt} failed ({type(error).__name__}: {str(error)[:110]}); retrying in {ASSET_RETRY_SECONDS}s")
                 time.sleep(ASSET_RETRY_SECONDS)
                 continue
-            broken = self.broken_assets(manifest)
+            broken = [path for path in self.broken_assets(manifest) if path.parent.name in wanted]
             if not broken:
                 break
             # The hosted image CDN can serve an HTML notice or a truncated body;

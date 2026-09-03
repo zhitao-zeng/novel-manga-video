@@ -103,7 +103,8 @@ def main() -> int:
     parser.add_argument("--frame", choices=("9:16", "16:9"), default=DEFAULTS["frame"])
     parser.add_argument("--output-root", default="outputs")
     parser.add_argument("--force", action="store_true", help="rebuild the bible even if story_bible.json exists")
-    parser.add_argument("--fill", action="store_true", help="after building, add entries for named characters the novel keeps mentioning but the bible lacks (thin_review bible)")
+    parser.add_argument("--fill", action="store_true", help="after building, add entries for named characters the seed chapters keep mentioning but the bible lacks (thin_review bible)")
+    parser.add_argument("--bible-chapters", type=int, default=5, help="seed the bible from the first N chapters; later characters and locations are added chapter by chapter during the batch (--grow-bible)")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
 
@@ -112,7 +113,8 @@ def main() -> int:
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     novel_dir.mkdir(parents=True, exist_ok=True)
     profile = {"style": args.style, "frame": args.frame}
-    print(json.dumps({"chapters": [{"index": e.index, "title": e.source_title, "chars": e.text_count} for e in novel.episodes]}, ensure_ascii=False, indent=1), flush=True)
+    chapters = [{"index": e.index, "title": e.source_title, "chars": e.text_count} for e in novel.episodes]
+    print(json.dumps({"chapter_count": len(chapters), "first": chapters[:3], "last": chapters[-1:], "seed_chapters": args.bible_chapters}, ensure_ascii=False), flush=True)
 
     bible_path = novel_dir / "story_bible.json"
     if bible_path.is_file() and not args.force:
@@ -120,7 +122,8 @@ def main() -> int:
         print(json.dumps({"bible": "kept existing", "characters": len(bible.characters), "locations": len(bible.locations)}, ensure_ascii=False), flush=True)
     else:
         started = time.monotonic()
-        bible = build_bible(novel, args.style)
+        seed = novel.model_copy(update={"text": "\n\n".join(e.source_text for e in novel.episodes[:max(1, args.bible_chapters)])})
+        bible = build_bible(seed, args.style)
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
         print(json.dumps({"bible": "built", "seconds": round(time.monotonic() - started, 1), "characters": [c.name for c in bible.characters], "locations": [l.split("：", 1)[0] for l in bible.locations]}, ensure_ascii=False), flush=True)
 
@@ -138,13 +141,13 @@ def main() -> int:
     atomic_write_json(novel_dir / "novel.json", {
         "novel_id": args.novel_id, "title": args.title, "source": str(source),
         "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-        "chapters": [{"index": e.index, "title": e.source_title, "chars": e.text_count} for e in novel.episodes],
+        "chapters": chapters, "seed_chapters": args.bible_chapters,
         "profile": profile, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
     })
     filled: list[str] = []
     if args.fill:
         from thin_review import review_bible
-        review = review_bible(novel_dir, source, fill=True)
+        review = review_bible(novel_dir, source, fill=True, chapters=max(1, args.bible_chapters))
         filled = review["filled"]
         bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     (novel_dir / "story_bible.md").write_text(bible_markdown(bible, novel, source, profile), encoding="utf-8")

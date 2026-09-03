@@ -28,6 +28,8 @@ import subprocess
 import sys
 import time
 import urllib.request
+import shutil
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -108,8 +110,36 @@ class Batch:
         self.reviewing = bool(args.unattended or args.review_only)
         self.card_review: dict = {}
         self.card_fixes: dict = {}
+        self._novel = None
+        self.report_lock = threading.Lock()
 
     # ---- helpers ----
+    def novel(self):
+        if self._novel is None:
+            sys.path.insert(0, str(ROOT / "src"))
+            from novel_manga.ingest import read_novel
+            self._novel = read_novel(self.source, novel_id=self.novel_id, title=self.title)
+        return self._novel
+
+    def chapter(self, index: int):
+        episodes = self.novel().episodes
+        if not 1 <= index <= len(episodes):
+            raise SystemExit(f"chapter {index} out of range 1..{len(episodes)}")
+        return episodes[index - 1]
+
+    def grow(self, chapter: int) -> None:
+        """Chapter-by-chapter bible growth (new characters and locations), before planning."""
+        if not self.args.grow_bible or self.args.dry_run:
+            return
+        if self.plan_status(chapter) == "planned" and not self.args.replan:
+            return
+        from thin_review import grow_bible
+        try:
+            grow_bible(self.novel_dir, self.chapter(chapter).source_text, chapter)
+        except Exception as error:  # noqa: BLE001 - growth is best effort; planning still works with the bible as is
+            log(f"ch{chapter}: bible growth failed ({type(error).__name__}: {str(error)[:120]}); planning with the current bible")
+            self.rows[chapter]["note"] = f"bible growth failed: {type(error).__name__}"
+
     def episode_dir(self, chapter: int) -> Path:
         return self.novel_dir / f"{self.novel_id}_{chapter}"
 
@@ -163,6 +193,10 @@ class Batch:
         directory = self.episode_dir(chapter)
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             row["plan"] = "kept"
+            return
+        if self.chapter(chapter).text_count < self.args.min_chapter_chars:
+            row["plan"] = "skipped (too short)"
+            row["note"] = f"{self.chapter(chapter).text_count} chars"
             return
         if self.args.dry_run:
             row["plan"] = "would plan"
@@ -257,6 +291,7 @@ class Batch:
             lock.unlink(missing_ok=True)
         lock.write_text(str(os.getpid()), encoding="utf-8")
         try:
+            self.prepare_cards(chapter)
             command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers)]
             for attempt in (1, 2):
                 log(f"ch{chapter}: rendering (attempt {attempt})")
@@ -274,8 +309,31 @@ class Batch:
             self.fill_result(chapter)
             if self.reviewing and status in {"done", "done_with_warnings"}:
                 self.review_episode(chapter)
+            if self.args.prune and self.render_status(chapter) in {"done", "done_with_warnings"}:
+                prune_episode(directory)
         finally:
             lock.unlink(missing_ok=True)
+
+    def prepare_cards(self, chapter: int) -> None:
+        """Build the cards this episode references; in review mode judge just those
+        cards, fix each at most once, rebuild, judge again."""
+        directory = self.episode_dir(chapter)
+        row = self.rows[chapter]
+        self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
+        if not self.reviewing:
+            return
+        from thin_review import remediate_cards, review_cards
+        plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+        wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", [])}
+        with self.report_lock:  # the judges share one single-sequence VLM; keep card reviews serialized
+            review = review_cards(self.novel_dir, only_ids=wanted)
+            if self.args.unattended and review["flags"]:
+                fixes = remediate_cards(self.novel_dir, review)
+                if fixes["stylized"] or fixes["deleted"]:
+                    self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
+                    review = review_cards(self.novel_dir, only_ids=wanted)
+                row["card_fixes"] = fixes["stylized"] + fixes["deleted"]
+        row["card_flags"] = review["flags"]
 
     def review_episode(self, chapter: int) -> None:
         """Automatic clip review; in unattended mode a failed clip gets the reviewer's
@@ -317,6 +375,43 @@ class Batch:
         elif data.get("gate_failed_clips"):
             row["note"] = "gate failed: " + ", ".join(data["gate_failed_clips"])
 
+    # ---- streaming: plan one chapter, hand it to the render pool, continue ----
+    def stream(self, chapters: list[int]) -> None:
+        if not self.args.dry_run and any(self.plan_status(ch) != "planned" or self.args.replan for ch in chapters):
+            self.check_qwen()
+        futures = []
+        with ThreadPoolExecutor(max_workers=max(1, self.args.parallel)) as pool:
+            for chapter in chapters:
+                self.grow(chapter)
+                self.plan(chapter)
+                if self.plan_status(chapter) == "planned":
+                    futures.append(pool.submit(self.render, chapter))
+                self.volume_checkpoint(chapter, chapters)
+            for future in futures:
+                future.result()
+
+    def volume_checkpoint(self, chapter: int, chapters: list[int]) -> None:
+        size = max(1, self.args.volume_size)
+        if chapter % size and chapter != chapters[-1]:
+            return
+        volume = (chapter - 1) // size + 1
+        first = (volume - 1) * size + 1
+        growth_path = self.novel_dir / "bible_growth.json"
+        growth = json.loads(growth_path.read_text(encoding="utf-8")) if growth_path.is_file() else {}
+        added_characters, added_locations, suggestions = [], [], {}
+        for index in range(first, chapter + 1):
+            entry = growth.get(str(index), {})
+            added_characters += entry.get("characters", [])
+            added_locations += entry.get("locations", [])
+            suggestions.update(entry.get("suggestions", {}))
+        lines = [f"# 第 {volume} 卷复核（第 {first}–{chapter} 章）", "",
+                 f"- 本卷新增角色：{', '.join(added_characters) or '无'}", f"- 本卷新增地点：{', '.join(added_locations) or '无'}",
+                 f"- 待人工确认的称呼类人物（建议条目在 bible_growth.json）：{', '.join(suggestions) or '无'}", ""]
+        flagged = [(ch, self.rows[ch]) for ch in chapters if first <= ch <= chapter and (self.rows[ch].get("card_flags") or self.rows[ch].get("review_flags") or self.rows[ch].get("note"))]
+        lines.append("- 本卷标记：" + ("；".join(f"第{ch}章 {row.get('note') or ''} {' '.join(row.get('card_flags', []))} {' '.join(row.get('review_flags', []))}".strip() for ch, row in flagged) or "无"))
+        (self.novel_dir / f"volume_review_{volume:03d}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        log(f"volume {volume} review written ({len(added_characters)} new characters, {len(added_locations)} new locations, {len(suggestions)} suggestions)")
+
     # ---- report ----
     def report(self, chapters: list[int]) -> int:
         lines = ["| 章 | 规划 | 段 | 时长 | 薄门 | 渲染 | 备注 |", "|---|---|---|---|---|---|---|"]
@@ -341,13 +436,17 @@ class Batch:
         bible_review = json.loads(bible_review_path.read_text(encoding="utf-8")) if bible_review_path.is_file() else {}
         cards_path = self.novel_dir / "series_assets" / "cards_review.json"
         cards = self.card_review or (json.loads(cards_path.read_text(encoding="utf-8")) if cards_path.is_file() else {})
+        per_episode_flags = sorted({flag for chapter in chapters for flag in self.rows[chapter].get("card_flags", [])})
+        per_episode_fixes = sorted({fix for chapter in chapters for fix in self.rows[chapter].get("card_fixes", [])})
         lines = [f"# {self.title} · 交付报告（{time.strftime('%Y-%m-%d %H:%M')}）", "", f"模式：{'无人值守（自动修复各一次）' if self.args.unattended else '只审核不修复'}；章节 {self.args.chapters}", ""]
         if bible_review:
             lines += ["## 圣经", "", f"- 原文高频但圣经缺失的人物：{', '.join(bible_review.get('missing', {})) or '无'}", f"- 自动补入：{', '.join(bible_review.get('filled', [])) or '无'}", ""]
         lines += ["## 角色卡与地点卡", ""]
         if self.card_fixes:
             lines.append(f"- 自动重画（动画化）：{', '.join(self.card_fixes.get('stylized', [])) or '无'}；删除重建：{', '.join(self.card_fixes.get('deleted', [])) or '无'}")
-        lines.append(f"- 仍有标记：{'；'.join(cards.get('flags', [])) or '无'}")
+        if per_episode_fixes:
+            lines.append(f"- 各集建卡时自动修复：{', '.join(per_episode_fixes)}")
+        lines.append(f"- 仍有标记：{'；'.join(per_episode_flags or cards.get('flags', [])) or '无'}")
         lines += ["", "## 各集", "", "| 集 | 时长 | 段 | 语音门未过 | 薄QC | 自动修正段 | 剩余标记 |", "|---|---|---|---|---|---|---|"]
         for chapter in chapters:
             row = self.rows[chapter]
@@ -358,6 +457,22 @@ class Batch:
         lines += ["", "## 交付文件", ""] + [f"- {video}" for video in videos]
         (self.novel_dir / "delivery_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         log(f"delivery report: {self.novel_dir / 'delivery_report.md'}")
+
+
+def prune_episode(directory: Path) -> None:
+    """Drop what a finished episode no longer needs (~80% of its footprint); the
+    clip videos, ASR results and request sidecars stay so re-runs hit the cache."""
+    removed = 0
+    for pattern in ("clips/*/attempt_*/native*.wav", "clips/*/attempt_*/clip.stale.mp4*", "clips/*/attempt_*/stale_*", "clips/*/attempt_*/native.stale.wav"):
+        for path in (directory / "work").glob(pattern):
+            path.unlink(missing_ok=True)
+            removed += 1
+    for sub_dir in ("segments", "review"):
+        target = directory / "work" / sub_dir
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+            removed += 1
+    log(f"{directory.name}: pruned {removed} intermediate files/dirs")
 
 
 def main() -> int:
@@ -376,6 +491,11 @@ def main() -> int:
     parser.add_argument("--rerender", action="store_true", help="re-render episodes that already have a final video")
     parser.add_argument("--unattended", action="store_true", help="automatic reviews with bounded paid fixes: cards after the assets stage (one redraw/regeneration), clips after each render (one regeneration with the reviewer's correction); then delivery_report.md")
     parser.add_argument("--review-only", action="store_true", help="run the automatic reviews and write delivery_report.md without any paid fix")
+    parser.add_argument("--grow-bible", dest="grow_bible", action="store_true", default=True, help="before planning a chapter, add its new proper-named characters and locations to the bible (default)")
+    parser.add_argument("--no-grow-bible", dest="grow_bible", action="store_false")
+    parser.add_argument("--prune", action="store_true", help="after an episode is assembled, delete its intermediate audio, stale clips and review frames (keeps clip.mp4 + asr.json for the cache)")
+    parser.add_argument("--volume-size", type=int, default=50, help="write volume_review_N.md every N chapters (bible growth, suggestions, flags)")
+    parser.add_argument("--min-chapter-chars", type=int, default=300, help="chapters shorter than this (author notes) are skipped")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
 
@@ -383,15 +503,20 @@ def main() -> int:
     batch = Batch(args)
     chapters = parse_chapters(args.chapters)
     batch.rows = {chapter: {} for chapter in chapters}
-    log(f"{batch.novel_id}: chapters {chapters}, stage {args.stage}, source {batch.source.name}")
-    if args.stage in {"all", "plan"}:
+    log(f"{batch.novel_id}: chapters {chapters[0]}..{chapters[-1]} ({len(chapters)}), stage {args.stage}, source {batch.source.name}")
+    if args.stage == "all":
+        batch.stream(chapters)  # plan one chapter, render it while the next is planned
+        return batch.report(chapters)
+    if args.stage == "plan":
         if not args.dry_run and any(batch.plan_status(ch) != "planned" or args.replan for ch in chapters):
             batch.check_qwen()
         for chapter in chapters:  # serial: the local Qwen service runs one sequence at a time
+            batch.grow(chapter)
             batch.plan(chapter)
-    if args.stage in {"all", "assets"}:
+            batch.volume_checkpoint(chapter, chapters)
+    if args.stage == "assets":
         batch.assets(chapters)
-    if args.stage in {"all", "render"}:
+    if args.stage == "render":
         with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
             list(pool.map(batch.render, chapters))
     return batch.report(chapters)

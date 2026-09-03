@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.3"
+POLICY = "thin-review-v1.4-grow"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -138,7 +138,7 @@ FILL_SCHEMA = obj({"characters": {"type": "array", "items": obj({
 })}})
 
 
-def review_bible(novel_dir: Path, source: Path, fill: bool) -> dict:
+def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None = None) -> dict:
     """Named characters the novel keeps mentioning that the bible lacks.
 
     Generic words (少年, 老者, 父亲…) never count: the planner casts such
@@ -154,7 +154,7 @@ def review_bible(novel_dir: Path, source: Path, fill: bool) -> dict:
     bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     novel = read_novel(source, novel_id=novel_dir.name, title=bible.novel_title)
     counts: dict[str, dict] = {}
-    for episode in novel.episodes:
+    for episode in novel.episodes[:chapters] if chapters else novel.episodes:
         for row in extract_names(episode.source_text):
             name = re.sub(r"\s+", "", str(row.get("name", "")))
             if row.get("kind") == "群体" or not name or name in GENERIC_NAMES:
@@ -173,12 +173,26 @@ def review_bible(novel_dir: Path, source: Path, fill: bool) -> dict:
     }
     report = {"policy": POLICY, "bible_characters": known, "extracted": counts, "missing": missing, "filled": [], "needs_human": {}, "suggestions": {}}
     if fill and missing:
+        bible, report["filled"], report["needs_human"], report["suggestions"] = fill_characters(bible, bible_path, missing, novel.text)
+    atomic_write_json(novel_dir / "bible_review.json", report)
+    log(f"bible: missing {list(missing) or 'none'}; added {report['filled'] or 'nothing'}; for a human: {list(report['needs_human']) or 'nothing'}")
+    return report
+
+
+def fill_characters(bible: StoryBible, bible_path: Path, missing: dict, text: str) -> tuple[StoryBible, list[str], dict, dict]:
+    """Ask for casting entries for the missing names; add the confident proper
+    names, keep appellations and vague entries as suggestions for a human."""
+    known = [c.name for c in bible.characters]
+    filled: list[str] = []
+    needs_human: dict[str, str] = {}
+    suggestions: dict[str, dict] = {}
+    if True:
         existing = "\n".join(f"- {c.name}：{c.gender}，{c.age}，{c.appearance[:60]}" for c in bible.characters)
         prompt = (
             "圣经里已有这些角色：\n" + existing + "\n\n下面是原文里反复出现但圣经缺失的人物及其原文摘录。为每个人物判断：same_as 填写它其实是哪个已有角色（或本列表中另一个人物）的另一种叫法，不是则填空字符串；"
             "confidence 是你对“这是一个需要单独定妆的独立人物”的把握（0到1）。然后写一条可跨集复用的选角条目（性别、年龄段、外貌、服装、发型、配色、基础服装、识别物），"
             "只写原文能支持的信息，外貌和服装必须是具体可画的描述，原文没写的做克制设计，不要写“未详”。只输出JSON。\n\n"
-            + "\n\n".join(f"【{name}】（出现 {info['mentions']} 次，章 {sorted(set(info['chapters']))}）\n{excerpts(novel.text, name)}" for name, info in missing.items())
+            + "\n\n".join(f"【{name}】（出现 {info['mentions']} 次，章 {sorted(set(info['chapters']))}）\n{excerpts(text, name)}" for name, info in missing.items())
         )
         rows = ask_json([{"type": "text", "text": prompt}], FILL_SCHEMA, name="fill", max_tokens=3000).get("characters", [])
         added: list[Character] = []
@@ -198,22 +212,78 @@ def review_bible(novel_dir: Path, source: Path, fill: bool) -> dict:
             if not reason and APPELLATION.search(name):
                 reason = "称呼类人物，可能是已有角色的另一叫法；条目已生成，需人工确认后加入"
             if reason:
-                report["needs_human"][name] = reason
-                report["suggestions"][name] = {k: v for k, v in row.items() if k in Character.model_fields}
+                needs_human[name] = reason
+                suggestions[name] = {k: v for k, v in row.items() if k in Character.model_fields}
                 continue
             added.append(Character(**{k: v for k, v in row.items() if k in Character.model_fields}))
             known.append(name)
         for name in missing:
-            if name not in report["needs_human"] and name not in {c.name for c in added}:
-                report["needs_human"][name] = "模型未给出条目"
+            if name not in needs_human and name not in {c.name for c in added}:
+                needs_human[name] = "模型未给出条目"
         if added:
             bible = bible.model_copy(update={"characters": [*bible.characters, *added]})
             atomic_write_json(bible_path, bible.model_dump(mode="json"))
-        report["filled"] = [c.name for c in added]
-        log(f"bible: added {report['filled'] or 'nothing'}; for a human: {report['needs_human'] or 'nothing'}")
-    atomic_write_json(novel_dir / "bible_review.json", report)
-    log(f"bible: missing {list(missing) or 'none'}")
-    return report
+        filled = [c.name for c in added]
+    return bible, filled, needs_human, suggestions
+
+
+LOCATION_SCHEMA = obj({"locations": {"type": "array", "items": obj({
+    "name": {"type": "string"}, "description": {"type": "string"}, "scene_count": {"type": "integer"},
+})}})
+GENERIC_PLACES = re.compile(r"^(路上|远处|门外|门口|外面|里面|附近|某处|空中|天上|地上|前方|后方|这里|那里|途中|路边)$")
+
+
+def extract_locations(chapter_text: str, known_locations: list[str]) -> list[dict]:
+    recent = "、".join(known_locations[-30:])
+    prompt = (
+        "列出这段小说里发生场景的地点：能画成一张空场景图的具体地方（如 楚家广场、山崖之巅、赤岩城药材店），每个给一句可画的视觉描述"
+        "（空间、主要物件、时间与光线）和本段在此发生的场景数。不要列泛指的地点（路上、远处、门口）。"
+        + (f"已有的地点名：{recent}。如果本段的地点就是其中之一，name 必须原样使用已有名字。" if recent else "")
+        + "只输出JSON。\n\n" + chapter_text
+    )
+    return ask_json([{"type": "text", "text": prompt}], LOCATION_SCHEMA, name="locations", max_tokens=1200).get("locations", [])
+
+
+def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
+    """Before a chapter is planned: append the chapter's new proper-named
+    characters and new locations to the bible (ids are positions, so only
+    appending is allowed).  Appellations become suggestions for the volume
+    review.  Everything is recorded in bible_growth.json."""
+    bible_path = novel_dir / "story_bible.json"
+    bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
+    known = [c.name for c in bible.characters]
+    counts: dict[str, dict] = {}
+    for row in extract_names(chapter_text):
+        name = re.sub(r"\s+", "", str(row.get("name", "")))
+        if row.get("kind") == "群体" or not name or name in GENERIC_NAMES or name_matches(name, known):
+            continue
+        entry = counts.setdefault(name, {"mentions": 0, "chapters": [chapter_index], "kind": row.get("kind"), "speaks": False})
+        entry["mentions"] += int(row.get("mentions", 0))
+        entry["speaks"] = entry["speaks"] or bool(row.get("speaks_or_close_up"))
+    missing = {name: info for name, info in counts.items() if info["mentions"] >= 2 and (info["kind"] == "具名角色" or info["speaks"])}
+    filled: list[str] = []
+    needs_human: dict = {}
+    suggestions: dict = {}
+    if missing:
+        bible, filled, needs_human, suggestions = fill_characters(bible, bible_path, missing, chapter_text)
+    known_locations = [full.split("：", 1)[0].strip() for full in bible.locations]
+    added_locations: list[str] = []
+    for row in extract_locations(chapter_text, known_locations):
+        name = re.sub(r"\s+", "", str(row.get("name", "")))
+        if len(name) < 2 or GENERIC_PLACES.match(name) or int(row.get("scene_count", 0)) < 1 or name_matches(name, known_locations):
+            continue
+        description = re.sub(r"\s+", " ", str(row.get("description", ""))).strip()
+        added_locations.append(f"{name}：{description}" if description else name)
+        known_locations.append(name)
+    if added_locations:
+        bible = bible.model_copy(update={"locations": [*bible.locations, *added_locations]})
+        atomic_write_json(bible_path, bible.model_dump(mode="json"))
+    growth_path = novel_dir / "bible_growth.json"
+    growth = json.loads(growth_path.read_text(encoding="utf-8")) if growth_path.is_file() else {}
+    growth[str(chapter_index)] = {"characters": filled, "locations": [x.split("：", 1)[0] for x in added_locations], "suggestions": suggestions, "needs_human": needs_human}
+    atomic_write_json(growth_path, growth)
+    log(f"bible ch{chapter_index}: +{len(filled)} characters {filled or ''} +{len(added_locations)} locations {[x.split('：', 1)[0] for x in added_locations] or ''}; suggestions {list(suggestions) or 'none'}; bible now {len(bible.characters)}/{len(bible.locations)}")
+    return {"characters": filled, "locations": added_locations, "suggestions": suggestions}
 
 
 # ---- judge 2: cards ----
@@ -270,7 +340,7 @@ def time_conflicts(expected: str, seen: str) -> bool:
     return False
 
 
-def review_cards(novel_dir: Path, include_backups: bool = False) -> dict:
+def review_cards(novel_dir: Path, include_backups: bool = False, only_ids: set[str] | None = None) -> dict:
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}
@@ -278,6 +348,8 @@ def review_cards(novel_dir: Path, include_backups: bool = False) -> dict:
     report = {"policy": POLICY, "characters": {}, "locations": {}, "flags": [], "missing_cards": []}
     for index, character in enumerate(bible.characters, start=1):
         asset_id = f"character_{index:03d}"
+        if only_ids is not None and asset_id not in only_ids:
+            continue
         card_dir = assets / "characters" / asset_id
         views = [card_dir / name for name in ("turnaround.jpeg", "expressions.jpeg") if (card_dir / name).is_file()]
         if not views:
@@ -302,6 +374,8 @@ def review_cards(novel_dir: Path, include_backups: bool = False) -> dict:
                 log(f"cards: {asset_id} backups photoreal={old.get('photoreal')} (were rejected by Seedance)")
     for index, location in enumerate(bible.locations, start=1):
         asset_id = f"location_{index:03d}"
+        if only_ids is not None and asset_id not in only_ids:
+            continue
         view = assets / "locations" / asset_id / "establishing.jpeg"
         short = location.split("：", 1)[0].strip()
         if not view.is_file():
@@ -481,7 +555,15 @@ def main() -> int:
     p = sub.add_parser("bible"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--source", type=Path); p.add_argument("--fill", action="store_true")
     p = sub.add_parser("cards"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--include-backups", action="store_true")
     p = sub.add_parser("episode"); p.add_argument("--episode-dir", type=Path, required=True); p.add_argument("--video-name", default="clip.mp4")
+    p = sub.add_parser("grow"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--source", type=Path); p.add_argument("--chapter", type=int, required=True)
     args = parser.parse_args()
+    if args.command == "grow":
+        from novel_manga.ingest import read_novel
+        novel_dir = args.novel_dir.resolve()
+        source = args.source or Path(json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))["source"])
+        novel = read_novel(Path(source).resolve(), novel_id=novel_dir.name)
+        print(json.dumps(grow_bible(novel_dir, novel.episodes[args.chapter - 1].source_text, args.chapter), ensure_ascii=False, indent=1))
+        return 0
     if args.command == "bible":
         novel_dir = args.novel_dir.resolve()
         source = args.source or Path(json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))["source"])

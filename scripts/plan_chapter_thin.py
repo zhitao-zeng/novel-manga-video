@@ -46,7 +46,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v7.6-batch-ready"
+POLICY = "thin-chapter-plan-v7.7-long-novel"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -814,7 +814,17 @@ def main() -> int:
     if not 1 <= args.episode_index <= len(novel.episodes):
         raise SystemExit(f"episode index out of range 1..{len(novel.episodes)}")
     episode = novel.episodes[args.episode_index - 1]
-    bible = StoryBible.model_validate_json(Path(args.bible).read_text(encoding="utf-8"))
+    full_bible = StoryBible.model_validate_json(Path(args.bible).read_text(encoding="utf-8"))
+    # Per-chapter slice: a long novel's bible has hundreds of entries, but the
+    # prompt and the JSON enums only need the main cast plus whoever and
+    # wherever this chapter mentions.  Asset ids come from positions in the
+    # full bible (the packer maps names back), so slicing costs nothing.
+    chapter_text = episode.source_text
+    main_cast = [c for c in full_bible.characters if "主角" in c.role]
+    present = [c for c in full_bible.characters if c.name and c.name in chapter_text]
+    sliced_characters = list({c.name: c for c in [*main_cast, *present]}.values()) or full_bible.characters[:8]
+    sliced_locations = [full for full in full_bible.locations if full.split("：", 1)[0].strip() in chapter_text] or full_bible.locations[-6:]
+    bible = full_bible.model_copy(update={"characters": sliced_characters, "locations": sliced_locations})
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     names = [character.name for character in bible.characters]
 
@@ -830,6 +840,11 @@ def main() -> int:
 
     segments = split_segments(episode.source_text, episode.source_title, SEGMENT_COUNT)
     atomic_write_json(episode_dir / "segments.json", segments)
+    # Rolling recap: the summaries the planner itself wrote for the previous
+    # chapters, for continuity only (who is where, what just happened).
+    recap_path = novel_dir / "recap.json"
+    recap = json.loads(recap_path.read_text(encoding="utf-8")) if recap_path.is_file() else []
+    previous_recap = [row for row in recap if int(row.get("chapter", 0)) < episode.index][-5:]
     schema = build_schema(names, list(location_map), [segment["segment_id"] for segment in segments])
     payload = {
         "policy": POLICY,
@@ -842,6 +857,7 @@ def main() -> int:
         "available_characters": names,
         "available_locations": list(location_map),
         "anonymous_offscreen_speakers": ANONYMOUS_SPEAKERS,
+        **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
@@ -855,11 +871,12 @@ def main() -> int:
             "max_skipped_segments": MAX_SKIPPED,
             "one_visible_speaker_per_shot": True,
             "no_narration_no_inner_voice": True,
+            "recap_usage": "previous_chapters_recap 只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来",
             **({"episode_seconds_min": args.min_seconds} if args.min_seconds else {}),
         },
         **({"director_notes": args.notes} if args.notes else {}),
     }
-    print(json.dumps({"segments": [{k: v for k, v in s.items() if k != "text"} for s in segments], "characters": names, "locations": list(location_map), "visual_grammar": (grammar or {}).get("name"), "profile": profile}, ensure_ascii=False))
+    print(json.dumps({"segments": [{k: v for k, v in s.items() if k != "text"} for s in segments], "characters": names, "locations": list(location_map), "bible_size": [len(full_bible.characters), len(full_bible.locations)], "recap_chapters": [r.get("chapter") for r in previous_recap], "visual_grammar": (grammar or {}).get("name"), "profile": profile}, ensure_ascii=False))
     if args.dry_run:
         atomic_write_json(episode_dir / "request_dry_run.json", payload)
         return 0
@@ -948,6 +965,9 @@ def main() -> int:
     }
     atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped})
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
+    recap = [row for row in recap if int(row.get("chapter", 0)) != episode.index]
+    recap.append({"chapter": episode.index, "title": episode.source_title, "summary": raw.get("summary"), "hook": raw.get("hook")})
+    atomic_write_json(recap_path, sorted(recap, key=lambda row: int(row.get("chapter", 0))))
     atomic_write_json(episode_dir / "episode_plan.json", plan.model_dump(mode="json"))
     (episode_dir / "chapter_script.md").write_text(render_markdown(raw, shots, report, episode.source_title), encoding="utf-8")
     print(json.dumps({"status": "passed", "episode_dir": str(episode_dir), "metrics": report_metrics, "elapsed_seconds": report["elapsed_seconds"]}, ensure_ascii=False, indent=2))
