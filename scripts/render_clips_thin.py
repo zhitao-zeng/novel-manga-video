@@ -45,7 +45,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, styled_bible
 
-POLICY = "thin-media-v10.5-privacy-repair"
+POLICY = "thin-media-v10.6-privacy-repair"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -56,6 +56,7 @@ PRIVACY_MARKER = "InputImageSensitiveContentDetected"
 REDRAW_ORIGIN = "privacy-stylized-redraw"
 REDRAW_WAIT_SECONDS = 420
 REPAIR_LOCK = threading.Lock()  # one card redraw at a time; parallel repairs of the same card raced
+PRIVACY_OK_FILE = "series_assets/.privacy_ok.json"  # cards used by clips that generated fine, shared across runs
 STYLIZE_PROMPT = (
     "以参考图为唯一身份依据，把这张角色卡重绘成一眼可辨的中国3D国漫动画角色，不是真人：保持同一人的脸型、年龄段、发型、"
     "胡须、服装款式与配色、站姿和构图完全不变；眼睛略大、五官简化概括、皮肤光滑无毛孔无老年斑、皱纹用动画化的少量线条表现，"
@@ -173,12 +174,19 @@ def lexicon_aliases() -> dict[str, str]:
 
 
 
-def card_origin(path: Path) -> str:
-    sidecar = path.with_suffix(path.suffix + ".request.json")
+def load_privacy_ok(novel_dir: Path) -> set[str]:
     try:
-        return str(json.loads(sidecar.read_text(encoding="utf-8")).get("origin", ""))
+        return set(json.loads((novel_dir / PRIVACY_OK_FILE).read_text(encoding="utf-8")).get("paths", []))
     except (OSError, ValueError):
-        return ""
+        return set()
+
+
+def record_privacy_ok(novel_dir: Path, paths) -> None:
+    """Remember cards that Seedance accepted, so a later run (or a parallel one)
+    never redraws a proven card just because it was the first thing rejected."""
+    with REPAIR_LOCK:
+        merged = load_privacy_ok(novel_dir) | {str(p) for p in paths}
+        atomic_write_json(novel_dir / PRIVACY_OK_FILE, {"paths": sorted(merged)})
 
 
 def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> list[Path]:
@@ -405,7 +413,7 @@ class ThinMediaRunner:
         card is redrawn at most once: one already stylized (by this run, a
         parallel thread or another process) just earns the clip its retry.
         """
-        exempt = set(getattr(self, "_ok_assets", set()))
+        exempt = set(getattr(self, "_ok_assets", set())) | load_privacy_ok(self.novel_dir)
         cards = [ref for ref in clip.get("references", []) if ref["role"] == "character"]
         candidates = [ref for ref in cards if ref["path"] not in exempt] or cards
         repaired: list[str] = []
@@ -420,7 +428,10 @@ class ThinMediaRunner:
                     continue
                 if not path.is_file():
                     continue
-                if card_origin(path) == REDRAW_ORIGIN:
+                if backup.exists():
+                    # Live card next to a parked original = already stylized
+                    # once (the factory of a later run may have overwritten the
+                    # request.json marker, the backup file it cannot touch).
                     repaired.append(label)
                     continue
                 # Park the photoreal card and its sidecars: the provider refuses
@@ -460,6 +471,7 @@ class ThinMediaRunner:
             if not hasattr(self, "_ok_assets"):
                 self._ok_assets = set()
             self._ok_assets.update(ref["path"] for ref in clip.get("references", []))
+            record_privacy_ok(self.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref["role"] == "character"))
             attempts.append(analysis)
             log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
             if analysis["passed"]:
