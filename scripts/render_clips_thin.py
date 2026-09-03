@@ -22,6 +22,7 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -44,7 +45,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, styled_bible
 
-POLICY = "thin-media-v10.4-privacy-repair"
+POLICY = "thin-media-v10.5-privacy-repair"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -52,6 +53,9 @@ MAX_HOLD_SECONDS = 6.0
 MAX_CER = 0.5
 MIN_PEAK_DB = -35.0
 PRIVACY_MARKER = "InputImageSensitiveContentDetected"
+REDRAW_ORIGIN = "privacy-stylized-redraw"
+REDRAW_WAIT_SECONDS = 420
+REPAIR_LOCK = threading.Lock()  # one card redraw at a time; parallel repairs of the same card raced
 STYLIZE_PROMPT = (
     "以参考图为唯一身份依据，把这张角色卡重绘成一眼可辨的中国3D国漫动画角色，不是真人：保持同一人的脸型、年龄段、发型、"
     "胡须、服装款式与配色、站姿和构图完全不变；眼睛略大、五官简化概括、皮肤光滑无毛孔无老年斑、皱纹用动画化的少量线条表现，"
@@ -168,6 +172,32 @@ def lexicon_aliases() -> dict[str, str]:
     return aliases
 
 
+
+def card_origin(path: Path) -> str:
+    sidecar = path.with_suffix(path.suffix + ".request.json")
+    try:
+        return str(json.loads(sidecar.read_text(encoding="utf-8")).get("origin", ""))
+    except (OSError, ValueError):
+        return ""
+
+
+def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> list[Path]:
+    """A card missing while its .photoreal-rejected.jpeg backup exists is being
+    redrawn by another thread or process; wait for it instead of failing (or,
+    in the asset factory's case, regenerating a photoreal card in its place)."""
+    waited: list[Path] = []
+    deadline = time.monotonic() + timeout
+    for path in paths:
+        backup = path.with_suffix(".photoreal-rejected.jpeg")
+        while not path.is_file() and backup.exists():
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"redraw of {path} did not finish within {timeout:.0f}s")
+            if path not in waited:
+                waited.append(path)
+                log(f"waiting for in-flight redraw of {path.parent.name}/{path.name}")
+            time.sleep(5)
+    return waited
+
 class ThinMediaRunner:
     def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None):
         self.novel_dir = novel_dir
@@ -216,6 +246,10 @@ class ThinMediaRunner:
         # the reference for its expression card, so one truncated download makes
         # every dependent request fail with an unrelated-looking error.
         self.purge_unreadable(self.novel_dir / "series_assets")
+        wait_for_inflight_redraws([
+            backup.with_name(backup.name.replace(".photoreal-rejected.jpeg", ".jpeg"))
+            for backup in sorted((self.novel_dir / "series_assets" / "characters").glob("*/*.photoreal-rejected.jpeg"))
+        ])
         manifest = None
         for attempt in range(1, ASSET_BUILD_ROUNDS + 1):
             try:
@@ -315,6 +349,7 @@ class ThinMediaRunner:
                     target.unlink(missing_ok=True)
                     source.rename(target)
             log(f"{clip['clip_id']} attempt {attempt}: request changed since the cached clip, regenerating")
+        wait_for_inflight_redraws(references)
         atomic_write_json(directory / "request.json", request)
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
         started = time.monotonic()
@@ -366,35 +401,46 @@ class ThinMediaRunner:
         Seedance's privacy detector treats a near-photoreal CG face as a real
         person.  Cards (individual views) already used by a clip that generated
         fine are exempt; when every card of the clip is exempt the rejection
-        must come from their combination, so all of them are redrawn.
+        must come from their combination, so all of them are candidates.  A
+        card is redrawn at most once: one already stylized (by this run, a
+        parallel thread or another process) just earns the clip its retry.
         """
         exempt = set(getattr(self, "_ok_assets", set()))
         cards = [ref for ref in clip.get("references", []) if ref["role"] == "character"]
         candidates = [ref for ref in cards if ref["path"] not in exempt] or cards
         repaired: list[str] = []
-        for ref in candidates:
-            path = self.novel_dir / ref["path"]
-            if not path.is_file() or str(path) in repaired:
-                continue
-            backup = path.with_suffix(".photoreal-rejected.jpeg")
-            if not backup.exists():
-                path.rename(backup)
-            # The provider refuses a new prompt against an old task sidecar;
-            # park the sidecars with the backup so the redraw is a fresh task.
-            for suffix in (".task.json", ".request.json"):
-                sidecar = path.with_suffix(path.suffix + suffix)
-                if sidecar.exists():
-                    sidecar.rename(backup.with_suffix(backup.suffix + suffix))
-            log(f"privacy repair: redrawing {ref['asset_id']}/{path.name} as stylized 3D from {backup.name}")
-            self.provider.create_image(STYLIZE_PROMPT, path, reference=backup)
-            with Image.open(path) as image:
-                image.load()
-            atomic_write_json(path.with_suffix(path.suffix + ".request.json"), {
-                "origin": "privacy-stylized-redraw", "source": backup.name, "prompt_sha256": sha256_text(STYLIZE_PROMPT),
-                "request_sha256": sha256_text(STYLIZE_PROMPT + backup.name), "reason": "Seedance InputImageSensitiveContentDetected",
-            })
-            repaired.append(str(path))
-        return [f"{ref['asset_id']}/{Path(ref['path']).name}" for ref in candidates if str(self.novel_dir / ref["path"]) in repaired]
+        with REPAIR_LOCK:
+            for ref in candidates:
+                path = self.novel_dir / ref["path"]
+                label = f"{ref['asset_id']}/{path.name}"
+                backup = path.with_suffix(".photoreal-rejected.jpeg")
+                if not path.is_file() and backup.exists():
+                    wait_for_inflight_redraws([path])
+                    repaired.append(label)
+                    continue
+                if not path.is_file():
+                    continue
+                if card_origin(path) == REDRAW_ORIGIN:
+                    repaired.append(label)
+                    continue
+                # Park the photoreal card and its sidecars: the provider refuses
+                # a new prompt against an old task sidecar.
+                for suffix in ("", ".task.json", ".request.json"):
+                    source = path.with_suffix(path.suffix + suffix)
+                    if source.exists():
+                        target = backup.with_suffix(backup.suffix + suffix)
+                        target.unlink(missing_ok=True)
+                        source.rename(target)
+                log(f"privacy repair: redrawing {label} as stylized 3D from {backup.name}")
+                self.provider.create_image(STYLIZE_PROMPT, path, reference=backup)
+                with Image.open(path) as image:
+                    image.load()
+                atomic_write_json(path.with_suffix(path.suffix + ".request.json"), {
+                    "origin": REDRAW_ORIGIN, "source": backup.name, "prompt_sha256": sha256_text(STYLIZE_PROMPT),
+                    "request_sha256": sha256_text(STYLIZE_PROMPT + backup.name), "reason": "Seedance InputImageSensitiveContentDetected",
+                })
+                repaired.append(label)
+        return repaired
 
     def process_clip(self, clip: dict) -> dict:
         attempts: list[dict] = []
