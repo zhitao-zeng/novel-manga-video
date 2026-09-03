@@ -466,7 +466,11 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     expected_time = location_time.get(location, "")
     background = [name for name in clip.get("background_only", []) if name in by_name]
     lines = "；".join(f"{row.get('speaker_name') or '旁白'}：{row['text']}" for row in clip.get("lines", []))
-    chats = "；".join(f"【{row.get('speaker_name')}】「{row['text']}」" for row in clip.get("chat_lines", []))
+    chats = "；".join(f"{row.get('speaker_name')}：「{row['text']}」" for row in clip.get("chat_lines", []))
+    chat_screen_path = bible_root(work_dir) / "chat_screen.json"
+    if chats and chat_screen_path.is_file():
+        screen = json.loads(chat_screen_path.read_text(encoding="utf-8"))
+        chats += f"（群名「{screen.get('group_name', '')}」、发送者昵称和界面文字也允许出现）" if screen.get("group_name") else "（发送者昵称和界面文字也允许出现）"
     text = (
         "这是一段动画短剧视频的抽帧，前面几张是本段人物的角色卡（身份依据）。\n" + "，".join(legend) + "。\n"
         f"本段设定：地点 {location}" + (f"（{expected_time}）" if expected_time else "") + f"；出场人物 {'、'.join(cast) or '无具名角色'}"

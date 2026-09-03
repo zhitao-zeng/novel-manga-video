@@ -27,7 +27,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v8.4-sfx-none"
+POLICY = "thin-clip-plan-v8.5-chat-template"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -217,15 +217,40 @@ def chat_turns(shot: dict) -> list[dict]:
     return [t for t in shot["turns"] if t["delivery_mode"] == "chat_message" and t["text"].strip()]
 
 
+CHAT_SCREEN: dict = {
+    "app": "微信群聊", "group_name": "", "self_name": "",
+    "layout": "顶部居中显示群名；消息按时间从上到下排列；每条消息左侧一个圆形卡通头像，昵称以一行小字显示在气泡上方，气泡内只有消息正文；"
+              "他人的消息是白色气泡靠左，本人的消息是绿色气泡靠右且不显示昵称；底部是输入栏；界面简洁干净，字体为清晰的简体中文黑体、字号偏大",
+}
+
+
+def load_chat_screen(novel_dir: Path) -> dict:
+    """Per-novel chat UI template (outputs/<novel>/chat_screen.json): same group
+    name and layout in every clip of every episode."""
+    path = novel_dir / "chat_screen.json"
+    if path.is_file():
+        CHAT_SCREEN.update({k: v for k, v in json.loads(path.read_text(encoding="utf-8")).items() if k in CHAT_SCREEN and v})
+    return CHAT_SCREEN
+
+
 def screen_clause(shot: dict) -> str:
-    """What the phone screen shows: the group-chat messages, verbatim, as the
-    only readable text the video may contain."""
+    """What the phone screen shows: the chat template plus the messages, verbatim,
+    as the only readable text the video may contain.  Sender names go above the
+    bubble, never inside it."""
     turns = chat_turns(shot)
     if not turns:
         return ""
-    bubbles = "；".join(f"【{t['speaker_name']}】「{t['text'].strip()}」" for t in turns)
-    return (f"屏幕内容：手机屏幕特写占画面主体、屏幕正对镜头，微信群聊界面上依次弹出{len(turns)}条消息气泡，"
-            f"气泡内文字为清晰可读的简体中文、字迹端正无乱码、与下列内容逐字一致：{bubbles}。")
+    me = CHAT_SCREEN.get("self_name", "")
+    bubbles = []
+    for t in turns:
+        who, text = t["speaker_name"], t["text"].strip()
+        if me and who == me:
+            bubbles.append(f"本人{who}的绿色气泡靠右，正文「{text}」")
+        else:
+            bubbles.append(f"昵称「{who}」显示在气泡上方，白色气泡正文「{text}」")
+    group = f"群名「{CHAT_SCREEN['group_name']}」，" if CHAT_SCREEN.get("group_name") else ""
+    return (f"屏幕内容：手机屏幕特写占画面主体、屏幕正对镜头，{CHAT_SCREEN['app']}界面（{group}{CHAT_SCREEN['layout']}），"
+            f"依次弹出{len(turns)}条消息，气泡内只有正文、不带任何括号或昵称，文字为清晰可读的简体中文、无乱码、与下列内容逐字一致：{'；'.join(bubbles)}。")
 
 
 def sound_clause(shot: dict) -> str:
@@ -364,7 +389,8 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")
     lines.append(f"声音包括角色对白、<{ambience_text}>和与动作同步的音效；无背景音乐；不要字幕。")
     if any(chat_turns(shot) for shot in shots):
-        lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；除手机屏幕上指定的聊天消息外，画面中不出现其他文字、数字、字幕、Logo或水印；屏幕上的消息文字必须与指定内容逐字一致、简体中文、无乱码；不出现血液和伤口；不新增具名人物。")
+        group = f"群名「{CHAT_SCREEN['group_name']}」、" if CHAT_SCREEN.get("group_name") else ""
+        lines.append(f"【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；除手机屏幕上的{group}昵称和指定的聊天消息外，画面中不出现其他文字、数字、字幕、Logo或水印；屏幕上的消息文字必须与指定内容逐字一致、简体中文、无乱码，昵称在气泡上方而不在气泡内；聊天界面在各阶段保持同一布局；不出现血液和伤口；不新增具名人物。")
     else:
         lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、字幕、Logo或水印；不出现血液和伤口；不新增具名人物。")
     avoid = [compact(shot.get("avoid", "")) for shot in shots if shot.get("avoid")]
@@ -388,6 +414,7 @@ def main() -> int:
     bible = StoryBible.model_validate_json(args.bible.read_text(encoding="utf-8"))
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     grammar = load_grammar(args.grammar, episode_dir)
+    load_chat_screen(episode_dir.parent)
     profile = load_profile(episode_dir.parent, style=args.style, frame=args.frame)
     frame = frame_spec(profile)
     overrides_path = episode_dir / "clip_overrides.json"

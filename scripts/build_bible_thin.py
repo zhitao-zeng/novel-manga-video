@@ -21,6 +21,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -135,6 +136,21 @@ def main() -> int:
         grammar = json.loads((TEMPLATES / "visual_grammar.json").read_text(encoding="utf-8"))
         grammar["location_time"] = {location.split("：", 1)[0].strip(): "" for location in bible.locations}
         atomic_write_json(grammar_path, grammar)
+    chat_path = novel_dir / "chat_screen.json"
+    if not chat_path.is_file() and (TEMPLATES / "chat_screen.json").is_file():
+        # Group-chat novels: guess the group's name (the most frequent XX群 in the
+        # seed chapters) and the protagonist as "self"; the user can edit the file.
+        import collections
+        seed_text = "".join(e.source_text for e in novel.episodes[:max(1, args.bible_chapters)])
+        counts = collections.Counter(m.group(1) for m in re.finditer(r"([一-鿿]{2,6}群)(?=[，。！？、：\s])", seed_text))
+        for generic in ("人群", "这个群", "一群", "这群", "那群", "的群"):
+            counts = collections.Counter({k: v for k, v in counts.items() if not k.endswith(generic) and k != generic})
+        group = counts.most_common(1)[0][0] if counts and counts.most_common(1)[0][1] >= 2 else ""
+        chat = json.loads((TEMPLATES / "chat_screen.json").read_text(encoding="utf-8"))
+        chat["group_name"] = group
+        chat["self_name"] = next((c.name for c in bible.characters if "主角" in c.role), "")
+        atomic_write_json(chat_path, chat)
+        print(json.dumps({"chat_screen": str(chat_path), "group_name": group, "self_name": chat["self_name"]}, ensure_ascii=False), flush=True)
     overrides_example = ROOT / "configs" / "fentian" / "clip_overrides.example.json"
     if overrides_example.is_file() and not (novel_dir / "clip_overrides.example.json").is_file():
         shutil.copy2(overrides_example, novel_dir / "clip_overrides.example.json")
