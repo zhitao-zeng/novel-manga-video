@@ -14,6 +14,7 @@ Writes clip_plan.json and clip_plan.md.  No model call, no remote call.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -24,9 +25,9 @@ from novel_manga.models import StoryBible
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import frame_spec, load_profile
+from thin_profile import frame_spec, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v8-profile"
+POLICY = "thin-clip-plan-v8.1-batch-ready"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -458,6 +459,16 @@ def main() -> int:
     plan = {"policy": POLICY, "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
     totals["lint_by_code"] = {k: v for k, v in totals["lint_by_code"].items() if v}
     atomic_write_json(episode_dir / "clip_plan.json", plan)
+    report_path = episode_dir / "thin_media_report.json"
+    if report_path.is_file():
+        # The runner stamps the plan it rendered; a report for a different plan
+        # would let a batch driver skip this episode as finished.
+        stamped = json.loads(report_path.read_text(encoding="utf-8")).get("clip_plan_fingerprint")
+        current = plan_fingerprint(plan)
+        if stamped and stamped != current:  # reports from before the stamp are trusted
+            report_path.unlink()
+            (episode_dir / "media_qc_report.json").unlink(missing_ok=True)
+            print(json.dumps({"note": "clip plan changed; stale thin_media_report.json removed"}, ensure_ascii=False))
     md = [f"# 片段计划（{POLICY}）", "", f"{totals['video_clip_count']} 段视频，{totals['shot_count']} 镜，预计 {totals['estimated_seconds']} 秒，申请 {totals['requested_seconds']} 秒", "", "| 片段 | 镜 | 阶段数 | 预计秒 | 申请秒 | 人物 | 台词 |", "|---|---|---|---|---|---|---|"]
     for clip in clips:
         if clip["kind"] != "video":

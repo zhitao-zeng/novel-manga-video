@@ -15,6 +15,7 @@ output already exists, so a rerun resumes instead of paying again.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import math
 import os
@@ -43,9 +44,9 @@ from novel_manga.render import _fit_cover
 from dataclasses import replace as dc_replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import frame_spec, load_profile, styled_bible
+from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v10.6-privacy-repair"
+POLICY = "thin-media-v11-batch-ready"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -72,6 +73,20 @@ class FramedPhanRouter(PhanRouterMediaProvider):
     def __init__(self, settings: Settings, frame: dict):
         super().__init__(settings)
         self.frame = frame
+        self._tls = threading.local()
+        original_post = self.client.post
+
+        def post(url, *a, **kw):
+            # Installed once for the shared HTTP client.  Only an image request
+            # issued by this thread's create_image carries an aspect override;
+            # video submissions from other threads pass through untouched.
+            ratio = getattr(self._tls, "ratio", None)
+            body = kw.get("json")
+            if ratio and isinstance(body, dict) and "aspectRatio" in body:
+                kw = {**kw, "json": {**body, "aspectRatio": ratio}}
+            return original_post(url, *a, **kw)
+
+        self.client.post = post
 
     def _video_payload(self, *args, **kwargs):
         payload = super()._video_payload(*args, **kwargs)
@@ -81,22 +96,13 @@ class FramedPhanRouter(PhanRouterMediaProvider):
     def create_image(self, prompt, output, reference=None, additional_references=()):
         # Character cards stay portrait (identity references); scene cards
         # take the frame's aspect so a landscape episode gets a landscape set.
-        ratio = self.frame["image_ratio"] if Path(output).name.startswith("establishing") else "9:16"
-        original_post = self.client.post
-
-        def post(url, *a, **kw):
-            body = kw.get("json")
-            if isinstance(body, dict) and "aspectRatio" in body:
-                kw = {**kw, "json": {**body, "aspectRatio": ratio}}
-            return original_post(url, *a, **kw)
-
-        self.client.post = post
+        self._tls.ratio = self.frame["image_ratio"] if Path(output).name.startswith("establishing") else "9:16"
         try:
             if additional_references:
                 return super().create_image(prompt, output, reference=reference, additional_references=additional_references)
             return super().create_image(prompt, output, reference=reference)
         finally:
-            self.client.post = original_post
+            self._tls.ratio = None
 
 
 class FramedAssetFactory(SeriesAssetFactory):
@@ -183,10 +189,48 @@ def load_privacy_ok(novel_dir: Path) -> set[str]:
 
 def record_privacy_ok(novel_dir: Path, paths) -> None:
     """Remember cards that Seedance accepted, so a later run (or a parallel one)
-    never redraws a proven card just because it was the first thing rejected."""
-    with REPAIR_LOCK:
+    never redraws a proven card just because it was the first thing rejected.
+    The read-modify-write is guarded by a file lock: episodes render in
+    parallel processes and finish clips at the same moment."""
+    target = novel_dir / PRIVACY_OK_FILE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with REPAIR_LOCK, open(target.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
         merged = load_privacy_ok(novel_dir) | {str(p) for p in paths}
-        atomic_write_json(novel_dir / PRIVACY_OK_FILE, {"paths": sorted(merged)})
+        atomic_write_json(target, {"paths": sorted(merged)})
+
+
+def cards_sheet(novel_dir: Path, output: Path, height: int = 300) -> Path | None:
+    """One JPEG with every character card (turnaround + expressions) and every
+    location card, for the look-before-you-pay review of a new novel."""
+    rows: list[list[Path]] = []
+    for card_dir in sorted((novel_dir / "series_assets" / "characters").glob("character_*")):
+        views = [card_dir / name for name in ("turnaround.jpeg", "expressions.jpeg") if (card_dir / name).is_file()]
+        if views:
+            rows.append(views)
+    locations = sorted((novel_dir / "series_assets" / "locations").glob("location_*/establishing.jpeg"))
+    for index in range(0, len(locations), 4):
+        rows.append(locations[index:index + 4])
+    if not rows:
+        return None
+    thumbs: list[list[Image.Image]] = []
+    for row in rows:
+        thumbs.append([])
+        for path in row:
+            with Image.open(path) as image:
+                image = image.convert("RGB")
+                thumbs[-1].append(image.resize((max(1, round(image.width * height / image.height)), height)))
+    width = max(sum(t.width for t in row) + 8 * (len(row) + 1) for row in thumbs)
+    sheet = Image.new("RGB", (width, len(thumbs) * (height + 8) + 8), (24, 24, 24))
+    y = 8
+    for row in thumbs:
+        x = 8
+        for thumb in row:
+            sheet.paste(thumb, (x, y))
+            x += thumb.width + 8
+        y += height + 8
+    sheet.save(output, quality=85)
+    return output
 
 
 def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> list[Path]:
@@ -357,6 +401,16 @@ class ThinMediaRunner:
                     target.unlink(missing_ok=True)
                     source.rename(target)
             log(f"{clip['clip_id']} attempt {attempt}: request changed since the cached clip, regenerating")
+        # Earlier runs (or the pre-v11 privacy retry) may hold the matching video
+        # under another attempt directory; use it rather than paying again.
+        for other in sorted((self.work / "clips" / clip["clip_id"]).glob("attempt_*")):
+            other_video = other / "clip.mp4"
+            if other == directory or not (other / "request.json").is_file() or not other_video.is_file() or other_video.stat().st_size == 0:
+                continue
+            saved = json.loads((other / "request.json").read_text(encoding="utf-8"))
+            if saved.get("prompt", "").removesuffix(RETRY_SUFFIX) == clip["prompt"] and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+                log(f"{clip['clip_id']} attempt {attempt}: reusing the matching video from {other.name}")
+                return other_video
         wait_for_inflight_redraws(references)
         atomic_write_json(directory / "request.json", request)
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
@@ -368,9 +422,22 @@ class ThinMediaRunner:
     def analyse_clip(self, clip: dict, video: Path) -> dict:
         directory = video.parent
         wav = directory / "native.wav"
-        if not wav.is_file():
-            run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(wav)])
         asr_path = directory / "asr.json"
+        if wav.is_file():
+            # A run killed mid-extraction leaves a short wav; trust it only when
+            # it is as long as the clip, otherwise redo the extraction and ASR.
+            try:
+                wav_seconds = media_duration(wav)
+            except Exception:  # noqa: BLE001 - unreadable header counts as truncated
+                wav_seconds = -1.0
+            if abs(wav_seconds - media_duration(video)) > 0.5:
+                log(f"{clip['clip_id']}: native.wav is {wav_seconds:.1f}s for a {media_duration(video):.1f}s clip; re-extracting")
+                for name in ("native.wav", "asr.json", "asr_raw.json", "chunks.json"):
+                    (directory / name).unlink(missing_ok=True)
+        if not wav.is_file():
+            partial = directory / "native.partial.wav"
+            run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(partial)])
+            partial.replace(wav)
         reference = clip.get("spoken_text", "")
         if asr_path.is_file():
             return json.loads(asr_path.read_text(encoding="utf-8"))
@@ -454,28 +521,43 @@ class ThinMediaRunner:
         return repaired
 
     def process_clip(self, clip: dict) -> dict:
+        """Generate, gate and (once) regenerate one clip.
+
+        A privacy rejection is retried inside the same attempt: the cache key
+        stays the one a later run looks for first, and the quality-retry
+        suffix (about unclear speech) is not appended to a clip that never
+        rendered.  Any other failure is reported per clip instead of taking
+        the whole episode down; the clips in flight still finish and cache.
+        """
         attempts: list[dict] = []
         privacy_repairs = 0
-        for attempt in range(1, self.max_attempts + 1):
-            try:
-                video = self.generate_clip(clip, attempt)
-            except RuntimeError as error:
-                if PRIVACY_MARKER in str(error) and privacy_repairs == 0:
-                    privacy_repairs += 1
-                    repaired = self.repair_privacy_cards(clip)
-                    log(f"{clip['clip_id']}: reference rejected as a real person; redrew {repaired or 'nothing'}; retrying")
-                    if repaired:
-                        continue
-                raise
-            analysis = self.analyse_clip(clip, video)
-            if not hasattr(self, "_ok_assets"):
-                self._ok_assets = set()
-            self._ok_assets.update(ref["path"] for ref in clip.get("references", []))
-            record_privacy_ok(self.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref["role"] == "character"))
-            attempts.append(analysis)
-            log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
-            if analysis["passed"]:
-                break
+        attempt = 1
+        try:
+            while attempt <= self.max_attempts:
+                try:
+                    video = self.generate_clip(clip, attempt)
+                except RuntimeError as error:
+                    if PRIVACY_MARKER in str(error) and privacy_repairs == 0:
+                        privacy_repairs += 1
+                        repaired = self.repair_privacy_cards(clip)
+                        log(f"{clip['clip_id']}: reference rejected as a real person; redrew {repaired or 'nothing'}; retrying")
+                        if repaired:
+                            continue
+                    raise
+                analysis = self.analyse_clip(clip, video)
+                if not hasattr(self, "_ok_assets"):
+                    self._ok_assets = set()
+                self._ok_assets.update(ref["path"] for ref in clip.get("references", []))
+                record_privacy_ok(self.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref["role"] == "character"))
+                attempts.append(analysis)
+                log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
+                if analysis["passed"]:
+                    break
+                attempt += 1
+        except Exception as error:  # noqa: BLE001 - one clip must not sink the episode
+            message = f"{type(error).__name__}: {str(error)[:600]}"
+            log(f"{clip['clip_id']}: FAILED {message[:200]}")
+            return {"clip_id": clip["clip_id"], "attempts": attempts, "selected": attempts[-1] if attempts else None, "error": message}
         selected = next((row for row in attempts if row["passed"]), attempts[-1])
         return {"clip_id": clip["clip_id"], "attempts": attempts, "selected": selected}
 
@@ -670,12 +752,22 @@ class ThinMediaRunner:
         clips = [clip for clip in self.clip_plan["clips"] if clip["kind"] == "video"]
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             results = list(pool.map(self.process_clip, clips))
-        failed = [r["clip_id"] for r in results if not r["selected"]["passed"]]
-        assembly = self.assemble(results)
+        errored = [r["clip_id"] for r in results if r.get("error") or not r.get("selected")]
+        failed = [r["clip_id"] for r in results if r.get("selected") and not r["selected"]["passed"]]
         report = {
-            "policy": POLICY, "episode": self.episode_dir.name, "elapsed_seconds": round(time.monotonic() - started, 1),
-            "clips": results, "gate_failed_clips": failed, "assembly": assembly,
+            "policy": POLICY, "episode": self.episode_dir.name,
+            # Batch drivers compare this with the current clip_plan.json to tell
+            # a finished episode from one whose plan changed since.
+            "clip_plan_fingerprint": plan_fingerprint(self.clip_plan),
+            "clips": results, "failed_clips": errored, "gate_failed_clips": failed,
         }
+        if errored:
+            log(f"{len(errored)} clip(s) have no video ({', '.join(errored)}); episode not assembled, re-run to retry only those")
+            report.update({"status": "clips_failed", "assembly": None, "elapsed_seconds": round(time.monotonic() - started, 1)})
+            atomic_write_json(self.episode_dir / "thin_media_report.json", report)
+            return report
+        assembly = self.assemble(results)
+        report.update({"status": "assembled", "assembly": assembly, "elapsed_seconds": round(time.monotonic() - started, 1)})
         atomic_write_json(self.episode_dir / "thin_media_report.json", report)
         return report
 
@@ -687,6 +779,7 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--assets-only", action="store_true", help="build the cards this episode needs, write series_assets/cards_sheet.jpg for review, and stop before any video")
     parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     args = parser.parse_args()
@@ -706,8 +799,17 @@ def main() -> int:
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
     if args.dry_run:
         return 0
+    if args.assets_only:
+        runner.build_assets()
+        sheet = cards_sheet(novel_dir, novel_dir / "series_assets" / "cards_sheet.jpg")
+        print(json.dumps({"assets": "ready", "cards_sheet": str(sheet) if sheet else None}, ensure_ascii=False), flush=True)
+        return 0
     report = runner.run()
-    print(json.dumps({k: report[k] for k in ("elapsed_seconds", "gate_failed_clips")} | {"assembly": {k: v for k, v in report["assembly"].items() if k != "media_qc"}} | {"clips": [{"clip_id": r["clip_id"], "attempts": len(r["attempts"]), "cer": r["selected"]["cer"], "peak_db": r["selected"]["max_volume_db"], "duration": r["selected"]["duration"]} for r in report["clips"]]}, ensure_ascii=False, indent=2), flush=True)
+    clip_rows = [{"clip_id": r["clip_id"], "attempts": len(r["attempts"]), "error": r.get("error"), **({"cer": r["selected"]["cer"], "peak_db": r["selected"]["max_volume_db"], "duration": r["selected"]["duration"]} if r.get("selected") else {})} for r in report["clips"]]
+    assembly = {k: v for k, v in (report.get("assembly") or {}).items() if k != "media_qc"} or None
+    print(json.dumps({"status": report["status"], "elapsed_seconds": report["elapsed_seconds"], "failed_clips": report["failed_clips"], "gate_failed_clips": report["gate_failed_clips"], "assembly": assembly, "clips": clip_rows}, ensure_ascii=False, indent=2), flush=True)
+    if report["failed_clips"]:
+        return 3
     return 0 if report["assembly"]["thin_passed"] and not report["gate_failed_clips"] else 2
 
 

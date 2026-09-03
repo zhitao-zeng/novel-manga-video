@@ -46,7 +46,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v7.5-profile"
+POLICY = "thin-chapter-plan-v7.6-batch-ready"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -848,10 +848,10 @@ def main() -> int:
             "clip_count": f"{CLIP_RANGE[0]}-{CLIP_RANGE[1]}",
             "stages_per_clip": f"{STAGE_RANGE[0]}-{STAGE_RANGE[1]}",
             "clip_seconds": f"20-{int(MAX_CLIP_SECONDS)}",
-            "episode_seconds": "about 90, max 100",
+            "episode_seconds": f"about 90, max {int(EPISODE_SECONDS_MAX)}",
             "spoken_chars_total": f"{SPOKEN_RANGE[0]}-{SPOKEN_RANGE[1]}",
             "turn_text_max_chars": TURN_MAX_CHARS,
-            "source_quote_chars": f"{QUOTE_MIN_CHARS}-120",
+            "source_quote_chars": f"{QUOTE_MIN_CHARS}-{QUOTE_MAX_CHARS}",
             "max_skipped_segments": MAX_SKIPPED,
             "one_visible_speaker_per_shot": True,
             "no_narration_no_inner_voice": True,
@@ -925,6 +925,11 @@ def main() -> int:
         return 2
 
     raw, shots, warnings = result
+    # A new script invalidates everything downstream: the packed plan must be
+    # rebuilt and a finished-episode report from the old plan would make batch
+    # drivers skip the episode as done.
+    for stale in ("clip_plan.json", "clip_plan.md", "thin_media_report.json", "media_qc_report.json"):
+        (episode_dir / stale).unlink(missing_ok=True)
     skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in (raw.get("skipped_segments") or []) if isinstance(item, dict)}
     report_metrics = metrics(shots, episode.source_text, segments, skipped)
     plan = to_episode_plan(raw, shots, location_map, episode.source_text, episode.source_title)

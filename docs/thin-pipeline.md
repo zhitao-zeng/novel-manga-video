@@ -2,63 +2,98 @@
 
 一章小说 → 一次模型调用出分镜剧本 → 确定性打包成 ≤30 秒的 Seedance 2.5 片段 → 资产卡 + 视频 + ASR + 拼接。
 不经过 `pipeline.py` 的 v5 规划链，也不改 `src/`；只读复用 ingest、models、providers、render、qc 和 ASR 辅助函数。
-2026-09-02/03 用它交付了《焚天记》前 10 集（每集 64–111 秒，共约 15 分钟）；同日又用同一套脚本、只换画风/画幅变量出了 3D 国漫横屏版。
+2026-09-02/03 用它交付了《焚天记》前 10 集两套：2D 竖屏（每集 64–111 秒）和 3D 横屏（71–110 秒），后者只换了画风/画幅变量。
+
+硬门只有三条：原文引用逐字且 8 段全覆盖、角色与说话人在圣经内、整集估算 ≤105 秒；渲染侧只拦人声能量和 CER ≤ 0.5（一次重生成）。其余全部只报告。
+
+## 新小说操作手册
+
+前提：gpu16 上仓库 `.env` 已配好（NOVEL_LLM_* 给圣经生成，QWEN38_LOCAL_* 给章节规划，PHANROUTER_* 给图和视频，NOVEL_ASR_COMMAND / NOVEL_SENSEVOICE_MODEL_DIR 给 ASR），Qwen 容器 `novel-manga-qwen38-vlm` 在跑。
+
+```bash
+cd /mnt/disk1/zengzhitao/novel-manga-video
+set -a; source .env; set +a
+export PYTHONPATH=src:scripts
+```
+
+1. **准备原文**：一个 .md/.txt（.docx/.pdf 也行），每章以"第X章 标题"独立一行开头；一章就是一集。放到 `inputs/<书名>.md`。
+2. **生成圣经并建目录**（一次模型调用，几分钟，不花钱）：
+   ```bash
+   .venv/bin/python scripts/build_bible_thin.py inputs/斗破苍穹-前10章.md --novel-id doupo-2d --title 斗破苍穹 --style 2d --frame 9:16
+   ```
+   产物在 `outputs/doupo-2d/`：`story_bible.json`、`story_bible.md`（人读）、`profile.json`、`visual_grammar.json`（模板，`location_time` 已按地点预填键名）、`novel.json`（记录原文路径和切章结果）。
+   **审 `story_bible.md`**：名字、主要角色是否齐、外貌服装有没有原文依据、地点能否画成空场、切章对不对。直接改 `story_bible.json`。
+3. **填视觉语法**：`visual_grammar.json` 的 `location_time` 给每个地点写时间和主光源（如"夜，银月为主光，灯火为次光"），否则规划器会自己决定昼夜，容易与地点卡冲突。`style_line` 留空即用 profile 的画风句。
+4. **第一章剧本**（不花钱）：
+   ```bash
+   .venv/bin/python scripts/thin_batch.py --novel-dir outputs/doupo-2d --chapters 1 --stage plan
+   ```
+   看 `outputs/doupo-2d/doupo-2d_1/chapter_script.md` 和 `clip_plan.md`（每段完整提示词）。要改方向就用 `--notes-json`（`{"1": "导演意见"}`）加 `--replan` 重来。
+5. **建卡**（花图片钱，角色 ×2 张 + 地点 ×1 张）：
+   ```bash
+   .venv/bin/python scripts/thin_batch.py --novel-dir outputs/doupo-2d --chapters 1 --stage assets
+   ```
+   看 `outputs/doupo-2d/series_assets/cards_sheet.jpg`。不满意的卡删掉对应 jpeg 和两个侧车文件再跑一次；像真人照片的 3D 卡不用管，渲染时会自动重画。
+6. **第一集成片**（花视频钱）：
+   ```bash
+   .venv/bin/python scripts/thin_batch.py --novel-dir outputs/doupo-2d --chapters 1
+   ```
+   满意后跑其余章：`--chapters 2-10 --parallel 3`。规划串行（Qwen 单序列），渲染按 `--parallel` 并行；已完成的集自动跳过，重复执行同一条命令永远安全。结束打印一张表并写 `batch_report.json/.md`。
+7. **交付**：成片 `outputs/<id>/<id>_N/<id>_N.mp4`，封面 `<id>_N_cover.jpeg`。传 Mac 用 rsync 走 tailscale，逐文件 md5 校验。
+
+同一本书换画风或画幅：另起一个 novel-id（如 `doupo-3d-h`，`--style 3d --frame 16:9`），卡片和片段缓存都按目录走，两套互不影响。
+
+## 单集手动操作
+
+批跑脚本内部就是这三条命令，需要单独调一集时直接用：
+
+```bash
+.venv/bin/python scripts/plan_chapter_thin.py <novel.md> --novel-id <id> --title <书名> --episode-index N \
+  --bible outputs/<id>/story_bible.json --output-root outputs [--max-redo 2] [--min-seconds 85] [--notes "导演意见"]
+.venv/bin/python scripts/build_clip_plan_thin.py --episode-dir outputs/<id>/<id>_N --bible outputs/<id>/story_bible.json
+.venv/bin/python scripts/render_clips_thin.py --novel-dir outputs/<id> --episode <id>_N --workers 4 [--assets-only]
+```
+
+三个脚本都接受 `--style 2d|3d --frame 9:16|16:9`，命令行优先于 `profile.json`。所有远程任务都有 `.task.json` 侧车，重跑只补缺的、变了的：片段按提示词+参考图缓存，重规划会自动作废旧的片段计划和成片报告。
+
+渲染器退出码：0 通过；2 有段没过语音门或薄 QC（成片照常拼出，报告里标明）；3 有段没生成出视频（不拼接，重跑只补那几段）。
 
 ## 文件
 
 | 文件 | 作用 |
 |---|---|
-| `scripts/plan_chapter_thin.py` | 一章一次调用（Qwen3.8 本地服务，先 35 秒思考摘要再严格 JSON）。硬门只有三条：原文引用逐字且 8 段全覆盖、角色与说话人在圣经内、整集时长 ≤105 秒；最多返修一次。其余全部只报告。 |
-| `scripts/build_clip_plan_thin.py` | 把阶段打包成 ≤30 秒、≤6 阶段的片段，按官方 Seedance 2.5 模板写提示词：【生成目标】、逐图 用于/不采用 绑定、【视觉语法】、【阶段n·景别】（开始时/机位/光源/主要事件/声音/结束时）、画面呈现/镜头采用/声音包括、【保持一致】、【不要】。自带只报告的克制检查。 |
-| `scripts/render_clips_thin.py` | 资产卡（只到本集引用到的编号）、Seedance 请求（参考图 base64 内嵌）、静音切块 + SenseVoice、硬门（人声能量、CER ≤ 0.5，一次重生成）、硬切拼接、剧本原句字幕、封面/结束卡、媒体 QC。 |
+| `scripts/build_bible_thin.py` | 新书入口：一次模型调用出圣经，写 profile / 视觉语法模板 / 人读版圣经 / novel.json。 |
+| `scripts/thin_batch.py` | 一键批跑：规划（串行）→ 建卡 → 渲染（并行）→ 报表；按状态跳过已完成的，每集一把锁。 |
+| `scripts/plan_chapter_thin.py` | 一章一次调用（Qwen3.8 本地服务，先思考摘要再严格 JSON）。硬门三条；返修时给具体数字目标、识别原样重发、改写引用附最接近原句。 |
+| `scripts/build_clip_plan_thin.py` | 阶段打包成 ≤30 秒、≤6 阶段的片段，按官方 Seedance 2.5 模板写提示词（【生成目标】、逐图 用于/不采用、【视觉语法】、【阶段n·景别】、【保持一致】、【不要】），只报告的克制检查。 |
+| `scripts/render_clips_thin.py` | 资产卡（只到本集引用到的编号）、Seedance 请求（参考图 base64 内嵌）、静音切块 + SenseVoice、硬门、硬切拼接、剧本原句字幕、封面/结束卡、媒体 QC；接口故障自愈见下。 |
 | `scripts/thin_asr_segments.py` | 在 ASR venv 里一次加载模型识别多个语音块。 |
-| `scripts/thin_profile.py` | 画风/画幅变量：读 `outputs/<novel>/profile.json`，三个脚本共用；`STYLE_VISUAL` 里是各画风的定妆卡/圣经描述，`FRAMES` 里是各画幅的画布、Seedance 比例和构图句。 |
-| `scripts/plan_all_ch2_10.sh` 等八个 | 批跑驱动脚本（2D 竖屏四个、3D 横屏四个：规划循环、渲染循环、串行收尾、并行补渲染），含当日绝对路径，仅作范例。 |
-| `configs/fentian/visual_grammar_3d_h.json`、`profile.3d-16x9.json` | 3D 横屏版用的视觉语法和 profile 范例。 |
-| `configs/fentian/visual_grammar.json` | 全书视觉语法：四轴 + 禁忌 + 各地点时间与主光源。放到 `outputs/<novel>/` 下即自动生效。 |
-| `configs/fentian/clip_overrides.example.json` | 单段修正范例：限制可见角色、身份区分、额外禁忌。放到某集目录后重新打包，只有该段提示词变化。 |
-
-## 跑法
-
-```bash
-cd /mnt/disk1/zengzhitao/novel-manga-video
-set -a; source .env; set +a
-export PYTHONPATH=src NOVEL_PLANNER_BACKEND=deterministic NOVEL_CREATIVE_PROFILE=short-drama-adaptive-v1
-export PHANROUTER_INLINE_REFERENCE_IMAGES=1   # 必须：图床链接会过期/迁移
-
-.venv/bin/python scripts/plan_chapter_thin.py <novel.md> --novel-id <id> --title <书名> --episode-index N \
-  --bible outputs/<id>/story_bible.json --output-root outputs [--max-redo 2] [--min-seconds 85] [--notes "导演意见"]
-.venv/bin/python scripts/build_clip_plan_thin.py --episode-dir outputs/<id>/<id>_N --bible outputs/<id>/story_bible.json
-.venv/bin/python scripts/render_clips_thin.py --novel-dir outputs/<id> --episode <id>_N --workers 4
-```
-
-三个脚本都接受 `--style 2d|3d --frame 9:16|16:9`，命令行优先于 `profile.json`；不写则按 2D 竖屏（即前 10 集的原样）。
+| `scripts/thin_profile.py` | 画风/画幅变量：`STYLE_VISUAL` 各画风的卡片描述，`FRAMES` 各画幅的画布、Seedance 比例和构图句。 |
+| `configs/templates/` | `profile.json`、`visual_grammar.json` 模板。 |
+| `configs/fentian/` | 焚天记的两份视觉语法（2D 竖屏、3D 横屏）、profile 范例、`clip_overrides.example.json`（单段修正：限制可见角色、身份区分、额外禁忌）。 |
 
 ## 画风与画幅变量
 
 `outputs/<novel>/profile.json`：`{"style": "2d" | "3d", "frame": "9:16" | "16:9"}`。
 
-- `style` 决定：圣经 `visual_style` 在运行时被 `STYLE_VISUAL[style]` 替换（只改内存，不改文件），定妆卡工厂据此走 2D 或 3D 分支；剧本和提示词里的画风名；`visual_grammar.json` 没写 `style_line` 时的默认画风句。注意 3D 文案里不能出现"二维/卡通/赛璐璐/2d"任何一个词——工厂先查这几个词，圣经里一句"禁止二维"就会把整套卡画成二维（第一版 3D 就是这么翻车的）。
-- `frame` 决定：画布尺寸、Seedance `ratio`、建立镜头图的比例（角色卡永远竖版）、提示词里的"镜头采用……"构图句、封面/结束卡的横版排版。
-- 换画风或画幅就换一个 novel 目录（卡片、片段缓存都按目录走），已有的集不受影响。
+- `style`：圣经 `visual_style` 在运行时被 `STYLE_VISUAL[style]` 替换（只改内存），定妆卡工厂据此走 2D 或 3D 分支；剧本和提示词里的画风名；`style_line` 留空时的默认画风句。3D 文案里不能出现"二维/卡通/赛璐璐/2d"任何一个词——工厂先查这几个词，圣经里一句"禁止二维"就会把整套卡画成二维。
+- `frame`：画布、Seedance `ratio`、建立镜头图比例（角色卡永远竖版）、提示词里的构图句、封面/结束卡的横版排版。
 
-同一本书两种画风的目录：`outputs/fentian-thin-v4`（2D 竖屏）和 `outputs/fentian-3d-h-v1`（3D 横屏）。
-
-产物在 `outputs/<id>/<id>_N/`：`chapter_script.md`（人读的剧本）、`clip_plan.md`（每段完整提示词）、`thin_media_report.json`、`media_qc_report.json`、成片与封面。所有远程任务都有 `.task.json` 侧车，重跑只补缺的、变了的。
-
-## 已知的接口问题与对策（都在代码里）
+## 接口问题与对策（都在渲染器里，正常路径不触发）
 
 - 图床迁移后旧链接返回 HTML 页 → 参考图一律 base64 内嵌。
-- 下载不校验，HTML 或截断响应被存成 `.jpeg` → 生成前先清掉小于 20 KB 或解不出的卡；一张坏定妆卡会让依赖它的表情卡以无关的错误失败。
-- 图片接口临时故障返回"图片生成失败，请稍后重试" → 6 轮、每轮退避 90 秒。
+- 下载不校验，HTML 或截断响应被存成 `.jpeg` → 生成前清掉小于 20 KB 或解不出的卡；一张坏定妆卡会让依赖它的表情卡以无关的错误失败。
+- 图片接口临时故障"图片生成失败，请稍后重试" → 6 轮、每轮退避 90 秒。
+- 3D 卡偶尔接近真人照片，Seedance 以 `InputImageSensitiveContentDetected.PrivacyInformation` 拒收整段 → 找出该段引用、且没被任何成功片段用过的卡（`series_assets/.privacy_ok.json` 跨进程记录），原卡挪成 `.photoreal-rejected.jpeg`（连同侧车），按"明显动画化的 3D 国漫角色"重画后在同一 attempt 内重提一次；重画串行、每张卡最多一次、提交前等待正在重画的卡。
 - 本机 ffmpeg 4.4 的多输入 xfade 链会把某段冻在首帧 → 硬切 concat。
 - 严格 JSON 模式偶尔陷入无限空白 → JSON 步 max_tokens 9000，快速失败进返修。
 - Seedance 会加即兴群众杂音 → 字幕按 ASR 定时、用剧本原句，对不上的块不出字幕。
 - 一段里两名相貌相近且都有参考图的少女会串脸 → 不说话且未被画面点名的角色不给参考图；已知案例用 `clip_overrides.json` 单段修。
-- 3D 卡偶尔画得接近真人照片，Seedance 以 `InputImageSensitiveContentDetected.PrivacyInformation` 拒收整段 → 渲染器找出该段引用、且没在其他成功段里用过的角色卡，把原卡挪成 `.photoreal-rejected.jpeg`（连同 `.task.json` 侧车，否则接口会因请求不匹配拒绝重画），以它为参考按"明显动画化的 3D 国漫角色"重画，再重提一次。3D 画风文案里也加了反写实的约束。
+- 一段出错（网络、ASR）不再拖垮整集：按段记录，成片报告 `status: clips_failed`，重跑只补那几段。
 
 ## 经验
 
-- 模型对"秒数"不敏感，对"几段、几个阶段、多少字"很听话；调长度用具体数字。
+- 模型对"秒数"不敏感，对"几段、几个阶段、多少字"很听话；调长度用具体数字。告诉模型的上限和代码检查的上限来自同一组常量，别再出现"写够了仍被拒"。
 - 每段引用 3 个及以上角色时每人只给一张定妆卡。
-- 2D 集的圣经 `visual_style` 文件里仍写着 3D 国漫，实际卡片是二维赛璐璐；现在由 profile 的 `style` 统一说了算，视频提示词的画风句仍可用 `visual_grammar.json` 的 `style_line` 覆盖，不改圣经和已有卡片。
+- 隐私重画会改变角色长相（更圆、更低龄）。新书建卡后先看 `cards_sheet.jpg`，像真人的卡可以先删掉重建，比等渲染时被拒再重画更省。
+- 焚天记 2D 集的圣经文件里仍写着 3D，实际由 profile 说了算；提示词画风句可用 `style_line` 覆盖，不改圣经和已有卡片。

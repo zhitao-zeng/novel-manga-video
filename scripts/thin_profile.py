@@ -7,6 +7,7 @@ text is what the asset factory routes on, so it must contain a 2D token for
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -51,3 +52,15 @@ def frame_spec(profile: dict) -> dict:
 def styled_bible(bible, profile: dict):
     """Return the bible with visual_style replaced by the profile's style text."""
     return bible.model_copy(update={"visual_style": STYLE_VISUAL[profile["style"]]})
+
+
+def plan_fingerprint(plan: dict) -> str:
+    """Digest of what the renderer actually consumes from a clip plan: per clip
+    the kind, prompt, reference images and requested seconds.  Policy strings,
+    lint notes and totals are left out so a packer version bump does not make
+    every rendered episode look stale."""
+    material = [
+        (clip.get("clip_id"), clip.get("kind"), clip.get("prompt", ""), [ref.get("path") for ref in clip.get("references", [])], clip.get("request_seconds"), clip.get("text", ""))
+        for clip in plan.get("clips", [])
+    ]
+    return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
