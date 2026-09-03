@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.5-aliases"
+POLICY = "thin-review-v1.7-one-fix-per-card"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -478,6 +478,23 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     return ask_json(parts, CLIP_SCHEMA, name="clip_review", max_tokens=600)
 
 
+def compose_feedback(verdict: dict) -> str:
+    """The correction appended to a failed clip's prompt.  Text on screen gets a
+    fixed instruction (the model's own suggestion tends to 'fix the subtitle'
+    instead of removing it); identity and defect issues use the reviewer's
+    sentence, which names who should look like what."""
+    parts = []
+    if verdict.get("text_or_watermark"):
+        parts.append("画面中不得出现任何文字、字幕、弹幕或水印，台词只以语音出现")
+    if not verdict.get("identity_ok", True) or verdict.get("visual_defects"):
+        note = str(verdict.get("feedback") or "").strip()
+        if note and not re.search(r"字幕|文字", note):
+            parts.append(note)
+        elif not verdict.get("identity_ok", True):
+            parts.append("每个角色必须与其角色卡一致，不得把一个角色画成另一个角色的相貌或服装")
+    return "；".join(parts) or str(verdict.get("feedback") or "").strip()
+
+
 def bible_root(work_dir: Path) -> Path:
     # work_dir = <novel>/<episode>/work/review/<clip>; references are relative to <novel>
     return work_dir.parents[3]
@@ -511,7 +528,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
         report["clips"][clip_id] = {"video": str(video), **verdict}
         if verdict.get("severity") == "fail":
             report["flags"].append(f"{clip_id}: {verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}")
-            report["feedback"][clip_id] = verdict.get("feedback", "")
+            report["feedback"][clip_id] = compose_feedback(verdict)
         log(f"episode {episode_dir.name} {clip_id}: {verdict.get('severity')} people={verdict.get('visible_people')} identity={verdict.get('identity_ok')} loc={verdict.get('location_ok')}/{verdict.get('time_of_day_ok')} text={verdict.get('text_or_watermark')} defects={verdict.get('visual_defects')}" + (f" | {verdict.get('identity_issue') or verdict.get('defect_issue')}" if verdict.get("severity") != "pass" else ""))
     suffix = "" if video_name == "clip.mp4" else "." + video_name.replace(".mp4", "")
     atomic_write_json(episode_dir / f"episode_review{suffix}.json", report)
@@ -532,13 +549,24 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
     assets = novel_dir / "series_assets"
     done = {"stylized": [], "deleted": [], "already_tried": []}
 
+    def tried_before(path: Path) -> bool:
+        # One fix per card for the whole series: a parked backup (stylized) or a
+        # regeneration marker means the card was touched already, whatever the
+        # reason this time; changing it again would make the character look
+        # different from episode to episode.
+        return path.with_suffix(".photoreal-rejected.jpeg").exists() or (path.parent / f".regenerated.{path.name}").exists()
+
     def delete_for_regeneration(path: Path, label: str) -> None:
         marker = path.parent / f".regenerated.{path.name}"
-        if marker.exists():
+        if tried_before(path):
             done["already_tried"].append(label)
             return
+        backup = path.with_suffix(".photoreal-rejected.jpeg")
         for suffix in ("", ".task.json", ".request.json"):
             path.with_suffix(path.suffix + suffix).unlink(missing_ok=True)
+            # A leftover stylize backup next to a deliberately deleted card reads
+            # as "redraw in flight" to the runner, which would wait for it.
+            backup.with_suffix(backup.suffix + suffix).unlink(missing_ok=True)
         marker.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
         done["deleted"].append(label)
 
@@ -550,7 +578,7 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
             if not path.is_file():
                 continue
             if "redraw_stylized" in row["actions"]:
-                if path.with_suffix(".photoreal-rejected.jpeg").exists():
+                if tried_before(path):
                     done["already_tried"].append(label)
                     continue
                 log(f"cards: stylizing {label}")

@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v12.2-moderation-retry"
+POLICY = "thin-media-v12.3-no-false-wait"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -371,6 +371,8 @@ def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> li
     deadline = time.monotonic() + timeout
     for path in paths:
         backup = path.with_suffix(".photoreal-rejected.jpeg")
+        if (path.parent / f".regenerated.{path.name}").exists():
+            continue  # deliberately deleted by the card review; the factory will rebuild it
         while not path.is_file() and backup.exists():
             if time.monotonic() > deadline:
                 raise RuntimeError(f"redraw of {path} did not finish within {timeout:.0f}s")
