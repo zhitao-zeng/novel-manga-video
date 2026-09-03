@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v12.1-demuxer-join"
+POLICY = "thin-media-v12.2-moderation-retry"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -56,6 +56,18 @@ MAX_CER = 0.5
 MIN_PEAK_DB = -35.0
 PRIVACY_MARKER = "InputImageSensitiveContentDetected"
 REDRAW_ORIGIN = "privacy-stylized-redraw"
+MODERATION_MARKERS = ("violate", "usage policy", "content policy", "sensitive", "moderation", "safety", "违规", "敏感", "审核")
+SCRUB_WORDS = re.compile(r"妩媚|性感|曼妙|露肩|低胸|大腿|俗气|轻浮|挑逗|妖艳|夸张")
+SAFE_SUFFIX = "。整体端庄得体，衣着完整，表情自然温和，普通站姿，无任何性暗示、暴力或血腥"
+
+
+class ModerationRejected(RuntimeError):
+    """The image service refused a card even after the prompt was toned down."""
+
+
+def moderation_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return any(marker in text for marker in MODERATION_MARKERS)
 REDRAW_WAIT_SECONDS = 420
 REPAIR_LOCK = threading.Lock()  # one card redraw at a time; parallel repairs of the same card raced
 PRIVACY_OK_FILE = "series_assets/.privacy_ok.json"  # cards used by clips that generated fine, shared across runs
@@ -116,6 +128,23 @@ class FramedAssetFactory(SeriesAssetFactory):
         prompt = SeriesAssetFactory._location_prompt(bible, location)
         return prompt.replace("9:16", self.frame_text.split("屏")[-1]).replace("竖屏", self.frame_text[:2]) if self.frame_text != "竖屏9:16" else prompt
 
+    def ensure_card(self, prompt: str, output: Path, *, reference=None):
+        """_ensure_image, and on a content-moderation refusal one retry with a
+        toned-down prompt; a second refusal is final (no point in more rounds)."""
+        try:
+            return self._ensure_image(prompt, output, reference=reference)
+        except RuntimeError as error:
+            if not moderation_error(error):
+                raise
+            safe = SCRUB_WORDS.sub("", prompt) + SAFE_SUFFIX
+            log(f"assets: {output.parent.name}/{output.name} refused by content moderation; retrying with a toned-down prompt")
+            try:
+                return self._ensure_image(safe, output, reference=reference)
+            except RuntimeError as again:
+                if moderation_error(again):
+                    raise ModerationRejected(f"{output.parent.name}/{output.name}: {str(again)[:200]}") from again
+                raise
+
     def build_selected(self, root: Path, bible: StoryBible, character_ids: set[str], location_ids: set[str]) -> SeriesAssetManifest:
         """Build (or reuse) only the listed assets; ids stay the bible positions.
 
@@ -158,9 +187,9 @@ class FramedAssetFactory(SeriesAssetFactory):
                 "version": "v001", "identity_invariants": invariants, "state_variables": state, "reference_scope": scope,
                 "style_fingerprint": bible.style_fingerprint, "prompt": prompt,
             })
-            primary = self._ensure_image(prompt, directory / "turnaround.jpeg", reference=style_master)
+            primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master)
             expression_prompt = self._expression_prompt(bible, character.name, character.expression_profile)
-            secondary = self._ensure_image(expression_prompt, directory / "expressions.jpeg", reference=primary.path)
+            secondary = self.ensure_card(expression_prompt, directory / "expressions.jpeg", reference=primary.path)
             characters[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="character", name=character.name, identity_invariants=invariants, state_variables=state, reference_scope=scope,
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(primary.path.relative_to(root.parent)),
@@ -181,7 +210,7 @@ class FramedAssetFactory(SeriesAssetFactory):
                 "continuity": "固定空间布局、物品锚点、天气、时间、光线方向", "version": "v001",
                 "identity_invariants": invariants, "state_variables": state, "reference_scope": scope, "prompt": prompt,
             })
-            image = self._ensure_image(prompt, directory / "establishing.jpeg", reference=style_master)
+            image = self.ensure_card(prompt, directory / "establishing.jpeg", reference=style_master)
             locations[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="location", name=location, identity_invariants=invariants, state_variables=state, reference_scope=scope,
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(image.path.relative_to(root.parent)),
@@ -403,6 +432,8 @@ class ThinMediaRunner:
         for attempt in range(1, ASSET_BUILD_ROUNDS + 1):
             try:
                 manifest = factory.build_selected(self.novel_dir / "series_assets", self.bible, character_ids, location_ids)
+            except ModerationRejected:
+                raise
             except (RuntimeError, TimeoutError, OSError) as error:
                 # The hosted image service returns "图片生成失败，请稍后重试" during
                 # its own incidents.  That is transient, so back off instead of

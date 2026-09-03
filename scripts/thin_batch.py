@@ -112,6 +112,7 @@ class Batch:
         self.card_fixes: dict = {}
         self._novel = None
         self.report_lock = threading.Lock()
+        self.cards_lock = threading.Lock()  # card creation is serialized across parallel episode renders
 
     # ---- helpers ----
     def novel(self):
@@ -319,21 +320,25 @@ class Batch:
         cards, fix each at most once, rebuild, judge again."""
         directory = self.episode_dir(chapter)
         row = self.rows[chapter]
-        self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
-        if not self.reviewing:
-            return
-        from thin_review import remediate_cards, review_cards
-        plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
-        wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", [])}
-        with self.report_lock:  # the judges share one single-sequence VLM; keep card reviews serialized
-            review = review_cards(self.novel_dir, only_ids=wanted)
-            if self.args.unattended and review["flags"]:
-                fixes = remediate_cards(self.novel_dir, review)
-                if fixes["stylized"] or fixes["deleted"]:
-                    self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
-                    review = review_cards(self.novel_dir, only_ids=wanted)
-                row["card_fixes"] = fixes["stylized"] + fixes["deleted"]
-        row["card_flags"] = review["flags"]
+        with self.cards_lock:  # two episodes building the same character at once raced on the card files
+            code, problem = self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
+            if code != 0:
+                row["note"] = f"cards: {problem}"
+                log(f"ch{chapter}: card build problem: {problem[:160]}")
+            if not self.reviewing:
+                return
+            from thin_review import remediate_cards, review_cards
+            plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+            wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", [])}
+            with self.report_lock:  # the judges share one single-sequence VLM; keep card reviews serialized
+                review = review_cards(self.novel_dir, only_ids=wanted)
+                if self.args.unattended and review["flags"]:
+                    fixes = remediate_cards(self.novel_dir, review)
+                    if fixes["stylized"] or fixes["deleted"]:
+                        self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
+                        review = review_cards(self.novel_dir, only_ids=wanted)
+                    row["card_fixes"] = fixes["stylized"] + fixes["deleted"]
+            row["card_flags"] = review["flags"]
 
     def review_episode(self, chapter: int) -> None:
         """Automatic clip review; in unattended mode a failed clip gets the reviewer's

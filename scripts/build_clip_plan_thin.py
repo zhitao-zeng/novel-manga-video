@@ -27,7 +27,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v8.1-batch-ready"
+POLICY = "thin-clip-plan-v8.2-aliases"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -371,6 +371,13 @@ def main() -> int:
     overrides_path = episode_dir / "clip_overrides.json"
     overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {}
     shots = script["shots"]
+    aliases_path = episode_dir.parent / "bible_aliases.json"
+    aliases = json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {}
+    if aliases:  # a nickname in the script must resolve to the canonical card
+        for shot in shots:
+            shot["characters"] = list(dict.fromkeys(aliases.get(n, n) for n in shot.get("characters", [])))
+            for turn in shot.get("turns", []):
+                turn["speaker_name"] = aliases.get(turn.get("speaker_name", ""), turn.get("speaker_name", ""))
     # "同上" is only meaningful inside one prompt.  Resolve it (and blanks)
     # from the last concrete value in reading order so that the first stage of
     # every clip states its light and camera explicitly.

@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.4-grow"
+POLICY = "thin-review-v1.5-aliases"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -213,7 +213,7 @@ def fill_characters(bible: StoryBible, bible_path: Path, missing: dict, text: st
                 reason = "称呼类人物，可能是已有角色的另一叫法；条目已生成，需人工确认后加入"
             if reason:
                 needs_human[name] = reason
-                suggestions[name] = {k: v for k, v in row.items() if k in Character.model_fields}
+                suggestions[name] = {**{k: v for k, v in row.items() if k in Character.model_fields}, "same_as": row.get("same_as", "")}
                 continue
             added.append(Character(**{k: v for k, v in row.items() if k in Character.model_fields}))
             known.append(name)
@@ -244,6 +244,11 @@ def extract_locations(chapter_text: str, known_locations: list[str]) -> list[dic
     return ask_json([{"type": "text", "text": prompt}], LOCATION_SCHEMA, name="locations", max_tokens=1200).get("locations", [])
 
 
+def load_aliases(novel_dir: Path) -> dict:
+    path = novel_dir / "bible_aliases.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
 def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
     """Before a chapter is planned: append the chapter's new proper-named
     characters and new locations to the bible (ids are positions, so only
@@ -252,10 +257,17 @@ def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
     bible_path = novel_dir / "story_bible.json"
     bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     known = [c.name for c in bible.characters]
+    # Names already judged in earlier chapters (an alias of someone, or held
+    # for a human) stay excluded: the model's per-chapter verdict is not stable
+    # enough to let a nickname become a second card of the same person later.
+    aliases = load_aliases(novel_dir)
+    growth_path = novel_dir / "bible_growth.json"
+    growth = json.loads(growth_path.read_text(encoding="utf-8")) if growth_path.is_file() else {}
+    held = {name for entry in growth.values() for name in [*entry.get("suggestions", {}), *entry.get("needs_human", {})]}
     counts: dict[str, dict] = {}
     for row in extract_names(chapter_text):
         name = re.sub(r"\s+", "", str(row.get("name", "")))
-        if row.get("kind") == "群体" or not name or name in GENERIC_NAMES or name_matches(name, known):
+        if row.get("kind") == "群体" or not name or name in GENERIC_NAMES or name_matches(name, known) or name in aliases or name in held:
             continue
         entry = counts.setdefault(name, {"mentions": 0, "chapters": [chapter_index], "kind": row.get("kind"), "speaks": False})
         entry["mentions"] += int(row.get("mentions", 0))
@@ -266,6 +278,12 @@ def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
     suggestions: dict = {}
     if missing:
         bible, filled, needs_human, suggestions = fill_characters(bible, bible_path, missing, chapter_text)
+        for name, entry in suggestions.items():
+            target = str(entry.get("same_as") or "")
+            if target and name_matches(target, known):
+                aliases[name] = next(k for k in known if name_matches(target, [k]))
+        if aliases:
+            atomic_write_json(novel_dir / "bible_aliases.json", aliases)
     known_locations = [full.split("：", 1)[0].strip() for full in bible.locations]
     added_locations: list[str] = []
     for row in extract_locations(chapter_text, known_locations):
@@ -278,8 +296,6 @@ def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
     if added_locations:
         bible = bible.model_copy(update={"locations": [*bible.locations, *added_locations]})
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
-    growth_path = novel_dir / "bible_growth.json"
-    growth = json.loads(growth_path.read_text(encoding="utf-8")) if growth_path.is_file() else {}
     growth[str(chapter_index)] = {"characters": filled, "locations": [x.split("：", 1)[0] for x in added_locations], "suggestions": suggestions, "needs_human": needs_human}
     atomic_write_json(growth_path, growth)
     log(f"bible ch{chapter_index}: +{len(filled)} characters {filled or ''} +{len(added_locations)} locations {[x.split('：', 1)[0] for x in added_locations] or ''}; suggestions {list(suggestions) or 'none'}; bible now {len(bible.characters)}/{len(bible.locations)}")

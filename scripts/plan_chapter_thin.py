@@ -46,7 +46,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v7.7-long-novel"
+POLICY = "thin-chapter-plan-v7.8-aliases"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -435,6 +435,13 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
     return content, meta
 
 
+ALIASES: dict[str, str] = {}  # alias -> canonical character name (bible_aliases.json)
+
+
+def canonical(name: str) -> str:
+    return ALIASES.get(str(name).strip(), str(name).strip())
+
+
 def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, location_map: dict[str, str], chapter_text: str) -> tuple[list[str], list[str], list[dict]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -481,8 +488,8 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                 )
         cited.setdefault(segment_id, []).append(position)
 
-        characters = list(dict.fromkeys(str(name) for name in shot.get("characters", []) if str(name) in names))
-        unknown = [str(name) for name in shot.get("characters", []) if str(name) not in names]
+        characters = list(dict.fromkeys(canonical(name) for name in shot.get("characters", []) if canonical(name) in names))
+        unknown = [str(name) for name in shot.get("characters", []) if canonical(name) not in names]
         if unknown:
             errors.append(f"{position}: characters not in StoryBible: {unknown}")
         location = str(shot.get("location", ""))
@@ -495,7 +502,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             if not isinstance(turn, dict):
                 continue
             mode = str(turn.get("delivery_mode", ""))
-            speaker = str(turn.get("speaker_name", "")).strip()
+            speaker = canonical(turn.get("speaker_name", ""))
             text = str(turn.get("text", "")).strip()
             emotion = str(turn.get("emotion", "")).strip() or "克制自然"
             if not text:
@@ -831,6 +838,8 @@ def main() -> int:
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
     profile = load_profile(novel_dir, style=args.style, frame=args.frame)
+    aliases_path = novel_dir / "bible_aliases.json"
+    ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")
     grammar = json.loads(grammar_path.read_text(encoding="utf-8")) if grammar_path.is_file() else None
     episode_dir.mkdir(parents=True, exist_ok=True)
@@ -855,6 +864,7 @@ def main() -> int:
         **({"visual_grammar": grammar} if grammar else {}),
         "production_profile": profile,
         "available_characters": names,
+        **({"name_aliases": {alias: target for alias, target in ALIASES.items() if target in names}, "alias_rule": "name_aliases 里的名字是同一人物的别称、昵称或网名；characters 和 speaker_name 一律写正名"} if any(target in names for target in ALIASES.values()) else {}),
         "available_locations": list(location_map),
         "anonymous_offscreen_speakers": ANONYMOUS_SPEAKERS,
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
