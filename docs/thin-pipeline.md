@@ -34,7 +34,7 @@ export PYTHONPATH=src:scripts
    .venv/bin/python scripts/thin_batch.py --novel-dir outputs/doupo-2d --chapters 1 --stage assets
    ```
    看 `outputs/doupo-2d/series_assets/cards_sheet.jpg`。不满意的卡删掉对应 jpeg 和两个侧车文件再跑一次；像真人照片的 3D 卡不用管，渲染时会自动重画。
-6. **第一集成片**（花视频钱）：
+6. **第一集成片**（花视频钱；无人值守场景见下一节，四五六步合成一条命令）：
    ```bash
    .venv/bin/python scripts/thin_batch.py --novel-dir outputs/doupo-2d --chapters 1
    ```
@@ -42,6 +42,25 @@ export PYTHONPATH=src:scripts
 7. **交付**：成片 `outputs/<id>/<id>_N/<id>_N.mp4`，封面 `<id>_N_cover.jpeg`。传 Mac 用 rsync 走 tailscale，逐文件 md5 校验。
 
 同一本书换画风或画幅：另起一个 novel-id（如 `doupo-3d-h`，`--style 3d --frame 16:9`），卡片和片段缓存都按目录走，两套互不影响。
+
+## 无人值守（Docker / 榜单场景）
+
+三个检查点各有一个自动判定（`scripts/thin_review.py`，本地 Qwen3.8 视觉模型答固定问卷，严格 JSON，温度 0），修复都有上限、绝不停下来等人：
+
+| 检查点 | 判定 | 自动修复（各一次） | 修不好 |
+|---|---|---|---|
+| 圣经 | 逐章抽取人物并计数，泛称（少年、老者、父亲…）一律不算；缺失的具名或有台词的人物 | `build_bible_thin.py --fill`：对照已有角色去重、外貌服装必须具体，否则不入库 | 写进 `bible_review.json` 的 needs_human |
+| 角色卡/地点卡 | 像真人程度、是否符合设定（不看道具姿势）、两张是否同一人、有无文字或多余人物；地点卡有无人物、昼夜是否与 `location_time` 一致 | 像真人 ≥ 0.6 → 动画化重画；其余不符 → 删卡重建 | 留在 `series_assets/cards_review.json` 和交付报告 |
+| 成片 | 每段 4 帧 + 该段角色卡 + 预期台词 + 语音识别文本：串人、多出角色、地点昼夜、文字水印、崩坏 | 判 fail 的段把审片给出的修正句写进 `review_feedback.json`，提示词加【导演修正】重生成一次（其他段走缓存） | 留在 `episode_review.json` 和交付报告 |
+
+```bash
+.venv/bin/python scripts/build_bible_thin.py <原文> --novel-id X --title 书名 --style 2d --fill
+.venv/bin/python scripts/thin_batch.py --novel-dir outputs/X --chapters 1-10 --parallel 3 --unattended
+```
+
+结束写 `outputs/X/delivery_report.md`：圣经补了谁、卡片修了什么还剩什么标记、每集时长/语音门/自动修正段/剩余标记、交付文件列表。`--review-only` 只判定不花钱修复，用来先看判定对不对。
+
+在焚天记 20 集上的校验（2026-09-03）：旧版第四集的串人段被准确指出（少女穿成了另一角色的白袍金星和绿耳坠）；被 Seedance 拒收的两张原卡判为 0.95/0.85，重画后 0.35；2D 全套卡和 3D 两集好片零误报；圣经判定抓到原文出现 24 次却不在圣经里的丹老。判定是模型，仍会有漏和误，所以每项只修一次、其余标记给人。
 
 ## 单集手动操作
 
@@ -64,6 +83,7 @@ export PYTHONPATH=src:scripts
 |---|---|
 | `scripts/build_bible_thin.py` | 新书入口：一次模型调用出圣经，写 profile / 视觉语法模板 / 人读版圣经 / novel.json。 |
 | `scripts/thin_batch.py` | 一键批跑：规划（串行）→ 建卡 → 渲染（并行）→ 报表；按状态跳过已完成的，每集一把锁。 |
+| `scripts/thin_review.py` | 三个自动判定（圣经补漏、卡片、成片）和卡片修复；`--unattended` 时由批跑调用，也可单独跑。 |
 | `scripts/plan_chapter_thin.py` | 一章一次调用（Qwen3.8 本地服务，先思考摘要再严格 JSON）。硬门三条；返修时给具体数字目标、识别原样重发、改写引用附最接近原句。 |
 | `scripts/build_clip_plan_thin.py` | 阶段打包成 ≤30 秒、≤6 阶段的片段，按官方 Seedance 2.5 模板写提示词（【生成目标】、逐图 用于/不采用、【视觉语法】、【阶段n·景别】、【保持一致】、【不要】），只报告的克制检查。 |
 | `scripts/render_clips_thin.py` | 资产卡（只到本集引用到的编号）、Seedance 请求（参考图 base64 内嵌）、静音切块 + SenseVoice、硬门、硬切拼接、剧本原句字幕、封面/结束卡、媒体 QC；接口故障自愈见下。 |

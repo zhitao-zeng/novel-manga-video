@@ -105,6 +105,9 @@ class Batch:
             "PHANROUTER_INLINE_REFERENCE_IMAGES": "1",
         }
         self.rows: dict[int, dict] = {}
+        self.reviewing = bool(args.unattended or args.review_only)
+        self.card_review: dict = {}
+        self.card_fixes: dict = {}
 
     # ---- helpers ----
     def episode_dir(self, chapter: int) -> Path:
@@ -200,6 +203,20 @@ class Batch:
         if self.args.dry_run:
             log(f"would build cards for chapters {planned}")
             return
+        self.build_cards(planned)
+        if not self.reviewing:
+            return
+        from thin_review import remediate_cards, review_cards
+        self.card_review = review_cards(self.novel_dir)
+        if self.args.unattended and self.card_review["flags"]:
+            self.card_fixes = remediate_cards(self.novel_dir, self.card_review)
+            if self.card_fixes["deleted"] or self.card_fixes["stylized"]:
+                self.build_cards(planned)
+                self.card_review = review_cards(self.novel_dir)
+        if self.card_review["flags"]:
+            log(f"cards: {len(self.card_review['flags'])} flag(s) remain for the delivery report")
+
+    def build_cards(self, planned: list[int]) -> None:
         for chapter in planned:
             directory = self.episode_dir(chapter)
             code, problem = self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
@@ -221,6 +238,8 @@ class Batch:
         if status in {"done", "done_with_warnings"} and not self.args.rerender:
             row["render"] = status
             self.fill_result(chapter)
+            if self.reviewing:
+                self.review_episode(chapter)
             return
         if self.args.dry_run:
             row["render"] = f"would render ({status})"
@@ -253,8 +272,32 @@ class Batch:
             if status not in {"done", "done_with_warnings"}:
                 row["note"] = problem
             self.fill_result(chapter)
+            if self.reviewing and status in {"done", "done_with_warnings"}:
+                self.review_episode(chapter)
         finally:
             lock.unlink(missing_ok=True)
+
+    def review_episode(self, chapter: int) -> None:
+        """Automatic clip review; in unattended mode a failed clip gets the reviewer's
+        correction appended to its prompt and is regenerated once, then reviewed again."""
+        from thin_review import review_episode
+        row = self.rows[chapter]
+        directory = self.episode_dir(chapter)
+        review = review_episode(directory)
+        feedback_path = directory / "review_feedback.json"
+        existing = json.loads(feedback_path.read_text(encoding="utf-8")) if feedback_path.is_file() else {}
+        fresh = {clip_id: note for clip_id, note in review["feedback"].items() if clip_id not in existing and note}
+        if self.args.unattended and fresh:
+            feedback_path.write_text(json.dumps({**existing, **fresh}, ensure_ascii=False, indent=1), encoding="utf-8")
+            log(f"ch{chapter}: regenerating {sorted(fresh)} with the reviewer's corrections")
+            self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers)], directory / "render.log")
+            row["render"] = self.render_status(chapter)
+            self.fill_result(chapter)
+            review = review_episode(directory)
+            row["auto_fixed"] = sorted(fresh)
+        row["review_flags"] = review["flags"]
+        if review["flags"]:
+            log(f"ch{chapter}: {len(review['flags'])} clip flag(s) remain: {review['flags'][0][:120]}")
 
     def fill_result(self, chapter: int) -> None:
         report = self.episode_dir(chapter) / "thin_media_report.json"
@@ -288,7 +331,33 @@ class Batch:
             handle.write(f"\n## {payload['finished']} · chapters {self.args.chapters} · stage {self.args.stage}\n\n{table}\n")
         done = [ch for ch in chapters if self.rows[ch].get("render", self.render_status(ch)) in {"done", "done_with_warnings"}]
         log(f"{len(done)}/{len(chapters)} episodes have a final video")
+        if self.reviewing:
+            self.delivery_report(chapters)
         return 0 if len(done) == len(chapters) or self.args.stage != "all" else 2
+
+
+    def delivery_report(self, chapters: list[int]) -> None:
+        bible_review_path = self.novel_dir / "bible_review.json"
+        bible_review = json.loads(bible_review_path.read_text(encoding="utf-8")) if bible_review_path.is_file() else {}
+        cards_path = self.novel_dir / "series_assets" / "cards_review.json"
+        cards = self.card_review or (json.loads(cards_path.read_text(encoding="utf-8")) if cards_path.is_file() else {})
+        lines = [f"# {self.title} · 交付报告（{time.strftime('%Y-%m-%d %H:%M')}）", "", f"模式：{'无人值守（自动修复各一次）' if self.args.unattended else '只审核不修复'}；章节 {self.args.chapters}", ""]
+        if bible_review:
+            lines += ["## 圣经", "", f"- 原文高频但圣经缺失的人物：{', '.join(bible_review.get('missing', {})) or '无'}", f"- 自动补入：{', '.join(bible_review.get('filled', [])) or '无'}", ""]
+        lines += ["## 角色卡与地点卡", ""]
+        if self.card_fixes:
+            lines.append(f"- 自动重画（动画化）：{', '.join(self.card_fixes.get('stylized', [])) or '无'}；删除重建：{', '.join(self.card_fixes.get('deleted', [])) or '无'}")
+        lines.append(f"- 仍有标记：{'；'.join(cards.get('flags', [])) or '无'}")
+        lines += ["", "## 各集", "", "| 集 | 时长 | 段 | 语音门未过 | 薄QC | 自动修正段 | 剩余标记 |", "|---|---|---|---|---|---|---|"]
+        for chapter in chapters:
+            row = self.rows[chapter]
+            report_path = self.episode_dir(chapter) / "thin_media_report.json"
+            data = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
+            lines.append(f"| {chapter} | {row.get('duration', '')} | {row.get('clips', '')} | {', '.join(data.get('gate_failed_clips', [])) or '无'} | {row.get('thin_passed', '')} | {', '.join(row.get('auto_fixed', [])) or '无'} | {'；'.join(row.get('review_flags', [])) or '无'} |")
+        videos = [row.get("video") for chapter in chapters for row in [self.rows[chapter]] if row.get("video")]
+        lines += ["", "## 交付文件", ""] + [f"- {video}" for video in videos]
+        (self.novel_dir / "delivery_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        log(f"delivery report: {self.novel_dir / 'delivery_report.md'}")
 
 
 def main() -> int:
@@ -305,6 +374,8 @@ def main() -> int:
     parser.add_argument("--notes-json", help='director notes per chapter: {"3": "...", "*": "for every chapter"}')
     parser.add_argument("--replan", action="store_true", help="re-plan chapters that already have a clip plan")
     parser.add_argument("--rerender", action="store_true", help="re-render episodes that already have a final video")
+    parser.add_argument("--unattended", action="store_true", help="automatic reviews with bounded paid fixes: cards after the assets stage (one redraw/regeneration), clips after each render (one regeneration with the reviewer's correction); then delivery_report.md")
+    parser.add_argument("--review-only", action="store_true", help="run the automatic reviews and write delivery_report.md without any paid fix")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
 

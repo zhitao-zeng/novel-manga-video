@@ -103,6 +103,7 @@ def main() -> int:
     parser.add_argument("--frame", choices=("9:16", "16:9"), default=DEFAULTS["frame"])
     parser.add_argument("--output-root", default="outputs")
     parser.add_argument("--force", action="store_true", help="rebuild the bible even if story_bible.json exists")
+    parser.add_argument("--fill", action="store_true", help="after building, add entries for named characters the novel keeps mentioning but the bible lacks (thin_review bible)")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
 
@@ -140,9 +141,15 @@ def main() -> int:
         "chapters": [{"index": e.index, "title": e.source_title, "chars": e.text_count} for e in novel.episodes],
         "profile": profile, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
     })
+    filled: list[str] = []
+    if args.fill:
+        from thin_review import review_bible
+        review = review_bible(novel_dir, source, fill=True)
+        filled = review["filled"]
+        bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     (novel_dir / "story_bible.md").write_text(bible_markdown(bible, novel, source, profile), encoding="utf-8")
     print(json.dumps({
-        "novel_dir": str(novel_dir), "review": str(novel_dir / "story_bible.md"),
+        "novel_dir": str(novel_dir), "review": str(novel_dir / "story_bible.md"), "filled_characters": filled,
         "next": [
             f"改 {grammar_path.name} 的 location_time（每个地点的时间和主光源）；style_line 留空则用 profile 的画风",
             f".venv/bin/python scripts/thin_batch.py --novel-dir {novel_dir} --chapters 1 --stage plan   # 第一章剧本，看 chapter_script.md",

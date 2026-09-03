@@ -46,7 +46,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v11-batch-ready"
+POLICY = "thin-media-v11.1-review-feedback"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -64,6 +64,7 @@ STYLIZE_PROMPT = (
     "布料和头发是干净的三维建模材质，柔和体积光；纯色简洁背景；禁止真人照片质感、真实人物肖像、写实皮肤纹理、文字、Logo或水印。"
 )
 RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完整。保持以上全部内容不变重新生成，每句台词都必须清晰完整地说出。"
+FEEDBACK_FILE = "review_feedback.json"  # {clip_id: 导演修正}, written by the automatic episode review
 SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
 
 
@@ -233,6 +234,25 @@ def cards_sheet(novel_dir: Path, output: Path, height: int = 300) -> Path | None
     return output
 
 
+def stylize_card(provider, path: Path) -> Path:
+    """Park a near-photoreal card (with its sidecars) and redraw it as clearly animated 3D."""
+    backup = path.with_suffix(".photoreal-rejected.jpeg")
+    for suffix in ("", ".task.json", ".request.json"):
+        source = path.with_suffix(path.suffix + suffix)
+        if source.exists():
+            target = backup.with_suffix(backup.suffix + suffix)
+            target.unlink(missing_ok=True)
+            source.rename(target)
+    provider.create_image(STYLIZE_PROMPT, path, reference=backup)
+    with Image.open(path) as image:
+        image.load()
+    atomic_write_json(path.with_suffix(path.suffix + ".request.json"), {
+        "origin": REDRAW_ORIGIN, "source": backup.name, "prompt_sha256": sha256_text(STYLIZE_PROMPT),
+        "request_sha256": sha256_text(STYLIZE_PROMPT + backup.name), "reason": "near-photoreal card",
+    })
+    return path
+
+
 def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> list[Path]:
     """A card missing while its .photoreal-rejected.jpeg backup exists is being
     redrawn by another thread or process; wait for it instead of failing (or,
@@ -269,6 +289,11 @@ class ThinMediaRunner:
         self.work.mkdir(parents=True, exist_ok=True)
         self.clip_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
         self.script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
+        # Director corrections from the automatic episode review stay part of the
+        # episode's state: they change the prompt (hence the cache key) of the
+        # clips they name, so a corrected clip is regenerated exactly once.
+        feedback_path = episode_dir / FEEDBACK_FILE
+        self.feedback = json.loads(feedback_path.read_text(encoding="utf-8")) if feedback_path.is_file() else {}
         asr_command = os.environ.get("NOVEL_ASR_COMMAND", "")
         self.asr_python = shlex.split(asr_command)[0] if asr_command else sys.executable
         self.asr_helper = Path(__file__).resolve().parent / "thin_asr_segments.py"
@@ -373,11 +398,15 @@ class ThinMediaRunner:
         return broken
 
     # ---- one clip ----
+    def clip_prompt(self, clip: dict) -> str:
+        note = str(self.feedback.get(clip["clip_id"], "")).strip()
+        return clip["prompt"] + (f"\n【导演修正】{note}" if note else "")
+
     def generate_clip(self, clip: dict, attempt: int) -> Path:
         directory = self.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
         directory.mkdir(parents=True, exist_ok=True)
         output = directory / "clip.mp4"
-        prompt = clip["prompt"] + (RETRY_SUFFIX if attempt > 1 else "")
+        prompt = self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "")
         references = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []))
         request = {
             "clip_id": clip["clip_id"], "attempt": attempt, "duration": clip["request_seconds"],
@@ -408,7 +437,7 @@ class ThinMediaRunner:
             if other == directory or not (other / "request.json").is_file() or not other_video.is_file() or other_video.stat().st_size == 0:
                 continue
             saved = json.loads((other / "request.json").read_text(encoding="utf-8"))
-            if saved.get("prompt", "").removesuffix(RETRY_SUFFIX) == clip["prompt"] and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            if saved.get("prompt", "").removesuffix(RETRY_SUFFIX) == self.clip_prompt(clip) and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 log(f"{clip['clip_id']} attempt {attempt}: reusing the matching video from {other.name}")
                 return other_video
         wait_for_inflight_redraws(references)
@@ -501,22 +530,8 @@ class ThinMediaRunner:
                     # request.json marker, the backup file it cannot touch).
                     repaired.append(label)
                     continue
-                # Park the photoreal card and its sidecars: the provider refuses
-                # a new prompt against an old task sidecar.
-                for suffix in ("", ".task.json", ".request.json"):
-                    source = path.with_suffix(path.suffix + suffix)
-                    if source.exists():
-                        target = backup.with_suffix(backup.suffix + suffix)
-                        target.unlink(missing_ok=True)
-                        source.rename(target)
                 log(f"privacy repair: redrawing {label} as stylized 3D from {backup.name}")
-                self.provider.create_image(STYLIZE_PROMPT, path, reference=backup)
-                with Image.open(path) as image:
-                    image.load()
-                atomic_write_json(path.with_suffix(path.suffix + ".request.json"), {
-                    "origin": REDRAW_ORIGIN, "source": backup.name, "prompt_sha256": sha256_text(STYLIZE_PROMPT),
-                    "request_sha256": sha256_text(STYLIZE_PROMPT + backup.name), "reason": "Seedance InputImageSensitiveContentDetected",
-                })
+                stylize_card(self.provider, path)
                 repaired.append(label)
         return repaired
 
@@ -759,6 +774,7 @@ class ThinMediaRunner:
             # Batch drivers compare this with the current clip_plan.json to tell
             # a finished episode from one whose plan changed since.
             "clip_plan_fingerprint": plan_fingerprint(self.clip_plan),
+            "review_feedback": self.feedback,
             "clips": results, "failed_clips": errored, "gate_failed_clips": failed,
         }
         if errored:
