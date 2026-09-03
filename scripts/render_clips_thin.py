@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v12.3-no-false-wait"
+POLICY = "thin-media-v12.4-caption-margin"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -876,6 +876,20 @@ class ThinMediaRunner:
             return offsets
 
         self.renderer._join_with_crossfade = hard_cut_join
+        # The renderer's subtitle style keeps a 310 px bottom margin (tuned for
+        # 9:16 so platform UI does not cover the line); on a 1080-high landscape
+        # frame that lands the subtitles a third of the way up.  Scale it: ~8%
+        # of the frame height, like a normal bottom caption.
+        original_write_ass = self.renderer.write_ass_pages
+        margin_v = 310 if height > width else max(60, round(height * 0.08))
+
+        def write_ass_pages(path, subtitles):
+            result = original_write_ass(path, subtitles)
+            text = Path(result).read_text(encoding="utf-8").replace(",2,90,90,310,1", f",2,90,90,{margin_v},1", 1)
+            Path(result).write_text(text, encoding="utf-8")
+            return result
+
+        self.renderer.write_ass_pages = write_ass_pages
         final, ass, joined, events = self.renderer.assemble_production(cover, ending, turn_segments, final_video, self.work)
         qc = inspect_media(final, cover, ending, ass, self.settings, self.episode_dir / "media_qc_report.json")
         freeze = float(qc.get("checks", {}).get("long_freeze", {}).get("detail", {}).get("max_freeze_seconds", 0.0))
