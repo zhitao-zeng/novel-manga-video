@@ -218,6 +218,10 @@ class Batch:
             row["plan"] = "failed"
             row["note"] = " | ".join(errors)[:240]
             log(f"ch{chapter}: planning FAILED: {row['note'][:160]}")
+            if self.args.replan:
+                # A superseded plan must not be rendered in place of the one that failed.
+                for stale in ("clip_plan.json", "clip_plan.md", "thin_media_report.json", "media_qc_report.json"):
+                    (directory / stale).unlink(missing_ok=True)
             return
         code, problem = self.run([sys.executable, str(SCRIPTS / "build_clip_plan_thin.py"), "--episode-dir", str(directory), "--bible", str(self.bible)], directory / "plan.log")
         if code != 0:
@@ -399,10 +403,10 @@ class Batch:
             for chapter in chapters:
                 self.grow(chapter)
                 self.plan(chapter)
-                if self.plan_status(chapter) == "planned":
+                if self.rows[chapter].get("plan") in {"planned", "kept"}:
                     futures.append(pool.submit(self.render, chapter))
                 self.volume_checkpoint(chapter, chapters)
-            for chapter, future in zip([ch for ch in chapters if self.plan_status(ch) == "planned"], futures):
+            for chapter, future in zip([ch for ch in chapters if self.rows[ch].get("plan") in {"planned", "kept"}], futures):
                 try:
                     future.result()
                 except Exception as error:  # noqa: BLE001 - one episode's thread must not end the batch

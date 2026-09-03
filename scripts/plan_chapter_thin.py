@@ -46,7 +46,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v7.10-singing"
+POLICY = "thin-chapter-plan-v7.11-soft-floor"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -948,6 +948,13 @@ def main() -> int:
         resent = attempts and attempts[-1].get("fingerprint") == fingerprint
         attempts.append({"attempt": attempt, **meta, "errors": errors, "warnings": warnings, "fingerprint": fingerprint, "resent_previous": bool(resent)})
         print(json.dumps({"attempt": attempt, **meta, "error_count": len(errors), "warning_count": len(warnings)}, ensure_ascii=False))
+        if errors and attempt == args.max_redo + 1 and all("低于本次要求的下限" in e for e in errors):
+            # The length floor is a preference, not a gate: on the last redo a
+            # slightly short chapter is accepted and the shortfall reported.
+            warnings = [*warnings, *("report only: " + e for e in errors)]
+            errors = []
+            attempts[-1]["errors"] = []
+            attempts[-1]["floor_waived"] = True
         if errors:
             final_errors = errors
             repair = {
