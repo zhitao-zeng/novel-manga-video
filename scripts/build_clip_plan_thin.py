@@ -17,12 +17,16 @@ import argparse
 import json
 import math
 import re
+import sys
 from pathlib import Path
 
 from novel_manga.models import StoryBible
 from novel_manga.util import atomic_write_json
 
-POLICY = "thin-clip-plan-v7.4-active-cast"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from thin_profile import frame_spec, load_profile
+
+POLICY = "thin-clip-plan-v8-profile"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -291,13 +295,14 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     return references, bindings, location_binding
 
 
-def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: list[str], location_binding: str, grammar: dict | None = None) -> str:
+def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: list[str], location_binding: str, grammar: dict | None = None, frame: dict | None = None) -> str:
+    frame = frame or frame_spec({"frame": "9:16"})
     shots = clip["shots"]
     cast_text = "、".join(cast) if cast else "无具名人物"
     start = compact(shots[0]["motion_prompt"], 30)
     end = compact(shots[-1]["end_state"], 30)
     lines = [
-        f"【生成目标】生成一段竖屏9:16的中国3D国漫短剧片段，约{clip['request_seconds']}秒。核心主体是{cast_text}，主要事件是从“{start}”到“{end}”。"
+        f"【生成目标】生成一段{frame['text']}的中国国漫短剧片段，约{clip['request_seconds']}秒。核心主体是{cast_text}，主要事件是从“{start}”到“{end}”。"
     ]
     if bindings:
         lines.append("【人物】" + "。".join(bindings) + "。")
@@ -336,7 +341,7 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     ambience = list(dict.fromkeys(shot["sfx"] for shot in shots if shot.get("sfx")))
     ambience_text = "、".join(ambience) if ambience else "现场环境声"
     lines.append(f"画面呈现{(grammar or {}).get('style_line') or bible.visual_style}。")
-    lines.append(f"镜头采用竖屏9:16，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；同一场景内保持人物左右位置和视线方向不变。")
+    lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")
     lines.append(f"声音包括角色对白、<{ambience_text}>和与动作同步的音效；无背景音乐；不要字幕。")
     lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、字幕、Logo或水印；不出现血液和伤口；不新增具名人物。")
     avoid = [compact(shot.get("avoid", "")) for shot in shots if shot.get("avoid")]
@@ -352,12 +357,16 @@ def main() -> int:
     parser.add_argument("--episode-dir", type=Path, required=True)
     parser.add_argument("--bible", type=Path, required=True)
     parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <novel dir>/visual_grammar.json when present")
+    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
+    parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     args = parser.parse_args()
     episode_dir = args.episode_dir.resolve()
     script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
     bible = StoryBible.model_validate_json(args.bible.read_text(encoding="utf-8"))
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     grammar = load_grammar(args.grammar, episode_dir)
+    profile = load_profile(episode_dir.parent, style=args.style, frame=args.frame)
+    frame = frame_spec(profile)
     overrides_path = episode_dir / "clip_overrides.json"
     overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {}
     shots = script["shots"]
@@ -403,7 +412,7 @@ def main() -> int:
                 shot["avoid"] = "；".join(x for x in (shot.get("avoid", ""), override["extra_avoid"]) if x)
         clip["identity_notes"] = override.get("identity_notes", "")
         references, bindings, location_binding = build_references(cast, clip["location"], bible, location_map)
-        prompt = compile_prompt(clip, bible, cast, bindings, location_binding, grammar)
+        prompt = compile_prompt(clip, bible, cast, bindings, location_binding, grammar, frame)
         lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
         lint = {k: v for k, v in lint.items() if v}
         lines = [
@@ -444,6 +453,7 @@ def main() -> int:
         "lint_stage_count": sum(len(clip.get("lint", {})) for clip in video_clips),
         "lint_by_code": {code: sum(list(v).count(code) for clip in video_clips for v in clip.get("lint", {}).values()) for code in ("no_light_source", "no_camera_position", "camera_or_light_over_60_chars", "camera_move_words", "abstract_wording", "readable_text", "start_state_over_120_chars", "no_audible_or_visible_action")},
         "visual_grammar": (grammar or {}).get("name"),
+        "profile": profile,
     }
     plan = {"policy": POLICY, "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
     totals["lint_by_code"] = {k: v for k, v in totals["lint_by_code"].items() if v}

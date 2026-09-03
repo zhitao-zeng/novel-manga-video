@@ -38,16 +38,75 @@ from novel_manga.render import Renderer
 from novel_manga.runtime_backends import correct_protected_lexicon, edit_distance, normalize_text
 from novel_manga.sd_dialogue import timed_subtitle_pages
 from novel_manga.util import atomic_write_json, media_duration, run
+from novel_manga.render import _fit_cover
+from dataclasses import replace as dc_replace
 
-POLICY = "thin-media-v9-episode-label"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from thin_profile import frame_spec, load_profile, styled_bible
+
+POLICY = "thin-media-v10.4-privacy-repair"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
 MAX_HOLD_SECONDS = 6.0
 MAX_CER = 0.5
 MIN_PEAK_DB = -35.0
+PRIVACY_MARKER = "InputImageSensitiveContentDetected"
+STYLIZE_PROMPT = (
+    "以参考图为唯一身份依据，把这张角色卡重绘成一眼可辨的中国3D国漫动画角色，不是真人：保持同一人的脸型、年龄段、发型、"
+    "胡须、服装款式与配色、站姿和构图完全不变；眼睛略大、五官简化概括、皮肤光滑无毛孔无老年斑、皱纹用动画化的少量线条表现，"
+    "布料和头发是干净的三维建模材质，柔和体积光；纯色简洁背景；禁止真人照片质感、真实人物肖像、写实皮肤纹理、文字、Logo或水印。"
+)
 RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完整。保持以上全部内容不变重新生成，每句台词都必须清晰完整地说出。"
 SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
+
+
+class FramedPhanRouter(PhanRouterMediaProvider):
+    """PhanRouter provider whose video ratio and location-card aspect follow the frame."""
+
+    def __init__(self, settings: Settings, frame: dict):
+        super().__init__(settings)
+        self.frame = frame
+
+    def _video_payload(self, *args, **kwargs):
+        payload = super()._video_payload(*args, **kwargs)
+        payload["ratio"] = self.frame["video_ratio"]
+        return payload
+
+    def create_image(self, prompt, output, reference=None, additional_references=()):
+        # Character cards stay portrait (identity references); scene cards
+        # take the frame's aspect so a landscape episode gets a landscape set.
+        ratio = self.frame["image_ratio"] if Path(output).name.startswith("establishing") else "9:16"
+        original_post = self.client.post
+
+        def post(url, *a, **kw):
+            body = kw.get("json")
+            if isinstance(body, dict) and "aspectRatio" in body:
+                kw = {**kw, "json": {**body, "aspectRatio": ratio}}
+            return original_post(url, *a, **kw)
+
+        self.client.post = post
+        try:
+            if additional_references:
+                return super().create_image(prompt, output, reference=reference, additional_references=additional_references)
+            return super().create_image(prompt, output, reference=reference)
+        finally:
+            self.client.post = original_post
+
+
+class FramedAssetFactory(SeriesAssetFactory):
+    """Asset factory whose scene-card prompt names the frame instead of 9:16."""
+
+    frame_text = "竖屏9:16"
+
+    def _location_prompt(self, bible, location):  # type: ignore[override]
+        prompt = SeriesAssetFactory._location_prompt(bible, location)
+        return prompt.replace("9:16", self.frame_text.split("屏")[-1]).replace("竖屏", self.frame_text[:2]) if self.frame_text != "竖屏9:16" else prompt
+
+
+def sha256_text(value: str) -> str:
+    import hashlib
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def log(message: str) -> None:
@@ -110,15 +169,20 @@ def lexicon_aliases() -> dict[str, str]:
 
 
 class ThinMediaRunner:
-    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int):
+    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None):
         self.novel_dir = novel_dir
         self.episode_dir = episode_dir
-        self.settings = settings
-        self.bible = bible
+        self.profile = profile or load_profile(novel_dir)
+        # Named frame_spec: ``self.frame`` is the frame-extraction method.
+        self.frame_spec = frame_spec(self.profile)
+        # Canvas follows the frame; everything downstream (mux scale/crop, ASS
+        # PlayRes, QC resolution) reads settings.width/height.
+        self.settings = dc_replace(settings, width=self.frame_spec["width"], height=self.frame_spec["height"])
+        self.bible = styled_bible(bible, self.profile) if (novel_dir / "profile.json").is_file() else bible
         self.workers = workers
         self.max_attempts = max_attempts
-        self.provider = PhanRouterMediaProvider(settings)
-        self.renderer = Renderer(settings)
+        self.provider = FramedPhanRouter(self.settings, self.frame_spec)
+        self.renderer = Renderer(self.settings)
         self.work = episode_dir / "work"
         self.work.mkdir(parents=True, exist_ok=True)
         self.clip_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
@@ -144,7 +208,9 @@ class ThinMediaRunner:
             "locations": self.bible.locations[:needed_locations],
         })
         log(f"assets: {needed_characters} characters x2 images + {needed_locations} locations")
-        factory = SeriesAssetFactory(self.settings, self.provider)
+        factory = FramedAssetFactory(self.settings, self.provider)
+        factory.frame_text = self.frame_spec["text"]
+        log(f"profile: style={self.profile['style']} frame={self.profile['frame']} canvas={self.settings.width}x{self.settings.height}")
         # Purge unreadable images BEFORE the factory runs.  A corrupt card is
         # not just a bad output: the factory feeds a character turnaround in as
         # the reference for its expression card, so one truncated download makes
@@ -294,11 +360,60 @@ class ThinMediaRunner:
         atomic_write_json(asr_path, result)
         return result
 
+    def repair_privacy_cards(self, clip: dict) -> list[str]:
+        """Redraw the character cards unique to a rejected clip as clearly animated.
+
+        Seedance's privacy detector treats a near-photoreal CG face as a real
+        person.  Cards (individual views) already used by a clip that generated
+        fine are exempt; when every card of the clip is exempt the rejection
+        must come from their combination, so all of them are redrawn.
+        """
+        exempt = set(getattr(self, "_ok_assets", set()))
+        cards = [ref for ref in clip.get("references", []) if ref["role"] == "character"]
+        candidates = [ref for ref in cards if ref["path"] not in exempt] or cards
+        repaired: list[str] = []
+        for ref in candidates:
+            path = self.novel_dir / ref["path"]
+            if not path.is_file() or str(path) in repaired:
+                continue
+            backup = path.with_suffix(".photoreal-rejected.jpeg")
+            if not backup.exists():
+                path.rename(backup)
+            # The provider refuses a new prompt against an old task sidecar;
+            # park the sidecars with the backup so the redraw is a fresh task.
+            for suffix in (".task.json", ".request.json"):
+                sidecar = path.with_suffix(path.suffix + suffix)
+                if sidecar.exists():
+                    sidecar.rename(backup.with_suffix(backup.suffix + suffix))
+            log(f"privacy repair: redrawing {ref['asset_id']}/{path.name} as stylized 3D from {backup.name}")
+            self.provider.create_image(STYLIZE_PROMPT, path, reference=backup)
+            with Image.open(path) as image:
+                image.load()
+            atomic_write_json(path.with_suffix(path.suffix + ".request.json"), {
+                "origin": "privacy-stylized-redraw", "source": backup.name, "prompt_sha256": sha256_text(STYLIZE_PROMPT),
+                "request_sha256": sha256_text(STYLIZE_PROMPT + backup.name), "reason": "Seedance InputImageSensitiveContentDetected",
+            })
+            repaired.append(str(path))
+        return [f"{ref['asset_id']}/{Path(ref['path']).name}" for ref in candidates if str(self.novel_dir / ref["path"]) in repaired]
+
     def process_clip(self, clip: dict) -> dict:
         attempts: list[dict] = []
+        privacy_repairs = 0
         for attempt in range(1, self.max_attempts + 1):
-            video = self.generate_clip(clip, attempt)
+            try:
+                video = self.generate_clip(clip, attempt)
+            except RuntimeError as error:
+                if PRIVACY_MARKER in str(error) and privacy_repairs == 0:
+                    privacy_repairs += 1
+                    repaired = self.repair_privacy_cards(clip)
+                    log(f"{clip['clip_id']}: reference rejected as a real person; redrew {repaired or 'nothing'}; retrying")
+                    if repaired:
+                        continue
+                raise
             analysis = self.analyse_clip(clip, video)
+            if not hasattr(self, "_ok_assets"):
+                self._ok_assets = set()
+            self._ok_assets.update(ref["path"] for ref in clip.get("references", []))
             attempts.append(analysis)
             log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
             if analysis["passed"]:
@@ -397,6 +512,53 @@ class ThinMediaRunner:
                 events.append({"unit_id": clip_id, "role": "dialogue", "start": float(page["start"]), "end": float(page["end"]), "text": str(page["text"]), "subtitle_source": "native_audio_asr"})
         return events
 
+    def _font(self, size: int):
+        from PIL import ImageFont
+        return ImageFont.truetype(str(self.settings.font_path), size)
+
+    def landscape_cover(self, background: Path, output: Path, novel_title: str, art_title: str, label: str) -> Path:
+        from PIL import ImageDraw
+        W, H = self.settings.width, self.settings.height
+        with Image.open(background).convert("RGB") as source:
+            image = _fit_cover(source, W, H).convert("RGBA")
+        shade = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(shade)
+        for x in range(0, W // 2):
+            draw.line((x, 0, x, H), fill=(6, 10, 20, int(190 * (1 - x / (W / 2)))))
+        image = Image.alpha_composite(image, shade)
+        draw = ImageDraw.Draw(image)
+        draw.text((90, 70), novel_title, font=self._font(48), fill=(240, 197, 91), stroke_width=2, stroke_fill=(10, 8, 6))
+        y = 150
+        for line in [art_title[i:i + 6] for i in range(0, len(art_title), 6)][:2]:
+            draw.text((86, y), line, font=self._font(132), fill=(255, 250, 235), stroke_width=6, stroke_fill=(14, 10, 8))
+            y += 150
+        draw.line((92, y + 10, 92 + 520, y + 10), fill=(238, 196, 93, 220), width=4)
+        box = (W - 300, 64, W - 80, 156)
+        draw.rounded_rectangle(box, radius=14, fill=(150, 26, 24))
+        text_w = draw.textbbox((0, 0), label, font=self._font(52))[2]
+        draw.text(((box[0] + box[2] - text_w) / 2, 74), label, font=self._font(52), fill=(255, 246, 218))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        image.convert("RGB").save(output, "JPEG", quality=95, subsampling=0)
+        return output
+
+    def landscape_card(self, background: Path, output: Path, novel_title: str, label: str, subtitle: str) -> Path:
+        from PIL import ImageDraw
+        W, H = self.settings.width, self.settings.height
+        with Image.open(background).convert("RGB") as source:
+            image = _fit_cover(source, W, H).convert("RGBA")
+        image = Image.alpha_composite(image, Image.new("RGBA", (W, H), (8, 12, 24, 150)))
+        draw = ImageDraw.Draw(image)
+        title_w = draw.textbbox((0, 0), novel_title, font=self._font(56))[2]
+        draw.text(((W - title_w) / 2, H * 0.30), novel_title, font=self._font(56), fill=(255, 246, 218))
+        label_w = draw.textbbox((0, 0), label, font=self._font(140))[2]
+        draw.text(((W - label_w) / 2, H * 0.40), label, font=self._font(140), fill=(248, 205, 92), stroke_width=6, stroke_fill=(14, 10, 8))
+        draw.line((W / 2 - 260, H * 0.72, W / 2 + 260, H * 0.72), fill=(238, 196, 93, 200), width=3)
+        sub_w = draw.textbbox((0, 0), subtitle, font=self._font(48))[2]
+        draw.text(((W - sub_w) / 2, H * 0.72 + 30), subtitle, font=self._font(48), fill=(255, 248, 228))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        image.convert("RGB").save(output, "JPEG", quality=95, subsampling=0)
+        return output
+
     def frame(self, video: Path, second: float, output: Path) -> Path:
         run(["ffmpeg", "-y", "-v", "error", "-ss", f"{second:.3f}", "-i", str(video), "-frames:v", "1", "-q:v", "2", str(output)])
         return output
@@ -421,8 +583,12 @@ class ThinMediaRunner:
         # Episode number from the directory name: "<novel>_3" or "<novel>_1-grammar".
         number_match = re.search(r"_(\d+)(?:-[A-Za-z0-9]+)?$", video_id)
         episode_number = int(number_match.group(1)) if number_match else 1
-        self.renderer.make_cover(cover_frame, cover, novel_title=self.bible.novel_title, art_title=art_title, episode_label=f"第{episode_number:02d}集")
-        self.renderer.make_card(ending_frame, ending, self.bible.novel_title, "未完待续", "敬请期待下一集")
+        if self.settings.width > self.settings.height:
+            self.landscape_cover(cover_frame, cover, self.bible.novel_title, art_title, f"第{episode_number:02d}集")
+            self.landscape_card(ending_frame, ending, self.bible.novel_title, "未完待续", "敬请期待下一集")
+        else:
+            self.renderer.make_cover(cover_frame, cover, novel_title=self.bible.novel_title, art_title=art_title, episode_label=f"第{episode_number:02d}集")
+            self.renderer.make_card(ending_frame, ending, self.bible.novel_title, "未完待续", "敬请期待下一集")
         final_video = self.episode_dir / f"{video_id}.mp4"
         # FFmpeg 4.4 on this host freezes an input at its first frame inside
         # multi-input xfade chains (the renderer only avoids that above 16
@@ -463,14 +629,18 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
+    parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     args = parser.parse_args()
     novel_dir = args.novel_dir.resolve()
     episode_dir = novel_dir / args.episode
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
-    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts)
+    profile = load_profile(novel_dir, style=args.style, frame=args.frame)
+    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile)
     clips = [c for c in runner.clip_plan["clips"] if c["kind"] == "video"]
     summary = {
+        "profile": runner.profile, "canvas": f"{runner.settings.width}x{runner.settings.height}",
         "settings": {"provider": settings.provider, "image_model": settings.image_model, "video_model": settings.video_model, "admission_mode": settings.admission_mode, "poll_timeout": settings.poll_timeout, "outro_seconds": settings.outro_seconds, "font": str(settings.font_path)},
         "asr_python": runner.asr_python, "asr_helper": str(runner.asr_helper), "protected_terms": runner.protected_terms, "alias_count": len(runner.aliases),
         "clips": [{"clip_id": c["clip_id"], "seconds": c["request_seconds"], "references": [r["path"] for r in c["references"]], "spoken_chars": len(normalize_text(c.get("spoken_text", "")))} for c in clips],

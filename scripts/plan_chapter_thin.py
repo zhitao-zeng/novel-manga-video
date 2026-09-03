@@ -20,6 +20,7 @@ Outputs (under <output-root>/<novel-id>/<novel-id>_<episode>/):
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -42,12 +43,15 @@ from novel_manga.models import (
 )
 from novel_manga.util import atomic_write_json
 
-POLICY = "thin-chapter-plan-v6.2-scene-master"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
+
+POLICY = "thin-chapter-plan-v7.5-profile"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
 QUOTE_MAX_CHARS = 200
-MAX_SKIPPED = 2
+MAX_SKIPPED = 3
 SHOT_RANGE = (12, 24)
 CLIP_RANGE = (3, 4)
 STAGE_RANGE = (4, 6)
@@ -80,16 +84,30 @@ def stage_seconds(turns: list[dict]) -> float:
     return max(3.0, round(seconds, 2))
 
 
+def closest_source_line(quote: str, chapter_text: str) -> str:
+    """The chapter sentence most similar to a rejected quote, for the repair message."""
+    key = quote_key(quote)
+    best, best_score = "", 0.0
+    for line in re.split(r"(?<=[。！？!?；;])|\n+", chapter_text):
+        line = line.strip()
+        if len(quote_key(line)) < 4:
+            continue
+        score = difflib.SequenceMatcher(None, key, quote_key(line)).ratio()
+        if score > best_score:
+            best, best_score = line, score
+    return best[:120]
+
+
 def chapter_quotes(text: str) -> list[str]:
     quotes = re.findall(r"[“\"]([^”\"]{2,120})[”\"]", text)
     return list(dict.fromkeys(quote.strip() for quote in quotes if spoken_chars(quote) >= 2))
 
-SYSTEM_PROMPT = """你是中文竖屏3D国漫短剧的编剧兼分镜师。把"当前章"改编成一集约90秒的短剧，由3到4段可用视频模型一次生成的连续片段组成，只输出一个JSON对象。
+SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜师。把"当前章"改编成一集约90秒的短剧，由3到4段可用视频模型一次生成的连续片段组成，只输出一个JSON对象。
 输出结构：clips，3到4段。每段clip在同一地点内连续拍摄，时长20到30秒，由4到6个"阶段"stages组成；每个阶段3到7秒，只有一个主要变化和最多两句台词，写清开始时、主要事件、结束时能直接看到的状态。相邻阶段用不同景别切画面（全景、中景、近景、特写交替）。
 时长预算是硬约束：每个发声汉字0.25秒，每句台词加1秒，每个阶段加1秒，无声动作阶段按4秒；单段不得超过30秒，全集不得超过100秒。全集发声字数控制在220到300字之间。
 硬规则：
 1. 只用当前章的事实、人物和顺序。不得引入后文信息、新事件、新地点，或StoryBible之外的具名角色。
-2. 原文已切成8个连续区段 seg_1 到 seg_8。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段至少被一个阶段引用；纯景物或纯议论的区段可以跳过，写进 skipped_segments 并给理由，最多跳过2个。
+2. 原文已切成8个连续区段 seg_1 到 seg_8。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段至少被一个阶段引用；纯景物或纯议论的区段可以跳过，写进 skipped_segments 并给理由，最多跳过3个。
 3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
 4. 台词取舍：推动剧情和人物关系的原文台词必须保留，可以只删子句、不改词序；重复表达同一意思的群众议论要合并成一两句或删掉。叙述里承载来历、规则和身份的信息（谁曾经是什么、某条规则意味着什么、某个称号指谁）用一两句无名族人的画外议论或角色问答说出来，改成口语但不新增原文没有的事实。内心独白不要改成出声自语，改成可见反应。
 5. 每条turn的text不超过26个汉字，长句拆成多条turn。
@@ -119,10 +137,13 @@ def compact(value: str) -> str:
 
 
 def quote_key(value: str) -> str:
-    text = compact(value)
-    text = re.sub(r"[“”\"「」『』]", '"', text)
-    text = re.sub(r"[‘’']", "'", text)
-    return text
+    """Provenance key: letters, digits and CJK only.
+
+    The gate exists to prove the words come from the chapter.  Quotation
+    marks, a colon turned into a full stop, or a dropped ellipsis are not
+    evidence of invention, so all punctuation and whitespace are ignored.
+    """
+    return "".join(re.findall(r"[A-Za-z0-9\u3400-\u9fff]", value or ""))
 
 
 def spoken_chars(value: str) -> int:
@@ -359,8 +380,10 @@ def grammar_text(grammar: dict | None) -> str:
     )
 
 
-def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 2500, notes: str = "", grammar: dict | None = None) -> tuple[str, dict]:
-    system_prompt = SYSTEM_PROMPT
+def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 2500, notes: str = "", grammar: dict | None = None, profile: dict | None = None) -> tuple[str, dict]:
+    frame = frame_spec(profile) if profile else FRAMES["9:16"]
+    system_prompt = SYSTEM_PROMPT.replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
+    system_prompt += f"\n\n【画幅】{frame['text']}。{frame['composition']}。"
     if grammar:
         system_prompt += f"\n\n【全书视觉语法，camera 和 light 字段必须与之一致】{grammar_text(grammar)}"
     system_prompt += (f"\n\n【本章导演意见，优先于一般偏好】{notes}" if notes else "")
@@ -435,7 +458,9 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         quote = str(shot.get("source_quote", "")).strip()
         key = quote_key(quote)
         full_line = key in {quote_key(q) for q in chapter_quotes(chapter_text)}
-        if len(key) < QUOTE_MIN_CHARS and not full_line:
+        # Length is judged on what the model wrote (punctuation included), the
+        # same count it was given in the schema; the key is only for matching.
+        if len(re.sub(r"[\s\u3000]+", "", quote)) < QUOTE_MIN_CHARS and not full_line:
             errors.append(f"{position}: source_quote too short, need at least {QUOTE_MIN_CHARS} chars: {quote!r}")
         elif len(key) > QUOTE_MAX_CHARS:
             errors.append(f"{position}: source_quote too long, at most {QUOTE_MAX_CHARS} chars")
@@ -449,7 +474,11 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             elif key in chapter_key:
                 warnings.append(f"{position}: source_quote spans a segment boundary; kept {segment_id}")
             else:
-                errors.append(f"{position}: source_quote is not verbatim chapter text, copy an exact span: {quote[:50]!r}")
+                nearest = closest_source_line(quote, chapter_text)
+                errors.append(
+                    f"{position}: source_quote 不是原文（疑似改写）：{quote[:50]!r}。"
+                    + (f"最接近的原文句子是：{nearest!r}，请逐字复制这一句或它所在段落里的一段连续原文" if nearest else "请从对应区段逐字复制一段连续原文")
+                )
         cited.setdefault(segment_id, []).append(position)
 
         characters = list(dict.fromkeys(str(name) for name in shot.get("characters", []) if str(name) in names))
@@ -572,9 +601,15 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "或给已有阶段增加有原文依据的问答，不得注水重复同一句意思"
         )
     if total_seconds > EPISODE_SECONDS_MAX:
+        stage_total = len(normalized)
+        spoken_total = sum(spoken_chars(t["text"]) for s in normalized for t in s["turns"] if t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"})
+        scale = 92.0 / total_seconds
+        stage_target = max(10, round(stage_total * scale))
         errors.append(
-            f"全集估算 {total_seconds} 秒，超过上限 {int(EPISODE_SECONDS_MAX)} 秒（目标约90秒）；"
-            "合并重复的群众议论，缩短或删掉次要台词，减少无声阶段"
+            f"全集估算 {total_seconds} 秒，超过上限 {int(EPISODE_SECONDS_MAX)} 秒（目标约90秒）。"
+            f"上一稿是 {stage_total} 个阶段、发声 {spoken_total} 字；本次压到 {stage_target} 个阶段左右、"
+            f"发声 {max(150, round(spoken_total * scale))} 字左右。做法是缩短台词：合并同一人的连续短句，删掉不带新信息的群众议论和感叹，"
+            "去掉只有反应没有事件的无声阶段；每个阶段最多两句短台词。不得为了缩短而删掉整个区段：每个区段仍须至少被一个阶段引用或写进 skipped_segments。不得原样重发上一稿。"
         )
     skipped_raw = raw.get("skipped_segments") or []
     skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in skipped_raw if isinstance(item, dict)}
@@ -767,6 +802,8 @@ def main() -> int:
     parser.add_argument("--min-seconds", type=float, default=0.0, help="reject a plan shorter than this (drives the redo)")
     parser.add_argument("--notes", default="", help="director feedback injected into this chapter's request")
     parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <output-root>/<novel-id>/visual_grammar.json when present")
+    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
+    parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")
     args = parser.parse_args()
@@ -783,6 +820,7 @@ def main() -> int:
 
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
+    profile = load_profile(novel_dir, style=args.style, frame=args.frame)
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")
     grammar = json.loads(grammar_path.read_text(encoding="utf-8")) if grammar_path.is_file() else None
     episode_dir.mkdir(parents=True, exist_ok=True)
@@ -800,6 +838,7 @@ def main() -> int:
         "chapter_chars": episode.text_count,
         "story_bible": compact_bible(bible, location_map),
         **({"visual_grammar": grammar} if grammar else {}),
+        "production_profile": profile,
         "available_characters": names,
         "available_locations": list(location_map),
         "anonymous_offscreen_speakers": ANONYMOUS_SPEAKERS,
@@ -820,7 +859,7 @@ def main() -> int:
         },
         **({"director_notes": args.notes} if args.notes else {}),
     }
-    print(json.dumps({"segments": [{k: v for k, v in s.items() if k != "text"} for s in segments], "characters": names, "locations": list(location_map), "visual_grammar": (grammar or {}).get("name")}, ensure_ascii=False))
+    print(json.dumps({"segments": [{k: v for k, v in s.items() if k != "text"} for s in segments], "characters": names, "locations": list(location_map), "visual_grammar": (grammar or {}).get("name"), "profile": profile}, ensure_ascii=False))
     if args.dry_run:
         atomic_write_json(episode_dir / "request_dry_run.json", payload)
         return 0
@@ -838,7 +877,7 @@ def main() -> int:
             content = Path(args.replay).read_text(encoding="utf-8")
             meta = {"replayed_from": str(args.replay)}
         else:
-            content, meta = call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema, max_tokens=args.max_tokens, timeout=args.timeout, notes=args.notes, grammar=grammar)
+            content, meta = call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema, max_tokens=args.max_tokens, timeout=args.timeout, notes=args.notes, grammar=grammar, profile=profile)
         raw_path.write_text(content, encoding="utf-8")
         if meta.get("analysis"):
             (episode_dir / f"analysis_attempt_{attempt:02d}.txt").write_text(meta.pop("analysis"), encoding="utf-8")
@@ -852,7 +891,9 @@ def main() -> int:
             repair = {"validation_errors": final_errors}
             continue
         errors, warnings, shots = validate_and_normalize(raw, segments, bible, location_map, episode.source_text)
-        attempts.append({"attempt": attempt, **meta, "errors": errors, "warnings": warnings})
+        fingerprint = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        resent = attempts and attempts[-1].get("fingerprint") == fingerprint
+        attempts.append({"attempt": attempt, **meta, "errors": errors, "warnings": warnings, "fingerprint": fingerprint, "resent_previous": bool(resent)})
         print(json.dumps({"attempt": attempt, **meta, "error_count": len(errors), "warning_count": len(warnings)}, ensure_ascii=False))
         if errors:
             final_errors = errors
@@ -861,6 +902,11 @@ def main() -> int:
                 "validation_errors": errors,
                 "previous_response": raw,
             }
+            if resent:
+                # The model echoed its previous draft; feedback is not landing.
+                # Withhold the draft so it has to write the plan again.
+                repair.pop("previous_response")
+                repair["instruction"] = "上一稿被原样重发，未做任何修改。本次不提供上一稿，请按 validation_errors 里的数字要求从头重写一份符合规模的剧本。"
             continue
         result = (raw, shots, warnings)
         break
@@ -895,7 +941,7 @@ def main() -> int:
         "attempts": attempts,
         "elapsed_seconds": round(time.monotonic() - started, 1),
     }
-    atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped})
+    atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped})
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
     atomic_write_json(episode_dir / "episode_plan.json", plan.model_dump(mode="json"))
     (episode_dir / "chapter_script.md").write_text(render_markdown(raw, shots, report, episode.source_title), encoding="utf-8")
