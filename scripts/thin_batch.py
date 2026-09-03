@@ -378,6 +378,8 @@ class Batch:
         row = self.rows[chapter]
         row["clips"] = len(data.get("clips", []))
         row["retries"] = sum(max(0, len(c.get("attempts", [])) - 1) for c in data.get("clips", []))
+        if data.get("review_feedback"):  # corrections applied by an earlier run count as auto-fixed too
+            row["auto_fixed"] = sorted(set(row.get("auto_fixed", [])) | set(data["review_feedback"]))
         assembly = data.get("assembly") or {}
         if assembly:
             row["duration"] = round(assembly.get("duration", 0.0), 1)
