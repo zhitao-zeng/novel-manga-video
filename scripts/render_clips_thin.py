@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v12.4-caption-margin"
+POLICY = "thin-media-v12.5-output-moderation"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -77,6 +77,8 @@ STYLIZE_PROMPT = (
     "布料和头发是干净的三维建模材质，柔和体积光；纯色简洁背景；禁止真人照片质感、真实人物肖像、写实皮肤纹理、文字、Logo或水印。"
 )
 RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完整。保持以上全部内容不变重新生成，每句台词都必须清晰完整地说出。"
+OUTPUT_MODERATION_MARKER = "OutputVideoSensitiveContentDetected"
+COMPLIANCE_SUFFIX = "\n【合规】画面健康、日常、无任何暴力、血腥、色情、赌博或违规内容；人物衣着完整；屏幕上的文字仅为剧情中的普通聊天内容。"
 FEEDBACK_FILE = "review_feedback.json"  # {clip_id: 导演修正}, written by the automatic episode review
 SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
 
@@ -511,7 +513,7 @@ class ThinMediaRunner:
         directory = self.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
         directory.mkdir(parents=True, exist_ok=True)
         output = directory / "clip.mp4"
-        prompt = self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "")
+        prompt = self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "") + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
         references = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []))
         request = {
             "clip_id": clip["clip_id"], "attempt": attempt, "duration": clip["request_seconds"],
@@ -663,6 +665,12 @@ class ThinMediaRunner:
                         log(f"{clip['clip_id']}: reference rejected as a real person; redrew {repaired or 'nothing'}; retrying")
                         if repaired:
                             continue
+                    if OUTPUT_MODERATION_MARKER in str(error) and not clip.get("_compliance"):
+                        # The generated video tripped the service's output filter;
+                        # one retry with an explicit compliance line, same attempt.
+                        clip["_compliance"] = True
+                        log(f"{clip['clip_id']}: generated video rejected by output moderation; retrying once with a compliance line")
+                        continue
                     raise
                 analysis = self.analyse_clip(clip, video)
                 if not hasattr(self, "_ok_assets"):

@@ -27,7 +27,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v8.3-chat-message"
+POLICY = "thin-clip-plan-v8.4-sfx-none"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -244,7 +244,7 @@ def sound_clause(shot: dict) -> str:
                 seen[who] = nth + 1
                 voice = voice.replace("一名", ORDINALS[min(nth, len(ORDINALS) - 1)], 1)
             parts.append(f"中文普通话，{emotion}，{voice}说：{{{turn['text']}}}，画面中无人开口")
-    if shot.get("sfx"):
+    if shot.get("sfx") and compact(shot["sfx"]) not in {"无", "没有", "无声", "无音效", "空", "none"}:
         parts.append(f"<{shot['sfx']}>")
     if chat_turns(shot):
         parts.append("<手机消息提示音>")
