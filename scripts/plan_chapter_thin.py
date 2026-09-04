@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8.6-fast-3clips"
+POLICY = "thin-chapter-plan-v8.7-text-soft"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -611,10 +611,12 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                     continue  # the phone screen is supposed to show the messages
                 match = pattern.search(value)
                 if match:
-                    errors.append(
-                        f"{position}: {field} 含{label}描述（{match.group(0)}），图片和视频都不允许；"
-                        "去掉血迹和伤口，碑上的结果改写为无字的发光纹路"
-                    )
+                    message = (f"{position}: {field} 含{label}描述（{match.group(0)}），图片和视频都不允许；"
+                               "去掉血迹和伤口，碑上的结果改写为无字的发光纹路")
+                    if label == "可读文字" and FAST_TIER:
+                        warnings.append("report only: " + message)  # fast tier: text on props is a note, not a gate
+                    else:
+                        errors.append(message)
         base = {
             "clip_hint": shot.get("clip_hint"),
             "segment_id": segment_id,
