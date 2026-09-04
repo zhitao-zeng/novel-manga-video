@@ -35,12 +35,12 @@ import httpx
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import endpoint_order  # noqa: E402
+from thin_profile import endpoint_order, load_genre, load_profile  # noqa: E402
 
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.13-truncation-retry"
+POLICY = "thin-review-v1.14-genre"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -357,10 +357,15 @@ def judge_character_cards(character: Character, views: list[Path]) -> dict:
     return ask_json(parts, CHARACTER_CARD_SCHEMA, name="character_card")
 
 
+LOCATION_POLICY = "empty"
+
+
 def judge_location_card(location: str, expected_time: str, view: Path) -> dict:
+    people_rule = ("应为没有任何人物的空场景" if LOCATION_POLICY == "empty" else "主体应空无一人，远处少量模糊的背景行人可以接受")
+    people_question = ("has_people 画面里是否有人或人形剪影" if LOCATION_POLICY == "empty" else "has_people 近景或中景是否有清晰的人物（远处模糊的背景行人不算）")
     parts = [image_part(view, CARD_SIDE), {"type": "text", "text": (
-        f"这是地点卡，应为没有任何人物的空场景。地点设定：{location}。" + (f"预期时间与光源：{expected_time}。" if expected_time else "")
-        + "回答：has_people 画面里是否有人或人形剪影；time_of_day 画面表现的时间；text 是否有可读文字、牌匾字样、水印；"
+        f"这是地点卡，{people_rule}。地点设定：{location}。" + (f"预期时间与光源：{expected_time}。" if expected_time else "")
+        + f"回答：{people_question}；time_of_day 画面表现的时间；text 是否有可读文字、牌匾字样、水印；"
         "matches_description 场景内容是否符合设定。只输出JSON。"
     )}]
     return ask_json(parts, LOCATION_CARD_SCHEMA, name="location_card")
@@ -379,6 +384,8 @@ def time_conflicts(expected: str, seen: str) -> bool:
 
 
 def review_cards(novel_dir: Path, include_backups: bool = False, only_ids: set[str] | None = None) -> dict:
+    global LOCATION_POLICY
+    LOCATION_POLICY = load_genre(load_profile(novel_dir)).get("location_policy", "empty")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}

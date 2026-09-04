@@ -411,7 +411,8 @@ class Batch:
                 # once with a director note that keeps the sensitive beats indirect.
                 (directory / ".moderation_replanned").write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
                 log(f"ch{chapter}: content moderation blocked a clip twice; re-planning once with a toned-down note")
-                self.notes[str(chapter)] = MODERATION_NOTE
+                from thin_profile import load_genre
+                self.notes[str(chapter)] = MODERATION_NOTE + load_genre(self.profile).get("moderation_note_extra", "")
                 self.args.replan = True
                 try:
                     self.plan(chapter)

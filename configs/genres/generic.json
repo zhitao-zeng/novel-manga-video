@@ -1,0 +1,16 @@
+{
+  "name": "通用",
+  "keywords": [],
+  "era_allowed": "",
+  "era_rejects": "与故事时代设定不符的物件",
+  "text_on_props": "report",
+  "anonymous_roles": ["无名路人", "无名少年", "无名少女", "无名老者", "无名群声"],
+  "card_style_suffix_3d": "。整体必须是一眼可辨的风格化三维动画角色（国漫式概括造型）：眼睛略大、五官简化、皮肤光滑无毛孔、干净的三维建模材质与柔和体积光；绝不是真人照片、真实人物肖像或写实渲染",
+  "card_style_suffix_2d": "",
+  "location_policy": "empty",
+  "soften": [],
+  "grammar_rejects_extra": [],
+  "chat_screen": false,
+  "crowd_default": "群众作为柔化的中景或背景，不与主角争清晰度",
+  "moderation_note_extra": ""
+}

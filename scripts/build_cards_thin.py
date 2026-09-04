@@ -20,8 +20,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from render_clips_thin import RATE_LIMIT_RE, FramedAssetFactory, FramedPhanRouter, ModerationRejected, log  # noqa: E402
-from thin_profile import frame_spec, is_fast, load_profile, styled_bible  # noqa: E402
+from render_clips_thin import RATE_LIMIT_RE, FramedAssetFactory, FramedPhanRouter, ModerationRejected, apply_genre, log  # noqa: E402
+from thin_profile import frame_spec, is_fast, load_genre, load_profile, styled_bible  # noqa: E402
 
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
@@ -56,6 +56,7 @@ def main() -> int:
     novel_dir = args.novel_dir.resolve()
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
+    apply_genre(load_genre(profile))
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     settings = dc_replace(settings, width=frame["width"], height=frame["height"])
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))

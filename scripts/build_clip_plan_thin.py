@@ -25,10 +25,12 @@ from novel_manga.models import StoryBible
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import is_fast, frame_spec, load_profile, plan_fingerprint
+from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v9-fast-tier"
+POLICY = "thin-clip-plan-v9.1-genre"
 TWO_VIEW_CAST_LIMIT = 2
+GENRE_REJECTS: list[str] = []  # from the genre preset; appended to 【不要】
+GENRE_CROWD = ""
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
 MAX_STAGES = 6
@@ -402,7 +404,7 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     avoid = list(dict.fromkeys(a for a in avoid if a))
     rejects = [str(r) for r in (grammar or {}).get("rejects", []) if r]
     if avoid or rejects:
-        lines.append("【不要】" + "；".join([*avoid, *rejects]) + "。")
+        lines.append("【不要】" + "；".join([*avoid, *GENRE_REJECTS, *rejects]) + "。")
     return "\n".join(lines)
 
 
@@ -423,6 +425,10 @@ def main() -> int:
     load_chat_screen(episode_dir.parent)
     profile = load_profile(episode_dir.parent, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
+    genre = load_genre(profile)
+    global GENRE_REJECTS, GENRE_CROWD
+    GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]
+    GENRE_CROWD = genre.get("crowd_default", "")
     if is_fast(profile):
         global TWO_VIEW_CAST_LIMIT
         TWO_VIEW_CAST_LIMIT = 0  # one reference card per character

@@ -45,9 +45,9 @@ from novel_manga.render import _fit_cover
 from dataclasses import replace as dc_replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
+from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v14.3-softened-cache"
+POLICY = "thin-media-v15-genre"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
@@ -377,6 +377,16 @@ def cards_sheet(novel_dir: Path, output: Path, height: int = 300) -> Path | None
 PRESCREEN_RISK = 0.6
 
 
+def apply_genre(genre: dict) -> None:
+    """Genre preset → card style cue, location-card policy, extra softening pairs."""
+    global CARD_STYLE_SUFFIX_3D, LOCATION_EMPTY_SUFFIX, SOFTEN
+    if genre.get("card_style_suffix_3d"):
+        CARD_STYLE_SUFFIX_3D = genre["card_style_suffix_3d"]
+    if genre.get("location_policy") == "sparse":
+        LOCATION_EMPTY_SUFFIX = "。主体空无一人：近景和中景不出现任何人物或人形剪影，远处允许少量模糊的背景行人"
+    SOFTEN = SOFTEN + [(re.compile(pattern), replacement) for pattern, replacement in genre.get("soften", [])]
+
+
 def prescreen_prompt(prompt: str) -> float:
     """Ask the local Qwen whether the prompt is likely to trip the video service's
     content filter (violence, gore, sexual content, gambling, drugs, politics)."""
@@ -470,6 +480,7 @@ class ThinMediaRunner:
         self.settings = dc_replace(settings, width=self.frame_spec["width"], height=self.frame_spec["height"])
         self.bible = styled_bible(bible, self.profile) if (novel_dir / "profile.json").is_file() else bible
         self.fast = is_fast(self.profile)
+        apply_genre(load_genre(self.profile))
         self._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)
         self.max_attempts = 1 if self.fast else max_attempts
         self.provider = FramedPhanRouter(self.settings, self.frame_spec, resolution="480p" if self.fast else "720p")

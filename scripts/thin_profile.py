@@ -12,7 +12,7 @@ import os
 import json
 from pathlib import Path
 
-DEFAULTS = {"style": "2d", "frame": "9:16", "tier": "quality"}
+DEFAULTS = {"style": "2d", "frame": "9:16", "tier": "quality", "genre": "generic"}
 TIERS = ("quality", "fast")
 
 FRAMES = {
@@ -90,3 +90,31 @@ def endpoint_order(key: str) -> list[str]:
     endpoints = qwen_endpoints()
     start = int(hashlib.sha256(key.encode("utf-8")).hexdigest(), 16) % len(endpoints)
     return endpoints[start:] + endpoints[:start]
+
+
+GENRES_DIR = Path(__file__).resolve().parents[1] / "configs" / "genres"
+
+
+def load_genre(profile: dict | None) -> dict:
+    """Genre preset (configs/genres/<genre>.json) merged over the generic one:
+    era objects, text-on-props policy, anonymous roles, card style cues,
+    location-card policy, moderation softening pairs, chat-screen default."""
+    base = json.loads((GENRES_DIR / "generic.json").read_text(encoding="utf-8"))
+    key = (profile or {}).get("genre") or "generic"
+    path = GENRES_DIR / f"{key}.json"
+    if path.is_file():
+        base.update(json.loads(path.read_text(encoding="utf-8")))
+    base["key"] = key
+    return base
+
+
+def detect_genre(*texts: str) -> str:
+    """Pick the preset whose keywords appear most in the given texts (bible genre
+    line, title, opening chapters); generic when nothing matches."""
+    scores: dict[str, int] = {}
+    for path in GENRES_DIR.glob("*.json"):
+        preset = json.loads(path.read_text(encoding="utf-8"))
+        hits = sum(text.count(word) for text in texts for word in preset.get("keywords", []))
+        if hits:
+            scores[path.stem] = hits
+    return max(scores, key=scores.get) if scores else "generic"

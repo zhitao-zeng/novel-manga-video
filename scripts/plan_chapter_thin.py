@@ -45,9 +45,9 @@ from novel_manga.models import (
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import endpoint_order, is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
+from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8.7-text-soft"
+POLICY = "thin-chapter-plan-v9-genre"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -482,6 +482,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
 
 ALIASES: dict[str, str] = {}  # alias -> canonical character name (bible_aliases.json)
 FAST_TIER = False
+TEXT_ON_PROPS_GATE = True  # genre preset: readable text on props is a hard gate (古风碑文) or a note (都市招牌)
 
 
 def canonical(name: str) -> str:
@@ -613,8 +614,8 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                 if match:
                     message = (f"{position}: {field} 含{label}描述（{match.group(0)}），图片和视频都不允许；"
                                "去掉血迹和伤口，碑上的结果改写为无字的发光纹路")
-                    if label == "可读文字" and FAST_TIER:
-                        warnings.append("report only: " + message)  # fast tier: text on props is a note, not a gate
+                    if label == "可读文字" and (FAST_TIER or not TEXT_ON_PROPS_GATE):
+                        warnings.append("report only: " + message)  # fast tier or genre policy: a note, not a gate
                     else:
                         errors.append(message)
         base = {
@@ -932,6 +933,10 @@ def main() -> int:
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
+    genre = load_genre(profile)
+    global ANONYMOUS_SPEAKERS, TEXT_ON_PROPS_GATE
+    ANONYMOUS_SPEAKERS = list(genre.get("anonymous_roles") or ANONYMOUS_SPEAKERS)
+    TEXT_ON_PROPS_GATE = genre.get("text_on_props", "report") == "gate"
     fast = is_fast(profile)
     global FAST_TIER
     FAST_TIER = fast
@@ -979,6 +984,7 @@ def main() -> int:
         **({"name_aliases": {alias: target for alias, target in ALIASES.items() if target in names}, "alias_rule": "name_aliases 里的名字是同一人物的别称、昵称或网名；characters 和 speaker_name 一律写正名"} if any(target in names for target in ALIASES.values()) else {}),
         "available_locations": list(location_map),
         "anonymous_offscreen_speakers": ANONYMOUS_SPEAKERS,
+        "era_setting": {"genre": genre["name"], "allowed": genre.get("era_allowed", ""), "not_allowed": genre.get("era_rejects", ""), "crowd": genre.get("crowd_default", "")},
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),

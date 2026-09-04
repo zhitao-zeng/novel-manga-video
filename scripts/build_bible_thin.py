@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import DEFAULTS, STYLE_NAME, STYLE_VISUAL  # noqa: E402
+from thin_profile import DEFAULTS, STYLE_NAME, STYLE_VISUAL, detect_genre, load_genre  # noqa: E402
 
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.ingest import read_novel  # noqa: E402
@@ -106,6 +106,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="rebuild the bible even if story_bible.json exists")
     parser.add_argument("--fill", action="store_true", help="after building, add entries for named characters the seed chapters keep mentioning but the bible lacks (thin_review bible)")
     parser.add_argument("--bible-chapters", type=int, default=5, help="seed the bible from the first N chapters; later characters and locations are added chapter by chapter during the batch (--grow-bible)")
+    parser.add_argument("--genre", help="genre preset key (configs/genres/*.json); default: detected from the bible's genre line and the opening chapters")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
 
@@ -128,16 +129,29 @@ def main() -> int:
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
         print(json.dumps({"bible": "built", "seconds": round(time.monotonic() - started, 1), "characters": [c.name for c in bible.characters], "locations": [l.split("：", 1)[0] for l in bible.locations]}, ensure_ascii=False), flush=True)
 
+    seed_text = "".join(e.source_text for e in novel.episodes[:max(1, args.bible_chapters)])
+    genre_key = args.genre or detect_genre(bible.genre or "", args.title, seed_text[:20000])
+    profile["genre"] = genre_key
+    genre = load_genre(profile)
+    print(json.dumps({"genre": genre_key, "genre_name": genre["name"]}, ensure_ascii=False), flush=True)
     profile_path = novel_dir / "profile.json"
     if not profile_path.is_file() or args.force:
         atomic_write_json(profile_path, profile)
+    else:
+        current = json.loads(profile_path.read_text(encoding="utf-8"))
+        if "genre" not in current:
+            current["genre"] = genre_key
+            atomic_write_json(profile_path, current)
     grammar_path = novel_dir / "visual_grammar.json"
     if not grammar_path.is_file():
         grammar = json.loads((TEMPLATES / "visual_grammar.json").read_text(encoding="utf-8"))
         grammar["location_time"] = {location.split("：", 1)[0].strip(): "" for location in bible.locations}
+        grammar["rejects"] = list(dict.fromkeys([*grammar.get("rejects", []), *genre.get("grammar_rejects_extra", [])]))
+        grammar["name"] = f"{grammar['name']} · 题材预设：{genre['name']}"
         atomic_write_json(grammar_path, grammar)
     chat_path = novel_dir / "chat_screen.json"
-    if not chat_path.is_file() and (TEMPLATES / "chat_screen.json").is_file():
+    wants_chat = bool(genre.get("chat_screen")) or ("群聊" in seed_text or "微信" in seed_text or seed_text.count("群") >= 20)
+    if wants_chat and not chat_path.is_file() and (TEMPLATES / "chat_screen.json").is_file():
         # Group-chat novels: guess the group's name (the most frequent XX群 in the
         # seed chapters) and the protagonist as "self"; the user can edit the file.
         import collections

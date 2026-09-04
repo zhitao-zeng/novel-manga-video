@@ -21,7 +21,7 @@ export PYTHONPATH=src:scripts
    ```bash
    .venv/bin/python scripts/build_bible_thin.py inputs/斗破苍穹-前10章.md --novel-id doupo-2d --title 斗破苍穹 --style 2d --frame 9:16
    ```
-   产物在 `outputs/doupo-2d/`：`story_bible.json`、`story_bible.md`（人读）、`profile.json`、`visual_grammar.json`（模板，`location_time` 已按地点预填键名）、`novel.json`（记录原文路径和切章结果）。
+   产物在 `outputs/doupo-2d/`：`story_bible.json`、`story_bible.md`（人读）、`profile.json`（含自动检测的题材 `genre`，可改或用 `--genre` 指定）、`visual_grammar.json`（模板加题材禁忌，`location_time` 已按地点预填键名）、`novel.json`（记录原文路径和切章结果）；群聊类题材还会生成 `chat_screen.json`。
    **审 `story_bible.md`**：名字、主要角色是否齐、外貌服装有没有原文依据、地点能否画成空场、切章对不对。直接改 `story_bible.json`。
 3. **填视觉语法**：`visual_grammar.json` 的 `location_time` 给每个地点写时间和主光源（如"夜，银月为主光，灯火为次光"），否则规划器会自己决定昼夜，容易与地点卡冲突。`style_line` 留空即用 profile 的画风句。
 4. **第一章剧本**（不花钱）：
@@ -102,6 +102,25 @@ QWEN38_LOCAL_BASE_URL=http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http:/
 ## 屏幕上的聊天消息（群聊类小说）
 
 默认画面里不允许任何可读文字（视频模型画中文易乱码）。群聊是剧情主体的书用 `chat_message`：规划器把消息标成不发声的 turn（发消息的人 + 消息原文，逐字取自原文、≤24 字，一个阶段最多三条），打包器写成"屏幕内容：手机屏幕特写正对镜头，微信群聊界面依次弹出消息气泡，文字为清晰可读的简体中文、与下列内容逐字一致：【谁】「消息」"，并加 <手机消息提示音>；【保持一致】改为"除屏幕上指定的聊天消息外不出现其他文字"。审片多问一项 chat_text_ok（屏幕文字是否为清晰简体中文且与预期一致，允许截断，不允许乱码），不合格带"消息文字必须逐字一致、无乱码"重生成一次。视觉语法禁忌里的可读文字一条要写明"手机屏幕上剧本指定的聊天消息除外"。消息不进字幕、不进语音门。聊天界面用 `outputs/<novel>/chat_screen.json` 模板（`configs/templates/chat_screen.json`）：群名、本人昵称、布局（昵称在气泡上方、本人绿色靠右、他人白色靠左、底部输入栏），`build_bible_thin.py` 会从原文猜群名并取主角为本人，各段各集据此保持同一界面。
+
+## 题材预设
+
+会随题材变的规则不写在代码里，放在 `configs/genres/<key>.json`（现有 `generic` 通用、`xianxia` 古风玄幻、`urban` 现代都市），`profile.json` 的 `genre` 指定用哪份；起书时 `build_bible_thin.py` 按圣经里模型给出的类型和开头几章的关键词自动选，`--genre` 可强制。每份预设的字段：
+
+| 字段 | 作用 | 古风玄幻 | 现代都市 |
+|---|---|---|---|
+| `era_allowed` / `era_rejects` | 规划器的时代设定说明；`era_rejects` 追加进每段的【不要】 | 禁电灯眼镜印刷品手机 | 禁古装油灯宫殿刀剑 |
+| `text_on_props` | 画面描述里出现可读文字是硬门（gate）还是只报告（report） | gate（碑文改无字纹路） | report（招牌屏幕常见） |
+| `anonymous_roles` | 画外无名角色的称谓表 | 测验员、族人、弟子、长老 | 路人、同学、同事、医生、司机、保安 |
+| `card_style_suffix_3d` | 3D 角色卡追加的风格句 | 国漫年番式、古风布料 | 皮克斯式概括，现代服装也动画化 |
+| `location_policy` | 地点卡：`empty` 全空 / `sparse` 主体空、远处允许模糊行人 | empty | sparse |
+| `soften` | 审核拒绝时软化措辞的替换对（叠加在通用词典上） | 刀剑砍劈、血海 | 威胁、暧昧、赌债、绑架 |
+| `grammar_rejects_extra` | 起书时并进视觉语法的禁忌 | 碑文、战气特效、现代物件 | 招牌文字、古代物件、车牌商标 |
+| `chat_screen` | 是否默认生成聊天界面模板 | 否 | 是 |
+| `crowd_default` | 群众场面的默认处理，写进规划请求 | 弟子族人列队 | 街头路人模糊背景 |
+| `moderation_note_extra` | 审核连拒后自动重规划时追加的导演意见 | 打斗改对峙 | 威胁暧昧改间接 |
+
+新增题材就复制一份改字段；三道硬门、审核处理、并发缓存这些通用机制不受预设影响。已有目录已按检测结果补上 `genre`（诸天万象录 → urban，焚天记 → xianxia）。
 
 ## 单集手动操作
 
