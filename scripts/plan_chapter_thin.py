@@ -20,6 +20,7 @@ Outputs (under <output-root>/<novel-id>/<novel-id>_<episode>/):
 from __future__ import annotations
 
 import argparse
+import fcntl
 import difflib
 import hashlib
 import json
@@ -44,9 +45,9 @@ from novel_manga.models import (
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import FRAMES, STYLE_NAME, frame_spec, load_profile
+from thin_profile import is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v7.12-lyric-check"
+POLICY = "thin-chapter-plan-v8-fast-tier"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -385,7 +386,7 @@ def grammar_text(grammar: dict | None) -> str:
     )
 
 
-def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 2500, notes: str = "", grammar: dict | None = None, profile: dict | None = None) -> tuple[str, dict]:
+def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 2500, notes: str = "", grammar: dict | None = None, profile: dict | None = None, fast: bool = False) -> tuple[str, dict]:
     frame = frame_spec(profile) if profile else FRAMES["9:16"]
     system_prompt = SYSTEM_PROMPT.replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
     system_prompt += f"\n\n【画幅】{frame['text']}。{frame['composition']}。"
@@ -399,19 +400,25 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
     user_content = json.dumps(payload, ensure_ascii=False)
     started = time.monotonic()
     with httpx.Client(timeout=timeout, trust_env=False) as client:
-        analysis_body = _post(client, base_url, headers, {
-            "model": model,
-            "temperature": 0.3,
-            "max_tokens": analysis_tokens,
-            "chat_template_kwargs": {"enable_thinking": True, "preserve_thinking": True, "reasoning_effort": "low"},
-            "messages": [
-                {"role": "system", "content": system_prompt + "\n\n" + ANALYSIS_INSTRUCTION},
-                {"role": "user", "content": user_content},
-            ],
-        })
-        analysis_message = analysis_body["choices"][0]["message"]
-        analysis = str(analysis_message.get("content") or analysis_message.get("reasoning") or "")[-6000:]
-        analysis_seconds = round(time.monotonic() - started, 1)
+        if fast:
+            # Fast tier: straight to the JSON pass with a one-line plan hint.
+            analysis_body = {"usage": None}
+            analysis = "（快速档：不做内部规划，直接按要求输出约60秒、2到3段的剧本）"
+            analysis_seconds = 0.0
+        else:
+          analysis_body = _post(client, base_url, headers, {
+              "model": model,
+              "temperature": 0.3,
+              "max_tokens": analysis_tokens,
+              "chat_template_kwargs": {"enable_thinking": True, "preserve_thinking": True, "reasoning_effort": "low"},
+              "messages": [
+                  {"role": "system", "content": system_prompt + "\n\n" + ANALYSIS_INSTRUCTION},
+                  {"role": "user", "content": user_content},
+              ],
+          })
+          analysis_message = analysis_body["choices"][0]["message"]
+          analysis = str(analysis_message.get("content") or analysis_message.get("reasoning") or "")[-6000:]
+          analysis_seconds = round(time.monotonic() - started, 1)
         body = _post(client, base_url, headers, {
             "model": model,
             "temperature": 0.3,
@@ -441,6 +448,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
 
 
 ALIASES: dict[str, str] = {}  # alias -> canonical character name (bible_aliases.json)
+FAST_TIER = False
 
 
 def canonical(name: str) -> str:
@@ -627,7 +635,9 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "把当前章还没拍到的事件补成阶段，把叙述里的来历、规则和动机多外化成角色对白或画外议论，"
             "或给已有阶段增加有原文依据的问答，不得注水重复同一句意思"
         )
-    if total_seconds > EPISODE_SECONDS_MAX:
+    if total_seconds > EPISODE_SECONDS_MAX and FAST_TIER:
+        warnings.append(f"report only: 全集估算 {total_seconds} 秒，快速档不返修，打包时按 30 秒拆段")
+    elif total_seconds > EPISODE_SECONDS_MAX:
         stage_total = len(normalized)
         spoken_total = sum(spoken_chars(t["text"]) for s in normalized for t in s["turns"] if t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"})
         scale = 92.0 / total_seconds
@@ -839,14 +849,29 @@ def main() -> int:
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")
+    parser.add_argument("--merge", type=int, default=1, help="chapters per episode: episode k covers chapters (k-1)*N+1..k*N")
+    parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     args = parser.parse_args()
 
     global EPISODE_SECONDS_MIN
     EPISODE_SECONDS_MIN = args.min_seconds
     novel = read_novel(args.source, novel_id=args.novel_id, title=args.title)
-    if not 1 <= args.episode_index <= len(novel.episodes):
-        raise SystemExit(f"episode index out of range 1..{len(novel.episodes)}")
-    episode = novel.episodes[args.episode_index - 1]
+    merge = max(1, args.merge)
+    episode_count = -(-len(novel.episodes) // merge)
+    if not 1 <= args.episode_index <= episode_count:
+        raise SystemExit(f"episode index out of range 1..{episode_count} (merge {merge})")
+    if merge == 1:
+        episode = novel.episodes[args.episode_index - 1]
+    else:
+        # Thin web-novel chapters: one episode covers N consecutive chapters.
+        group = novel.episodes[(args.episode_index - 1) * merge: args.episode_index * merge]
+        joined = "\n\n".join(f"{e.source_title}\n{e.source_text}" for e in group)
+        episode = group[0].model_copy(update={
+            "index": args.episode_index,
+            "source_title": f"{group[0].source_title} 至 {group[-1].source_title.split(' ', 1)[0]}" if len(group) > 1 else group[0].source_title,
+            "source_text": joined, "text_count": sum(e.text_count for e in group),
+            "source_start": group[0].source_start, "source_end": group[-1].source_end,
+        })
     full_bible = StoryBible.model_validate_json(Path(args.bible).read_text(encoding="utf-8"))
     # Per-chapter slice: a long novel's bible has hundreds of entries, but the
     # prompt and the JSON enums only need the main cast plus whoever and
@@ -863,7 +888,18 @@ def main() -> int:
 
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
-    profile = load_profile(novel_dir, style=args.style, frame=args.frame)
+    profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
+    fast = is_fast(profile)
+    global FAST_TIER
+    FAST_TIER = fast
+    if fast:
+        # Fast tier: shorter episodes, fewer clips, and length overruns are
+        # warnings (the packer splits anyway).  Coverage and cast stay hard.
+        global CLIP_RANGE, SPOKEN_RANGE, EPISODE_SECONDS_MAX
+        CLIP_RANGE = (2, 3)
+        SPOKEN_RANGE = (140, 220)
+        EPISODE_SECONDS_MAX = 130.0
+        args.max_redo = min(args.max_redo, 1)
     aliases_path = novel_dir / "bible_aliases.json"
     ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")
@@ -898,6 +934,7 @@ def main() -> int:
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
             "clip_count": f"{CLIP_RANGE[0]}-{CLIP_RANGE[1]}",
+            **({"episode_target": "约60秒，2到3段，每段3到4个阶段，只拍本章最重要的冲突和转折"} if fast else {}),
             "stages_per_clip": f"{STAGE_RANGE[0]}-{STAGE_RANGE[1]}",
             "clip_seconds": f"20-{int(MAX_CLIP_SECONDS)}",
             "episode_seconds": f"about 90, max {int(EPISODE_SECONDS_MAX)}",
@@ -930,7 +967,7 @@ def main() -> int:
             content = Path(args.replay).read_text(encoding="utf-8")
             meta = {"replayed_from": str(args.replay)}
         else:
-            content, meta = call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema, max_tokens=args.max_tokens, timeout=args.timeout, notes=args.notes, grammar=grammar, profile=profile)
+            content, meta = call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema, max_tokens=args.max_tokens, timeout=args.timeout, notes=args.notes, grammar=grammar, profile=profile, fast=fast)
         raw_path.write_text(content, encoding="utf-8")
         if meta.get("analysis"):
             (episode_dir / f"analysis_attempt_{attempt:02d}.txt").write_text(meta.pop("analysis"), encoding="utf-8")
@@ -1008,9 +1045,12 @@ def main() -> int:
     }
     atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped})
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
-    recap = [row for row in recap if int(row.get("chapter", 0)) != episode.index]
-    recap.append({"chapter": episode.index, "title": episode.source_title, "summary": raw.get("summary"), "hook": raw.get("hook")})
-    atomic_write_json(recap_path, sorted(recap, key=lambda row: int(row.get("chapter", 0))))
+    with open(recap_path.with_suffix(".lock"), "w") as lock:  # planners may run in parallel
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        recap = json.loads(recap_path.read_text(encoding="utf-8")) if recap_path.is_file() else []
+        recap = [row for row in recap if int(row.get("chapter", 0)) != episode.index]
+        recap.append({"chapter": episode.index, "title": episode.source_title, "summary": raw.get("summary"), "hook": raw.get("hook")})
+        atomic_write_json(recap_path, sorted(recap, key=lambda row: int(row.get("chapter", 0))))
     atomic_write_json(episode_dir / "episode_plan.json", plan.model_dump(mode="json"))
     (episode_dir / "chapter_script.md").write_text(render_markdown(raw, shots, report, episode.source_title), encoding="utf-8")
     print(json.dumps({"status": "passed", "episode_dir": str(episode_dir), "metrics": report_metrics, "elapsed_seconds": report["elapsed_seconds"]}, ensure_ascii=False, indent=2))

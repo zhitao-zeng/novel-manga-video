@@ -45,9 +45,9 @@ from novel_manga.render import _fit_cover
 from dataclasses import replace as dc_replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import frame_spec, load_profile, plan_fingerprint, styled_bible
+from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v12.6-audio-moderation"
+POLICY = "thin-media-v13-fast-tier"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -86,9 +86,10 @@ SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
 class FramedPhanRouter(PhanRouterMediaProvider):
     """PhanRouter provider whose video ratio and location-card aspect follow the frame."""
 
-    def __init__(self, settings: Settings, frame: dict):
+    def __init__(self, settings: Settings, frame: dict, resolution: str = "720p"):
         super().__init__(settings)
         self.frame = frame
+        self.resolution = resolution
         self._tls = threading.local()
         original_post = self.client.post
 
@@ -107,6 +108,7 @@ class FramedPhanRouter(PhanRouterMediaProvider):
     def _video_payload(self, *args, **kwargs):
         payload = super()._video_payload(*args, **kwargs)
         payload["ratio"] = self.frame["video_ratio"]
+        payload["resolution"] = self.resolution
         return payload
 
     def create_image(self, prompt, output, reference=None, additional_references=()):
@@ -396,8 +398,9 @@ class ThinMediaRunner:
         self.settings = dc_replace(settings, width=self.frame_spec["width"], height=self.frame_spec["height"])
         self.bible = styled_bible(bible, self.profile) if (novel_dir / "profile.json").is_file() else bible
         self.workers = workers
-        self.max_attempts = max_attempts
-        self.provider = FramedPhanRouter(self.settings, self.frame_spec)
+        self.fast = is_fast(self.profile)
+        self.max_attempts = 1 if self.fast else max_attempts
+        self.provider = FramedPhanRouter(self.settings, self.frame_spec, resolution="480p" if self.fast else "720p")
         self.renderer = Renderer(self.settings)
         self.work = episode_dir / "work"
         self.work.mkdir(parents=True, exist_ok=True)
@@ -942,12 +945,13 @@ def main() -> int:
     parser.add_argument("--assets-only", action="store_true", help="build the cards this episode needs, write series_assets/cards_sheet.jpg for review, and stop before any video")
     parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
+    parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     args = parser.parse_args()
     novel_dir = args.novel_dir.resolve()
     episode_dir = novel_dir / args.episode
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
-    profile = load_profile(novel_dir, style=args.style, frame=args.frame)
+    profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile)
     clips = [c for c in runner.clip_plan["clips"] if c["kind"] == "video"]
     summary = {

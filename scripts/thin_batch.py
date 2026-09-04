@@ -108,6 +108,11 @@ class Batch:
         }
         self.rows: dict[int, dict] = {}
         self.reviewing = bool(args.unattended or args.review_only)
+        sys.path.insert(0, str(SCRIPTS))
+        from thin_profile import is_fast, load_profile
+        self.profile = load_profile(self.novel_dir, tier=args.tier)
+        self.fast = is_fast(self.profile)
+        self.grow_lock = threading.Lock()
         self.card_review: dict = {}
         self.card_fixes: dict = {}
         self._novel = None
@@ -123,10 +128,16 @@ class Batch:
         return self._novel
 
     def chapter(self, index: int):
+        """Episode `index`: one chapter, or --merge consecutive chapters joined."""
         episodes = self.novel().episodes
-        if not 1 <= index <= len(episodes):
-            raise SystemExit(f"chapter {index} out of range 1..{len(episodes)}")
-        return episodes[index - 1]
+        merge = max(1, self.args.merge)
+        count = -(-len(episodes) // merge)
+        if not 1 <= index <= count:
+            raise SystemExit(f"episode {index} out of range 1..{count} (merge {merge})")
+        if merge == 1:
+            return episodes[index - 1]
+        group = episodes[(index - 1) * merge: index * merge]
+        return group[0].model_copy(update={"index": index, "source_text": "\n\n".join(e.source_text for e in group), "text_count": sum(e.text_count for e in group)})
 
     def grow(self, chapter: int) -> None:
         """Chapter-by-chapter bible growth (new characters and locations), before planning."""
@@ -135,8 +146,11 @@ class Batch:
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             return
         from thin_review import grow_bible
+        if self.fast and chapter % 5 != 1:
+            return  # fast tier: grow every fifth episode
         try:
-            grow_bible(self.novel_dir, self.chapter(chapter).source_text, chapter)
+            with self.grow_lock:  # parallel planners must not append to the bible at once
+                grow_bible(self.novel_dir, self.chapter(chapter).source_text, chapter)
         except Exception as error:  # noqa: BLE001 - growth is best effort; planning still works with the bible as is
             log(f"ch{chapter}: bible growth failed ({type(error).__name__}: {str(error)[:120]}); planning with the current bible")
             self.rows[chapter]["note"] = f"bible growth failed: {type(error).__name__}"
@@ -205,7 +219,8 @@ class Batch:
         log(f"ch{chapter}: planning")
         (directory / "planning_failed.json").unlink(missing_ok=True) if directory.is_dir() else None
         command = [sys.executable, str(SCRIPTS / "plan_chapter_thin.py"), str(self.source), "--novel-id", self.novel_id, "--title", self.title,
-                   "--episode-index", str(chapter), "--bible", str(self.bible), "--output-root", str(self.novel_dir.parent), "--max-redo", str(self.args.max_redo)]
+                   "--episode-index", str(chapter), "--bible", str(self.bible), "--output-root", str(self.novel_dir.parent), "--max-redo", str(self.args.max_redo),
+                   "--merge", str(max(1, self.args.merge))] + (["--tier", self.args.tier] if self.args.tier else [])
         if self.args.min_seconds:
             command += ["--min-seconds", str(self.args.min_seconds)]
         notes = self.notes.get(str(chapter)) or self.notes.get("*")
@@ -223,7 +238,7 @@ class Batch:
                 for stale in ("clip_plan.json", "clip_plan.md", "thin_media_report.json", "media_qc_report.json"):
                     (directory / stale).unlink(missing_ok=True)
             return
-        code, problem = self.run([sys.executable, str(SCRIPTS / "build_clip_plan_thin.py"), "--episode-dir", str(directory), "--bible", str(self.bible)], directory / "plan.log")
+        code, problem = self.run([sys.executable, str(SCRIPTS / "build_clip_plan_thin.py"), "--episode-dir", str(directory), "--bible", str(self.bible)] + (["--tier", self.args.tier] if self.args.tier else []), directory / "plan.log")
         if code != 0:
             row["plan"] = "pack failed"
             row["note"] = problem
@@ -301,7 +316,7 @@ class Batch:
         lock.write_text(str(os.getpid()), encoding="utf-8")
         try:
             self.prepare_cards(chapter)
-            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers)]
+            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers)] + (["--tier", self.args.tier] if self.args.tier else [])
             for attempt in (1, 2):
                 log(f"ch{chapter}: rendering (attempt {attempt})")
                 code, problem = self.run(command, directory / "render.log")
@@ -316,7 +331,7 @@ class Batch:
             if status not in {"done", "done_with_warnings"}:
                 row["note"] = problem
             self.fill_result(chapter)
-            if self.reviewing and status in {"done", "done_with_warnings"}:
+            if self.reviewing and status in {"done", "done_with_warnings"} and not self.fast:
                 try:
                     self.review_episode(chapter)
                 except Exception as error:  # noqa: BLE001 - the episode is done; a review failure is a note
@@ -399,10 +414,16 @@ class Batch:
         if not self.args.dry_run and any(self.plan_status(ch) != "planned" or self.args.replan for ch in chapters):
             self.check_qwen()
         futures = []
-        with ThreadPoolExecutor(max_workers=max(1, self.args.parallel)) as pool:
-            for chapter in chapters:
+        with ThreadPoolExecutor(max_workers=max(1, self.args.parallel)) as pool, ThreadPoolExecutor(max_workers=max(1, self.args.plan_parallel)) as planners:
+            def plan_one(chapter: int) -> int:
                 self.grow(chapter)
                 self.plan(chapter)
+                return chapter
+            # Up to --plan-parallel chapters are planned at once (a chapter's
+            # recap may then miss its immediate predecessor); each planned
+            # chapter goes to the render pool as soon as it is ready.
+            planned_iter = (p.result() for p in [planners.submit(plan_one, ch) for ch in chapters]) if self.args.plan_parallel > 1 else map(plan_one, chapters)
+            for chapter in planned_iter:
                 if self.rows[chapter].get("plan") in {"planned", "kept"}:
                     futures.append(pool.submit(self.render, chapter))
                 self.volume_checkpoint(chapter, chapters)
@@ -519,6 +540,9 @@ def main() -> int:
     parser.add_argument("--prune", action="store_true", help="after an episode is assembled, delete its intermediate audio, stale clips and review frames (keeps clip.mp4 + asr.json for the cache)")
     parser.add_argument("--volume-size", type=int, default=50, help="write volume_review_N.md every N chapters (bible growth, suggestions, flags)")
     parser.add_argument("--min-chapter-chars", type=int, default=300, help="chapters shorter than this (author notes) are skipped")
+    parser.add_argument("--merge", type=int, default=1, help="chapters per episode (episode k = chapters (k-1)*N+1..k*N); --chapters then counts episodes")
+    parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier; fast = no think-pass/redo, ~60 s, 480p, single attempt, no episode review")
+    parser.add_argument("--plan-parallel", type=int, default=1, help="chapters planned at the same time (needs a Qwen service with --max-num-seqs > 1)")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
 

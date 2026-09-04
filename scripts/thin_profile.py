@@ -11,7 +11,8 @@ import hashlib
 import json
 from pathlib import Path
 
-DEFAULTS = {"style": "2d", "frame": "9:16"}
+DEFAULTS = {"style": "2d", "frame": "9:16", "tier": "quality"}
+TIERS = ("quality", "fast")
 
 FRAMES = {
     "9:16": {"width": 1080, "height": 1920, "text": "竖屏9:16", "video_ratio": "9:16", "image_ratio": "9:16",
@@ -42,7 +43,17 @@ def load_profile(novel_dir: Path, **overrides) -> dict:
         raise ValueError(f"profile.frame must be one of {list(FRAMES)}")
     if profile["style"] not in STYLE_VISUAL:
         raise ValueError(f"profile.style must be one of {list(STYLE_VISUAL)}")
+    if profile.get("tier", "quality") not in TIERS:
+        raise ValueError(f"profile.tier must be one of {TIERS}")
+    profile.setdefault("tier", "quality")
     return profile
+
+
+def is_fast(profile: dict | None) -> bool:
+    """The fast tier trades polish for throughput: no planning think-pass or
+    redo, ~60 s episodes of 3 clips, one reference card per character, 480p,
+    no speech-gate regeneration, no episode review."""
+    return bool(profile) and profile.get("tier") == "fast"
 
 
 def frame_spec(profile: dict) -> dict:

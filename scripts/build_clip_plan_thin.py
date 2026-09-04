@@ -25,9 +25,9 @@ from novel_manga.models import StoryBible
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import frame_spec, load_profile, plan_fingerprint
+from thin_profile import is_fast, frame_spec, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v8.6-singing"
+POLICY = "thin-clip-plan-v9-fast-tier"
 TWO_VIEW_CAST_LIMIT = 2
 MAX_CLIP_SECONDS = 30.0
 SOFT_CUT_SECONDS = 18.0
@@ -413,6 +413,7 @@ def main() -> int:
     parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <novel dir>/visual_grammar.json when present")
     parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
+    parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     args = parser.parse_args()
     episode_dir = args.episode_dir.resolve()
     script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
@@ -420,8 +421,11 @@ def main() -> int:
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     grammar = load_grammar(args.grammar, episode_dir)
     load_chat_screen(episode_dir.parent)
-    profile = load_profile(episode_dir.parent, style=args.style, frame=args.frame)
+    profile = load_profile(episode_dir.parent, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
+    if is_fast(profile):
+        global TWO_VIEW_CAST_LIMIT
+        TWO_VIEW_CAST_LIMIT = 0  # one reference card per character
     overrides_path = episode_dir / "clip_overrides.json"
     overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {}
     shots = script["shots"]
