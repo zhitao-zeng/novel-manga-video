@@ -36,6 +36,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 PLAN_STAGES = ("plan", "assets", "render")
+MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥、色情暧昧一律改为间接表现：不写具体暴力动作和伤势，不写露骨或挑逗台词，"
+                   "冲突用对峙、退让、旁观者反应和事后结果来交代；避免刀、枪、毒品、赌博、自残等词；台词选原文里克制的句子。")
 sys.path.insert(0, str(SCRIPTS))
 from thin_profile import plan_fingerprint  # noqa: E402
 
@@ -404,6 +406,23 @@ class Batch:
                 if attempt == 1 and status in {"clips_failed", "pending", "stale"}:
                     continue
                 break
+            if status == "clips_failed" and self.moderation_blocked(chapter) and not (directory / ".moderation_replanned").exists():
+                # Seedance refused the text or the output twice: re-plan the chapter
+                # once with a director note that keeps the sensitive beats indirect.
+                (directory / ".moderation_replanned").write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+                log(f"ch{chapter}: content moderation blocked a clip twice; re-planning once with a toned-down note")
+                self.notes[str(chapter)] = MODERATION_NOTE
+                self.args.replan = True
+                try:
+                    self.plan(chapter)
+                finally:
+                    self.args.replan = False
+                    self.notes.pop(str(chapter), None)
+                if self.rows[chapter].get("plan") == "planned":
+                    self.prepare_cards(chapter)
+                    code, problem = self.run(command, directory / "render.log")
+                    status = self.render_status(chapter)
+                    row["moderation_replanned"] = True
             row["render"] = status
             if status not in {"done", "done_with_warnings"}:
                 row["note"] = problem
@@ -418,6 +437,13 @@ class Batch:
                 prune_episode(directory)
         finally:
             lock.unlink(missing_ok=True)
+
+    def moderation_blocked(self, chapter: int) -> bool:
+        report = self.episode_dir(chapter) / "thin_media_report.json"
+        if not report.is_file():
+            return False
+        data = json.loads(report.read_text(encoding="utf-8"))
+        return any("SensitiveContentDetected" in str(c.get("error", "")) for c in data.get("clips", []))
 
     def prepare_cards(self, chapter: int) -> None:
         """Build the cards this episode references; in review mode judge just those

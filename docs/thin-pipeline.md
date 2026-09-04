@@ -86,10 +86,13 @@ export PYTHONPATH=src:scripts
 - **快速档** `profile.json` 的 `tier: fast`（或 `--tier fast`）：规划保留一个 400 字以内的短思考步（去掉后首稿质量大跌，返修反而更多）、最多返修两次、目标按字数放大（每 3000 字约 60 秒，上限 100 秒）、8 个区段都要带到、漏引区段自动记为跳过、超长只记警告、群消息超长截断；每角色一张参考图；480p、语音门不重生成；无人值守时只审卡不审片；圣经每 5 集增长一次。质量档就是默认值。两档共用圣经、卡片和目录，可以先用快速档粗剪整本，再对挑出的集 `--tier quality --rerender` 精修。
 - **实测（诸天万象录第 11–30 章，两章一集共 10 集，2026-09-04）**：并行 3 时 10 集 6 分钟规划完；Seedance 480p 每段中位 240 秒，9–13 段同时在飞零限流，但延迟随并发上升（9 段同飞时中位 351 秒），吞吐约为 3 倍并发得 2 倍，甜区 8–12 段；每集渲染器约 10 分钟；新章节的建卡是首轮最大开销（15 个新角色加动画化重画约 40 分钟）。
 - **接口拒绝的三种自动处理**：参考图被判真人（错误里 content[N] 从 1 数）→ 精确重画那张（地点卡按空场景重建，角色卡已动画化过的加强一次）；生成结果被输出审核拒（视频或音频，含"疑似版权歌曲"）→ 加合规声明重试一次；提示词文本被输入审核拒 → 软化场景措辞（台词不动）加合规声明重试一次。都只一次，剩下的进报告。
-- **出片并行** `--parallel 6`：每集时长不变，墙上时间减半；受 Seedance 并发上限约束。
+- **出片并行** `--parallel 6`：每集时长不变，墙上时间减半；Seedance 实测 9–13 段在飞不限流，延迟随并发缓升，甜区 8–12 段。
+- **多实例 Qwen**：`QWEN38_LOCAL_BASE_URL` 写成逗号分隔的多个地址（如四个单卡实例 18120–18123，`/mnt/disk1/zengzhitao/tmp/qwen_start4.sh` 起，每台并发 6），规划、圣经增长、审卡审片按章节散到各台，某台连不上自动换。单卡实例（张量并行 1）比双卡更划算，INT8 权重 28 GB 单卡放得下。
+- **建卡并行**：`scripts/build_cards_thin.py` 一个进程建一个资产（每资产文件锁、图片接口限流退避、建完当场审核并修一次）；批跑的 `CardFactory` 按 `--card-parallel`（默认 6）同时建，每集只等自己引用的卡；圣经一增长出新角色和地点就提前排进队列。渲染开始时原有的"建缺卡"逻辑保留作兜底。
 
 ```bash
-.venv/bin/python scripts/thin_batch.py --novel-dir outputs/X --chapters 1-500 --merge 2 --tier fast --parallel 6 --plan-parallel 3 --unattended --prune
+QWEN38_LOCAL_BASE_URL=http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http://127.0.0.1:18122/v1,http://127.0.0.1:18123/v1 \
+.venv/bin/python scripts/thin_batch.py --novel-dir outputs/X --chapters 1-500 --merge 2 --tier fast --parallel 6 --plan-parallel 8 --card-parallel 6 --unattended --prune
 ```
 
 ## 屏幕上的聊天消息（群聊类小说）
