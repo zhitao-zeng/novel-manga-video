@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v14-clip-pool"
+POLICY = "thin-media-v14.1-clip-pool"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -470,8 +470,7 @@ class ThinMediaRunner:
         self.settings = dc_replace(settings, width=self.frame_spec["width"], height=self.frame_spec["height"])
         self.bible = styled_bible(bible, self.profile) if (novel_dir / "profile.json").is_file() else bible
         self.fast = is_fast(self.profile)
-        video_clips = [c for c in self.clip_plan["clips"] if c["kind"] == "video"]
-        self.workers = workers if workers > 0 else max(1, len(video_clips))  # 0 = one slot per clip: no second wave
+        self._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)
         self.max_attempts = 1 if self.fast else max_attempts
         self.provider = FramedPhanRouter(self.settings, self.frame_spec, resolution="480p" if self.fast else "720p")
         self.renderer = Renderer(self.settings)
@@ -479,6 +478,8 @@ class ThinMediaRunner:
         self.work.mkdir(parents=True, exist_ok=True)
         self.clip_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
         self.script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
+        video_clips = [c for c in self.clip_plan["clips"] if c["kind"] == "video"]
+        self.workers = self._workers_arg if self._workers_arg > 0 else max(1, len(video_clips))  # no second wave
         # Director corrections from the automatic episode review stay part of the
         # episode's state: they change the prompt (hence the cache key) of the
         # clips they name, so a corrected clip is regenerated exactly once.
