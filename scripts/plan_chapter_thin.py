@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8.2-fast-lenient"
+POLICY = "thin-chapter-plan-v8.3-fast-keeps-thinking"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -401,10 +401,20 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
     started = time.monotonic()
     with httpx.Client(timeout=timeout, trust_env=False) as client:
         if fast:
-            # Fast tier: straight to the JSON pass with a one-line plan hint.
-            analysis_body = {"usage": None}
-            analysis = "（快速档：不做内部规划，直接按要求输出约60秒、2到3段的剧本）"
-            analysis_seconds = 0.0
+            # Fast tier keeps a short think-pass: dropping it made first drafts
+            # miss coverage or come out as 30 s stubs, and the redos cost more
+            # than the pass saved once planning ran in parallel.
+            analysis_body = _post(client, base_url, headers, {
+                "model": model, "temperature": 0.3, "max_tokens": 1200,
+                "chat_template_kwargs": {"enable_thinking": True, "preserve_thinking": True, "reasoning_effort": "low"},
+                "messages": [
+                    {"role": "system", "content": system_prompt + "\n\n先做内部规划，不要输出JSON：按 episode_target 的时长分成几段、每段覆盖哪些区段和阶段数、保留哪些原文台词；每个区段至少引用一次或明确跳过。不超过400字。"},
+                    {"role": "user", "content": user_content},
+                ],
+            })
+            analysis_message = analysis_body["choices"][0]["message"]
+            analysis = str(analysis_message.get("content") or analysis_message.get("reasoning") or "")[-3000:]
+            analysis_seconds = round(time.monotonic() - started, 1)
         else:
           analysis_body = _post(client, base_url, headers, {
               "model": model,
