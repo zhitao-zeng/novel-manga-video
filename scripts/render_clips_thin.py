@@ -545,8 +545,14 @@ PRESCREEN_RISK = 0.6
 
 
 def apply_genre(genre: dict) -> None:
-    """Genre preset → card style cue, location-card policy, extra softening pairs."""
-    global CARD_STYLE_SUFFIX_3D, LOCATION_EMPTY_SUFFIX, SOFTEN
+    """Genre preset → card style cue, location-card policy, softening pairs, caption word lists."""
+    global CARD_STYLE_SUFFIX_3D, LOCATION_EMPTY_SUFFIX, SOFTEN, NARRATION_MARKERS, FILLER_CHARS
+    # The caption word lists live in the preset (configs/genres/*.json) so they can
+    # be read and emptied without touching code; the constants above are the fallback.
+    if isinstance(genre.get("caption_narration_markers"), list):
+        NARRATION_MARKERS = tuple(str(word) for word in genre["caption_narration_markers"] if str(word))
+    if isinstance(genre.get("caption_filler_chars"), str):
+        FILLER_CHARS = set(genre["caption_filler_chars"])
     if genre.get("card_style_suffix_3d"):
         CARD_STYLE_SUFFIX_3D = genre["card_style_suffix_3d"]
     if genre.get("location_policy") == "sparse":

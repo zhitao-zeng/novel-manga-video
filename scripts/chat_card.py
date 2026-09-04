@@ -43,6 +43,9 @@ TITLE_H, STATUS_H, INPUT_H = 108, 64, 120
 FONT_PATH = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
 AVATAR_PALETTE = [(90, 143, 214), (214, 129, 90), (117, 178, 121), (176, 122, 196), (206, 158, 78), (110, 168, 178)]
 SECONDS_PER_MESSAGE = 1.15
+# Gain on the notification tone: 2.5 lands the chime near -13 dB peak, which
+# sits under dialogue (about -3 dB) but is clearly audible; 0.22 was inaudible.
+CHIME_GAIN = 2.5
 MIN_SECONDS, MAX_SECONDS = 3.0, 7.0
 
 
@@ -282,7 +285,7 @@ def build_segment(messages: list[dict], output: Path, *, title: str, self_name: 
     for index in range(count):  # one soft chime as each message lands
         command += ["-f", "lavfi", "-t", "0.5", "-i", "sine=frequency=1046:duration=0.5"]
         delay = round(index * per * 1000)
-        chains.append(f"[{index + 1}:a]afade=t=out:st=0.03:d=0.35,volume=0.22,adelay={delay}|{delay}[c{index}]")
+        chains.append(f"[{index + 1}:a]afade=t=out:st=0.03:d=0.35,volume={CHIME_GAIN},adelay={delay}|{delay}[c{index}]")
     chains.append("".join(f"[c{index}]" for index in range(count)) + f"amix=inputs={count}:normalize=0,apad[aout]")
     # The video filters live in the same graph as the audio: ffmpeg ignores -vf
     # when a filter_complex is present, which silently left the card a still
