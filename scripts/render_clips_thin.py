@@ -47,10 +47,10 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v14.1-clip-pool"
+POLICY = "thin-media-v14.3-softened-cache"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
-MIN_LINE_SIMILARITY = 0.5
+MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
 MAX_HOLD_SECONDS = 6.0
 MAX_CER = 0.5
 MIN_PEAK_DB = -35.0
@@ -604,7 +604,12 @@ class ThinMediaRunner:
             # Keying on the path alone silently served a stale clip after the
             # chapter was re-planned.
             saved = json.loads((directory / "request.json").read_text(encoding="utf-8"))
-            if saved.get("prompt") == prompt and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            base = clip["prompt"] + (f"\n【导演修正】{self.feedback[clip['clip_id']]}" if str(self.feedback.get(clip["clip_id"], "")).strip() else "")
+            acceptable = {prompt, base + (RETRY_SUFFIX if attempt > 1 else ""), soften_prompt(base) + (RETRY_SUFFIX if attempt > 1 else "")}
+            # A clip generated from the softened wording (prescreen or moderation
+            # retry) is the same clip: do not pay again because a later run made
+            # the other choice.
+            if saved.get("prompt") in acceptable and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
                 return output
             # Move the clip AND its provider task sidecar aside together: the
@@ -861,12 +866,14 @@ class ThinMediaRunner:
 
     @staticmethod
     def align_chunks(lines: list[str], chunks: list[dict], threshold: float = MIN_LINE_SIMILARITY) -> list[tuple[dict, str | None, float]]:
-        """Map ASR chunks onto script text by sliding a window over the lines.
+        """Map ASR chunks onto script text, in order, over the whole remaining script.
 
         The script is flattened to one normalised character sequence with a
-        pointer back to the original text.  Each chunk may match a fragment of
-        a line or run across two lines; a chunk that resembles nothing near the
-        cursor is ad-lib noise and gets no subtitle.  Returns
+        pointer back to the original text.  For every chunk the best span is
+        searched from the cursor to the end of the script (skipping ahead costs
+        a small penalty per skipped line), so one noisy chunk cannot derail the
+        lines that follow, and the order constraint lets the acceptance
+        threshold sit well below a free-text match.  Returns
         (chunk, matched original text or None, score).
         """
         flat: list[tuple[str, int, int]] = []  # (normalised char, line index, original index)
@@ -875,7 +882,7 @@ class ThinMediaRunner:
                 if normalize_text(character):
                     flat.append((normalize_text(character), line_index, original_index))
         keys = "".join(item[0] for item in flat)
-        line_starts = {}
+        line_starts: dict[int, int] = {}
         for position, (_, line_index, _) in enumerate(flat):
             line_starts.setdefault(line_index, position)
         cursor = 0
@@ -901,27 +908,23 @@ class ThinMediaRunner:
 
         for chunk in chunks:
             hypothesis = normalize_text(chunk["hypothesis"])
-            if not hypothesis:
+            if not hypothesis or cursor >= len(keys):
                 results.append((chunk, None, 0.0))
                 continue
-            candidates = {cursor}
-            current_line = flat[cursor][1] if cursor < len(flat) else None
-            if current_line is not None:
-                for line_index in (current_line + 1, current_line + 2):
-                    if line_index in line_starts:
-                        candidates.add(line_starts[line_index])
+            current_line = flat[cursor][1]
+            candidates = [(cursor, 0)] + [(pos, li - current_line) for li, pos in line_starts.items() if pos > cursor]
             best = (0.0, None, None)
-            for start in sorted(candidates):
+            for start, skipped in candidates:
                 low = max(2, int(len(hypothesis) * 0.6))
                 high = min(len(keys) - start, int(len(hypothesis) * 1.5) + 2)
                 for width in range(low, high + 1):
                     span = keys[start:start + width]
-                    score = 1.0 - edit_distance(span, hypothesis) / max(len(span), len(hypothesis))
+                    score = 1.0 - edit_distance(span, hypothesis) / max(len(span), len(hypothesis)) - 0.04 * skipped
                     if score > best[0]:
                         best = (score, start, width)
             score, start, width = best
             if start is None or score < threshold:
-                results.append((chunk, None, round(score, 3)))
+                results.append((chunk, None, round(max(score, 0.0), 3)))
                 continue
             results.append((chunk, original_span(start, start + width), round(score, 3)))
             cursor = start + width
@@ -937,12 +940,22 @@ class ThinMediaRunner:
         for row, text, score in self.align_chunks(self.script_lines(clip_id), analysis["chunks"]):
             row["match_score"] = score
             row["matched_lines"] = text or ""
+            source = "native_audio_asr"
             if not text:
-                row["subtitle"] = "dropped_adlib" if normalize_text(row["hypothesis"]) else "silent"
-                continue
-            row["subtitle"] = "script_span"
+                heard = str(row.get("hypothesis", "")).strip()
+                foreground = float(row["end"]) - float(row["start"]) >= 0.8 and len(normalize_text(heard)) >= 2
+                if not foreground:
+                    row["subtitle"] = "silent" if not normalize_text(heard) else "dropped_murmur"
+                    continue
+                # Real speech that matches no script line (an ad-libbed line, or a
+                # line the recogniser mangled): show what is actually heard rather
+                # than nothing.
+                text, source = heard, "asr_text"
+                row["subtitle"] = "asr_text"
+            else:
+                row["subtitle"] = "script_span"
             for page in timed_subtitle_pages(text, float(row["start"]), float(row["end"])):
-                events.append({"unit_id": clip_id, "role": "dialogue", "start": float(page["start"]), "end": float(page["end"]), "text": str(page["text"]), "subtitle_source": "native_audio_asr"})
+                events.append({"unit_id": clip_id, "role": "dialogue", "start": float(page["start"]), "end": float(page["end"]), "text": str(page["text"]), "subtitle_source": source})
         return events
 
     def _font(self, size: int):
