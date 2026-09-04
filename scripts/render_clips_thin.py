@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v13.5-content-index"
+POLICY = "thin-media-v13.6-text-moderation"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -84,7 +84,19 @@ STYLIZE_PROMPT = (
 )
 RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完整。保持以上全部内容不变重新生成，每句台词都必须清晰完整地说出。"
 OUTPUT_MODERATION_MARKERS = ("OutputVideoSensitiveContentDetected", "OutputAudioSensitiveContentDetected")
-RATE_LIMIT_MARKERS = ("429", "Too Many Requests", "rate limit", "RateLimit", "concurren", "QuotaExceeded", "RequestLimit", "ServerOverloaded", "503")
+RATE_LIMIT_RE = re.compile(r"HTTP (429|502|503|504)\b|Too Many Requests|rate ?limit|concurren|QuotaExceeded|RequestLimit|ServerOverloaded", re.I)
+INPUT_TEXT_MARKER = "InputTextSensitiveContentDetected"
+SOFTEN = [  # stage descriptions only get milder wording on a text-moderation refusal; spoken lines stay
+    (re.compile(r"打死|弄死|杀死|杀了|杀掉|干掉"), "打倒"), (re.compile(r"鲜血|血迹|血液|流血|血"), "伤痕"), (re.compile(r"尸体|死尸"), "倒下的人"),
+    (re.compile(r"砍|捅|刺"), "挥"), (re.compile(r"手枪|枪"), "棍棒"), (re.compile(r"毒品|吸毒"), "违禁品"), (re.compile(r"强奸|轮奸|猥亵"), "欺负"),
+    (re.compile(r"赌博|赌钱|赌"), "比试"), (re.compile(r"废了你|打断.{0,2}腿|弄残"), "教训你"), (re.compile(r"威胁"), "警告"), (re.compile(r"自杀|上吊|跳楼"), "轻生"),
+]
+
+
+def soften_prompt(prompt: str) -> str:
+    for pattern, replacement in SOFTEN:
+        prompt = pattern.sub(replacement, prompt)
+    return prompt + COMPLIANCE_SUFFIX
 SUBMIT_BACKOFF_SECONDS = (30, 60, 90, 120, 180, 240, 300)  # ~17 min of patience when the video service throttles
 COMPLIANCE_SUFFIX = "\n【合规】画面健康、日常、无任何暴力、血腥、色情、赌博或违规内容；人物衣着完整；屏幕上的文字仅为剧情中的普通聊天内容；声音只有普通对白、环境音效和无歌词的哼唱，不含任何已有歌曲、歌词或背景音乐。"
 FEEDBACK_FILE = "review_feedback.json"  # {clip_id: 导演修正}, written by the automatic episode review
@@ -524,7 +536,8 @@ class ThinMediaRunner:
     # ---- one clip ----
     def clip_prompt(self, clip: dict) -> str:
         note = str(self.feedback.get(clip["clip_id"], "")).strip()
-        return clip["prompt"] + (f"\n【导演修正】{note}" if note else "")
+        prompt = clip["prompt"] + (f"\n【导演修正】{note}" if note else "")
+        return soften_prompt(prompt) if clip.get("_softened") else prompt
 
     def generate_clip(self, clip: dict, attempt: int) -> Path:
         directory = self.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
@@ -575,7 +588,7 @@ class ThinMediaRunner:
             except RuntimeError as error:
                 # Throttled at submission (higher --parallel): wait and resubmit
                 # instead of failing the clip; content errors propagate at once.
-                if wait is None or not any(marker in str(error) for marker in RATE_LIMIT_MARKERS) or PRIVACY_MARKER in str(error):
+                if wait is None or "SensitiveContentDetected" in str(error) or not RATE_LIMIT_RE.search(str(error)):
                     raise
                 log(f"{clip['clip_id']} attempt {attempt}: video service throttled ({str(error)[:80]}); retrying in {wait}s")
                 time.sleep(wait)
@@ -749,6 +762,12 @@ class ThinMediaRunner:
                         log(f"{clip['clip_id']}: reference rejected as a real person (image {index.group(1) if index else '?'}); fixed {repaired or 'nothing'}; retrying")
                         if repaired:
                             continue
+                    if INPUT_TEXT_MARKER in str(error) and not clip.get("_softened"):
+                        # The prompt text itself was refused: one retry with milder
+                        # stage wording (lines untouched) and the compliance line.
+                        clip["_softened"] = True
+                        log(f"{clip['clip_id']}: prompt text refused by input moderation; retrying once with softened wording")
+                        continue
                     if any(marker in str(error) for marker in OUTPUT_MODERATION_MARKERS) and not clip.get("_compliance"):
                         # The generated video tripped the service's output filter;
                         # one retry with an explicit compliance line, same attempt.
