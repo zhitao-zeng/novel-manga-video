@@ -30,10 +30,10 @@ from dataclasses import replace as dc_replace  # noqa: E402
 IMAGE_BACKOFF = (20, 40, 60, 90, 120)
 
 
-def build_with_backoff(factory, root: Path, bible: StoryBible, characters: set[str], locations: set[str]):
+def build_with_backoff(factory, root: Path, bible: StoryBible, characters: set[str], locations: set[str], profile: dict | None = None):
     for wait in (*IMAGE_BACKOFF, None):
         try:
-            return factory.build_selected(root, bible, characters, locations)
+            return factory.build_selected(root, bible, characters, locations, expressions=not is_fast(profile))
         except ModerationRejected:
             raise
         except RuntimeError as error:
@@ -77,7 +77,7 @@ def main() -> int:
             fcntl.flock(lock, fcntl.LOCK_EX)  # another job or a renderer may be building the same card
             started = time.monotonic()
             try:
-                build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations)
+                build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
                 status = "built"
             except ModerationRejected as error:
                 status = f"moderation: {str(error)[:120]}"
@@ -90,7 +90,7 @@ def main() -> int:
                 if review["flags"]:
                     fixes = remediate_cards(novel_dir, review)
                     if fixes["deleted"]:
-                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations)
+                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
                     review = review_cards(novel_dir, only_ids={asset_id})
                     row["fixes"] = fixes["stylized"] + fixes["deleted"]
                 row["flags"] = review["flags"]

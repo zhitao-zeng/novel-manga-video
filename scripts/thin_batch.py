@@ -395,7 +395,7 @@ class Batch:
         lock.write_text(str(os.getpid()), encoding="utf-8")
         try:
             self.prepare_cards(chapter)
-            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers)] + (["--tier", self.args.tier] if self.args.tier else [])
+            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else [])
             for attempt in (1, 2):
                 log(f"ch{chapter}: rendering (attempt {attempt})")
                 code, problem = self.run(command, directory / "render.log")
@@ -622,7 +622,7 @@ def main() -> int:
     parser.add_argument("--title", help="cover title; defaults to novel.json")
     parser.add_argument("--stage", choices=("all", *PLAN_STAGES), default="all")
     parser.add_argument("--parallel", type=int, default=3, help="episodes rendered at the same time")
-    parser.add_argument("--workers", type=int, default=4, help="clips in flight per episode")
+    parser.add_argument("--workers", type=int, default=0, help="clips submitted at once per episode; 0 = one slot per clip (the global --inflight cap still applies)")
     parser.add_argument("--max-redo", type=int, default=2, help="planner redo rounds")
     parser.add_argument("--min-seconds", type=float, default=0.0, help="planner floor for the episode estimate")
     parser.add_argument("--notes-json", help='director notes per chapter: {"3": "...", "*": "for every chapter"}')
@@ -639,6 +639,8 @@ def main() -> int:
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier; fast = no think-pass/redo, ~60 s, 480p, single attempt, no episode review")
     parser.add_argument("--plan-parallel", type=int, default=1, help="chapters planned at the same time (needs a Qwen service with --max-num-seqs > 1)")
     parser.add_argument("--card-parallel", type=int, default=6, help="asset cards built at the same time (one process per asset)")
+    parser.add_argument("--inflight", type=int, default=20, help="global cap on clips in flight across all rendering episodes (0 = none)")
+    parser.add_argument("--no-prescreen", dest="prescreen", action="store_false", default=True, help="skip the local content-filter prescreen of prompts")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
 

@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v13.6-text-moderation"
+POLICY = "thin-media-v14-clip-pool"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -169,7 +169,7 @@ class FramedAssetFactory(SeriesAssetFactory):
                     raise ModerationRejected(f"{output.parent.name}/{output.name}: {str(again)[:200]}") from again
                 raise
 
-    def build_selected(self, root: Path, bible: StoryBible, character_ids: set[str], location_ids: set[str]) -> SeriesAssetManifest:
+    def build_selected(self, root: Path, bible: StoryBible, character_ids: set[str], location_ids: set[str], expressions: bool = True) -> SeriesAssetManifest:
         """Build (or reuse) only the listed assets; ids stay the bible positions.
 
         The base ``build`` renders every character and location in the bible.
@@ -217,11 +217,13 @@ class FramedAssetFactory(SeriesAssetFactory):
             })
             primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master)
             expression_prompt = self._expression_prompt(bible, character.name, character.expression_profile)
-            secondary = self.ensure_card(expression_prompt, directory / "expressions.jpeg", reference=primary.path)
+            # The fast tier references one card per character, so its expression
+            # card would be paid for and never used.
+            secondary = self.ensure_card(expression_prompt, directory / "expressions.jpeg", reference=primary.path) if expressions or (directory / "expressions.jpeg").is_file() else None
             characters[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="character", name=character.name, identity_invariants=invariants, state_variables=state, reference_scope=scope,
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(primary.path.relative_to(root.parent)),
-                secondary_image=str(secondary.path.relative_to(root.parent)), prompt_sha256=sha256_text(prompt + expression_prompt),
+                secondary_image=str(secondary.path.relative_to(root.parent)) if secondary else None, prompt_sha256=sha256_text(prompt + expression_prompt),
             ).model_dump(mode="json")
             voices[character.name] = character.voice_profile_id or f"native:{asset_id}"
         for index, location in enumerate(dict.fromkeys(bible.locations), start=1):
@@ -372,6 +374,50 @@ def cards_sheet(novel_dir: Path, output: Path, height: int = 300) -> Path | None
     return output
 
 
+PRESCREEN_RISK = 0.6
+
+
+def prescreen_prompt(prompt: str) -> float:
+    """Ask the local Qwen whether the prompt is likely to trip the video service's
+    content filter (violence, gore, sexual content, gambling, drugs, politics)."""
+    try:
+        from thin_review import ask_json, obj
+        verdict = ask_json([{"type": "text", "text": (
+            "下面是一段给视频生成模型的提示词。判断它被平台内容审核拒绝的可能性（暴力打斗细节、血腥伤势、色情或挑逗台词、赌博、毒品、自残、敏感政治），"
+            "risk 为 0 到 1，reason 一句话。只输出JSON。\n\n" + prompt[:6000])}], obj({"risk": {"type": "number"}, "reason": {"type": "string"}}), name="prescreen", max_tokens=120)
+        return float(verdict.get("risk", 0.0))
+    except Exception as error:  # noqa: BLE001 - the prescreen is advisory
+        log(f"prescreen skipped ({type(error).__name__})")
+        return 0.0
+
+
+def acquire_inflight_slot(novel_dir: Path, limit: int):
+    """A cross-process counting semaphore made of lock files: every runner of the
+    novel competes for the same `limit` slots, so the clips in flight stay at a
+    constant number no matter how many episodes render at once."""
+    if limit <= 0:
+        return None
+    directory = novel_dir / ".inflight"
+    directory.mkdir(parents=True, exist_ok=True)
+    while True:
+        for index in range(limit):
+            handle = open(directory / f"slot_{index:02d}.lock", "w")
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return handle
+            except OSError:
+                handle.close()
+        time.sleep(3)
+
+
+def release_inflight_slot(handle) -> None:
+    if handle is not None:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 def stylize_card(provider, path: Path) -> Path:
     """Park a near-photoreal card (with its sidecars) and redraw it as clearly animated 3D."""
     backup = path.with_suffix(".photoreal-rejected.jpeg")
@@ -411,8 +457,10 @@ def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> li
     return waited
 
 class ThinMediaRunner:
-    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None):
+    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False):
         self.novel_dir = novel_dir
+        self.inflight = inflight  # global cap on clips in flight across every runner of this novel (0 = none)
+        self.prescreen = prescreen
         self.episode_dir = episode_dir
         self.profile = profile or load_profile(novel_dir)
         # Named frame_spec: ``self.frame`` is the frame-extraction method.
@@ -421,8 +469,9 @@ class ThinMediaRunner:
         # PlayRes, QC resolution) reads settings.width/height.
         self.settings = dc_replace(settings, width=self.frame_spec["width"], height=self.frame_spec["height"])
         self.bible = styled_bible(bible, self.profile) if (novel_dir / "profile.json").is_file() else bible
-        self.workers = workers
         self.fast = is_fast(self.profile)
+        video_clips = [c for c in self.clip_plan["clips"] if c["kind"] == "video"]
+        self.workers = workers if workers > 0 else max(1, len(video_clips))  # 0 = one slot per clip: no second wave
         self.max_attempts = 1 if self.fast else max_attempts
         self.provider = FramedPhanRouter(self.settings, self.frame_spec, resolution="480p" if self.fast else "720p")
         self.renderer = Renderer(self.settings)
@@ -462,7 +511,7 @@ class ThinMediaRunner:
         manifest = None
         for attempt in range(1, ASSET_BUILD_ROUNDS + 1):
             try:
-                manifest = factory.build_selected(self.novel_dir / "series_assets", self.bible, character_ids, location_ids)
+                manifest = factory.build_selected(self.novel_dir / "series_assets", self.bible, character_ids, location_ids, expressions=not self.fast)
             except ModerationRejected:
                 raise
             except (RuntimeError, TimeoutError, OSError) as error:
@@ -567,6 +616,14 @@ class ThinMediaRunner:
                     target.unlink(missing_ok=True)
                     source.rename(target)
             log(f"{clip['clip_id']} attempt {attempt}: request changed since the cached clip, regenerating")
+        if self.prescreen and not clip.get("_softened") and not clip.get("_prescreened"):
+            clip["_prescreened"] = True
+            risk = prescreen_prompt(prompt)
+            if risk >= PRESCREEN_RISK:
+                clip["_softened"] = True
+                log(f"{clip['clip_id']}: prescreen risk {risk:.2f}; softening the wording before the first submission")
+                prompt = self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "")
+                request["prompt"] = prompt
         # Earlier runs (or the pre-v11 privacy retry) may hold the matching video
         # under another attempt directory; use it rather than paying again.
         for other in sorted((self.work / "clips" / clip["clip_id"]).glob("attempt_*")):
@@ -581,7 +638,9 @@ class ThinMediaRunner:
         atomic_write_json(directory / "request.json", request)
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
         started = time.monotonic()
-        for wait in (*SUBMIT_BACKOFF_SECONDS, None):
+        slot = acquire_inflight_slot(self.novel_dir, self.inflight)
+        try:
+          for wait in (*SUBMIT_BACKOFF_SECONDS, None):
             try:
                 self.provider.create_video(prompt, None, output, duration=float(clip["request_seconds"]), additional_images=references)
                 break
@@ -592,6 +651,8 @@ class ThinMediaRunner:
                     raise
                 log(f"{clip['clip_id']} attempt {attempt}: video service throttled ({str(error)[:80]}); retrying in {wait}s")
                 time.sleep(wait)
+        finally:
+            release_inflight_slot(slot)
         log(f"{clip['clip_id']} attempt {attempt}: video ready in {time.monotonic() - started:.0f}s ({media_duration(output):.1f}s long)")
         return output
 
@@ -969,14 +1030,16 @@ class ThinMediaRunner:
         fps, width, height = self.settings.fps, self.settings.width, self.settings.height
 
         def hard_cut_join(sequence, durations, output, *, crossfade_seconds=0.15):
-            normalized = []
-            for index, path in enumerate(sequence):
+            def normalize(item):
+                index, path = item
                 target = output.parent / f"join_{index:02d}.mp4"
-                run(["ffmpeg", "-y", "-v", "error", "-i", str(path),
+                run(["ffmpeg", "-y", "-v", "error", "-threads", "4", "-i", str(path),
                      "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p",
-                     "-vsync", "cfr", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                     "-vsync", "cfr", "-c:v", "libx264", "-preset", "superfast", "-crf", "20", "-pix_fmt", "yuv420p",
                      "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(target)])
-                normalized.append(target)
+                return target
+            with ThreadPoolExecutor(max_workers=4) as pool:  # segments normalise side by side
+                normalized = list(pool.map(normalize, enumerate(sequence)))
             list_file = output.parent / "join_list.txt"
             list_file.write_text("".join(f"file '{p}'\n" for p in normalized), encoding="utf-8")
             run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", "-movflags", "+faststart", str(output)])
@@ -1039,7 +1102,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--episode", required=True, help="episode dir name under novel dir, e.g. fentian-thin-v4_1")
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--workers", type=int, default=4, help="clips submitted at once for this episode; 0 = one per clip")
+    parser.add_argument("--inflight", type=int, default=0, help="global cap on clips in flight across all runners of the novel (lock-file semaphore); 0 = none")
+    parser.add_argument("--prescreen", action="store_true", help="ask the local Qwen for content-filter risk and soften risky prompts before the first submission")
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--assets-only", action="store_true", help="build the cards this episode needs, write series_assets/cards_sheet.jpg for review, and stop before any video")
@@ -1052,7 +1117,7 @@ def main() -> int:
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
-    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile)
+    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen)
     clips = [c for c in runner.clip_plan["clips"] if c["kind"] == "video"]
     summary = {
         "profile": runner.profile, "canvas": f"{runner.settings.width}x{runner.settings.height}",

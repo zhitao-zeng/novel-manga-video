@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8.5-multi-endpoint"
+POLICY = "thin-chapter-plan-v8.6-fast-3clips"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -941,8 +941,8 @@ def main() -> int:
         # so merged chapters do not come out as 40 s stubs.  Redos stay at two:
         # with parallel planning they are cheap and lift the pass rate.
         global CLIP_RANGE, SPOKEN_RANGE, EPISODE_SECONDS_MAX
-        fast_target = int(min(100, max(60, round(episode.text_count / 3000 * 60 / 10) * 10)))
-        CLIP_RANGE = (2, 3) if fast_target <= 60 else (3, 4)
+        fast_target = int(min(90, max(60, round(episode.text_count / 3000 * 60 / 10) * 10)))
+        CLIP_RANGE = (2, 3)  # three 30 s clips at most: the fast tier's cost cap
         SPOKEN_RANGE = (140, 220) if fast_target <= 60 else (200, 300)
         EPISODE_SECONDS_MAX = 130.0
         EPISODE_SECONDS_MIN = max(EPISODE_SECONDS_MIN, fast_target - 25)  # soft: waived on the last redo
