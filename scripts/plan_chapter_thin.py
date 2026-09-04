@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8.3-fast-keeps-thinking"
+POLICY = "thin-chapter-plan-v8.4-fast-coverage-target"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -959,7 +959,7 @@ def main() -> int:
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
             "clip_count": f"{CLIP_RANGE[0]}-{CLIP_RANGE[1]}",
-            **({"episode_target": f"约{fast_target}秒，{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段3到5个阶段，只拍本章最重要的冲突和转折，不得低于{max(45, fast_target - 20)}秒"} if fast else {}),
+            **({"episode_target": f"约{fast_target}秒，{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段3到5个阶段；8个区段每个至少用一个阶段带到（长对话压成一两句，群众议论合并），不得低于{max(45, fast_target - 20)}秒"} if fast else {}),
             "stages_per_clip": f"{STAGE_RANGE[0]}-{STAGE_RANGE[1]}",
             "clip_seconds": f"20-{int(MAX_CLIP_SECONDS)}",
             "episode_seconds": f"about 90, max {int(EPISODE_SECONDS_MAX)}",
