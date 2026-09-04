@@ -114,7 +114,7 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
 硬规则：
 1. 只用当前章的事实、人物和顺序。不得引入后文信息、新事件、新地点，或StoryBible之外的具名角色。
 2. 原文已切成8个连续区段 seg_1 到 seg_8。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段都必须至少被一个阶段引用，一个都不许跳过；skipped_segments 必须是空数组 []。每个区段用1到3个阶段带过：内容多的区段把对话压成一两句、把过程并成一个阶段，也不能整段不拍。
-3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。另有一种不发声的 chat_message：手机或电脑屏幕上显示的聊天消息，speaker_name 写发消息的人，text 写消息原文，逐字取自原文、不超过36字（更长的只取到一个标点为止）；一个阶段最多八条（消息由插卡呈现，一个阶段可以带一整轮对话，不必为了拆消息而多写阶段）；群聊消息的 chat_target 留空；一对一私聊的消息把 chat_target 写成和主角私聊的那个人的名字——绝不能写主角自己，同一段私聊里每条消息（无论谁发的）都写同一个名字；同一阶段不要混用群聊和私聊。屏幕上的聊天界面由后期插卡渲染，画面里不需要拍清屏幕文字，含 chat_message 的阶段 start_state 和 event 只写看手机的人的动作与反应。原文里凡是聊天软件上的消息（形如「昵称：内容」的对话、群里的喊话、私聊），必须用 chat_message 呈现，一条都不许改成画外音、旁白或角色自己念出来。唱歌场景用 singing：speaker_name 写唱歌的人，text 只写演唱方式（如"轻声哼唱一段温柔的无词旋律"），绝不写任何歌词、歌名或已有歌曲，观众的反应用其他阶段的画面和画外音表现。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
+3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。另有一种不发声的 chat_message：手机或电脑屏幕上显示的聊天消息，speaker_name 写发消息的人，text 写消息原文，逐字取自原文、不超过36字（更长的只取到一个标点为止）；一个阶段最多八条（消息由插卡呈现，一个阶段可以带一整轮对话，不必为了拆消息而多写阶段）；群聊消息的 chat_target 留空；一对一私聊的消息把 chat_target 写成和主角私聊的那个人的名字——绝不能写主角自己，同一段私聊里每条消息（无论谁发的）都写同一个名字；私聊是两个人来回说话：对方发的消息 speaker_name 要写对方的名字，只有主角自己发的才写主角，不要把整段私聊都记成主角发的；同一阶段不要混用群聊和私聊。屏幕上的聊天界面由后期插卡渲染，画面里不需要拍清屏幕文字，含 chat_message 的阶段 start_state 和 event 只写看手机的人的动作与反应。原文里凡是聊天软件上的消息（形如「昵称：内容」的对话、群里的喊话、私聊），必须用 chat_message 呈现，一条都不许改成画外音、旁白或角色自己念出来。唱歌场景用 singing：speaker_name 写唱歌的人，text 只写演唱方式（如"轻声哼唱一段温柔的无词旋律"），绝不写任何歌词、歌名或已有歌曲，观众的反应用其他阶段的画面和画外音表现。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
 4. 台词取舍：推动剧情和人物关系的原文台词必须保留，可以只删子句、不改词序；重复表达同一意思的群众议论要合并成一两句或删掉。叙述里承载来历、规则和身份的信息（谁曾经是什么、某条规则意味着什么、某个称号指谁）用一两句无名族人的画外议论或角色问答说出来，改成口语但不新增原文没有的事实。内心独白不要改成出声自语，改成可见反应。
 5. 每条turn的text不超过26个汉字，长句拆成多条turn。
 6. 阶段字段：start_state写开始时画面（谁在哪、站位、朝向、表情、道具）；event写这几秒内的一个主要动作或事件；end_state写结束时能直接看到的状态（人物位置、朝向、表情、道具归属）；sfx写环境声或动作音效（如"人群低语""脚步声"），没有就空字符串，不要写"寂静声""注视声"这类不是声音的词；shot_scale写景别。情绪一律写成可见表现（眼神、眉头、嘴角、呼吸、手部动作），不写"气质如清莲""闪过一丝痛苦"这类拍不出来的词。不描述镜头运动、文字、字幕、Logo。相邻阶段不要重复同一个开始画面。
@@ -600,6 +600,8 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                 if target and target not in names:
                     warnings.append(f"{position}: chat_target {target!r} 不在 StoryBible，按群聊处理")
                     turn["chat_target"] = ""
+                elif target and CHAT_SELF and speaker == CHAT_SELF and target != CHAT_SELF:
+                    pass  # the protagonist writing into a private chat: normal
                 elif target and CHAT_SELF and target == CHAT_SELF:
                     # A private chat is titled with the other party, never with the protagonist.
                     warnings.append(f"{position}: chat_target 写成了主角 {target!r}，按群聊处理")

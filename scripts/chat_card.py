@@ -211,7 +211,7 @@ def compose_frame(screen: Image.Image, width: int, height: int, background: Path
             plate = source.resize((max(1, round(source.width * scale)), max(1, round(source.height * scale))), Image.LANCZOS)
             left, top = (plate.width - width) // 2, (plate.height - height) // 2
             frame = plate.crop((left, top, left + width, top + height)).filter(ImageFilter.GaussianBlur(26))
-        frame = Image.blend(frame, Image.new("RGB", (width, height), (10, 12, 18)), 0.45)
+        frame = Image.blend(frame, Image.new("RGB", (width, height), (10, 12, 18)), 0.62)  # the screen has to be the brightest thing in frame
     else:
         frame = Image.new("RGB", (width, height), (16, 18, 26))
         painter = ImageDraw.Draw(frame)
@@ -296,7 +296,7 @@ def build_segment(messages: list[dict], output: Path, *, title: str, self_name: 
         # and the grain have to run after the stream is filled out to full
         # rate, or every duplicated frame is identical and reads as a freeze.
         f"[0:v]fps={fps},scale=iw*1.08:ih*1.08,crop=w={width}:h={height}:"
-        f"x='(iw-ow)/2+(iw-ow)/2*sin(t/3)':y='(ih-oh)*min(1,t/{max(total, 0.1):.2f})',"
+        f"x='(iw-ow)/2+(iw-ow)/3*sin(t/4)':y='(ih-oh)*min(1,t/{max(total, 0.1):.2f})',"
         f"noise=alls=6:allf=t,format=yuv420p[vout]"
     )
     command += [
