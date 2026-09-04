@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8.1-fast-tuned"
+POLICY = "thin-chapter-plan-v8.2-fast-lenient"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -549,7 +549,10 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                 if not speaker:
                     errors.append(f"{position}: chat_message needs speaker_name（发消息的人）")
                 if len(compact(text)) > CHAT_MAX_CHARS:
-                    errors.append(f"{position}: chat_message 超过{CHAT_MAX_CHARS}字（{len(compact(text))}字）：{text[:30]!r}，只取原文前半句")
+                    # A long message is cut, not rejected: the bubble just shows its first clause.
+                    cut = text[:CHAT_MAX_CHARS].rstrip("，,、；;：:")
+                    warnings.append(f"{position}: chat_message {len(compact(text))} 字，截为 {cut!r}")
+                    text = cut
             else:
                 errors.append(f"{position}: unknown delivery_mode {mode!r}")
                 continue
@@ -858,7 +861,7 @@ def main() -> int:
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     args = parser.parse_args()
 
-    global EPISODE_SECONDS_MIN
+    global EPISODE_SECONDS_MIN, MAX_SKIPPED
     EPISODE_SECONDS_MIN = args.min_seconds
     novel = read_novel(args.source, novel_id=args.novel_id, title=args.title)
     merge = max(1, args.merge)
@@ -909,6 +912,9 @@ def main() -> int:
         CLIP_RANGE = (2, 3) if fast_target <= 60 else (3, 4)
         SPOKEN_RANGE = (140, 220) if fast_target <= 60 else (200, 300)
         EPISODE_SECONDS_MAX = 130.0
+        EPISODE_SECONDS_MIN = max(EPISODE_SECONDS_MIN, fast_target - 25)  # soft: waived on the last redo
+        if episode.text_count > 4000:
+            MAX_SKIPPED = 4  # merged chapters cannot cover all eight segments in ~90 s
     aliases_path = novel_dir / "bible_aliases.json"
     ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")

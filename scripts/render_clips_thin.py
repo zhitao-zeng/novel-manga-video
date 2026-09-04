@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v13.4-targeted-privacy-repair"
+POLICY = "thin-media-v13.5-content-index"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -742,7 +742,8 @@ class ThinMediaRunner:
                     if PRIVACY_MARKER in str(error) and privacy_repairs < 2:
                         privacy_repairs += 1
                         index = re.search(r"content\[(\d+)\]", str(error))
-                        repaired = self.repair_rejected_reference(clip, int(index.group(1))) if index else []
+                        # content[0] is the prompt text; content[N] is the N-th reference image (1-based).
+                        repaired = self.repair_rejected_reference(clip, int(index.group(1)) - 1) if index else []
                         if not repaired and privacy_repairs == 1:
                             repaired = self.repair_privacy_cards(clip)
                         log(f"{clip['clip_id']}: reference rejected as a real person (image {index.group(1) if index else '?'}); fixed {repaired or 'nothing'}; retrying")
