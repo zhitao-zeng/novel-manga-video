@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chat_card
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v17-chatcard"
+POLICY = "thin-media-v18-chatcard"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
@@ -57,15 +57,9 @@ MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line l
 CAPTION_LINE_CHARS = 18
 CAPTION_TRAILING_PUNCT = "，、。；：,.;:"
 CLAUSE_PUNCT = "，。！？；：、…,.!?;:"
-FILLER_CHARS = set("嗯啊哦哎呃唉哈呵嘿哟诶额呀吧呢啦嘛喔噢呦哇咦哼呜嗨欸")
-# Words that belong to prose, not to speech: when the video model reads a stage
-# direction aloud ("脸色瞬间变得铁青"), the recogniser hears one of these.
-NARRATION_MARKERS = (
-    "脸色", "神色", "眼神", "目光", "怒火", "嘴角", "眉头", "神情", "表情", "心中", "心里", "暗自",
-    "不禁", "只见", "顿时", "瞬间", "缓缓", "微微", "猛地", "一脸", "浑身", "冷汗", "死死", "淡淡",
-    "冷冷", "铁青", "苍白", "涨红", "喃喃",
-)
 DIGIT_NAMES = "零一二三四五六七八九"
+MIN_ASR_SECONDS = 0.8   # shorter than this is a murmur, not a line
+MIN_ASR_CHARS = 6       # ...and so is a block the recogniser barely heard
 SECONDS_PER_CHAR_CAP = 0.45   # a caption never stays longer than 0.8 s + this per character
 SECONDS_PER_CHAR_FLOOR = 0.2  # ...and never shorter than this per character (bounded by the next caption)
 
@@ -144,77 +138,19 @@ def tidy_page(page: str) -> str:
     return r"\N".join(lines) if lines else page.rstrip(CAPTION_TRAILING_PUNCT)
 
 
-def clip_prompt_key(clip: dict) -> str:
-    """Normalised text of everything in the clip prompt except the spoken lines (used to spot voiced stage directions)."""
-    lines = [str(line.get("text", "")) for line in clip.get("lines", [])]
-    pieces: list[str] = []
+def classify_unmatched(heard: str, seconds: float) -> str:
+    """Decide what to do with speech that matches no script line.
 
-    def walk(value):
-        if isinstance(value, str):
-            pieces.append(value)
-        elif isinstance(value, dict):
-            for key, item in value.items():
-                if key not in ("lines", "references"):
-                    walk(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk(item)
-    walk(clip)
-    text = "\n".join(pieces)
-    for line in sorted(lines, key=len, reverse=True):
-        if line:
-            text = text.replace(line, "\n")
-    return "\n".join(normalize_text(part) for part in text.split("\n") if normalize_text(part))
-
-
-def narration_key(episode_dir: Path) -> str:
-    """The chapter's prose with quoted dialogue removed.
-
-    A stage direction the video model decided to read aloud ("脸色瞬间变得铁青")
-    comes from here, so anything that echoes this text is a leak, not a line.
+    Only objective properties are used: how long the block is and how much text
+    the recogniser produced.  Short murmurs stay silent; anything longer is shown
+    as heard, ad-libs and the occasional stage direction the model read aloud
+    alike.
     """
-    path = episode_dir / "segments.json"
-    if not path.is_file():
-        return ""
-    try:
-        rows = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return ""
-    prose = "\n".join(str(row.get("text", "")) for row in rows)
-    prose = re.sub(r"[“\"「][^”\"」]{0,200}[”\"」]", "\n", prose)
-    return "\n".join(normalize_text(part) for part in prose.split("\n") if normalize_text(part))
-
-
-def echoes(text: str, corpus: str, threshold: float = 0.5) -> bool:
-    """True when the recognised text is a near-copy of a passage in the corpus."""
-    key = normalize_text(text)
-    if len(key) < 4 or not corpus:
-        return False
-    starts: set[int] = set()
-    for index in range(len(key) - 1):
-        gram = key[index:index + 2]
-        position = corpus.find(gram)
-        while position != -1 and len(starts) < 400:
-            starts.add(max(0, position - index))
-            position = corpus.find(gram, position + 1)
-    for start in sorted(starts):
-        for width in (len(key) - 1, len(key), len(key) + 1):
-            span = corpus[start:start + width]
-            if span and 1.0 - edit_distance(span, key) / max(len(span), len(key)) >= threshold:
-                return True
-    return False
-
-
-def classify_unmatched(heard: str, seconds: float, corpus: str) -> str:
-    """Decide what to do with speech that matches no script line."""
     key = normalize_text(heard)
     if not key:
         return "silent"
-    core = "".join(character for character in key if character not in FILLER_CHARS)
-    if seconds < 0.8 or len(core) < 6:
+    if seconds < MIN_ASR_SECONDS or len(key) < MIN_ASR_CHARS:
         return "dropped_murmur"
-    if any(marker in key for marker in NARRATION_MARKERS) or echoes(heard, corpus):
-        return "prompt_leak"  # a stage direction the model read aloud; captioning it would print the prompt
     return "asr_text"
 
 
@@ -545,14 +481,8 @@ PRESCREEN_RISK = 0.6
 
 
 def apply_genre(genre: dict) -> None:
-    """Genre preset → card style cue, location-card policy, softening pairs, caption word lists."""
-    global CARD_STYLE_SUFFIX_3D, LOCATION_EMPTY_SUFFIX, SOFTEN, NARRATION_MARKERS, FILLER_CHARS
-    # The caption word lists live in the preset (configs/genres/*.json) so they can
-    # be read and emptied without touching code; the constants above are the fallback.
-    if isinstance(genre.get("caption_narration_markers"), list):
-        NARRATION_MARKERS = tuple(str(word) for word in genre["caption_narration_markers"] if str(word))
-    if isinstance(genre.get("caption_filler_chars"), str):
-        FILLER_CHARS = set(genre["caption_filler_chars"])
+    """Genre preset → card style cue, location-card policy, extra softening pairs."""
+    global CARD_STYLE_SUFFIX_3D, LOCATION_EMPTY_SUFFIX, SOFTEN
     if genre.get("card_style_suffix_3d"):
         CARD_STYLE_SUFFIX_3D = genre["card_style_suffix_3d"]
     if genre.get("location_policy") == "sparse":
@@ -662,7 +592,6 @@ class ThinMediaRunner:
         self.work.mkdir(parents=True, exist_ok=True)
         chat_screen_path = novel_dir / "chat_screen.json"
         self.chat_screen = json.loads(chat_screen_path.read_text(encoding="utf-8")) if chat_screen_path.is_file() else {}
-        self.narration = narration_key(episode_dir)
         self.clip_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
         self.script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
         video_clips = [c for c in self.clip_plan["clips"] if c["kind"] == "video"]
@@ -1146,12 +1075,9 @@ class ThinMediaRunner:
         One caption per script line (so two speakers never share a caption),
         timed by character count inside the chunk, then capped and floored by
         reading speed so a caption neither lingers over the next speaker nor
-        flashes by.  Speech that matches no line is shown as heard only when it
-        is real speech: fillers, sub-0.8 s murmurs and voiced stage directions
-        (text that echoes the prompt) stay silent.
+        flashes by.  Speech that matches no line is shown as heard whenever the
+        block is long enough to be a line at all; shorter murmurs stay silent.
         """
-        clip = next((c for c in self.clip_plan["clips"] if c["clip_id"] == clip_id), {})
-        prompt_key = clip_prompt_key(clip) + "\n" + self.narration
         rows: list[list] = []  # [start, end, text, source]
         for row, text, score, pieces in self.align_chunks(self.script_lines(clip_id), analysis["chunks"]):
             row["match_score"] = score
@@ -1159,7 +1085,7 @@ class ThinMediaRunner:
             start, end = float(row["start"]), float(row["end"])
             if not text:
                 heard = str(row.get("hypothesis", "")).strip()
-                verdict = classify_unmatched(heard, end - start, prompt_key)
+                verdict = classify_unmatched(heard, end - start)
                 row["subtitle"] = verdict
                 if verdict == "asr_text":
                     rows.append([start, end, heard, "asr_text"])
