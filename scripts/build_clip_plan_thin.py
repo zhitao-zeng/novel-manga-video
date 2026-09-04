@@ -27,8 +27,11 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v9.1-genre"
+POLICY = "thin-clip-plan-v10-chatcard"
 TWO_VIEW_CAST_LIMIT = 2
+# Seedance sometimes burns its own caption bar into the picture; the film has its own
+# subtitle track, so every prompt forbids it explicitly.
+NO_SUBTITLES = "不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条"
 GENRE_REJECTS: list[str] = []  # from the genre preset; appended to 【不要】
 GENRE_CROWD = ""
 MAX_CLIP_SECONDS = 30.0
@@ -223,6 +226,8 @@ def chat_turns(shot: dict) -> list[dict]:
 
 CHAT_SCREEN: dict = {
     "app": "微信群聊", "group_name": "", "self_name": "",
+    # "card": chat_card.py draws the screen and the runner cuts it in; "video": the old way, Seedance writes the text.
+    "render": "card",
     "layout": "顶部居中显示群名；消息按时间从上到下排列；每条消息左侧一个圆形卡通头像，昵称以一行小字显示在气泡上方，气泡内只有消息正文；"
               "他人的消息是白色气泡靠左，本人的消息是绿色气泡靠右且不显示昵称；底部是输入栏；界面简洁干净，字体为清晰的简体中文黑体、字号偏大",
 }
@@ -244,6 +249,11 @@ def screen_clause(shot: dict) -> str:
     turns = chat_turns(shot)
     if not turns:
         return ""
+    if str(CHAT_SCREEN.get("render", "card")) == "card":
+        # The messages are drawn by chat_card.py and cut in as their own segment;
+        # asking the video model for legible Chinese only produces garbled text.
+        return ("屏幕内容：不要拍屏幕内容——手机或电脑屏幕背对镜头、被手指遮住或只见反光，屏幕上不出现任何文字；"
+                "镜头给看屏幕的人的表情和动作。")
     me = CHAT_SCREEN.get("self_name", "")
     bubbles = []
     for t in turns:
@@ -394,17 +404,21 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     ambience_text = "、".join(ambience) if ambience else "现场环境声"
     lines.append(f"画面呈现{(grammar or {}).get('style_line') or bible.visual_style}。")
     lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")
-    lines.append(f"声音包括角色对白、<{ambience_text}>和与动作同步的音效；无背景音乐；不要字幕。")
-    if any(chat_turns(shot) for shot in shots):
+    lines.append(f"声音包括角色对白、<{ambience_text}>和与动作同步的音效；无背景音乐。")
+    if any(chat_turns(shot) for shot in shots) and str(CHAT_SCREEN.get("render", "card")) != "card":
         group = f"群名「{CHAT_SCREEN['group_name']}」、" if CHAT_SCREEN.get("group_name") else ""
         lines.append(f"【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；除手机屏幕上的{group}昵称和指定的聊天消息外，画面中不出现其他文字、数字、字幕、Logo或水印；屏幕上的消息文字必须与指定内容逐字一致、简体中文、无乱码，昵称在气泡上方而不在气泡内；聊天界面在各阶段保持同一布局；不出现血液和伤口；不新增具名人物。")
     else:
-        lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、字幕、Logo或水印；不出现血液和伤口；不新增具名人物。")
+        lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。")
     avoid = [compact(shot.get("avoid", "")) for shot in shots if shot.get("avoid")]
     avoid = list(dict.fromkeys(a for a in avoid if a))
     rejects = [str(r) for r in (grammar or {}).get("rejects", []) if r]
-    if avoid or rejects:
-        lines.append("【不要】" + "；".join([*avoid, *GENRE_REJECTS, *rejects]) + "。")
+    if str(CHAT_SCREEN.get("render", "card")) == "card":
+        # The chat screen is drawn by us now, so the "except the chat messages"
+        # exemption in the genre and grammar rejects no longer applies.
+        rejects = [r.replace("（手机屏幕上剧本指定的聊天消息除外）", "") for r in rejects]
+        globals()["GENRE_REJECTS"] = [r.replace("（手机屏幕上剧本指定的聊天消息除外）", "") for r in GENRE_REJECTS]
+    lines.append("【不要】" + "；".join([*avoid, *GENRE_REJECTS, *rejects, NO_SUBTITLES]) + "。")
     return "\n".join(lines)
 
 
@@ -505,7 +519,7 @@ def main() -> int:
             "cast": cast,
             "references": references,
             "lines": lines,
-            "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip()} for shot in clip["shots"] for t in chat_turns(shot)],
+            "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip(), "chat_target": str(t.get("chat_target") or "").strip()} for shot in clip["shots"] for t in chat_turns(shot)],
             "spoken_text": "".join(line["text"] for line in lines),
             "prompt": prompt,
             "prompt_chars": len(prompt),

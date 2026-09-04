@@ -99,9 +99,16 @@ QWEN38_LOCAL_BASE_URL=http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http:/
 .venv/bin/python scripts/thin_batch.py --novel-dir outputs/X --chapters 1-500 --merge 2 --tier fast --parallel 8 --inflight 20 --plan-parallel 8 --card-parallel 6 --unattended --prune
 ```
 
-## 屏幕上的聊天消息（群聊类小说）
+## 屏幕上的聊天消息（群聊、私聊）
 
-默认画面里不允许任何可读文字（视频模型画中文易乱码）。群聊是剧情主体的书用 `chat_message`：规划器把消息标成不发声的 turn（发消息的人 + 消息原文，逐字取自原文、≤24 字，一个阶段最多三条），打包器写成"屏幕内容：手机屏幕特写正对镜头，微信群聊界面依次弹出消息气泡，文字为清晰可读的简体中文、与下列内容逐字一致：【谁】「消息」"，并加 <手机消息提示音>；【保持一致】改为"除屏幕上指定的聊天消息外不出现其他文字"。审片多问一项 chat_text_ok（屏幕文字是否为清晰简体中文且与预期一致，允许截断，不允许乱码），不合格带"消息文字必须逐字一致、无乱码"重生成一次。视觉语法禁忌里的可读文字一条要写明"手机屏幕上剧本指定的聊天消息除外"。消息不进字幕、不进语音门。聊天界面用 `outputs/<novel>/chat_screen.json` 模板（`configs/templates/chat_screen.json`）：群名、本人昵称、布局（昵称在气泡上方、本人绿色靠右、他人白色靠左、底部输入栏），`build_bible_thin.py` 会从原文猜群名并取主角为本人，各段各集据此保持同一界面。
+默认画面里不允许任何可读文字（视频模型画中文易乱码）。聊天消息不再交给 Seedance 画，改成自己渲染插卡（`scripts/chat_card.py`，渲染器 v17）：
+
+- 规划器把消息标成不发声的 `chat_message` turn（发消息的人 + 消息原文，逐字取自原文、≤36 字，超长的截到一个标点并加省略号，一个阶段最多四条）。群聊消息 `chat_target` 留空；一对一私聊写成对方的名字，卡片标题就是对方的名字、气泡上方不显示昵称。
+- 打包器给含消息的阶段写"不要拍屏幕内容——手机屏幕背对镜头、被手指遮住或只见反光"，并恢复最严格的"画面中不出现任何文字"约束；提示词里另加一条"不要生成字幕条、台词字幕、字幕栏"，因为 Seedance 有时会自带字幕。
+- 渲染器用 PIL 画微信风格的界面（`outputs/<novel>/chat_screen.json` 的群名、本人昵称、布局；`render` 字段为 `card` 时启用，`video` 回到旧的让模型画屏幕的做法），消息逐条弹出、每条约 1.15 秒配一声轻提示音，超过 5 条自动分成多张卡顺着往上滚，背景是该片段的模糊画面。卡片作为独立片段硬切在对应片段之前：先看到消息，再看人物的反应。
+- 头像从角色卡的立绘裁头（固定取头部窗口，缓存在 `series_assets/avatars/`），没有卡的角色用带首字的色块头像。
+- 卡片不花 Seedance 秒数、文字逐字准确、不过审片的 `chat_text_ok`；消息不进字幕、不进语音门。
+- 单独渲染一集的卡片：`python scripts/chat_card.py --novel-dir outputs/X --episode-dir outputs/X/X_11 --preview`。
 
 ## 题材预设
 
@@ -147,6 +154,7 @@ QWEN38_LOCAL_BASE_URL=http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http:/
 | `scripts/plan_chapter_thin.py` | 一章一次调用（Qwen3.8 本地服务，先思考摘要再严格 JSON）。硬门三条；返修时给具体数字目标、识别原样重发、改写引用附最接近原句。 |
 | `scripts/build_clip_plan_thin.py` | 阶段打包成 ≤30 秒、≤6 阶段的片段，按官方 Seedance 2.5 模板写提示词（【生成目标】、逐图 用于/不采用、【视觉语法】、【阶段n·景别】、【保持一致】、【不要】），只报告的克制检查。 |
 | `scripts/render_clips_thin.py` | 资产卡（只到本集引用到的编号）、Seedance 请求（参考图 base64 内嵌）、静音切块 + SenseVoice、硬门、硬切拼接、剧本原句字幕、封面/结束卡、媒体 QC；接口故障自愈见下。 |
+| `scripts/chat_card.py` | 微信风格的群聊/私聊插卡：PIL 画界面、逐条弹出、每条一声提示音、头像从角色卡裁头；渲染器在拼接时把卡片硬切在对应片段之前。 |
 | `scripts/thin_asr_segments.py` | 在 ASR venv 里一次加载模型识别多个语音块。 |
 | `scripts/thin_profile.py` | 画风/画幅变量：`STYLE_VISUAL` 各画风的卡片描述，`FRAMES` 各画幅的画布、Seedance 比例和构图句。 |
 | `configs/templates/` | `profile.json`、`visual_grammar.json` 模板。 |
@@ -167,7 +175,7 @@ QWEN38_LOCAL_BASE_URL=http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http:/
 - 3D 卡偶尔接近真人照片，Seedance 以 `InputImageSensitiveContentDetected.PrivacyInformation` 拒收整段 → 找出该段引用、且没被任何成功片段用过的卡（`series_assets/.privacy_ok.json` 跨进程记录），原卡挪成 `.photoreal-rejected.jpeg`（连同侧车），按"明显动画化的 3D 国漫角色"重画后在同一 attempt 内重提一次；重画串行、每张卡最多一次、提交前等待正在重画的卡。
 - 本机 ffmpeg 4.4 的多输入 xfade 链会把某段冻在首帧 → 硬切 concat。
 - 严格 JSON 模式偶尔陷入无限空白 → JSON 步 max_tokens 9000，快速失败进返修。
-- Seedance 会加即兴群众杂音 → 字幕按 ASR 定时、用剧本原句：语音块按顺序在整段剩余剧本里找最像的原句（相似度 ≥0.35，跳句有小惩罚）；匹配不上但持续 ≥0.8 秒的前景语音直接显示识别文本（听到什么看到什么），只有短促杂音不出字幕。报告里每块标 script_span / asr_text / dropped_murmur / silent。
+- Seedance 会加即兴群众杂音 → 字幕按 ASR 定时、用剧本原句（渲染器 v16）：语音块按顺序在整段剩余剧本里找最像的原句（相似度 ≥0.35，跳句有小惩罚；阿拉伯数字按读音比对，1000万 = 一千万）；块边界离标点 3 字以内吸附到标点，字幕不会从词中间起；匹配到的文本按剧本行拆条（一行一个说话人，问答不同屏），每条按字数分时间，再按阅读速度封顶（0.8 秒 + 每字 0.45 秒）和垫底（每字 0.2 秒，不压下一条）。匹配不上的语音：纯语气词、不足 0.8 秒或有效字不足 4 个的不出；识别文本与该段提示词重合（模型把舞台指示念出来了）的记 prompt_leak 不出；其余显示识别文本。行尾的逗号句号去掉，两行时不留 2 字以内的孤行。报告里每块标 script_span / asr_text / dropped_murmur / prompt_leak / silent。改字幕规则后重烧不花 Seedance 费用：对已出片的集重跑 `render_clips_thin.py --novel-dir … --episode …`，片段走缓存，只重新拼接（每集约 1 分钟）。
 - 一段里两名相貌相近且都有参考图的少女会串脸 → 不说话且未被画面点名的角色不给参考图；已知案例用 `clip_overrides.json` 单段修。
 - 一段出错（网络、ASR）不再拖垮整集：按段记录，成片报告 `status: clips_failed`，重跑只补那几段。
 - 图片接口的内容审核拒画某张卡（现代题材女性角色偶发）→ 用去掉敏感词并加"端庄得体、衣着完整"的提示词重画一次，再拒就立即报错，不再空转 6 轮。

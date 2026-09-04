@@ -40,7 +40,7 @@ from thin_profile import endpoint_order, load_genre, load_profile  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.14-genre"
+POLICY = "thin-review-v1.15-chatcard"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -498,8 +498,12 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     lines = "；".join(f"{row.get('speaker_name') or '旁白'}：{row['text']}" for row in clip.get("lines", []))
     chats = "；".join(f"{row.get('speaker_name')}：「{row['text']}」" for row in clip.get("chat_lines", []))
     chat_screen_path = bible_root(work_dir) / "chat_screen.json"
-    if chats and chat_screen_path.is_file():
-        screen = json.loads(chat_screen_path.read_text(encoding="utf-8"))
+    screen = json.loads(chat_screen_path.read_text(encoding="utf-8")) if chat_screen_path.is_file() else {}
+    if str(screen.get("render", "card")) == "card":
+        # The messages are a card cut in beside this clip, not something the clip
+        # has to show; the clip itself must contain no readable text at all.
+        chats = ""
+    elif chats and screen:
         chats += f"（群名「{screen.get('group_name', '')}」、发送者昵称和界面文字也允许出现）" if screen.get("group_name") else "（发送者昵称和界面文字也允许出现）"
     text = (
         "这是一段动画短剧视频的抽帧，前面几张是本段人物的角色卡（身份依据）。\n" + "，".join(legend) + "。\n"

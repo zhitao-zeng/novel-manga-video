@@ -68,11 +68,14 @@ def styled_bible(bible, profile: dict):
 
 def plan_fingerprint(plan: dict) -> str:
     """Digest of what the renderer actually consumes from a clip plan: per clip
-    the kind, prompt, reference images and requested seconds.  Policy strings,
+    the kind, prompt, reference images, requested seconds and chat messages.  Policy strings,
     lint notes and totals are left out so a packer version bump does not make
     every rendered episode look stale."""
     material = [
-        (clip.get("clip_id"), clip.get("kind"), clip.get("prompt", ""), [ref.get("path") for ref in clip.get("references", [])], clip.get("request_seconds"), clip.get("text", ""))
+        (clip.get("clip_id"), clip.get("kind"), clip.get("prompt", ""), [ref.get("path") for ref in clip.get("references", [])], clip.get("request_seconds"), clip.get("text", ""),
+         # the chat cards are rendered from these, so a message change must
+         # count as a plan change even when the video prompts are identical
+         [(row.get("speaker_name"), row.get("chat_target", ""), row.get("text")) for row in clip.get("chat_lines", [])])
         for clip in plan.get("clips", [])
     ]
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()

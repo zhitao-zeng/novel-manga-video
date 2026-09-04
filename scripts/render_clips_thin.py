@@ -45,12 +45,179 @@ from novel_manga.render import _fit_cover
 from dataclasses import replace as dc_replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import chat_card
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v15-genre"
+POLICY = "thin-media-v17-chatcard"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
+
+# ---- subtitle helpers (v16) ----
+CAPTION_LINE_CHARS = 18
+CAPTION_TRAILING_PUNCT = "，、。；：,.;:"
+CLAUSE_PUNCT = "，。！？；：、…,.!?;:"
+FILLER_CHARS = set("嗯啊哦哎呃唉哈呵嘿哟诶额呀吧呢啦嘛喔噢呦哇咦哼呜嗨欸")
+# Words that belong to prose, not to speech: when the video model reads a stage
+# direction aloud ("脸色瞬间变得铁青"), the recogniser hears one of these.
+NARRATION_MARKERS = (
+    "脸色", "神色", "眼神", "目光", "怒火", "嘴角", "眉头", "神情", "表情", "心中", "心里", "暗自",
+    "不禁", "只见", "顿时", "瞬间", "缓缓", "微微", "猛地", "一脸", "浑身", "冷汗", "死死", "淡淡",
+    "冷冷", "铁青", "苍白", "涨红", "喃喃",
+)
+DIGIT_NAMES = "零一二三四五六七八九"
+SECONDS_PER_CHAR_CAP = 0.45   # a caption never stays longer than 0.8 s + this per character
+SECONDS_PER_CHAR_FLOOR = 0.2  # ...and never shorter than this per character (bounded by the next caption)
+
+
+def spoken_integer(digits: str) -> str:
+    """Read an integer the way it is said in Chinese: 1000 → 一千, 19800 → 一万九千八百, 10500 → 一万零五百."""
+    n = int(digits)
+    if n == 0:
+        return "零"
+    units, bigs = ("", "十", "百", "千"), ("", "万", "亿", "万亿")
+    groups = []
+    while n > 0:
+        groups.append(n % 10000)
+        n //= 10000
+    parts = []
+    for gi in range(len(groups) - 1, -1, -1):
+        g = groups[gi]
+        if g == 0:
+            continue
+        s, pending_zero = "", False
+        for i in (3, 2, 1, 0):
+            d = (g // 10 ** i) % 10
+            if d:
+                if pending_zero:
+                    s += "零"
+                s += DIGIT_NAMES[d] + units[i]
+                pending_zero = False
+            elif s:
+                pending_zero = True
+        if gi < len(groups) - 1 and g < 1000:
+            s = "零" + s
+        parts.append(s + bigs[gi])
+    text = "".join(parts)
+    return text[1:] if text.startswith("一十") else text
+
+
+def speakable(text: str) -> str:
+    """Replace Arabic numbers by their spoken form so script and ASR text compare on equal terms."""
+    def read(match: re.Match) -> str:
+        token = match.group(0)
+        following = text[match.end():match.end() + 1]
+        if "." in token:
+            whole, _, fraction = token.partition(".")
+            return spoken_integer(whole) + "点" + "".join(DIGIT_NAMES[int(d)] for d in fraction)
+        if following == "年" or len(token) >= 7 or (token.startswith("0") and len(token) > 1):
+            return "".join(DIGIT_NAMES[int(d)] for d in token)
+        return spoken_integer(token)
+    return re.sub(r"\d+(?:\.\d+)?", read, text)
+
+
+def match_key(text: str) -> str:
+    """Normalised comparison text: spoken numbers, 两 read as 二, no punctuation."""
+    return normalize_text(speakable(text)).replace("两", "二")
+
+
+def balanced_split(text: str, width: int = CAPTION_LINE_CHARS) -> list[str]:
+    """Split one caption into two lines near the middle, at a clause boundary when one is close enough."""
+    if len(text) <= width:
+        return [text]
+    middle = len(text) / 2
+    candidates = [i for i in range(2, len(text) - 1) if text[i - 1] in CLAUSE_PUNCT and i <= width and len(text) - i <= width]
+    if candidates:
+        cut = min(candidates, key=lambda i: abs(i - middle))
+    else:
+        cut = max(1, min(len(text) - 1, round(middle)))
+    return [text[:cut], text[cut:]]
+
+
+def tidy_page(page: str) -> str:
+    """Rebalance orphaned second lines and drop trailing commas/periods at line ends."""
+    lines = [line.strip() for line in page.split(r"\N") if line.strip()]
+    if len(lines) == 2 and (len(normalize_text(lines[0])) <= 2 or len(normalize_text(lines[1])) <= 2):
+        lines = balanced_split(lines[0] + lines[1])
+    lines = [line.rstrip(CAPTION_TRAILING_PUNCT) for line in lines]
+    lines = [line for line in lines if normalize_text(line)]
+    return r"\N".join(lines) if lines else page.rstrip(CAPTION_TRAILING_PUNCT)
+
+
+def clip_prompt_key(clip: dict) -> str:
+    """Normalised text of everything in the clip prompt except the spoken lines (used to spot voiced stage directions)."""
+    lines = [str(line.get("text", "")) for line in clip.get("lines", [])]
+    pieces: list[str] = []
+
+    def walk(value):
+        if isinstance(value, str):
+            pieces.append(value)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key not in ("lines", "references"):
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+    walk(clip)
+    text = "\n".join(pieces)
+    for line in sorted(lines, key=len, reverse=True):
+        if line:
+            text = text.replace(line, "\n")
+    return "\n".join(normalize_text(part) for part in text.split("\n") if normalize_text(part))
+
+
+def narration_key(episode_dir: Path) -> str:
+    """The chapter's prose with quoted dialogue removed.
+
+    A stage direction the video model decided to read aloud ("脸色瞬间变得铁青")
+    comes from here, so anything that echoes this text is a leak, not a line.
+    """
+    path = episode_dir / "segments.json"
+    if not path.is_file():
+        return ""
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    prose = "\n".join(str(row.get("text", "")) for row in rows)
+    prose = re.sub(r"[“\"「][^”\"」]{0,200}[”\"」]", "\n", prose)
+    return "\n".join(normalize_text(part) for part in prose.split("\n") if normalize_text(part))
+
+
+def echoes(text: str, corpus: str, threshold: float = 0.5) -> bool:
+    """True when the recognised text is a near-copy of a passage in the corpus."""
+    key = normalize_text(text)
+    if len(key) < 4 or not corpus:
+        return False
+    starts: set[int] = set()
+    for index in range(len(key) - 1):
+        gram = key[index:index + 2]
+        position = corpus.find(gram)
+        while position != -1 and len(starts) < 400:
+            starts.add(max(0, position - index))
+            position = corpus.find(gram, position + 1)
+    for start in sorted(starts):
+        for width in (len(key) - 1, len(key), len(key) + 1):
+            span = corpus[start:start + width]
+            if span and 1.0 - edit_distance(span, key) / max(len(span), len(key)) >= threshold:
+                return True
+    return False
+
+
+def classify_unmatched(heard: str, seconds: float, corpus: str) -> str:
+    """Decide what to do with speech that matches no script line."""
+    key = normalize_text(heard)
+    if not key:
+        return "silent"
+    core = "".join(character for character in key if character not in FILLER_CHARS)
+    if seconds < 0.8 or len(core) < 6:
+        return "dropped_murmur"
+    if any(marker in key for marker in NARRATION_MARKERS) or echoes(heard, corpus):
+        return "prompt_leak"  # a stage direction the model read aloud; captioning it would print the prompt
+    return "asr_text"
+
+
 MAX_HOLD_SECONDS = 6.0
 MAX_CER = 0.5
 MIN_PEAK_DB = -35.0
@@ -487,6 +654,9 @@ class ThinMediaRunner:
         self.renderer = Renderer(self.settings)
         self.work = episode_dir / "work"
         self.work.mkdir(parents=True, exist_ok=True)
+        chat_screen_path = novel_dir / "chat_screen.json"
+        self.chat_screen = json.loads(chat_screen_path.read_text(encoding="utf-8")) if chat_screen_path.is_file() else {}
+        self.narration = narration_key(episode_dir)
         self.clip_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
         self.script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
         video_clips = [c for c in self.clip_plan["clips"] if c["kind"] == "video"]
@@ -876,51 +1046,67 @@ class ThinMediaRunner:
         return [line["text"] for line in (clip or {}).get("lines", []) if normalize_text(line["text"])]
 
     @staticmethod
-    def align_chunks(lines: list[str], chunks: list[dict], threshold: float = MIN_LINE_SIMILARITY) -> list[tuple[dict, str | None, float]]:
+    def align_chunks(lines: list[str], chunks: list[dict], threshold: float = MIN_LINE_SIMILARITY) -> list[tuple[dict, str | None, float, list[tuple[int, str]]]]:
         """Map ASR chunks onto script text, in order, over the whole remaining script.
 
-        The script is flattened to one normalised character sequence with a
-        pointer back to the original text.  For every chunk the best span is
-        searched from the cursor to the end of the script (skipping ahead costs
-        a small penalty per skipped line), so one noisy chunk cannot derail the
-        lines that follow, and the order constraint lets the acceptance
-        threshold sit well below a free-text match.  Returns
-        (chunk, matched original text or None, score).
+        The script is flattened to one normalised character sequence (numbers in
+        their spoken form) with a pointer back to the original text.  For every
+        chunk the best span is searched from the cursor to the end of the script
+        (skipping ahead costs a small penalty per skipped line), so one noisy
+        chunk cannot derail the lines that follow, and the order constraint lets
+        the acceptance threshold sit well below a free-text match.  A span end
+        that lands within three characters of a clause boundary snaps to it, so
+        captions do not start mid-word.  Returns (chunk, matched original text
+        or None, score, pieces) where pieces splits the matched text per script
+        line - one line is one speaker's turn, so captions never mix speakers.
         """
-        flat: list[tuple[str, int, int]] = []  # (normalised char, line index, original index)
+        flat: list[tuple[str, int, int, int]] = []  # (key char, line index, first original index, last original index)
         for line_index, line in enumerate(lines):
-            for original_index, character in enumerate(line):
-                if normalize_text(character):
-                    flat.append((normalize_text(character), line_index, original_index))
+            for match in re.finditer(r"\d+(?:\.\d+)?|.", line, re.S):
+                token = match.group(0)
+                if token[0].isdigit():
+                    for key_char in match_key(line[match.start():match.end() + 1] if line[match.end():match.end() + 1] == "年" else token).replace("年", ""):
+                        flat.append((key_char, line_index, match.start(), match.end() - 1))
+                else:
+                    key = normalize_text(token).replace("两", "二")
+                    if key:
+                        flat.append((key, line_index, match.start(), match.start()))
         keys = "".join(item[0] for item in flat)
+        boundary_after: list[bool] = []  # True when a clause ends right after this flat position
+        for position, (_, line_index, _, last) in enumerate(flat):
+            following = flat[position + 1] if position + 1 < len(flat) else None
+            if following is None or following[1] != line_index:
+                boundary_after.append(True)
+                continue
+            between = lines[line_index][last + 1:following[2]]
+            boundary_after.append(any(ch in CLAUSE_PUNCT for ch in between))
         line_starts: dict[int, int] = {}
-        for position, (_, line_index, _) in enumerate(flat):
+        for position, (_, line_index, _, _) in enumerate(flat):
             line_starts.setdefault(line_index, position)
         cursor = 0
-        results: list[tuple[dict, str | None, float]] = []
+        results: list[tuple[dict, str | None, float, list[tuple[int, str]]]] = []
 
-        def original_span(start: int, end: int) -> str:
-            pieces = []
-            current_line = None
+        def original_pieces(start: int, end: int) -> list[tuple[int, str]]:
+            pieces: list[list[int]] = []
             for position in range(start, end):
-                _, line_index, original_index = flat[position]
-                if line_index != current_line:
-                    current_line = line_index
-                    pieces.append([line_index, original_index, original_index])
-                pieces[-1][2] = original_index
-            text = ""
+                _, line_index, first, last = flat[position]
+                if not pieces or pieces[-1][0] != line_index:
+                    pieces.append([line_index, first, last])
+                pieces[-1][1] = min(pieces[-1][1], first)
+                pieces[-1][2] = max(pieces[-1][2], last)
+            out = []
             for line_index, first, last in pieces:
                 line = lines[line_index]
                 stop = last + 1
                 while stop < len(line) and not normalize_text(line[stop]):
                     stop += 1
-                text += line[first:stop]
-            return text
+                out.append((line_index, line[first:stop]))
+            return out
 
         for chunk in chunks:
-            hypothesis = normalize_text(chunk["hypothesis"])
+            hypothesis = match_key(str(chunk.get("hypothesis", "")))
             if not hypothesis or cursor >= len(keys):
-                results.append((chunk, None, 0.0))
+                results.append((chunk, None, 0.0, []))
                 continue
             current_line = flat[cursor][1]
             candidates = [(cursor, 0)] + [(pos, li - current_line) for li, pos in line_starts.items() if pos > cursor]
@@ -935,38 +1121,62 @@ class ThinMediaRunner:
                         best = (score, start, width)
             score, start, width = best
             if start is None or score < threshold:
-                results.append((chunk, None, round(max(score, 0.0), 3)))
+                results.append((chunk, None, round(max(score, 0.0), 3), []))
                 continue
-            results.append((chunk, original_span(start, start + width), round(score, 3)))
-            cursor = start + width
+            end = start + width
+            for delta in (0, -1, 1, -2, 2, -3, 3):
+                candidate = end + delta
+                if start < candidate <= len(keys) and boundary_after[candidate - 1]:
+                    end = candidate
+                    break
+            pieces = original_pieces(start, end)
+            results.append((chunk, "".join(text for _, text in pieces), round(score, 3), pieces))
+            cursor = end
         return results
 
     def subtitle_events(self, clip_id: str, analysis: dict) -> list[dict]:
         """Time subtitles by ASR chunks but print the script wording.
 
-        Seedance adds unscripted crowd noises; raw ASR of those becomes garbage
-        text on screen, so only chunks that align with script text get subtitles.
+        One caption per script line (so two speakers never share a caption),
+        timed by character count inside the chunk, then capped and floored by
+        reading speed so a caption neither lingers over the next speaker nor
+        flashes by.  Speech that matches no line is shown as heard only when it
+        is real speech: fillers, sub-0.8 s murmurs and voiced stage directions
+        (text that echoes the prompt) stay silent.
         """
-        events = []
-        for row, text, score in self.align_chunks(self.script_lines(clip_id), analysis["chunks"]):
+        clip = next((c for c in self.clip_plan["clips"] if c["clip_id"] == clip_id), {})
+        prompt_key = clip_prompt_key(clip) + "\n" + self.narration
+        rows: list[list] = []  # [start, end, text, source]
+        for row, text, score, pieces in self.align_chunks(self.script_lines(clip_id), analysis["chunks"]):
             row["match_score"] = score
             row["matched_lines"] = text or ""
-            source = "native_audio_asr"
+            start, end = float(row["start"]), float(row["end"])
             if not text:
                 heard = str(row.get("hypothesis", "")).strip()
-                foreground = float(row["end"]) - float(row["start"]) >= 0.8 and len(normalize_text(heard)) >= 2
-                if not foreground:
-                    row["subtitle"] = "silent" if not normalize_text(heard) else "dropped_murmur"
-                    continue
-                # Real speech that matches no script line (an ad-libbed line, or a
-                # line the recogniser mangled): show what is actually heard rather
-                # than nothing.
-                text, source = heard, "asr_text"
-                row["subtitle"] = "asr_text"
-            else:
-                row["subtitle"] = "script_span"
-            for page in timed_subtitle_pages(text, float(row["start"]), float(row["end"])):
-                events.append({"unit_id": clip_id, "role": "dialogue", "start": float(page["start"]), "end": float(page["end"]), "text": str(page["text"]), "subtitle_source": source})
+                verdict = classify_unmatched(heard, end - start, prompt_key)
+                row["subtitle"] = verdict
+                if verdict == "asr_text":
+                    rows.append([start, end, heard, "asr_text"])
+                continue
+            row["subtitle"] = "script_span"
+            weights = [max(1, len(normalize_text(piece))) for _, piece in pieces]
+            total = sum(weights)
+            cursor = start
+            for index, ((_, piece), weight) in enumerate(zip(pieces, weights)):
+                piece_end = end if index == len(pieces) - 1 else cursor + (end - start) * weight / total
+                rows.append([cursor, piece_end, piece, "native_audio_asr"])
+                cursor = piece_end
+        clip_seconds = float(analysis.get("duration") or 0.0) or (rows[-1][1] if rows else 0.0)
+        for index, item in enumerate(rows):
+            chars = max(1, len(normalize_text(item[2])))
+            next_start = rows[index + 1][0] if index + 1 < len(rows) else clip_seconds
+            item[1] = min(item[1], item[0] + 0.8 + SECONDS_PER_CHAR_CAP * chars)
+            wanted = item[0] + SECONDS_PER_CHAR_FLOOR * chars
+            item[1] = max(item[1], min(wanted, max(item[0] + 0.3, next_start - 0.05)))
+        events = []
+        for start, end, text, source in rows:
+            for page in timed_subtitle_pages(text, start, end):
+                events.append({"unit_id": clip_id, "role": "dialogue", "start": float(page["start"]), "end": float(page["end"]), "text": tidy_page(str(page["text"])), "subtitle_source": source})
         return events
 
     def _font(self, size: int):
@@ -1020,6 +1230,45 @@ class ThinMediaRunner:
         run(["ffmpeg", "-y", "-v", "error", "-ss", f"{second:.3f}", "-i", str(video), "-frames:v", "1", "-q:v", "2", str(output)])
         return output
 
+    def chat_segments(self, clip_id: str, clip_video: Path) -> list[dict]:
+        """Phone-screen cards for this clip, drawn here instead of by the video model.
+
+        The card is cut in just before the clip, so the messages land (one chime
+        each) and the film then shows the character reading them.  Chat text is
+        on screen, so these segments carry no subtitles.
+        """
+        if str(self.chat_screen.get("render", "card")) != "card":
+            return []
+        clip = next((c for c in self.clip_plan["clips"] if c["clip_id"] == clip_id), {})
+        runs = chat_card.channels(clip.get("chat_lines") or [], str(self.chat_screen.get("self_name", "")))
+        if not runs:
+            return []
+        out_dir = self.work / "chat"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        background = None
+        try:
+            background = self.frame(clip_video, 0.4, out_dir / f"{clip_id}_plate.jpeg")
+        except Exception as error:  # noqa: BLE001 - a missing plate only costs the blurred backdrop
+            log(f"{clip_id}: chat card backdrop unavailable ({type(error).__name__})")
+        segments = []
+        card = 0
+        for run in runs:
+            names = [str(m.get("speaker_name", "")) for m in run["messages"]] + [str(self.chat_screen.get("self_name", "")), run["target"]]
+            avatars = chat_card.load_avatars(self.novel_dir, [name for name in names if name])
+            for window in chat_card.windows(len(run["messages"])):
+                card += 1
+                path, seconds = chat_card.build_segment(
+                    run["messages"], out_dir / f"{clip_id}_chat_{card:02d}.mp4",
+                    title=run["target"] or str(self.chat_screen.get("group_name", "群聊")),
+                    self_name=str(self.chat_screen.get("self_name", "")), group=not run["target"], avatars=avatars,
+                    width=self.settings.width, height=self.settings.height, fps=self.settings.fps, background=background,
+                    window=window,
+                )
+                log(f"{clip_id}: chat card {card} (messages {window[0] + 1}-{window[1]}, {seconds:.1f}s)")
+                segments.append({"unit_id": f"{clip_id}_chat{card}", "role": "chat", "segment": str(path),
+                                 "duration": seconds, "audio_source": "chat_card", "subtitle_events": []})
+        return segments
+
     def assemble(self, results: list[dict]) -> dict:
         video_id = self.episode_dir.name
         turn_segments = []
@@ -1028,6 +1277,7 @@ class ThinMediaRunner:
             clip_video = Path(selected["video"])
             wav = clip_video.parent / "native.wav"
             segment, duration = self.renderer.mux_visual_group(clip_video, wav, self.work / "segments" / f"{record['clip_id']}.mp4")
+            turn_segments.extend(self.chat_segments(record["clip_id"], clip_video))
             turn_segments.append({"unit_id": record["clip_id"], "role": "dialogue", "segment": str(segment), "duration": duration, "audio_source": "native_dialogue", "subtitle_events": self.subtitle_events(record["clip_id"], selected)})
         first_video = Path(results[0]["selected"]["video"])
         last_video = Path(results[-1]["selected"]["video"])
@@ -1058,10 +1308,17 @@ class ThinMediaRunner:
             def normalize(item):
                 index, path = item
                 target = output.parent / f"join_{index:02d}.mp4"
-                run(["ffmpeg", "-y", "-v", "error", "-threads", "4", "-i", str(path),
+                result = subprocess.run(
+                    ["ffmpeg", "-y", "-v", "error", "-threads", "4", "-i", str(path),
                      "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p",
                      "-vsync", "cfr", "-c:v", "libx264", "-preset", "superfast", "-crf", "20", "-pix_fmt", "yuv420p",
-                     "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(target)])
+                     "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(target)],
+                    capture_output=True, text=True)
+                # ffmpeg can exit 0 having written a file with no streams; the
+                # concat that follows then fails with a useless message, so the
+                # normalised part is checked here where the input is still known.
+                if result.returncode != 0 or media_duration(target) <= 0.0:
+                    raise RuntimeError(f"normalise failed for {path} (exit {result.returncode}): {(result.stderr or '')[-400:]}")
                 return target
             with ThreadPoolExecutor(max_workers=4) as pool:  # segments normalise side by side
                 normalized = list(pool.map(normalize, enumerate(sequence)))

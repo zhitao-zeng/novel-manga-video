@@ -47,12 +47,12 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v9-genre"
+POLICY = "thin-chapter-plan-v10-full"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
 QUOTE_MAX_CHARS = 200
-MAX_SKIPPED = 3
+MAX_SKIPPED = 0  # every segment must be filmed; run longer instead of dropping story
 SHOT_RANGE = (12, 24)
 CLIP_RANGE = (3, 4)
 STAGE_RANGE = (4, 6)
@@ -66,7 +66,7 @@ ANONYMOUS_SPEAKERS = ["无名测验员", "无名族人", "无名少年", "无名
 SCENE_JOBS = ["建立", "推进", "对峙", "揭示", "反转", "决定", "收束"]
 SHOT_SCALES = ["特写", "近景", "中近景", "中景", "全景"]
 DELIVERY_MODES = ["visible_dialogue", "offscreen_dialogue", "silent_action", "title_card", "chat_message", "singing"]
-CHAT_MAX_CHARS = 24
+CHAT_MAX_CHARS = 36  # the card is drawn by us, so the bubble can hold a full line
 SPLIT_PUNCT = "，。！？；：、…—,.!?;:"
 STRIP_PUNCT = r"[\s　，。！？；：、…—,.!?;:\"“”'‘’（）()]"
 FORBIDDEN_VISUAL = (
@@ -113,8 +113,8 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
 时长预算是硬约束：每个发声汉字0.25秒，每句台词加1秒，每个阶段加1秒，无声动作阶段按4秒；单段不得超过30秒，全集不得超过100秒。全集发声字数控制在220到300字之间。
 硬规则：
 1. 只用当前章的事实、人物和顺序。不得引入后文信息、新事件、新地点，或StoryBible之外的具名角色。
-2. 原文已切成8个连续区段 seg_1 到 seg_8。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段至少被一个阶段引用；纯景物或纯议论的区段可以跳过，写进 skipped_segments 并给理由，最多跳过3个。
-3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。另有一种不发声的 chat_message：手机或电脑屏幕上显示的聊天消息，speaker_name 写发消息的人，text 写消息原文，逐字取自原文、不超过24字（长消息只取前半句）；一个阶段最多三条；含 chat_message 的阶段，start_state 和 event 必须写明手机屏幕特写、屏幕正对镜头、消息气泡清晰可读，以及看手机的人的反应。原文里的群聊内容优先用 chat_message 呈现，不要改成画外音。唱歌场景用 singing：speaker_name 写唱歌的人，text 只写演唱方式（如"轻声哼唱一段温柔的无词旋律"），绝不写任何歌词、歌名或已有歌曲，观众的反应用其他阶段的画面和画外音表现。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
+2. 原文已切成8个连续区段 seg_1 到 seg_8。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段都必须至少被一个阶段引用，一个都不许跳过；skipped_segments 必须是空数组 []。每个区段用1到3个阶段带过：内容多的区段把对话压成一两句、把过程并成一个阶段，也不能整段不拍。
+3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。另有一种不发声的 chat_message：手机或电脑屏幕上显示的聊天消息，speaker_name 写发消息的人，text 写消息原文，逐字取自原文、不超过36字（更长的只取到一个标点为止）；一个阶段最多八条（消息由插卡呈现，一个阶段可以带一整轮对话，不必为了拆消息而多写阶段）；群聊消息的 chat_target 留空；一对一私聊的消息把 chat_target 写成和主角私聊的那个人的名字——绝不能写主角自己，同一段私聊里每条消息（无论谁发的）都写同一个名字；同一阶段不要混用群聊和私聊。屏幕上的聊天界面由后期插卡渲染，画面里不需要拍清屏幕文字，含 chat_message 的阶段 start_state 和 event 只写看手机的人的动作与反应。原文里凡是聊天软件上的消息（形如「昵称：内容」的对话、群里的喊话、私聊），必须用 chat_message 呈现，一条都不许改成画外音、旁白或角色自己念出来。唱歌场景用 singing：speaker_name 写唱歌的人，text 只写演唱方式（如"轻声哼唱一段温柔的无词旋律"），绝不写任何歌词、歌名或已有歌曲，观众的反应用其他阶段的画面和画外音表现。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
 4. 台词取舍：推动剧情和人物关系的原文台词必须保留，可以只删子句、不改词序；重复表达同一意思的群众议论要合并成一两句或删掉。叙述里承载来历、规则和身份的信息（谁曾经是什么、某条规则意味着什么、某个称号指谁）用一两句无名族人的画外议论或角色问答说出来，改成口语但不新增原文没有的事实。内心独白不要改成出声自语，改成可见反应。
 5. 每条turn的text不超过26个汉字，长句拆成多条turn。
 6. 阶段字段：start_state写开始时画面（谁在哪、站位、朝向、表情、道具）；event写这几秒内的一个主要动作或事件；end_state写结束时能直接看到的状态（人物位置、朝向、表情、道具归属）；sfx写环境声或动作音效（如"人群低语""脚步声"），没有就空字符串，不要写"寂静声""注视声"这类不是声音的词；shot_scale写景别。情绪一律写成可见表现（眼神、眉头、嘴角、呼吸、手部动作），不写"气质如清莲""闪过一丝痛苦"这类拍不出来的词。不描述镜头运动、文字、字幕、Logo。相邻阶段不要重复同一个开始画面。
@@ -227,12 +227,13 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
     turn = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["speaker_name", "delivery_mode", "text", "emotion"],
+        "required": ["speaker_name", "delivery_mode", "text", "emotion", "chat_target"],
         "properties": {
             "speaker_name": {"type": "string", "enum": [*character_names, *ANONYMOUS_SPEAKERS, ""]},
             "delivery_mode": {"type": "string", "enum": DELIVERY_MODES},
             "text": {"type": "string"},
             "emotion": {"type": "string"},
+            "chat_target": {"type": "string", "enum": [*character_names, ""]},  # chat_message only: empty = group chat, a name = a one-to-one chat
         },
     }
     stage = {
@@ -482,6 +483,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
 
 ALIASES: dict[str, str] = {}  # alias -> canonical character name (bible_aliases.json)
 FAST_TIER = False
+CHAT_SELF = ""  # the protagonist, from chat_screen.json: a private chat is named after the OTHER party
 TEXT_ON_PROPS_GATE = True  # genre preset: readable text on props is a hard gate (古风碑文) or a note (都市招牌)
 
 
@@ -528,11 +530,23 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             elif key in chapter_key:
                 warnings.append(f"{position}: source_quote spans a segment boundary; kept {segment_id}")
             else:
-                nearest = closest_source_line(quote, chapter_text)
-                errors.append(
-                    f"{position}: source_quote 不是原文（疑似改写）：{quote[:50]!r}。"
-                    + (f"最接近的原文句子是：{nearest!r}，请逐字复制这一句或它所在段落里的一段连续原文" if nearest else "请从对应区段逐字复制一段连续原文")
-                )
+                # A quote that stitches two lines of the same exchange together
+                # (the narration between them dropped) is still provenance: every
+                # word is verbatim, so accept it and note which segment it lands in.
+                pieces = [quote_key(piece) for piece in re.split(r"[\n\r]+", quote) if len(quote_key(piece)) >= 4]
+                if pieces and all(piece in chapter_key for piece in pieces):
+                    owners = [sid for sid, segment_key in segment_keys.items() if pieces[0] in segment_key]
+                    if owners and segment_id not in owners:
+                        warnings.append(f"{position}: source_quote 由 {len(pieces)} 行原文拼成，归到 {owners[0]}")
+                        segment_id = owners[0]
+                    else:
+                        warnings.append(f"{position}: source_quote 由 {len(pieces)} 行原文拼成（中间的叙述被略去）")
+                else:
+                    nearest = closest_source_line(quote, chapter_text)
+                    errors.append(
+                        f"{position}: source_quote 不是原文（疑似改写）：{quote[:50]!r}。"
+                        + (f"最接近的原文句子是：{nearest!r}，请逐字复制这一句或它所在段落里的一段连续原文" if nearest else "请从对应区段逐字复制一段连续原文")
+                    )
         cited.setdefault(segment_id, []).append(position)
 
         characters = list(dict.fromkeys(canonical(name) for name in shot.get("characters", []) if canonical(name) in names))
@@ -582,9 +596,22 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             elif mode == "chat_message":
                 if not speaker:
                     errors.append(f"{position}: chat_message needs speaker_name（发消息的人）")
+                target = str(turn.get("chat_target") or "").strip()
+                if target and target not in names:
+                    warnings.append(f"{position}: chat_target {target!r} 不在 StoryBible，按群聊处理")
+                    turn["chat_target"] = ""
+                elif target and CHAT_SELF and target == CHAT_SELF:
+                    # A private chat is titled with the other party, never with the protagonist.
+                    warnings.append(f"{position}: chat_target 写成了主角 {target!r}，按群聊处理")
+                    turn["chat_target"] = ""
+
                 if len(compact(text)) > CHAT_MAX_CHARS:
                     # A long message is cut, not rejected: the bubble just shows its first clause.
-                    cut = text[:CHAT_MAX_CHARS].rstrip("，,、；;：:")
+                    cut = text[:CHAT_MAX_CHARS]
+                    boundary = max(cut.rfind(mark) for mark in "，。！？；：、,.!?;:")
+                    if boundary >= CHAT_MAX_CHARS // 2:
+                        cut = cut[:boundary + 1]
+                    cut = cut.rstrip("，,、；;：:") + "…"
                     warnings.append(f"{position}: chat_message {len(compact(text))} 字，截为 {cut!r}")
                     text = cut
             else:
@@ -594,7 +621,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             if len(pieces) > 1:
                 warnings.append(f"{position}: turn of {spoken_chars(text)} chars split into {len(pieces)}")
             for piece in pieces:
-                turns_out.append({"speaker_name": speaker, "delivery_mode": mode, "text": piece, "emotion": emotion})
+                turns_out.append({"speaker_name": speaker, "delivery_mode": mode, "chat_target": str(turn.get("chat_target") or "").strip(), "text": piece, "emotion": emotion})
         if not turns_out:
             fallback = str(shot.get("motion_prompt") or shot.get("end_state") or "无声反应").strip()
             turns_out = [{"speaker_name": "", "delivery_mode": "silent_action", "text": fallback[:60], "emotion": "克制自然"}]
@@ -685,7 +712,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             f"全集估算 {total_seconds} 秒，超过上限 {int(EPISODE_SECONDS_MAX)} 秒（目标约90秒）。"
             f"上一稿是 {stage_total} 个阶段、发声 {spoken_total} 字；本次压到 {stage_target} 个阶段左右、"
             f"发声 {max(150, round(spoken_total * scale))} 字左右。做法是缩短台词：合并同一人的连续短句，删掉不带新信息的群众议论和感叹，"
-            "去掉只有反应没有事件的无声阶段；每个阶段最多两句短台词。不得为了缩短而删掉整个区段：每个区段仍须至少被一个阶段引用或写进 skipped_segments。不得原样重发上一稿。"
+            "去掉只有反应没有事件的无声阶段；每个阶段最多两句短台词。不得为了缩短而删掉整个区段：每个区段仍须至少被一个阶段引用，一个都不能少。不得原样重发上一稿。"
         )
     skipped_raw = raw.get("skipped_segments") or []
     skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in skipped_raw if isinstance(item, dict)}
@@ -694,13 +721,14 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             warnings.append(f"{segment_id} listed as skipped but also cited; skip ignored")
             skipped.pop(segment_id)
     if len(skipped) > MAX_SKIPPED:
-        errors.append(f"too many skipped segments ({len(skipped)} > {MAX_SKIPPED}): {sorted(skipped)}")
+        errors.append(f"不允许跳过区段，skipped_segments 必须为空，但收到 {sorted(skipped)}：把这些区段各写进至少一个阶段（可以拉长集数）")
+    chat_source_lines = len(re.findall(r"^[^\n：:]{2,8}[：:]", chapter_text, re.M))
+    if chat_source_lines >= 5 and not any(turn["delivery_mode"] == "chat_message" for shot in normalized for turn in shot["turns"]):
+        errors.append(
+            f"本章原文有 {chat_source_lines} 行聊天消息（形如「昵称：内容」），但没有任何 chat_message："
+            "群聊和私聊必须用 chat_message 呈现（一个阶段最多八条），不得改写成画外音或角色自述"
+        )
     uncited = [s["segment_id"] for s in segments if s["segment_id"] not in cited and s["segment_id"] not in skipped]
-    if FAST_TIER and uncited and len(uncited) + len(skipped) <= MAX_SKIPPED:
-        for segment_id in uncited:  # fast tier: a forgotten segment counts as skipped
-            skipped[segment_id] = "快速档：未引用，自动记为跳过"
-        warnings.append(f"report only: 快速档自动跳过未引用的区段 {uncited}")
-        uncited = []
     for segment_id in uncited:
         segment = next(s for s in segments if s["segment_id"] == segment_id)
         errors.append(
@@ -948,13 +976,15 @@ def main() -> int:
         # so merged chapters do not come out as 40 s stubs.  Redos stay at two:
         # with parallel planning they are cheap and lift the pass rate.
         global CLIP_RANGE, SPOKEN_RANGE, EPISODE_SECONDS_MAX
-        fast_target = int(min(90, max(60, round(episode.text_count / 3000 * 60 / 10) * 10)))
-        CLIP_RANGE = (2, 3)  # three 30 s clips at most: the fast tier's cost cap
-        SPOKEN_RANGE = (140, 220) if fast_target <= 60 else (200, 300)
-        EPISODE_SECONDS_MAX = 130.0
+        fast_target = int(min(150, max(75, round(episode.text_count / 3000 * 85 / 10) * 10)))
+        CLIP_RANGE = (3, 5)  # every segment gets filmed, so the clip count follows the chapter
+        SPOKEN_RANGE = (180, 300) if fast_target <= 90 else (240, 400)
+        EPISODE_SECONDS_MAX = 210.0
         EPISODE_SECONDS_MIN = max(EPISODE_SECONDS_MIN, fast_target - 25)  # soft: waived on the last redo
-        if episode.text_count > 4000:
-            MAX_SKIPPED = 4  # merged chapters cannot cover all eight segments in ~90 s
+    chat_screen_path = novel_dir / "chat_screen.json"
+    if chat_screen_path.is_file():
+        global CHAT_SELF
+        CHAT_SELF = str(json.loads(chat_screen_path.read_text(encoding="utf-8")).get("self_name", "")).strip()
     aliases_path = novel_dir / "bible_aliases.json"
     ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")
@@ -990,7 +1020,7 @@ def main() -> int:
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
             "clip_count": f"{CLIP_RANGE[0]}-{CLIP_RANGE[1]}",
-            **({"episode_target": f"约{fast_target}秒，{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段3到5个阶段；8个区段每个至少用一个阶段带到（长对话压成一两句，群众议论合并），不得低于{max(45, fast_target - 20)}秒"} if fast else {}),
+            **({"episode_target": f"约{fast_target}秒，{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段3到5个阶段，全集阶段总数12到18个；8个区段每一个都必须至少被一个阶段引用（每个区段1到3个阶段），skipped_segments 必须为空——长对话压成一两句、群众议论合并、次要过程一个阶段带过，但不许整段不拍；不得低于{max(55, fast_target - 25)}秒"} if fast else {}),
             "stages_per_clip": f"{STAGE_RANGE[0]}-{STAGE_RANGE[1]}",
             "clip_seconds": f"20-{int(MAX_CLIP_SECONDS)}",
             "episode_seconds": f"about 90, max {int(EPISODE_SECONDS_MAX)}",

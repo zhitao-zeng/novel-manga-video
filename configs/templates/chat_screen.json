@@ -3,5 +3,6 @@
   "group_name": "",
   "self_name": "",
   "layout": "顶部居中显示群名；消息按时间从上到下排列；每条消息左侧一个圆形卡通头像，昵称以一行小字显示在气泡上方，气泡内只有消息正文；他人的消息是白色气泡靠左，本人的消息是绿色气泡靠右且不显示昵称；底部是输入栏；界面简洁干净，字体为清晰的简体中文黑体、字号偏大",
-  "notes": "每本书一份，放在 outputs/<novel-id>/chat_screen.json。group_name 由 build_bible_thin.py 从原文猜（最常见的 XX群），self_name 取圣经里的主角；请核对。打包器据此写屏幕描述，各段各集保持同一个界面。"
+  "notes": "每本书一份，放在 outputs/<novel-id>/chat_screen.json。group_name 由 build_bible_thin.py 从原文猜（最常见的 XX群），self_name 取圣经里的主角；请核对。render=card 时聊天界面由 scripts/chat_card.py 自己渲染成插卡（文字准确、不花视频费用），提示词会要求画面不拍屏幕内容；render=video 回到让视频模型画屏幕的旧做法。layout 只在 render=video 时进入提示词。",
+  "render": "card"
 }
