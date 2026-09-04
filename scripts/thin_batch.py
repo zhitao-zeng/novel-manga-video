@@ -30,7 +30,7 @@ import time
 import urllib.request
 import shutil
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -83,6 +83,68 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+class CardFactory:
+    """Builds asset cards per asset, many at a time, ahead of the episodes that need them.
+
+    Cards used to be built inside each episode's prepare step, one image after
+    another and one episode at a time.  Now every referenced (or freshly added)
+    asset is a job in a pool; a job runs build_cards_thin.py, which takes a
+    per-asset file lock, builds the card(s), judges them and applies the one
+    bounded fix.  Episodes wait only for the assets they reference.
+    """
+
+    def __init__(self, batch: "Batch", workers: int):
+        self.batch = batch
+        self.pool = ThreadPoolExecutor(max_workers=max(1, workers))
+        self.jobs: dict[str, "Future"] = {}
+        self.results: dict[str, dict] = {}
+        self.lock = threading.Lock()
+
+    def _job(self, asset_id: str) -> dict:
+        directory = self.batch.novel_dir / "series_assets" / ".factory"
+        directory.mkdir(parents=True, exist_ok=True)
+        command = [sys.executable, str(SCRIPTS / "build_cards_thin.py"), "--novel-dir", str(self.batch.novel_dir), "--assets", asset_id]
+        if self.batch.reviewing:
+            command.append("--review")
+        if self.batch.args.tier:
+            command += ["--tier", self.batch.args.tier]
+        log_path = directory / f"{asset_id}.log"
+        self.batch.run(command, log_path)
+        row = {"asset_id": asset_id, "status": "unknown", "flags": []}
+        for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("{") and '"asset_id"' in line:
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    pass
+        with self.lock:
+            self.results[asset_id] = row
+        log(f"card {asset_id}: {row.get('status')} {row.get('seconds', '')}s {'FLAG ' + '; '.join(row['flags'])[:120] if row.get('flags') else ''}")
+        return row
+
+    def want(self, asset_ids) -> None:
+        with self.lock:
+            for asset_id in sorted(set(asset_ids)):
+                if asset_id not in self.jobs:
+                    self.jobs[asset_id] = self.pool.submit(self._job, asset_id)
+
+    def wait(self, asset_ids) -> list[dict]:
+        rows = []
+        for asset_id in sorted(set(asset_ids)):
+            job = self.jobs.get(asset_id)
+            if job is None:
+                self.want([asset_id])
+                job = self.jobs[asset_id]
+            try:
+                rows.append(job.result())
+            except Exception as error:  # noqa: BLE001
+                rows.append({"asset_id": asset_id, "status": f"error: {type(error).__name__}", "flags": []})
+        return rows
+
+    def shutdown(self) -> None:
+        self.pool.shutdown(wait=True)
+
+
 class Batch:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -113,6 +175,7 @@ class Batch:
         self.profile = load_profile(self.novel_dir, tier=args.tier)
         self.fast = is_fast(self.profile)
         self.grow_lock = threading.Lock()
+        self.cards = CardFactory(self, args.card_parallel)
         self.card_review: dict = {}
         self.card_fixes: dict = {}
         self._novel = None
@@ -150,7 +213,15 @@ class Batch:
             return  # fast tier: grow every fifth episode
         try:
             with self.grow_lock:  # parallel planners must not append to the bible at once
+                before = json.loads(self.bible.read_text(encoding="utf-8"))
                 grow_bible(self.novel_dir, self.chapter(chapter).source_text, chapter)
+                after = json.loads(self.bible.read_text(encoding="utf-8"))
+            # New proper-named characters and locations almost always appear
+            # within a chapter or two: start their cards now, ahead of the episode.
+            new_ids = [f"character_{i:03d}" for i in range(len(before["characters"]) + 1, len(after["characters"]) + 1)]
+            new_ids += [f"location_{i:03d}" for i in range(len(before["locations"]) + 1, len(after["locations"]) + 1)]
+            if new_ids and not self.args.dry_run:
+                self.cards.want(new_ids)
         except Exception as error:  # noqa: BLE001 - growth is best effort; planning still works with the bible as is
             log(f"ch{chapter}: bible growth failed ({type(error).__name__}: {str(error)[:120]}); planning with the current bible")
             self.rows[chapter]["note"] = f"bible growth failed: {type(error).__name__}"
@@ -196,12 +267,18 @@ class Batch:
 
     # ---- stages ----
     def check_qwen(self) -> None:
-        base = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
-        try:
-            with urllib.request.urlopen(f"{base}/models", timeout=5) as response:  # noqa: S310 - local service
-                response.read(200)
-        except Exception as error:  # noqa: BLE001
-            raise SystemExit(f"Qwen planner service not reachable at {base} ({type(error).__name__}); start the novel-manga-qwen38-vlm container first")
+        from thin_profile import qwen_endpoints
+        alive = []
+        for base in qwen_endpoints():
+            try:
+                with urllib.request.urlopen(f"{base}/models", timeout=5) as response:  # noqa: S310 - local service
+                    response.read(200)
+                alive.append(base)
+            except Exception:  # noqa: BLE001
+                log(f"Qwen endpoint not reachable: {base}")
+        if not alive:
+            raise SystemExit("no Qwen endpoint reachable (QWEN38_LOCAL_BASE_URL); start the Qwen containers first")
+        log(f"Qwen endpoints alive: {len(alive)}/{len(qwen_endpoints())}")
 
     def plan(self, chapter: int) -> None:
         row = self.rows[chapter]
@@ -347,25 +424,16 @@ class Batch:
         cards, fix each at most once, rebuild, judge again."""
         directory = self.episode_dir(chapter)
         row = self.rows[chapter]
-        with self.cards_lock:  # two episodes building the same character at once raced on the card files
-            code, problem = self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
-            if code != 0:
-                row["note"] = f"cards: {problem}"
-                log(f"ch{chapter}: card build problem: {problem[:160]}")
-            if not self.reviewing:
-                return
-            from thin_review import remediate_cards, review_cards
-            plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
-            wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", [])}
-            with self.report_lock:  # the judges share one single-sequence VLM; keep card reviews serialized
-                review = review_cards(self.novel_dir, only_ids=wanted)
-                if self.args.unattended and review["flags"]:
-                    fixes = remediate_cards(self.novel_dir, review)
-                    if fixes["stylized"] or fixes["deleted"]:
-                        self.run([sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--assets-only"], directory / "render.log")
-                        review = review_cards(self.novel_dir, only_ids=wanted)
-                    row["card_fixes"] = fixes["stylized"] + fixes["deleted"]
-            row["card_flags"] = review["flags"]
+        plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+        wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", [])}
+        self.cards.want(wanted)
+        rows = self.cards.wait(wanted)  # only this episode's assets, built in parallel by the factory
+        row["card_flags"] = [flag for r in rows for flag in r.get("flags", [])]
+        row["card_fixes"] = [fix for r in rows for fix in r.get("fixes", [])]
+        problems = [f"{r['asset_id']}: {r['status']}" for r in rows if r.get("status") != "built"]
+        if problems:
+            row["note"] = "cards: " + "; ".join(problems)[:200]
+            log(f"ch{chapter}: card problems {problems[:3]}")
 
     def review_episode(self, chapter: int) -> None:
         """Automatic clip review; in unattended mode a failed clip gets the reviewer's
@@ -433,6 +501,7 @@ class Batch:
                 except Exception as error:  # noqa: BLE001 - one episode's thread must not end the batch
                     self.rows[chapter]["note"] = f"render thread failed: {type(error).__name__}: {str(error)[:120]}"
                     log(f"ch{chapter}: render thread failed ({type(error).__name__}: {str(error)[:120]})")
+        self.cards.shutdown()
 
     def volume_checkpoint(self, chapter: int, chapters: list[int]) -> None:
         size = max(1, self.args.volume_size)
@@ -543,6 +612,7 @@ def main() -> int:
     parser.add_argument("--merge", type=int, default=1, help="chapters per episode (episode k = chapters (k-1)*N+1..k*N); --chapters then counts episodes")
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier; fast = no think-pass/redo, ~60 s, 480p, single attempt, no episode review")
     parser.add_argument("--plan-parallel", type=int, default=1, help="chapters planned at the same time (needs a Qwen service with --max-num-seqs > 1)")
+    parser.add_argument("--card-parallel", type=int, default=6, help="asset cards built at the same time (one process per asset)")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
 

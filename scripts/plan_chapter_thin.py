@@ -45,9 +45,9 @@ from novel_manga.models import (
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
+from thin_profile import endpoint_order, is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8.4-fast-coverage-target"
+POLICY = "thin-chapter-plan-v8.5-multi-endpoint"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -360,6 +360,24 @@ def extract_json(text: str) -> dict:
     return value
 
 
+def _post_any(client: httpx.Client, base_urls: list[str], headers: dict, request: dict) -> dict:
+    """Try the preferred endpoint, then the others; a dead instance costs one connect error."""
+    last: Exception | None = None
+    for base_url in base_urls:
+        try:
+            return _post(client, base_url, headers, request)
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
+            last = error
+            continue
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code in (502, 503, 504):
+                last = error
+                continue
+            raise
+    assert last is not None
+    raise last
+
+
 def _post(client: httpx.Client, base_url: str, headers: dict, request: dict) -> dict:
     response = client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=request)
     response.raise_for_status()
@@ -386,6 +404,10 @@ def grammar_text(grammar: dict | None) -> str:
     )
 
 
+def qwen_default() -> str:
+    return "__all__"
+
+
 def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 2500, notes: str = "", grammar: dict | None = None, profile: dict | None = None, fast: bool = False) -> tuple[str, dict]:
     frame = frame_spec(profile) if profile else FRAMES["9:16"]
     system_prompt = SYSTEM_PROMPT.replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
@@ -399,12 +421,13 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
         headers["Authorization"] = f"Bearer {api_key}"
     user_content = json.dumps(payload, ensure_ascii=False)
     started = time.monotonic()
+    endpoints = endpoint_order(payload.get("chapter_title", "") + str(payload.get("chapter_index", ""))) if base_url == qwen_default() else [base_url]
     with httpx.Client(timeout=timeout, trust_env=False) as client:
         if fast:
             # Fast tier keeps a short think-pass: dropping it made first drafts
             # miss coverage or come out as 30 s stubs, and the redos cost more
             # than the pass saved once planning ran in parallel.
-            analysis_body = _post(client, base_url, headers, {
+            analysis_body = _post_any(client, endpoints, headers, {
                 "model": model, "temperature": 0.3, "max_tokens": 1200,
                 "chat_template_kwargs": {"enable_thinking": True, "preserve_thinking": True, "reasoning_effort": "low"},
                 "messages": [
@@ -416,7 +439,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
             analysis = str(analysis_message.get("content") or analysis_message.get("reasoning") or "")[-3000:]
             analysis_seconds = round(time.monotonic() - started, 1)
         else:
-          analysis_body = _post(client, base_url, headers, {
+          analysis_body = _post_any(client, endpoints, headers, {
               "model": model,
               "temperature": 0.3,
               "max_tokens": analysis_tokens,
@@ -429,7 +452,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
           analysis_message = analysis_body["choices"][0]["message"]
           analysis = str(analysis_message.get("content") or analysis_message.get("reasoning") or "")[-6000:]
           analysis_seconds = round(time.monotonic() - started, 1)
-        body = _post(client, base_url, headers, {
+        body = _post_any(client, endpoints, headers, {
             "model": model,
             "temperature": 0.3,
             "max_tokens": max_tokens,
@@ -853,7 +876,7 @@ def main() -> int:
     parser.add_argument("--episode-index", type=int, default=1)
     parser.add_argument("--bible", required=True, help="existing story_bible.json to reuse")
     parser.add_argument("--output-root", default="outputs")
-    parser.add_argument("--base-url", default=os.getenv("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1"))
+    parser.add_argument("--base-url", default=qwen_default(), help="one Qwen endpoint; the default spreads over every QWEN38_LOCAL_BASE_URL entry")
     parser.add_argument("--model", default=os.getenv("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project"))
     # A healthy clip plan is 4.5-6.5K tokens.  Constrained decoding can derail
     # into endless whitespace; a tight cap turns that into a fast, cheap redo.

@@ -35,10 +35,12 @@ import httpx
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from thin_profile import endpoint_order  # noqa: E402
+
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.11-marker-fix"
+POLICY = "thin-review-v1.12-multi-endpoint"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -76,9 +78,24 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
         "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}},
         "messages": [{"role": "user", "content": parts}],
     }
+    response = None
+    last: Exception | None = None
     with httpx.Client(timeout=timeout, trust_env=False) as client:
-        response = client.post(f"{BASE_URL}/chat/completions", json=payload, headers=headers)
-        response.raise_for_status()
+        for base_url in endpoint_order(name + str(len(parts))):  # spread judges over the Qwen instances
+            try:
+                response = client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                response.raise_for_status()
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
+                last = error
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code in (502, 503, 504):
+                    last = error
+                    continue
+                raise
+        else:
+            assert last is not None
+            raise last
     content = response.json()["choices"][0]["message"].get("content") or "{}"
     try:
         return json.loads(content)
