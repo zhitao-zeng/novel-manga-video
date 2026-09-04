@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import is_fast, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v8-fast-tier"
+POLICY = "thin-chapter-plan-v8.1-fast-tuned"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -656,13 +656,18 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             skipped.pop(segment_id)
     if len(skipped) > MAX_SKIPPED:
         errors.append(f"too many skipped segments ({len(skipped)} > {MAX_SKIPPED}): {sorted(skipped)}")
-    for segment in segments:
-        segment_id = segment["segment_id"]
-        if segment_id not in cited and segment_id not in skipped:
-            errors.append(
-                f"{segment_id} is neither cited by any shot nor listed in skipped_segments; "
-                f"it begins with: {segment['text'][:40]!r}"
-            )
+    uncited = [s["segment_id"] for s in segments if s["segment_id"] not in cited and s["segment_id"] not in skipped]
+    if FAST_TIER and uncited and len(uncited) + len(skipped) <= MAX_SKIPPED:
+        for segment_id in uncited:  # fast tier: a forgotten segment counts as skipped
+            skipped[segment_id] = "快速档：未引用，自动记为跳过"
+        warnings.append(f"report only: 快速档自动跳过未引用的区段 {uncited}")
+        uncited = []
+    for segment_id in uncited:
+        segment = next(s for s in segments if s["segment_id"] == segment_id)
+        errors.append(
+            f"{segment_id} is neither cited by any shot nor listed in skipped_segments; "
+            f"it begins with: {segment['text'][:40]!r}"
+        )
     return errors, warnings, normalized
 
 
@@ -892,14 +897,18 @@ def main() -> int:
     fast = is_fast(profile)
     global FAST_TIER
     FAST_TIER = fast
+    fast_target = 60
     if fast:
-        # Fast tier: shorter episodes, fewer clips, and length overruns are
-        # warnings (the packer splits anyway).  Coverage and cast stay hard.
+        # Fast tier: no think-pass, length overruns are warnings (the packer
+        # splits anyway), up to two missing segments are auto-skipped.  The
+        # episode target scales with the text (~60 s per 3000 chars, max 100 s)
+        # so merged chapters do not come out as 40 s stubs.  Redos stay at two:
+        # with parallel planning they are cheap and lift the pass rate.
         global CLIP_RANGE, SPOKEN_RANGE, EPISODE_SECONDS_MAX
-        CLIP_RANGE = (2, 3)
-        SPOKEN_RANGE = (140, 220)
+        fast_target = int(min(100, max(60, round(episode.text_count / 3000 * 60 / 10) * 10)))
+        CLIP_RANGE = (2, 3) if fast_target <= 60 else (3, 4)
+        SPOKEN_RANGE = (140, 220) if fast_target <= 60 else (200, 300)
         EPISODE_SECONDS_MAX = 130.0
-        args.max_redo = min(args.max_redo, 1)
     aliases_path = novel_dir / "bible_aliases.json"
     ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")
@@ -934,7 +943,7 @@ def main() -> int:
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
             "clip_count": f"{CLIP_RANGE[0]}-{CLIP_RANGE[1]}",
-            **({"episode_target": "约60秒，2到3段，每段3到4个阶段，只拍本章最重要的冲突和转折"} if fast else {}),
+            **({"episode_target": f"约{fast_target}秒，{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段3到5个阶段，只拍本章最重要的冲突和转折，不得低于{max(45, fast_target - 20)}秒"} if fast else {}),
             "stages_per_clip": f"{STAGE_RANGE[0]}-{STAGE_RANGE[1]}",
             "clip_seconds": f"20-{int(MAX_CLIP_SECONDS)}",
             "episode_seconds": f"about 90, max {int(EPISODE_SECONDS_MAX)}",

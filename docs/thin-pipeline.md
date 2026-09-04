@@ -77,7 +77,18 @@ export PYTHONPATH=src:scripts
 - **清理**：`--prune` 在一集拼完后删中间音频、过期片段和审片抽帧，每集从约 230 MB 降到约 50 MB；片段视频和 ASR 结果保留供缓存。
 - **短章**：少于 `--min-chapter-chars`（默认 300）字的章（作者的话之类）跳过。
 
-量级：规划每章 3–5 分钟串行（本地 Qwen 单序列），渲染每集 12–15 分钟、5 集并行，3000 章约两周，视频约 13,500 段，是最大的一笔开销。建议按卷交付。
+实测量级（诸天万象录 10 集）：规划每章 1.6–5.5 分钟，建卡每张 1–2 分钟串行，出片每集 6–12 分钟（3 集并行时约 5.5 分钟一集），审片每集半分钟。瓶颈是那台单序列的 Qwen 服务：规划、圣经增长、审卡、审片全在它上面，每章约 4 分钟。
+
+## 提速：快速档、合章、并行规划
+
+- **Qwen 并发**：vLLM 容器原来 `--max-num-seqs 1`，用 `/mnt/disk1/zengzhitao/tmp/qwen_recreate.sh <N>` 重建（旧配置自动存档，传 1 即回滚）。并发 4 时批跑可以 `--plan-parallel 3` 几章同时规划。
+- **合章** `--merge N`：每集覆盖 N 个连续章（集号 k = 第 (k-1)N+1 到 kN 章），`--chapters` 此时按集号数。网文短章建议 2。
+- **快速档** `profile.json` 的 `tier: fast`（或 `--tier fast`）：规划不做思考步、最多返修一次、目标约 60 秒 2–3 段、超长只记警告；每角色一张参考图；480p、语音门不重生成；无人值守时只审卡不审片；圣经每 5 集增长一次。质量档就是默认值。两档共用圣经、卡片和目录，可以先用快速档粗剪整本，再对挑出的集 `--tier quality --rerender` 精修。
+- **出片并行** `--parallel 6`：每集时长不变，墙上时间减半；受 Seedance 并发上限约束。
+
+```bash
+.venv/bin/python scripts/thin_batch.py --novel-dir outputs/X --chapters 1-500 --merge 2 --tier fast --parallel 6 --plan-parallel 3 --unattended --prune
+```
 
 ## 屏幕上的聊天消息（群聊类小说）
 

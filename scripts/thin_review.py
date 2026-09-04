@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.10-chat-frames"
+POLICY = "thin-review-v1.11-marker-fix"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -566,15 +566,20 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
     assets = novel_dir / "series_assets"
     done = {"stylized": [], "deleted": [], "already_tried": []}
 
+    def marker_for(path: Path) -> Path:
+        # Not *.jpeg: the runner's purge of unreadable images deleted the old
+        # marker names and the one-fix-per-card guard silently vanished.
+        return path.parent / f".regenerated.{path.stem}.txt"
+
     def tried_before(path: Path) -> bool:
         # One fix per card for the whole series: a parked backup (stylized) or a
         # regeneration marker means the card was touched already, whatever the
         # reason this time; changing it again would make the character look
         # different from episode to episode.
-        return path.with_suffix(".photoreal-rejected.jpeg").exists() or (path.parent / f".regenerated.{path.name}").exists()
+        return path.with_suffix(".photoreal-rejected.jpeg").exists() or marker_for(path).exists() or (path.parent / f".regenerated.{path.name}").exists()
 
     def delete_for_regeneration(path: Path, label: str) -> None:
-        marker = path.parent / f".regenerated.{path.name}"
+        marker = marker_for(path)
         if tried_before(path):
             done["already_tried"].append(label)
             return

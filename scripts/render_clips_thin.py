@@ -47,7 +47,7 @@ from dataclasses import replace as dc_replace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v13-fast-tier"
+POLICY = "thin-media-v13.4-targeted-privacy-repair"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.5
@@ -71,6 +71,12 @@ def moderation_error(error: Exception) -> bool:
 REDRAW_WAIT_SECONDS = 420
 REPAIR_LOCK = threading.Lock()  # one card redraw at a time; parallel repairs of the same card raced
 PRIVACY_OK_FILE = "series_assets/.privacy_ok.json"  # cards used by clips that generated fine, shared across runs
+CARD_STYLE_SUFFIX_3D = (
+    "。整体必须是一眼可辨的风格化三维动画角色（国漫/皮克斯式概括造型）：眼睛略大、五官简化、皮肤光滑无毛孔、"
+    "干净的三维建模材质与柔和体积光；绝不是真人照片、真实人物肖像或写实渲染"
+)
+LOCATION_EMPTY_SUFFIX = "。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
+STYLIZE_STRONGER = "；比上一版更强的卡通化：头身比略夸张、眼睛明显更大、脸型圆润、皮肤为纯色平光、完全没有真人质感"
 STYLIZE_PROMPT = (
     "以参考图为唯一身份依据，把这张角色卡重绘成一眼可辨的中国3D国漫动画角色，不是真人：保持同一人的脸型、年龄段、发型、"
     "胡须、服装款式与配色、站姿和构图完全不变；眼睛略大、五官简化概括、皮肤光滑无毛孔无老年斑、皱纹用动画化的少量线条表现，"
@@ -78,6 +84,8 @@ STYLIZE_PROMPT = (
 )
 RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完整。保持以上全部内容不变重新生成，每句台词都必须清晰完整地说出。"
 OUTPUT_MODERATION_MARKERS = ("OutputVideoSensitiveContentDetected", "OutputAudioSensitiveContentDetected")
+RATE_LIMIT_MARKERS = ("429", "Too Many Requests", "rate limit", "RateLimit", "concurren", "QuotaExceeded", "RequestLimit", "ServerOverloaded", "503")
+SUBMIT_BACKOFF_SECONDS = (30, 60, 90, 120, 180, 240, 300)  # ~17 min of patience when the video service throttles
 COMPLIANCE_SUFFIX = "\n【合规】画面健康、日常、无任何暴力、血腥、色情、赌博或违规内容；人物衣着完整；屏幕上的文字仅为剧情中的普通聊天内容；声音只有普通对白、环境音效和无歌词的哼唱，不含任何已有歌曲、歌词或背景音乐。"
 FEEDBACK_FILE = "review_feedback.json"  # {clip_id: 导演修正}, written by the automatic episode review
 SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
@@ -179,6 +187,10 @@ class FramedAssetFactory(SeriesAssetFactory):
                 visual_archetype=character.visual_archetype, face_anchors=character.face_anchors, silhouette=character.silhouette,
                 hair=character.hair, palette=character.palette, motion_signature=character.motion_signature,
             ) + guard
+            if "3D" in bible.visual_style or "三维" in bible.visual_style:
+                # Modern-dress 3D cards came out near-photoreal and were then
+                # redrawn by the review; ask for the animated look up front.
+                prompt += CARD_STYLE_SUFFIX_3D
             invariants = [value for value in (character.appearance, *character.face_anchors, character.silhouette, character.hair) if value]
             state = {"costume": character.base_costume or character.wardrobe, "injury": "none unless changed by source events", "carried_prop": character.signature_prop or "none"}
             scope = {"inherit": ["identity", "hair", "costume", "2d_rendering"], "exclude": ["pose", "composition", "camera", "background", "lighting"]}
@@ -205,7 +217,7 @@ class FramedAssetFactory(SeriesAssetFactory):
             if asset_id not in location_ids:
                 continue
             directory = root / "locations" / asset_id
-            prompt = self._location_prompt(bible, location) + guard
+            prompt = self._location_prompt(bible, location) + guard + LOCATION_EMPTY_SUFFIX
             invariants = [f"{location}固定建筑、出入口和空间层级"]
             state = {"time_of_day": "approved_reference_state", "weather": "approved_reference_state", "damage": "none unless changed by source events"}
             scope = {"inherit": ["architecture", "space", "color", "lighting", "2d_rendering"], "exclude": ["composition", "camera", "temporary_people", "text"]}
@@ -475,6 +487,8 @@ class ThinMediaRunner:
         """Delete asset images that are missing bytes or are not images at all."""
         removed: list[Path] = []
         for path in sorted(root.rglob("*.jpeg")):
+            if path.name.startswith("."):
+                continue  # review markers and other dotfiles are not cards
             try:
                 if path.stat().st_size < 20000:
                     raise ValueError("too small to be a generated card")
@@ -554,7 +568,17 @@ class ThinMediaRunner:
         atomic_write_json(directory / "request.json", request)
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
         started = time.monotonic()
-        self.provider.create_video(prompt, None, output, duration=float(clip["request_seconds"]), additional_images=references)
+        for wait in (*SUBMIT_BACKOFF_SECONDS, None):
+            try:
+                self.provider.create_video(prompt, None, output, duration=float(clip["request_seconds"]), additional_images=references)
+                break
+            except RuntimeError as error:
+                # Throttled at submission (higher --parallel): wait and resubmit
+                # instead of failing the clip; content errors propagate at once.
+                if wait is None or not any(marker in str(error) for marker in RATE_LIMIT_MARKERS) or PRIVACY_MARKER in str(error):
+                    raise
+                log(f"{clip['clip_id']} attempt {attempt}: video service throttled ({str(error)[:80]}); retrying in {wait}s")
+                time.sleep(wait)
         log(f"{clip['clip_id']} attempt {attempt}: video ready in {time.monotonic() - started:.0f}s ({media_duration(output):.1f}s long)")
         return output
 
@@ -609,6 +633,59 @@ class ThinMediaRunner:
         atomic_write_json(asr_path, result)
         return result
 
+    def repair_rejected_reference(self, clip: dict, index: int) -> list[str]:
+        """Seedance named the offending image (content[N]); fix exactly that one.
+
+        A location card that shows people is rebuilt from its own spec prompt
+        with the empty-scene line; a character card is stylized, or stylized
+        harder if it was stylized once already.  Each step happens once.
+        """
+        references = clip.get("references", [])
+        if not 0 <= index < len(references):
+            return []
+        ref = references[index]
+        path = self.novel_dir / ref["path"]
+        label = f"{ref['asset_id']}/{path.name}"
+        with REPAIR_LOCK:
+            if ref["role"] != "character":
+                marker = path.parent / ".emptied.txt"
+                if marker.exists() or not path.is_file():
+                    return []
+                spec = json.loads((path.parent / "spec.json").read_text(encoding="utf-8")) if (path.parent / "spec.json").is_file() else {}
+                prompt = str(spec.get("prompt") or "") + LOCATION_EMPTY_SUFFIX
+                for suffix in ("", ".task.json", ".request.json"):
+                    source = path.with_suffix(path.suffix + suffix)
+                    if source.exists():
+                        target = path.with_suffix(".with-people" + path.suffix + suffix)
+                        target.unlink(missing_ok=True)
+                        source.rename(target)
+                log(f"privacy repair: rebuilding {label} as an empty scene (people were read as a real person)")
+                self.provider.create_image(prompt, path)
+                with Image.open(path) as image:
+                    image.load()
+                marker.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+                return [label]
+            backup = path.with_suffix(".photoreal-rejected.jpeg")
+            second = path.with_suffix(".photoreal-rejected2.jpeg")
+            if not path.is_file() or second.exists():
+                return []
+            if not backup.exists():
+                log(f"privacy repair: redrawing {label} as stylized 3D")
+                stylize_card(self.provider, path)
+                return [label]
+            log(f"privacy repair: {label} was stylized once and still read as a real person; stylizing harder")
+            for suffix in ("", ".task.json", ".request.json"):
+                source = path.with_suffix(path.suffix + suffix)
+                if source.exists():
+                    target = second.with_suffix(second.suffix + suffix)
+                    target.unlink(missing_ok=True)
+                    source.rename(target)
+            self.provider.create_image(STYLIZE_PROMPT + STYLIZE_STRONGER, path, reference=second)
+            with Image.open(path) as image:
+                image.load()
+            atomic_write_json(path.with_suffix(path.suffix + ".request.json"), {"origin": REDRAW_ORIGIN, "source": second.name, "prompt_sha256": sha256_text(STYLIZE_PROMPT + STYLIZE_STRONGER), "request_sha256": sha256_text(STYLIZE_PROMPT + STYLIZE_STRONGER + second.name), "reason": "second privacy rejection"})
+            return [label]
+
     def repair_privacy_cards(self, clip: dict) -> list[str]:
         """Redraw the character cards unique to a rejected clip as clearly animated.
 
@@ -662,10 +739,13 @@ class ThinMediaRunner:
                 try:
                     video = self.generate_clip(clip, attempt)
                 except RuntimeError as error:
-                    if PRIVACY_MARKER in str(error) and privacy_repairs == 0:
+                    if PRIVACY_MARKER in str(error) and privacy_repairs < 2:
                         privacy_repairs += 1
-                        repaired = self.repair_privacy_cards(clip)
-                        log(f"{clip['clip_id']}: reference rejected as a real person; redrew {repaired or 'nothing'}; retrying")
+                        index = re.search(r"content\[(\d+)\]", str(error))
+                        repaired = self.repair_rejected_reference(clip, int(index.group(1))) if index else []
+                        if not repaired and privacy_repairs == 1:
+                            repaired = self.repair_privacy_cards(clip)
+                        log(f"{clip['clip_id']}: reference rejected as a real person (image {index.group(1) if index else '?'}); fixed {repaired or 'nothing'}; retrying")
                         if repaired:
                             continue
                     if any(marker in str(error) for marker in OUTPUT_MODERATION_MARKERS) and not clip.get("_compliance"):
