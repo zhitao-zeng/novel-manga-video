@@ -40,7 +40,7 @@ from thin_profile import endpoint_order  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.12-multi-endpoint"
+POLICY = "thin-review-v1.13-truncation-retry"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -96,10 +96,15 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
         else:
             assert last is not None
             raise last
-    content = response.json()["choices"][0]["message"].get("content") or "{}"
+    choice = response.json()["choices"][0]
+    content = choice["message"].get("content") or "{}"
     try:
         return json.loads(content)
     except json.JSONDecodeError:
+        if choice.get("finish_reason") == "length" and max_tokens < 8000:
+            # Long name lists hit the token cap and the JSON is cut off; ask
+            # once more with twice the room.
+            return ask_json(parts, schema, name=name, max_tokens=max_tokens * 2, timeout=timeout)
         match = re.search(r"\{.*\}", content, re.S)
         return json.loads(match.group(0)) if match else {}
 
