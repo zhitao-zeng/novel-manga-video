@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v10-full"
+POLICY = "thin-chapter-plan-v11-scale"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -323,6 +323,59 @@ def flatten_clips(raw: dict) -> list[dict]:
                 }
             )
     return shots
+
+
+CAST_RECENT_CHAPTERS = 3  # a character on screen this recently stays offered even when this chapter does not name them
+
+
+def cast_history(novel_dir: Path) -> dict:
+    """{"characters": {name: [chapters]}, "locations": {...}} for this novel.
+
+    Built from the scripts already written when the file is missing, so an
+    existing novel does not need a migration step.
+    """
+    path = novel_dir / "cast_index.json"
+    if path.is_file():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+    index: dict[str, dict[str, list[int]]] = {"characters": {}, "locations": {}}
+    for script_path in sorted(novel_dir.glob(f"{novel_dir.name}_*/chapter_script.json")):
+        try:
+            script = json.loads(script_path.read_text(encoding="utf-8"))
+            chapter = int(script.get("episode_index") or script_path.parent.name.rsplit("_", 1)[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        for shot in script.get("shots", []):
+            for name in shot.get("characters", []) or []:
+                index["characters"].setdefault(str(name), []).append(chapter)
+            if shot.get("location"):
+                index["locations"].setdefault(str(shot["location"]), []).append(chapter)
+    for group in index.values():
+        for name, chapters in group.items():
+            group[name] = sorted(set(chapters))
+    return index
+
+
+def recent_names(group: dict, chapter: int, window: int) -> set[str]:
+    return {name for name, chapters in group.items() if any(chapter - window <= int(c) < chapter for c in chapters)}
+
+
+def record_cast(novel_dir: Path, chapter: int, characters: list[str], locations: list[str]) -> None:
+    """Add this chapter to the appearance index (planners may run in parallel)."""
+    path = novel_dir / "cast_index.json"
+    with open(path.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        index = cast_history(novel_dir)
+        for key, values in (("characters", characters), ("locations", locations)):
+            for name in values:
+                if not name:
+                    continue
+                chapters = set(index[key].setdefault(str(name), []))
+                chapters.add(chapter)
+                index[key][str(name)] = sorted(chapters)
+        atomic_write_json(path, index)
 
 
 def compact_bible(bible: StoryBible, location_map: dict[str, str]) -> dict:
@@ -952,14 +1005,6 @@ def main() -> int:
     # wherever this chapter mentions.  Asset ids come from positions in the
     # full bible (the packer maps names back), so slicing costs nothing.
     chapter_text = episode.source_text
-    main_cast = [c for c in full_bible.characters if "主角" in c.role]
-    present = [c for c in full_bible.characters if c.name and c.name in chapter_text]
-    sliced_characters = list({c.name: c for c in [*main_cast, *present]}.values()) or full_bible.characters[:8]
-    sliced_locations = [full for full in full_bible.locations if full.split("：", 1)[0].strip() in chapter_text] or full_bible.locations[-6:]
-    bible = full_bible.model_copy(update={"characters": sliced_characters, "locations": sliced_locations})
-    location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
-    names = [character.name for character in bible.characters]
-
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
@@ -989,6 +1034,34 @@ def main() -> int:
         CHAT_SELF = str(json.loads(chat_screen_path.read_text(encoding="utf-8")).get("self_name", "")).strip()
     aliases_path = novel_dir / "bible_aliases.json"
     ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
+
+    # Which characters and locations the planner may name.  The whole bible is
+    # never sent: at a few thousand chapters it would be hundreds of people the
+    # model has no use for.  A character is offered when they are a lead, when
+    # this chapter names them (by name OR by any alias, which the old slice
+    # missed - an unoffered character comes back as a duplicate entry), or when
+    # they were on screen in the last few chapters, which keeps a scene that
+    # refers to someone as "he" from losing them.
+    cast = cast_history(novel_dir)
+    aliases_of = {}
+    for alias, target in ALIASES.items():
+        aliases_of.setdefault(target, []).append(alias)
+
+    def named_here(name: str) -> bool:
+        return bool(name) and (name in chapter_text or any(alias in chapter_text for alias in aliases_of.get(name, [])))
+
+    recent_characters = recent_names(cast.get("characters", {}), episode.index, CAST_RECENT_CHAPTERS)
+    recent_locations = recent_names(cast.get("locations", {}), episode.index, CAST_RECENT_CHAPTERS)
+    main_cast = [c for c in full_bible.characters if "主角" in c.role]
+    present = [c for c in full_bible.characters if named_here(c.name)]
+    carried = [c for c in full_bible.characters if c.name in recent_characters]
+    sliced_characters = list({c.name: c for c in [*main_cast, *present, *carried]}.values()) or full_bible.characters[:8]
+    sliced_locations = [full for full in full_bible.locations
+                        if named_here(full.split("：", 1)[0].strip()) or full.split("：", 1)[0].strip() in recent_locations]
+    sliced_locations = sliced_locations or full_bible.locations[-6:]
+    bible = full_bible.model_copy(update={"characters": sliced_characters, "locations": sliced_locations})
+    location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
+    names = [character.name for character in bible.characters]
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")
     grammar = json.loads(grammar_path.read_text(encoding="utf-8")) if grammar_path.is_file() else None
     episode_dir.mkdir(parents=True, exist_ok=True)
@@ -1003,6 +1076,11 @@ def main() -> int:
     recap_path = novel_dir / "recap.json"
     recap = json.loads(recap_path.read_text(encoding="utf-8")) if recap_path.is_file() else []
     previous_recap = [row for row in recap if int(row.get("chapter", 0)) < episode.index][-5:]
+    # Chapter recaps only reach five chapters back; the volume summaries carry
+    # the arc so a thousand-chapter story does not drift.
+    volumes_path = novel_dir / "volumes.json"
+    volumes = json.loads(volumes_path.read_text(encoding="utf-8")) if volumes_path.is_file() else []
+    previous_volumes = [row for row in volumes if int(row.get("to", 0)) < episode.index][-2:]
     schema = build_schema(names, list(location_map), [segment["segment_id"] for segment in segments])
     payload = {
         "policy": POLICY,
@@ -1017,6 +1095,7 @@ def main() -> int:
         "available_locations": list(location_map),
         "anonymous_offscreen_speakers": ANONYMOUS_SPEAKERS,
         "era_setting": {"genre": genre["name"], "allowed": genre.get("era_allowed", ""), "not_allowed": genre.get("era_rejects", ""), "crowd": genre.get("crowd_default", "")},
+        **({"previous_volumes_recap": previous_volumes} if previous_volumes else {}),
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
@@ -1032,7 +1111,7 @@ def main() -> int:
             "max_skipped_segments": MAX_SKIPPED,
             "one_visible_speaker_per_shot": True,
             "no_narration_no_inner_voice": True,
-            "recap_usage": "previous_chapters_recap 只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来",
+            "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来",
             **({"episode_seconds_min": args.min_seconds} if args.min_seconds else {}),
         },
         **({"director_notes": args.notes} if args.notes else {}),
@@ -1139,6 +1218,9 @@ def main() -> int:
         recap = [row for row in recap if int(row.get("chapter", 0)) != episode.index]
         recap.append({"chapter": episode.index, "title": episode.source_title, "summary": raw.get("summary"), "hook": raw.get("hook")})
         atomic_write_json(recap_path, sorted(recap, key=lambda row: int(row.get("chapter", 0))))
+    record_cast(novel_dir, episode.index,
+                sorted({name for shot in shots for name in shot.get("characters", []) or []}),
+                sorted({shot["location"] for shot in shots if shot.get("location")}))
     atomic_write_json(episode_dir / "episode_plan.json", plan.model_dump(mode="json"))
     (episode_dir / "chapter_script.md").write_text(render_markdown(raw, shots, report, episode.source_title), encoding="utf-8")
     print(json.dumps({"status": "passed", "episode_dir": str(episode_dir), "metrics": report_metrics, "elapsed_seconds": report["elapsed_seconds"]}, ensure_ascii=False, indent=2))

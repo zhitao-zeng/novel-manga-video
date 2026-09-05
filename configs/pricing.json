@@ -1,0 +1,11 @@
+{
+  "currency": "CNY",
+  "notes": "填入你的实际单价后 cost_report_thin.py 会把用量换算成钱；留 0 就只报用量。video_per_second 按分辨率分档，image_per_card 是一次图片生成的价格（角色卡、地点卡、重画都按次算）。本地 Qwen 跑在自己的卡上，不计价。",
+  "video_per_second": {
+    "480p": 0,
+    "720p": 0,
+    "1080p": 0
+  },
+  "image_per_card": 0,
+  "qwen_local_per_call": 0
+}

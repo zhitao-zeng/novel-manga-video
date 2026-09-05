@@ -79,6 +79,12 @@ export PYTHONPATH=src:scripts
 
 实测量级（诸天万象录 10 集）：规划每章 1.6–5.5 分钟，建卡每张 1–2 分钟串行，出片每集 6–12 分钟（3 集并行时约 5.5 分钟一集），审片每集半分钟。瓶颈是那台单序列的 Qwen 服务：规划、圣经增长、审卡、审片全在它上面，每章约 4 分钟。
 
+**给规划器的角色和地点是裁过的**（规划器 v11）：整本圣经从不整个发过去，几千章下来会是几百个模型用不上的人。一个角色会被提供，当他是主角、本章原文点了他的名或任一别名（别名这一条很关键，旧规则只匹配正名，导致同一个人以网名出现时被当成新角色写进圣经）、或者他在最近 3 集里出过场（这一条让"他/她"指代的人不会丢）。地点同理。出场记录在 `outputs/<novel>/cast_index.json`，每集规划成功后追加；文件不存在时会从已有的 chapter_script.json 现场重建，老书不需要迁移。实测第 36 集提供 21 个角色（圣经里有 91 个），其中 18 个是本章点名、3 个靠最近出场带进来。
+
+**卷摘要防跨卷漂移**：逐章 recap 只回溯 5 章，几百章之后主线会丢。`thin_review.py volume --novel-dir X --first 1 --last 50` 把这一卷的逐章梗概压成一段主线、若干条未了结的线索和人物处境，写进 `outputs/<novel>/volumes.json`；`thin_batch.py` 在每个卷检查点自动调用，并把结果附在 `volume_review_NNN.md` 里。规划器会带上最近两卷的摘要（payload 里的 `previous_volumes_recap`）。一次本地调用约 13 秒，不花钱。
+
+**成本台账**：`scripts/cost_report_thin.py --novel-dir outputs/X`（或 `--all`）统计实际计费用量——每次 Seedance 尝试的秒数（含被门拒掉的那些，因为一样付了钱）、图片生成次数（按 `series_assets` 下的 task 边车计，重画和审核重试都算）、本地模型调用次数；卡片目录是符号链接时不重复计入。单价填在 `configs/pricing.json`，填了就直接换算成钱，不填只报用量。`--csv` 导出每集明细。
+
 ## 提速：快速档、合章、并行规划
 
 - **Qwen 并发**：vLLM 容器原来 `--max-num-seqs 1`，用 `/mnt/disk1/zengzhitao/tmp/qwen_recreate.sh <N>` 重建（旧配置自动存档，传 1 即回滚）。并发 4 时批跑可以 `--plan-parallel 3` 几章同时规划。

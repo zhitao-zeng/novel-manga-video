@@ -549,6 +549,18 @@ class Batch:
                  f"- 待人工确认的称呼类人物（建议条目在 bible_growth.json）：{', '.join(suggestions) or '无'}", ""]
         flagged = [(ch, self.rows[ch]) for ch in chapters if first <= ch <= chapter and (self.rows[ch].get("card_flags") or self.rows[ch].get("review_flags") or self.rows[ch].get("note"))]
         lines.append("- 本卷标记：" + ("；".join(f"第{ch}章 {row.get('note') or ''} {' '.join(row.get('card_flags', []))} {' '.join(row.get('review_flags', []))}".strip() for ch, row in flagged) or "无"))
+        # The bookkeeping above lists what was added; the arc summary keeps the
+        # story itself in front of the planner once the five-chapter recap has
+        # scrolled past it.
+        try:
+            from thin_review import summarize_volume
+            arc = summarize_volume(self.novel_dir, first, chapter)
+            if arc:
+                lines += ["", f"## 主线（第 {first}–{chapter} 章）", "", arc.get("summary", ""), "",
+                          "未了结的线索：" + ("；".join(arc.get("open_threads", [])) or "无"), "",
+                          "人物处境：" + ("；".join(arc.get("standing", [])) or "无")]
+        except Exception as error:  # noqa: BLE001 - a missing summary must not stop the batch
+            log(f"volume {volume} summary failed: {type(error).__name__}: {str(error)[:120]}")
         (self.novel_dir / f"volume_review_{volume:03d}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         log(f"volume {volume} review written ({len(added_characters)} new characters, {len(added_locations)} new locations, {len(suggestions)} suggestions)")
 

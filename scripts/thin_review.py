@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import base64
 import io
+import fcntl
 import json
 import os
 import re
@@ -40,7 +41,7 @@ from thin_profile import endpoint_order, load_genre, load_profile  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.15-chatcard"
+POLICY = "thin-review-v1.16-volume"
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -648,12 +649,51 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
     return done
 
 
+
+def summarize_volume(novel_dir: Path, first: int, last: int) -> dict:
+    """Condense a volume's chapter recaps into one arc summary.
+
+    The planner only ever sees five chapters of recap; over hundreds of chapters
+    that loses the through-line (who owes whom, which promise is outstanding).
+    One summary per volume, written from the recaps the planner itself produced,
+    keeps the arc in front of it for a few hundred tokens.
+    """
+    recap_path = novel_dir / "recap.json"
+    rows = json.loads(recap_path.read_text(encoding="utf-8")) if recap_path.is_file() else []
+    rows = [row for row in rows if first <= int(row.get("chapter", 0)) <= last]
+    if not rows:
+        return {}
+    digest = "\n".join(f"第{row['chapter']}章 {row.get('title', '')}：{row.get('summary', '')}" for row in rows)
+    verdict = ask_json([{"type": "text", "text": (
+        f"下面是一部长篇小说第 {first} 到 {last} 章的逐章梗概。写出这一卷的主线走向，供后续章节的改编保持连续性。\n"
+        "summary：150 到 300 字，写清这一卷发生了什么、人物关系和处境有什么变化；\n"
+        "open_threads：3 到 6 条仍未了结的线索（欠下的人情、未兑现的承诺、埋下的伏笔、还没露面的对手），每条一句话；\n"
+        "standing：主要人物在本卷结束时的位置和状态，每人一句话。\n"
+        "只写梗概里有的内容，不要推测后文。\n\n" + digest[:12000])}],
+        {"type": "object", "additionalProperties": False,
+         "required": ["summary", "open_threads", "standing"],
+         "properties": {"summary": {"type": "string"},
+                        "open_threads": {"type": "array", "items": {"type": "string"}},
+                        "standing": {"type": "array", "items": {"type": "string"}}}},
+        name="volume_summary", max_tokens=1400)
+    row = {"from": first, "to": last, "chapters": len(rows), **verdict}
+    path = novel_dir / "volumes.json"
+    with open(path.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        volumes = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
+        volumes = [item for item in volumes if not (int(item.get("from", 0)) == first and int(item.get("to", 0)) == last)]
+        volumes.append(row)
+        atomic_write_json(path, sorted(volumes, key=lambda item: int(item.get("from", 0))))
+    return row
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("bible"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--source", type=Path); p.add_argument("--fill", action="store_true")
     p = sub.add_parser("cards"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--include-backups", action="store_true")
     p = sub.add_parser("episode"); p.add_argument("--episode-dir", type=Path, required=True); p.add_argument("--video-name", default="clip.mp4")
+    p = sub.add_parser("volume"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--first", type=int, required=True); p.add_argument("--last", type=int, required=True)
     p = sub.add_parser("grow"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--source", type=Path); p.add_argument("--chapter", type=int, required=True)
     args = parser.parse_args()
     if args.command == "grow":
@@ -662,6 +702,9 @@ def main() -> int:
         source = args.source or Path(json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))["source"])
         novel = read_novel(Path(source).resolve(), novel_id=novel_dir.name)
         print(json.dumps(grow_bible(novel_dir, novel.episodes[args.chapter - 1].source_text, args.chapter), ensure_ascii=False, indent=1))
+        return 0
+    if args.command == "volume":
+        print(json.dumps(summarize_volume(args.novel_dir.resolve(), args.first, args.last), ensure_ascii=False, indent=1))
         return 0
     if args.command == "bible":
         novel_dir = args.novel_dir.resolve()
