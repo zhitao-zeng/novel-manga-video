@@ -83,6 +83,8 @@ export PYTHONPATH=src:scripts
 
 **卷摘要防跨卷漂移**：逐章 recap 只回溯 5 章，几百章之后主线会丢。`thin_review.py volume --novel-dir X --first 1 --last 50` 把这一卷的逐章梗概压成一段主线、若干条未了结的线索和人物处境，写进 `outputs/<novel>/volumes.json`；`thin_batch.py` 在每个卷检查点自动调用，并把结果附在 `volume_review_NNN.md` 里。规划器会带上最近两卷的摘要（payload 里的 `previous_volumes_recap`）。一次本地调用约 13 秒，不花钱。
 
+**声音一致性是可以量的**：`asr_models_eval/.venv/bin/python scripts/voice_consistency_thin.py outputs/X` 把每个能归属到单一说话人的语音块做 CAM++ 声纹（模型在 `/mnt/disk1/zengzhitao/models/speaker/`），报三档相似度：同集内、跨集、与其他角色。46 集实测 0.47 / 0.38 / 0.25，同一人的判定线是 0.55——也就是说同一个角色跨集不是同一个声音，连同一集不同片段之间也不是。原因是 Seedance 的请求只收文本和参考图，没有音频参数，每段自己编音色；圣经里的 `voice_profile_id` 是 v5 老流程的死字段。
+
 **成本台账**：`scripts/cost_report_thin.py --novel-dir outputs/X`（或 `--all`）统计实际计费用量——每次 Seedance 尝试的秒数（含被门拒掉的那些，因为一样付了钱）、图片生成次数（按 `series_assets` 下的 task 边车计，重画和审核重试都算）、本地模型调用次数；卡片目录是符号链接时不重复计入。单价填在 `configs/pricing.json`，填了就直接换算成钱，不填只报用量。`--csv` 导出每集明细。
 
 ## 提速：快速档、合章、并行规划
