@@ -135,7 +135,8 @@ class PhanRouterMediaProvider(MediaProvider):
             return response
 
         task_path = output.with_suffix(output.suffix + ".task.json")
-        if task_path.exists():
+        cached = task_path.exists()
+        if cached:
             import json
             task_id = json.loads(task_path.read_text(encoding="utf-8")).get("task_id")
         else:
@@ -146,10 +147,20 @@ class PhanRouterMediaProvider(MediaProvider):
             raise ValueError("image API returned no task_id")
         try:
             url = self._poll_image_url(str(task_id))
-        except RuntimeError:
+            self._download(url, output, max_bytes=64 * 1024 * 1024)
+        except (RuntimeError, httpx.HTTPStatusError) as error:
             task_path.unlink(missing_ok=True)
-            raise
-        self._download(url, output, max_bytes=64 * 1024 * 1024)
+            # A task id remembered from an earlier run may point at a result
+            # file the service has since purged (403/404 on download).  That
+            # card is not coming back: submit it again, once.
+            if not cached or not isinstance(error, httpx.HTTPStatusError):
+                raise
+            task_id = retry(submit).json().get("task_id")
+            if not task_id:
+                raise ValueError("image API returned no task_id") from error
+            atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
+            url = self._poll_image_url(str(task_id))
+            self._download(url, output, max_bytes=64 * 1024 * 1024)
         return ImageResult(path=output, public_url=url)
 
     def _create_seedream_image(

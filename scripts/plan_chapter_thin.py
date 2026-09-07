@@ -1195,7 +1195,7 @@ def main() -> int:
     repair: dict | None = None
     final_errors: list[str] = []
     result = None
-    patched_segments = False
+    patched_segments = 0  # forgotten-segment patches used so far (at most two per chapter)
     for attempt in range(1, args.max_redo + 2):
         request_payload = {**payload, **({"repair": repair} if repair else {})}
         atomic_write_json(episode_dir / f"request_attempt_{attempt:02d}.json", request_payload)
@@ -1230,12 +1230,12 @@ def main() -> int:
             attempts[-1]["errors"] = []
             attempts[-1]["floor_waived"] = True
         uncited_only = bool(errors) and all(UNCITED_ERROR.match(e) for e in errors)
-        if errors and uncited_only and not patched_segments:
+        if errors and uncited_only and patched_segments < 2:
             # Nine of thirteen redo triggers in the trial were "seg_N is neither
             # cited nor skipped": the plan is fine except for one forgotten
             # segment.  Ask for just the missing stage(s) and merge them in - a
             # small call instead of a 150-650 s re-plan.
-            patched_segments = True
+            patched_segments += 1
             missing_ids = [UNCITED_ERROR.match(e).group(1) for e in errors]
             try:
                 patched = patch_uncited_segments(raw, missing_ids, segments, names, list(location_map))
@@ -1244,7 +1244,7 @@ def main() -> int:
                 print(json.dumps({"attempt": attempt, "segment_patch": f"failed: {type(error).__name__}: {str(error)[:120]}"}, ensure_ascii=False))
             if patched is not None:
                 errors, warnings, shots = validate_and_normalize(patched, segments, bible, location_map, episode.source_text)
-                attempts[-1]["segment_patch"] = {"segments": missing_ids, "errors_after": len(errors)}
+                attempts[-1]["segment_patch"] = {"segments": missing_ids, "errors_after": len(errors), "errors": errors[:6]}
                 print(json.dumps({"attempt": attempt, "segment_patch": missing_ids, "error_count": len(errors)}, ensure_ascii=False))
                 if not errors:
                     raw = patched
