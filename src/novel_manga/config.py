@@ -116,7 +116,10 @@ class Settings:
             font_path=Path(os.getenv("NOVEL_FONT_PATH", str(DEFAULT_FONT_PATH))),
             bgm_path=Path(bgm_path) if bgm_path else None,
             phanrouter_base_url=os.getenv("PHANROUTER_BASE_URL", cls.phanrouter_base_url),
-            phanrouter_api_key=os.getenv("PHANROUTER_API_KEY"),
+            # PHANROUTER_VIDEO_KEY_VAR names the variable that holds the video
+            # key, so a second lane can run behind another key by naming it
+            # instead of copying the value around in shell scripts.
+            phanrouter_api_key=os.getenv(os.getenv("PHANROUTER_VIDEO_KEY_VAR", "PHANROUTER_API_KEY") or "PHANROUTER_API_KEY"),
             phanrouter_image_api_key=os.getenv("PHANROUTER_IMAGE_API_KEY"),
             image_model=os.getenv(
                 "NOVEL_IMAGE_MODEL", os.getenv("PHANROUTER_IMAGE_MODEL", cls.image_model)

@@ -533,7 +533,11 @@ def acquire_inflight_slot(novel_dir: Path, limit: int):
     constant number no matter how many episodes render at once."""
     if limit <= 0:
         return None
-    directory = novel_dir / ".inflight"
+    # A second lane (another model behind another key, with its own concurrency
+    # allowance) names its pool with NOVEL_INFLIGHT_POOL so the two caps do not
+    # share one set of slots.
+    pool = os.environ.get("NOVEL_INFLIGHT_POOL", "").strip()
+    directory = novel_dir / (f".inflight-{pool}" if pool else ".inflight")
     directory.mkdir(parents=True, exist_ok=True)
     while True:
         for index in range(limit):
