@@ -85,6 +85,9 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+RENDER_RUNS_PER_PLAN = 3  # render runs an episode gets per clip plan before the loop stops retrying it
+
+
 class CardFactory:
     """Builds asset cards per asset, many at a time, ahead of the episodes that need them.
 
@@ -396,6 +399,26 @@ class Batch:
         if self.args.dry_run:
             row["render"] = f"would render ({status})"
             return
+        # Three runs per clip plan, then stop: a clip that fails the same gate
+        # every time (a silent generation, say) would otherwise be regenerated
+        # and paid for on every round of the lane loop.  A re-plan (new
+        # clip_plan.json) starts the count again.
+        runs_path = directory / ".render_runs"
+        plan_path = directory / "clip_plan.json"
+        plan_mtime = plan_path.stat().st_mtime if plan_path.is_file() else 0.0
+        try:
+            runs = json.loads(runs_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            runs = {}
+        if runs.get("plan_mtime") != plan_mtime:
+            runs = {"plan_mtime": plan_mtime, "runs": 0}
+        if runs.get("runs", 0) >= RENDER_RUNS_PER_PLAN:
+            row["render"] = f"gave up ({runs['runs']} render runs on this plan)"
+            row["note"] = "needs a look: same failure on every run; see thin_media_report.json"
+            log(f"ch{chapter}: gave up after {runs['runs']} render runs on this plan; needs a look")
+            return
+        runs["runs"] = runs.get("runs", 0) + 1
+        runs_path.write_text(json.dumps(runs), encoding="utf-8")
         lock = directory / ".render.lock"
         if lock.is_file():
             try:
