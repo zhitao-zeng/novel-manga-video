@@ -36,6 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 PLAN_STAGES = ("plan", "assets", "render")
+MODERATION_MARKERS = (".moderation_replanned", ".moderation_replanned2")  # one generic re-plan, then one naming the refused lines
 MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥、色情暧昧一律改为间接表现：不写具体暴力动作和伤势，不写露骨或挑逗台词，"
                    "冲突用对峙、退让、旁观者反应和事后结果来交代；避免刀、枪、毒品、赌博、自残等词；台词选原文里克制的句子。")
 sys.path.insert(0, str(SCRIPTS))
@@ -444,13 +445,17 @@ class Batch:
                 if attempt == 1 and status in {"clips_failed", "pending", "stale"}:
                     continue
                 break
-            if status == "clips_failed" and self.moderation_blocked(chapter) and not (directory / ".moderation_replanned").exists():
+            replans = sum((directory / marker).exists() for marker in MODERATION_MARKERS)
+            if status == "clips_failed" and self.moderation_blocked(chapter) and replans < len(MODERATION_MARKERS):
                 # Seedance refused the text or the output twice: re-plan the chapter
-                # once with a director note that keeps the sensitive beats indirect.
-                (directory / ".moderation_replanned").write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
-                log(f"ch{chapter}: content moderation blocked a clip twice; re-planning once with a toned-down note")
+                # with a director note that keeps the sensitive beats indirect - the
+                # second time naming exactly what was refused.
+                (directory / MODERATION_MARKERS[replans]).write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+                targets = self.moderation_targets(chapter)
+                log(f"ch{chapter}: content moderation blocked a clip twice; re-planning ({replans + 1}/{len(MODERATION_MARKERS)}) with a toned-down note"
+                    + (" naming the refused lines" if targets else ""))
                 from thin_profile import load_genre
-                self.notes[str(chapter)] = MODERATION_NOTE + load_genre(self.profile).get("moderation_note_extra", "")
+                self.notes[str(chapter)] = MODERATION_NOTE + load_genre(self.profile).get("moderation_note_extra", "") + targets
                 self.args.replan = True
                 try:
                     self.plan(chapter)
@@ -476,6 +481,32 @@ class Batch:
                 prune_episode(directory)
         finally:
             lock.unlink(missing_ok=True)
+
+    def moderation_targets(self, chapter: int) -> str:
+        """What the platform refused, for the re-plan note: the refused clips' lines and stage text."""
+        directory = self.episode_dir(chapter)
+        try:
+            report = json.loads((directory / "thin_media_report.json").read_text(encoding="utf-8"))
+            plan = {c["clip_id"]: c for c in json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))["clips"]}
+        except (OSError, ValueError, KeyError):
+            return ""
+        parts = []
+        for c in report.get("clips", []):
+            error = str(c.get("error") or "")
+            if "SensitiveContentDetected" not in error:
+                continue
+            clip = plan.get(c.get("clip_id")) or {}
+            kind = "输入文字" if "InputText" in error else "生成画面"
+            lines = "；".join(f"{l.get('speaker_name', '')}：「{l.get('text', '')}」" for l in (clip.get("lines") or [])[:6])
+            prompt = str(clip.get("prompt") or "")
+            k = prompt.find("【阶段")
+            stage_text = re.sub(r"\s+", " ", prompt[k:k + 300]) if k >= 0 else ""
+            first_shot = (clip.get("shot_indexes") or ["?"])[0]
+            parts.append(f"第 {first_shot} 镜起的一段（{kind}被拒）：台词 {lines or '无'}；画面：{stage_text}")
+        if not parts:
+            return ""
+        return ("\n平台审核具体拒绝了以下内容。重写时必须把这些句子和描写改成不含打斗伤害、血腥、死亡、武器、辱骂字眼的等义表达"
+                "（台词可以换词、缩短或改为旁观者转述；画面改为对峙、退让和事后结果），其余段落尽量保持不变：\n" + "\n".join(parts))[:1500]
 
     def moderation_blocked(self, chapter: int) -> bool:
         report = self.episode_dir(chapter) / "thin_media_report.json"
