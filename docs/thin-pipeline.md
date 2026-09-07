@@ -1,10 +1,41 @@
 # 薄流水线（thin pipeline）
 
+## 当前版本的流水线（2026-09-07，试水版）
+
+三个阶段，前两个只用本地 Qwen（不花钱），第三个花 Seedance / 图片生成的钱。每个阶段都可断点续跑，已完成的章会跳过。
+
+```
+原文 txt ──► 0. 建圣经 build_bible_thin.py（前 5 章，一次）
+              │   story_bible.json · bible_aliases.json · profile.json · visual_grammar.json · chat_screen.json · novel.json
+              ▼
+           1. 读书 story_pass_thin.py（按章顺序提交，扫描并行）           本地 Qwen，320–480 章/小时
+              │   每章：扫描人名/地点（6 章并行）→ 锁内核对新名字、写人物描述、追加圣经 → 摘要+钩子进 recap.json
+              │   每 50 章：卷摘要（主线/未了结线索/人物处境）进 volumes.json
+              ▼
+           2. 写剧本 thin_batch.py --stage plan（分块并行，块内串行；调度器等读书领先 20 章再启动一块）  本地 Qwen，每章 100–190 秒，重规划的章 ~650 秒
+              │   plan_chapter_thin.py：一章 → 8 区段全覆盖的分镜剧本（3–5 段、12–18 阶段、群聊/私聊用 chat_message、只提供本章点名+主角+近 3 章出场的角色）
+              │   build_clip_plan_thin.py：剧本 → Seedance 提示词（阶段/景别/台词/音效/参考图绑定/参考音色/不要字幕、屏幕不拍字）
+              │   产物：chapter_script.json/.md · clip_plan.json/.md · segments.json · cast_index.json · recap/volumes 行
+              ▼
+           3. 出片 thin_batch.py --stage assets / render（或 --stage all 边规划边出片）      Seedance + gpt-image-2
+              │   建卡 build_cards_thin.py：本集引用的角色卡/地点卡 + 出场 ≥2 集的复现角色（无卡才建），审片修一次
+              │   音色库 build_voices_thin.py：从已出片的集拼每人 ≤14 秒参考音色（一请求总时长 ≤30 秒）
+              │   render_clips_thin.py：每段一次 Seedance（480p 快速档，带参考图+参考音色，预审），静音切块 + SenseVoice，
+              │                        语音门（CER ≤0.5、人声能量）失败重拍一次，字幕按剧本行对齐；群聊插卡 chat_card.py 自绘并硬切在片段前；
+              │                        封面/片尾卡；CFR 归一 + concat 拼接；媒体 QC；可选 VLM 审片重生成一次
+              ▼
+           成片 <novel>_<ch>.mp4 + 封面 + thin_media_report.json（含每次尝试的秒数、task 边车含计费 token）
+```
+
+时间与钱都在哪（诸天万象录实测）：读书 7–11 秒/章；规划均值 297 秒/章（一次通过 100–190 秒，重规划 3–4 次的 650 秒，一次通过率约 5/7）；出片每集墙上中位 7.7 分钟，其中 Seedance 占 86%，每章 62–118 秒视频（约 100 万 token）；卡片每张约 200 秒。四个 Qwen 实例（GPU 0–3，`QWEN38_LOCAL_BASE_URL` 在 .env 里，`ask_json` 轮询）。
+
+**已经不再成立的旧约束**：不再跳过任何区段（MAX_SKIPPED=0，每区段 1–3 阶段），整集时长放宽到约 100–160 秒；`src/novel_manga/providers/phanrouter.py` 改过（参考音频、task 边车记 usage）；聊天文字不再让视频模型画。
+
 一章小说 → 一次模型调用出分镜剧本 → 确定性打包成 ≤30 秒的 Seedance 2.5 片段 → 资产卡 + 视频 + ASR + 拼接。
-不经过 `pipeline.py` 的 v5 规划链，也不改 `src/`；只读复用 ingest、models、providers、render、qc 和 ASR 辅助函数。
+不经过 `pipeline.py` 的 v5 规划链；复用 ingest、models、providers、render、qc 和 ASR 辅助函数。
 2026-09-02/03 用它交付了《焚天记》前 10 集两套：2D 竖屏（每集 64–111 秒）和 3D 横屏（71–110 秒），后者只换了画风/画幅变量。
 
-硬门只有三条：原文引用逐字且 8 段全覆盖、角色与说话人在圣经内、整集估算 ≤105 秒；渲染侧只拦人声能量和 CER ≤ 0.5（一次重生成）。其余全部只报告。
+硬门：原文引用逐字（可由同一段对白的几行拼成）且 8 区段全覆盖、角色与说话人在圣经内、有聊天记录的章必须用 chat_message；渲染侧只拦人声能量和 CER ≤ 0.5。其余（密度、时长、台词量）都只进报告。
 
 ## 新小说操作手册
 
