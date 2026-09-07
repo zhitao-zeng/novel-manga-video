@@ -3,7 +3,7 @@
 
 Reads <episode_dir>/chapter_script.json (from plan_chapter_thin.py) plus the
 StoryBible.  Consecutive shots are packed into clips of at most 30 seconds
-and at most 5 stages; a clip is cut on a location change, when it would
+and at most 6 stages; a clip is cut on a location change, when it would
 exceed 30 seconds, or, once it is already long enough, when the chapter
 segment changes.  Each clip gets one prompt in the official Seedance 2.5
 layout: 【生成目标】, per-material bindings (用于 / 不采用), 【阶段n】 with
@@ -27,7 +27,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v11-voices"
+POLICY = "thin-clip-plan-v12-six-stages"
 TWO_VIEW_CAST_LIMIT = 2
 # Seedance sometimes burns its own caption bar into the picture; the film has its own
 # subtitle track, so every prompt forbids it explicitly.
@@ -134,7 +134,7 @@ def absorb_small_clips(clips: list[dict]) -> list[dict]:
                     neighbour["kind"] == "video"
                     and neighbour["location"] == clip["location"]
                     and neighbour["seconds"] + clip["seconds"] <= MAX_CLIP_SECONDS
-                    and len(neighbour["shots"]) + len(clip["shots"]) <= MAX_STAGES + 1
+                    and len(neighbour["shots"]) + len(clip["shots"]) <= MAX_STAGES
                 ):
                     shots = clip["shots"] + neighbour["shots"] if neighbour_index > index else neighbour["shots"] + clip["shots"]
                     neighbour["shots"] = shots

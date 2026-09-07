@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v13-repair"
+POLICY = "thin-chapter-plan-v13-bounded-repair"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -394,6 +394,8 @@ UNCITED_ERROR = re.compile(r"^(seg_\d+) is neither cited by any shot")
 STAGE_ERROR = re.compile(r"^([A-Za-z0-9_\-]{1,24} stage \d+): ")
 CLIP_LEVEL_ERROR = re.compile(r"characters not in StoryBible|unknown location")
 PATCH_ROUNDS = 3  # small repair calls per chapter before a full re-plan is the only option left
+PATCH_TIMEOUT_SECONDS = 120.0
+PATCH_TOTAL_SECONDS = 180.0  # shared across all repair rounds and full-draft attempts
 
 
 def patchable_errors(errors: list[str]) -> tuple[list[str], dict[str, list[str]]] | None:
@@ -430,7 +432,7 @@ def stage_slots(raw: dict) -> dict[str, tuple[int, int]]:
     return slots
 
 
-def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], segments: list[dict], names: list[str], locations: list[str]) -> dict:
+def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], segments: list[dict], names: list[str], locations: list[str], *, timeout: float = PATCH_TIMEOUT_SECONDS) -> dict:
     """Repair a plan with one small call instead of a 150-650 s re-plan.
 
     The model sees the clip outline, the forgotten segments' text and the
@@ -486,7 +488,7 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
         if sid in texts:
             parts.append(f"区段 {sid} 原文：\n{texts[sid][:1800]}")
     budget = min(6000, 800 + 900 * (len(missing_ids) + len(faulty)))
-    verdict = ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget)
+    verdict = ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget, timeout=timeout, retry_truncated=False)
     patched = json.loads(json.dumps(raw, ensure_ascii=False))
     for item in verdict.get("replacements", []):  # replacements first: insertions shift stage numbers
         slot = slots.get(str(item.get("label")))
@@ -1260,7 +1262,7 @@ def main() -> int:
         },
         **({"director_notes": args.notes} if args.notes else {}),
     }
-    print(json.dumps({"segments": [{k: v for k, v in s.items() if k != "text"} for s in segments], "characters": names, "locations": list(location_map), "bible_size": [len(full_bible.characters), len(full_bible.locations)], "recap_chapters": [r.get("chapter") for r in previous_recap], "visual_grammar": (grammar or {}).get("name"), "profile": profile}, ensure_ascii=False))
+    print(json.dumps({"segments": [{k: v for k, v in s.items() if k != "text"} for s in segments], "characters": names, "locations": list(location_map), "bible_size": [len(full_bible.characters), len(full_bible.locations)], "recap_chapters": [r.get("chapter") for r in previous_recap], "visual_grammar": (grammar or {}).get("name"), "profile": profile}, ensure_ascii=False), flush=True)
     if args.dry_run:
         atomic_write_json(episode_dir / "request_dry_run.json", payload)
         return 0
@@ -1271,6 +1273,7 @@ def main() -> int:
     final_errors: list[str] = []
     result = None
     patch_rounds = 0  # small repair calls used so far on this chapter
+    patch_seconds_left = PATCH_TOTAL_SECONDS
     for attempt in range(1, args.max_redo + 2):
         request_payload = {**payload, **({"repair": repair} if repair else {})}
         atomic_write_json(episode_dir / f"request_attempt_{attempt:02d}.json", request_payload)
@@ -1296,7 +1299,7 @@ def main() -> int:
         fingerprint = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         resent = attempts and attempts[-1].get("fingerprint") == fingerprint
         attempts.append({"attempt": attempt, **meta, "errors": errors, "warnings": warnings, "fingerprint": fingerprint, "resent_previous": bool(resent)})
-        print(json.dumps({"attempt": attempt, **meta, "error_count": len(errors), "warning_count": len(warnings)}, ensure_ascii=False))
+        print(json.dumps({"attempt": attempt, **meta, "error_count": len(errors), "warning_count": len(warnings)}, ensure_ascii=False), flush=True)
         if errors and attempt == args.max_redo + 1 and all("低于本次要求的下限" in e for e in errors):
             # The length floor is a preference, not a gate: on the last redo a
             # slightly short chapter is accepted and the shortfall reported.
@@ -1305,22 +1308,29 @@ def main() -> int:
             attempts[-1]["errors"] = []
             attempts[-1]["floor_waived"] = True
         patchable = patchable_errors(errors) if errors else None
-        while patchable and patch_rounds < PATCH_ROUNDS:
+        while patchable and patch_rounds < PATCH_ROUNDS and patch_seconds_left > 0:
             # Nearly every redo trigger in the trial was local - a forgotten
             # segment, a blood word in one start_state, a paraphrased quote, a
             # missing speaker.  Fix those stages with one small call and re-check
             # instead of a 150-650 s re-plan that tends to break something else.
             patch_rounds += 1
             missing_ids, faulty = patchable
-            summary = {"round": patch_rounds, "segments": missing_ids, "stages": list(faulty)}
+            patch_timeout = min(PATCH_TIMEOUT_SECONDS, patch_seconds_left)
+            summary = {"round": patch_rounds, "segments": missing_ids, "stages": list(faulty), "timeout_seconds": round(patch_timeout, 1)}
+            print(json.dumps({"attempt": attempt, "patch": summary, "status": "patching"}, ensure_ascii=False), flush=True)
+            patch_started = time.monotonic()
             try:
-                patched = patch_plan(raw, missing_ids, faulty, segments, names, list(location_map))
+                patched = patch_plan(raw, missing_ids, faulty, segments, names, list(location_map), timeout=patch_timeout)
             except Exception as error:  # noqa: BLE001 - fall through to the normal redo
-                print(json.dumps({"attempt": attempt, "patch": summary, "failed": f"{type(error).__name__}: {str(error)[:120]}"}, ensure_ascii=False))
+                failure = {**summary, "failed": f"{type(error).__name__}: {str(error)[:120]}", "elapsed_seconds": round(time.monotonic() - patch_started, 1)}
+                attempts[-1].setdefault("patches", []).append(failure)
+                print(json.dumps({"attempt": attempt, "patch": failure}, ensure_ascii=False), flush=True)
                 break
+            finally:
+                patch_seconds_left = max(0.0, patch_seconds_left - (time.monotonic() - patch_started))
             errors, warnings, shots = validate_and_normalize(patched, segments, bible, location_map, episode.source_text)
             attempts[-1].setdefault("patches", []).append({**summary, "errors_after": len(errors), "errors": errors[:6]})
-            print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False))
+            print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False), flush=True)
             raw = patched  # the next round, or the full redo, starts from the improved draft
             patchable = patchable_errors(errors) if errors else None
         if errors:

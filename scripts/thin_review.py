@@ -74,8 +74,8 @@ def image_part(path: Path, max_side: int) -> dict:
 _CALL_COUNTER = itertools.count()
 
 
-def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0) -> dict:
-    """One strict-JSON question to the local VLM; ``parts`` is OpenAI multimodal content."""
+def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True) -> dict:
+    """Ask a JSON question, sharing the timeout across endpoints and at most one length retry."""
     headers = {}
     if os.environ.get("QWEN38_LOCAL_API_KEY"):
         headers["Authorization"] = "Bearer " + os.environ["QWEN38_LOCAL_API_KEY"]
@@ -85,35 +85,41 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
         "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}},
         "messages": [{"role": "user", "content": parts}],
     }
-    response = None
-    last: Exception | None = None
+    deadline = time.monotonic() + timeout
     with httpx.Client(timeout=timeout, trust_env=False) as client:
-        for base_url in endpoint_order(f"{name}-{next(_CALL_COUNTER)}"):  # round-robin over the Qwen instances
-            try:
-                response = client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
-                response.raise_for_status()
-                break
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
-                last = error
-            except httpx.HTTPStatusError as error:
-                if error.response.status_code in (502, 503, 504):
+        for retry in range(2 if retry_truncated else 1):
+            last: Exception | None = None
+            for base_url in endpoint_order(f"{name}-{next(_CALL_COUNTER)}"):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"{name}: {timeout:g}s request budget exhausted")
+                try:
+                    response = client.post(f"{base_url}/chat/completions", json=payload, headers=headers, timeout=remaining)
+                    response.raise_for_status()
+                    break
+                except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
                     last = error
-                    continue
-                raise
-        else:
-            assert last is not None
-            raise last
-    choice = response.json()["choices"][0]
-    content = choice["message"].get("content") or "{}"
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        if choice.get("finish_reason") == "length" and max_tokens < 8000:
-            # Long name lists hit the token cap and the JSON is cut off; ask
-            # once more with twice the room.
-            return ask_json(parts, schema, name=name, max_tokens=max_tokens * 2, timeout=timeout)
-        match = re.search(r"\{.*\}", content, re.S)
-        return json.loads(match.group(0)) if match else {}
+                except httpx.HTTPStatusError as error:
+                    if error.response.status_code in (502, 503, 504):
+                        last = error
+                        continue
+                    raise
+            else:
+                assert last is not None
+                raise last
+            choice = response.json()["choices"][0]
+            content = choice["message"].get("content") or "{}"
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError as error:
+                if choice.get("finish_reason") == "length":
+                    if retry == 0 and retry_truncated and payload["max_tokens"] < 8000:
+                        payload["max_tokens"] = min(8000, payload["max_tokens"] * 2)
+                        log(f"{name}: JSON truncated; one retry with {payload['max_tokens']} tokens inside the remaining time budget")
+                        continue
+                    raise ValueError(f"{name}: JSON truncated at {payload['max_tokens']} output tokens") from error
+                match = re.search(r"\{.*\}", content, re.S)
+                return json.loads(match.group(0)) if match else {}
 
 
 def obj(properties: dict, required: list[str] | None = None) -> dict:
