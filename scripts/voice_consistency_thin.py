@@ -102,8 +102,53 @@ def mean_similarity(left: list[np.ndarray], right: list[np.ndarray] | None = Non
     return float(statistics.mean(float(np.dot(a, b)) for a, b in pairs))
 
 
+def bank_report(novel_dir: Path, episodes: list[str] | None = None) -> int:
+    """How close each character's generated speech is to their reference voice.
+
+    Run after rendering with the voice bank attached: a character whose chunks
+    sit above the same-speaker line was cloned; one below it was not (no
+    reference, a weak one, or a clip where the model gave the voice to someone
+    else).  Episodes without a bank entry for the character are still listed so
+    the before/after is visible.
+    """
+    bank_dir = novel_dir / "series_assets" / "voices"
+    model = extractor()
+    bank: dict[str, np.ndarray] = {}
+    for wav in sorted(bank_dir.glob("*.wav")) if bank_dir.is_dir() else []:
+        audio, rate = sf.read(wav, dtype="float32", always_2d=False)
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        stream = model.create_stream()
+        stream.accept_waveform(sample_rate=rate, waveform=audio)
+        stream.input_finished()
+        vector = np.asarray(model.compute(stream), dtype=np.float32)
+        bank[wav.stem] = vector / (np.linalg.norm(vector) + 1e-9)
+    if not bank:
+        print(f"{bank_dir} 里没有音色；先跑 build_voices_thin.py")
+        return 1
+    data = embeddings([novel_dir])
+    print(f"音色库 {len(bank)} 个角色。角色 | 集 | 片段数 | 与本人音色库 | 与库里其他人 | 判断")
+    print("---|---|---|---|---|---")
+    for who, per_episode in sorted(data.items()):
+        if who not in bank:
+            continue
+        for episode, vectors in sorted(per_episode.items()):
+            if episodes and episode not in episodes:
+                continue
+            own = statistics.mean(float(np.dot(bank[who], v)) for v in vectors)
+            others = [float(np.dot(bank[other], v)) for other, ref in bank.items() if other != who for v in vectors]
+            other_mean = statistics.mean(others) if others else float("nan")
+            verdict = "像本人" if own >= SAME_SPEAKER else ("偏离" if own > other_mean + 0.1 else "不是本人")
+            print(f"{who} | {episode.rsplit('_', 1)[1]} | {len(vectors)} | {own:.2f} | {other_mean:.2f} | {verdict}")
+    return 0
+
+
 def main() -> int:
-    novels = [Path(argument).resolve() for argument in sys.argv[1:]] or [Path("outputs/zhutian-fast").resolve()]
+    arguments = sys.argv[1:]
+    if arguments and arguments[0] == "--bank":
+        novel = Path(arguments[1]).resolve() if len(arguments) > 1 else Path("outputs/zhutian-fast").resolve()
+        return bank_report(novel, arguments[2:] or None)
+    novels = [Path(argument).resolve() for argument in arguments] or [Path("outputs/zhutian-fast").resolve()]
     data = embeddings(novels)
     everything = {who: [vector for vectors in episodes.values() for vector in vectors] for who, episodes in data.items()}
 

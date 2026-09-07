@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chat_card
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v18-chatcard"
+POLICY = "thin-media-v19-voices"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
@@ -764,7 +764,10 @@ class ThinMediaRunner:
         try:
           for wait in (*SUBMIT_BACKOFF_SECONDS, None):
             try:
-                self.provider.create_video(prompt, None, output, duration=float(clip["request_seconds"]), additional_images=references)
+                voices = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []) if ref.get("role") == "voice" and (self.novel_dir / ref["path"]).is_file())
+                if voices:
+                    log(f"{clip['clip_id']}: reference voices {[ref['name'] for ref in clip['references'] if ref.get('role') == 'voice']}")
+                self.provider.create_video(prompt, None, output, duration=float(clip["request_seconds"]), additional_images=references, reference_audios=voices)
                 break
             except RuntimeError as error:
                 # Throttled at submission (higher --parallel): wait and resubmit

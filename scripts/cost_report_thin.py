@@ -62,6 +62,16 @@ def episode_rows(novel_dir: Path, chapters: set[int] | None) -> list[dict]:
             continue
         attempts = [attempt for clip in report["clips"] for attempt in clip["attempts"]]
         seconds = sum(float(attempt.get("duration") or 0.0) for attempt in attempts)
+        # The service bills video in tokens; the provider stores each task's usage
+        # in the .task.json beside the clip once the task succeeds (runner v19+).
+        tokens = 0
+        for attempt in attempts:
+            sidecar = Path(str(attempt.get("video") or "") + ".task.json")
+            if sidecar.is_file():
+                try:
+                    tokens += int((json.loads(sidecar.read_text(encoding="utf-8")).get("usage") or {}).get("total_tokens") or 0)
+                except (OSError, ValueError):
+                    pass
         # The report is JSON, so ``selected`` is a copy of one of the attempts,
         # not the same object; compare on the clip file it points at.
         wasted = 0.0
@@ -73,6 +83,7 @@ def episode_rows(novel_dir: Path, chapters: set[int] | None) -> list[dict]:
             "chapter": index,
             "resolution": resolution,
             "video_seconds": round(seconds, 1),
+            "video_tokens": tokens,
             "discarded_seconds": round(wasted, 1),
             "clips": len(report["clips"]),
             "attempts": len(attempts),
@@ -122,6 +133,10 @@ def report(novel_dir: Path, chapters: set[int] | None, rates: dict, csv_path: Pa
     print(f"\n=== {novel_dir.name} ===")
     print(f"  出片 {len(rows)} 集，成片合计 {sum(r['final_seconds'] for r in rows) / 60:.1f} 分钟")
     print(f"  视频生成 {seconds:.0f} 秒 @{resolution}（其中被弃用的重试 {discarded:.0f} 秒），平均每集 {seconds / len(rows):.0f} 秒")
+    tokens = sum(row["video_tokens"] for row in rows)
+    if tokens:
+        counted = sum(1 for row in rows if row["video_tokens"])
+        print(f"  接口计费 token：{tokens:,}（{counted} 集有记录；5 秒 480p 约 48k、8 秒约 77k）")
     print(f"  图片生成 {images} 次（角色卡、地点卡、重画和审核重试都算）" if not shared_with
           else f"  图片生成 0 次：卡片共享自 {shared_with}，已计在那本书下")
     print(f"  本地模型：规划 {sum(r['planner_calls'] for r in rows)} 次调用，审片 {sum(r['judge_clips'] for r in rows)} 段")
@@ -138,7 +153,7 @@ def report(novel_dir: Path, chapters: set[int] | None, rates: dict, csv_path: Pa
             writer.writeheader()
             writer.writerows(rows)
         print(f"  明细写入 {csv_path}")
-    return {"novel": novel_dir.name, "episodes": len(rows), "video_seconds": round(seconds, 1),
+    return {"novel": novel_dir.name, "episodes": len(rows), "video_seconds": round(seconds, 1), "video_tokens": tokens,
             "discarded_seconds": round(discarded, 1), "images": images, "resolution": resolution, "cost": total}
 
 

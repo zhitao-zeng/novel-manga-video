@@ -207,12 +207,21 @@ class PhanRouterMediaProvider(MediaProvider):
         )
         return ImageResult(path=output, public_url=str(url))
 
+    @staticmethod
+    def _audio_data_url(path: Path) -> str:
+        """Reference voice as a data URI; the service takes it like an inline image."""
+        payload = path.read_bytes()
+        if len(payload) > 10 * 1024 * 1024:
+            raise ValueError(f"reference audio exceeds 10 MiB: {path}")
+        return "data:audio/wav;base64," + base64.b64encode(payload).decode("ascii")
+
     def _video_payload(
         self,
         prompt: str,
         image_url: str | None,
         duration: float,
         additional_image_urls: tuple[str, ...] = (),
+        reference_audio_urls: tuple[str, ...] = (),
     ) -> dict:
         content = [{"type": "text", "text": prompt}]
         if image_url is not None:
@@ -230,6 +239,17 @@ class PhanRouterMediaProvider(MediaProvider):
                 "role": "reference_image",
             }
             for additional_url in additional_image_urls
+        )
+        # Voice references: the model clones each speaker's timbre from these
+        # and assigns them to the on-screen speakers itself (the @音频N text
+        # binding is not honoured, see docs/seedance-reference-audio.md).
+        content.extend(
+            {
+                "type": "audio_url",
+                "audio_url": {"url": audio_url},
+                "role": "reference_audio",
+            }
+            for audio_url in reference_audio_urls
         )
         return {
             "model": self.settings.video_model,
@@ -249,10 +269,14 @@ class PhanRouterMediaProvider(MediaProvider):
         output: Path,
         duration: float,
         additional_images: tuple[Path, ...] = (),
+        reference_audios: tuple[Path, ...] = (),
     ) -> Path:
         for additional_image in additional_images:
             if not additional_image.is_file():
                 raise FileNotFoundError(additional_image)
+        for reference_audio in reference_audios:
+            if not reference_audio.is_file():
+                raise FileNotFoundError(reference_audio)
         image_url = self._restore_image_url(image) if image is not None else None
         additional_image_urls = tuple(
             self._restore_image_url(ImageResult(path=path))
@@ -263,6 +287,7 @@ class PhanRouterMediaProvider(MediaProvider):
             image_url,
             duration,
             additional_image_urls,
+            tuple(self._audio_data_url(path) for path in reference_audios),
         )
         request_sha256 = hashlib.sha256(
             json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -304,6 +329,10 @@ class PhanRouterMediaProvider(MediaProvider):
                             for path in additional_images
                         ],
                         "generate_audio": bool(payload["generate_audio"]),
+                        "reference_audio_sha256s": [
+                            hashlib.sha256(path.read_bytes()).hexdigest()
+                            for path in reference_audios
+                        ],
                     },
                 )
         if not task_id:
@@ -321,6 +350,16 @@ class PhanRouterMediaProvider(MediaProvider):
                 url = data.get("url") or data.get("video_url")
                 if not url:
                     raise ValueError("successful video task returned no URL")
+                usage = data.get("usage") or {}
+                if usage and task_path.is_file():
+                    # The service bills in tokens, not seconds; keep the figure
+                    # beside the task id so the cost ledger can use it.
+                    try:
+                        record = json.loads(task_path.read_text(encoding="utf-8"))
+                        record["usage"] = usage
+                        atomic_write_json(task_path, record)
+                    except (OSError, ValueError):
+                        pass
                 try:
                     self._download(str(url), output)
                 except httpx.TimeoutException:

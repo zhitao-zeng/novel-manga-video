@@ -27,7 +27,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v10-chatcard"
+POLICY = "thin-clip-plan-v11-voices"
 TWO_VIEW_CAST_LIMIT = 2
 # Seedance sometimes burns its own caption bar into the picture; the film has its own
 # subtitle track, so every prompt forbids it explicitly.
@@ -233,6 +233,23 @@ CHAT_SCREEN: dict = {
 }
 
 
+VOICES: dict[str, str] = {}  # character -> series_assets/voices/<name>.wav, from the voice bank
+
+
+def load_voices(novel_dir: Path) -> dict[str, str]:
+    """Reference voices built by build_voices_thin.py; empty until the first episodes exist."""
+    manifest = novel_dir / "series_assets" / "voices" / "voices.json"
+    if manifest.is_file():
+        try:
+            rows = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            rows = {}
+        for name in rows:
+            if (novel_dir / "series_assets" / "voices" / f"{name}.wav").is_file():
+                VOICES[name] = f"series_assets/voices/{name}.wav"
+    return VOICES
+
+
 def load_chat_screen(novel_dir: Path) -> dict:
     """Per-novel chat UI template (outputs/<novel>/chat_screen.json): same group
     name and layout in every clip of every episode."""
@@ -326,7 +343,7 @@ def clip_cast(clip: dict) -> list[str]:
     return kept or listed
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str]) -> tuple[list[dict], list[str], str]:
+def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = ()) -> tuple[list[dict], list[str], str]:
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
     references: list[dict] = []
@@ -352,6 +369,12 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     location_asset = f"location_{location_index[location_short]:03d}"
     count += 1
     references.append({"tag": f"@图片{count}", "role": "location", "name": location_short, "asset_id": location_asset, "path": f"series_assets/locations/{location_asset}/establishing.jpeg"})
+    # One reference voice per speaking character that has one in the bank, in
+    # cast order (the order the prompt introduces them).  The model assigns the
+    # voices to the on-screen speakers by itself and ignores textual bindings,
+    # so no @音频N line goes into the prompt; the order is only a tie-break.
+    for voice_index, name in enumerate((n for n in cast if n in speakers and n in VOICES), start=1):
+        references.append({"tag": f"@音频{voice_index}", "role": "voice", "name": name, "path": VOICES[name]})
     description = compact(full.split("：", 1)[1] if "：" in full else full, 40)
     location_binding = f"@图片{count}用于<{location_short}>的建筑、地面、固定道具和光线（{description}），不采用图中人物"
     return references, bindings, location_binding
@@ -437,6 +460,7 @@ def main() -> int:
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     grammar = load_grammar(args.grammar, episode_dir)
     load_chat_screen(episode_dir.parent)
+    load_voices(episode_dir.parent)
     profile = load_profile(episode_dir.parent, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
     genre = load_genre(profile)
@@ -497,7 +521,11 @@ def main() -> int:
             for shot in clip["shots"]:
                 shot["avoid"] = "；".join(x for x in (shot.get("avoid", ""), override["extra_avoid"]) if x)
         clip["identity_notes"] = override.get("identity_notes", "")
-        references, bindings, location_binding = build_references(cast, clip["location"], bible, location_map)
+        speakers = tuple(dict.fromkeys(
+            turn["speaker_name"] for shot in clip["shots"] for turn in shot["turns"]
+            if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
+        ))
+        references, bindings, location_binding = build_references(cast, clip["location"], bible, location_map, speakers=speakers)
         prompt = compile_prompt(clip, bible, cast, bindings, location_binding, grammar, frame)
         lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
         lint = {k: v for k, v in lint.items() if v}

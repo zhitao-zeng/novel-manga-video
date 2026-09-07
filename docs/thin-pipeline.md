@@ -118,6 +118,16 @@ QWEN38_LOCAL_BASE_URL=http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http:/
 - 卡片不花 Seedance 秒数、文字逐字准确、不过审片的 `chat_text_ok`；消息不进字幕、不进语音门。
 - 单独渲染一集的卡片：`python scripts/chat_card.py --novel-dir outputs/X --episode-dir outputs/X/X_11 --preview`。
 
+## 角色音色（参考音频）
+
+Seedance 只按参考音频克隆音色，没有参考时每段自己编，同一个人跨集、甚至同集不同段都不是一个声音（`scripts/voice_consistency_thin.py` 实测同集内 0.47、跨集 0.38、不同人 0.25，判同一人的线是 0.55）。接口接受 `content` 里 `{"type":"audio_url","audio_url":{"url":"data:audio/wav;base64,…"},"role":"reference_audio"}`，可以多条，和参考图并列（实测细节在 `docs/seedance-reference-audio.md`）。
+
+- **音色库**：`python scripts/build_voices_thin.py --novel-dir outputs/X` 从已出片的集里，把每个角色只匹配到他台词的语音块按长度拼到约 14 秒，写到 `series_assets/voices/<角色>.wav` 和 `voices.json`。不足 8 秒的角色不建（短参考不如没有：2 秒的"嗯"毫无作用，12 秒台词能把相似度拉到 0.70）。无名角色不建。素材变多后重跑只补建有增量的角色。
+- **打包器 v11** 给每段列出说话人里有音色的角色（`references` 里 `role: voice`，按出场顺序），**渲染器 v19** 出片时作为 `reference_audio` 一并提交。分镜指纹包含参考音频路径，所以只有重新打包的集才会带音色，已出片的集不会被判为过期。
+- 提示词里不写 `@音频N` 绑定，模型不看它，是自己把音色分给画面里的人的。
+- 一本新书的做法：前几集不带音色出片 → 建库 → 之后的集自动带。要固定主角的音色，也可以手动放一段干净录音到 `series_assets/voices/<角色>.wav` 并写进 `voices.json`。
+- 复核：出片后 `asr_models_eval/.venv/bin/python scripts/voice_consistency_thin.py --bank outputs/X` 把每个角色的语音块和他的音色库比对。
+
 ## 题材预设
 
 会随题材变的规则不写在代码里，放在 `configs/genres/<key>.json`（现有 `generic` 通用、`xianxia` 古风玄幻、`urban` 现代都市），`profile.json` 的 `genre` 指定用哪份；起书时 `build_bible_thin.py` 按圣经里模型给出的类型和开头几章的关键词自动选，`--genre` 可强制。每份预设的字段：
@@ -162,6 +172,9 @@ QWEN38_LOCAL_BASE_URL=http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http:/
 | `scripts/plan_chapter_thin.py` | 一章一次调用（Qwen3.8 本地服务，先思考摘要再严格 JSON）。硬门三条；返修时给具体数字目标、识别原样重发、改写引用附最接近原句。 |
 | `scripts/build_clip_plan_thin.py` | 阶段打包成 ≤30 秒、≤6 阶段的片段，按官方 Seedance 2.5 模板写提示词（【生成目标】、逐图 用于/不采用、【视觉语法】、【阶段n·景别】、【保持一致】、【不要】），只报告的克制检查。 |
 | `scripts/render_clips_thin.py` | 资产卡（只到本集引用到的编号）、Seedance 请求（参考图 base64 内嵌）、静音切块 + SenseVoice、硬门、硬切拼接、剧本原句字幕、封面/结束卡、媒体 QC；接口故障自愈见下。 |
+| `scripts/build_voices_thin.py` | 从已出片的集里拼每个角色 10–15 秒的参考音色到 `series_assets/voices/`；打包器和渲染器自动带上。 |
+| `scripts/voice_consistency_thin.py` | 声纹探针：同集内 / 跨集 / 不同角色三档相似度；`--bank` 模式和音色库比对。 |
+| `scripts/cost_report_thin.py` | 成本台账：视频秒数与接口计费 token、图片生成次数、本地调用次数。 |
 | `scripts/chat_card.py` | 微信风格的群聊/私聊插卡：PIL 画界面、逐条弹出、每条一声提示音、头像从角色卡裁头；渲染器在拼接时把卡片硬切在对应片段之前。 |
 | `scripts/thin_asr_segments.py` | 在 ASR venv 里一次加载模型识别多个语音块。 |
 | `scripts/thin_profile.py` | 画风/画幅变量：`STYLE_VISUAL` 各画风的卡片描述，`FRAMES` 各画幅的画布、Seedance 比例和构图句。 |
