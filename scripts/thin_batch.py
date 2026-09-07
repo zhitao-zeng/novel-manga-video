@@ -371,6 +371,18 @@ class Batch:
         if status == "no_plan":
             row["render"] = "skipped (no plan)"
             return
+        lane_cap = float(os.environ.get("NOVEL_CLIP_SECONDS_MAX", "0") or 0)
+        if lane_cap:
+            # This lane's model only takes clips up to lane_cap seconds: a plan
+            # packed for longer clips belongs to the other lane (or is waiting to
+            # be re-planned) and must not be submitted here.
+            try:
+                packed_cap = float(json.loads((directory / "clip_plan.json").read_text(encoding="utf-8")).get("limits", {}).get("max_clip_seconds", 0) or 0)
+            except (OSError, ValueError):
+                packed_cap = 0.0
+            if packed_cap > lane_cap:
+                row["render"] = f"skipped (clip plan packed for {packed_cap:g} s, lane takes {lane_cap:g} s)"
+                return
         if status in {"done", "done_with_warnings"} and not self.args.rerender:
             row["render"] = status
             self.fill_result(chapter)
