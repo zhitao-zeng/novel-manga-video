@@ -19,6 +19,11 @@ DEFAULT_FONT_PATH = _default_font_path()
 NATIVE_DIALOGUE_POLICY = "native_dialogue"
 
 
+# Seedance generations the production path is known to handle: 2.0 returns
+# 864x496, which the assembly step scales and pads like any other clip.
+PHANROUTER_VIDEO_MODELS = {"sd2.5", "sd2.0"}
+
+
 @dataclass(frozen=True)
 class Settings:
     provider: str = "mock"
@@ -247,8 +252,8 @@ class Settings:
                 "openai-compatible planner requires NOVEL_LLM_BASE_URL and NOVEL_LLM_API_KEY"
             )
         if self.provider == "phanrouter":
-            if self.video_model != "sd2.5":
-                raise ValueError("PhanRouter video model must be sd2.5")
+            if self.video_model not in PHANROUTER_VIDEO_MODELS:
+                raise ValueError(f"PhanRouter video model must be one of {sorted(PHANROUTER_VIDEO_MODELS)}")
             missing = []
             for name, value in (("PHANROUTER_API_KEY", self.phanrouter_api_key),):
                 if not value:
