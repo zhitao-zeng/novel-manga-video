@@ -86,15 +86,21 @@ def main() -> int:
                 status = f"error: {type(error).__name__}: {str(error)[:120]}"
             row = {"asset_id": asset_id, "status": status, "seconds": round(time.monotonic() - started, 1), "flags": []}
             if args.review and status == "built":
-                from thin_review import remediate_cards, review_cards
-                review = review_cards(novel_dir, only_ids={asset_id})
-                if review["flags"]:
-                    fixes = remediate_cards(novel_dir, review)
-                    if fixes["deleted"]:
-                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
+                from thin_review import card_verdict_current, remediate_cards, review_cards
+                cached = card_verdict_current(novel_dir, asset_id)
+                if cached is not None:
+                    # judged before and unchanged since: the verdict stands
+                    row["flags"] = cached
+                    row["review"] = "cached"
+                else:
                     review = review_cards(novel_dir, only_ids={asset_id})
-                    row["fixes"] = fixes["stylized"] + fixes["deleted"]
-                row["flags"] = review["flags"]
+                    if review["flags"]:
+                        fixes = remediate_cards(novel_dir, review)
+                        if fixes["deleted"]:
+                            build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
+                        review = review_cards(novel_dir, only_ids={asset_id})
+                        row["fixes"] = fixes["stylized"] + fixes["deleted"]
+                    row["flags"] = review["flags"]
             results[asset_id] = row
             print(json.dumps(row, ensure_ascii=False), flush=True)
     return 0 if all(r["status"] == "built" for r in results.values()) else 2

@@ -106,7 +106,10 @@ class CardFactory:
         directory = self.batch.novel_dir / "series_assets" / ".factory"
         directory.mkdir(parents=True, exist_ok=True)
         command = [sys.executable, str(SCRIPTS / "build_cards_thin.py"), "--novel-dir", str(self.batch.novel_dir), "--assets", asset_id]
-        if self.batch.reviewing:
+        if self.batch.reviewing or self.batch.args.card_review:
+            # A card is judged as soon as it is built and fixed once if it is
+            # wrong, before any clip that references it is generated: a bad
+            # card would otherwise be copied into every episode that uses it.
             command.append("--review")
         if self.batch.args.tier:
             command += ["--tier", self.batch.args.tier]
@@ -655,6 +658,8 @@ def main() -> int:
     parser.add_argument("--rerender", action="store_true", help="re-render episodes that already have a final video")
     parser.add_argument("--unattended", action="store_true", help="automatic reviews with bounded paid fixes: cards after the assets stage (one redraw/regeneration), clips after each render (one regeneration with the reviewer's correction); then delivery_report.md")
     parser.add_argument("--review-only", action="store_true", help="run the automatic reviews and write delivery_report.md without any paid fix")
+    parser.add_argument("--no-card-review", dest="card_review", action="store_false", default=True,
+                        help="skip judging cards before rendering (by default every card is judged once it is built and fixed once if flagged)")
     parser.add_argument("--grow-bible", dest="grow_bible", action="store_true", default=True, help="before planning a chapter, add its new proper-named characters and locations to the bible (default)")
     parser.add_argument("--no-grow-bible", dest="grow_bible", action="store_false")
     parser.add_argument("--prune", action="store_true", help="after an episode is assembled, delete its intermediate audio, stale clips and review frames (keeps clip.mp4 + asr.json for the cache)")

@@ -476,8 +476,56 @@ def review_cards(novel_dir: Path, include_backups: bool = False, only_ids: set[s
     if report["missing_cards"]:
         report["flags"].append("待重建的卡（所属章节建卡时生成）：" + "、".join(report["missing_cards"]))
         log(f"cards: not rebuilt yet: {report['missing_cards']}")
-    atomic_write_json(assets / "cards_review.json", report)
+    stamp = time.time()
+    for entry in (*report["characters"].values(), *report["locations"].values()):
+        entry["judged_at"] = stamp
+    if only_ids is None:
+        atomic_write_json(assets / "cards_review.json", report)
+    else:
+        # The factory judges each card as it is built: that verdict joins the
+        # series-wide report rather than replacing it.
+        atomic_write_json(assets / "cards_review.json", merge_card_report(assets / "cards_review.json", report))
     return report
+
+
+def card_flag(asset_id: str, entry: dict) -> str:
+    return f"{asset_id} {entry.get('name', '')}: {', '.join(entry.get('actions') or [])} ({entry.get('mismatch') or entry.get('note', '')})"
+
+
+def merge_card_report(path: Path, partial: dict) -> dict:
+    """The on-disk report with this call's verdicts written over the matching entries."""
+    try:
+        merged = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        merged = {}
+    merged.setdefault("characters", {}).update(partial.get("characters", {}))
+    merged.setdefault("locations", {}).update(partial.get("locations", {}))
+    merged["policy"] = partial.get("policy")
+    merged["missing_cards"] = sorted(set(merged.get("missing_cards", [])) | set(partial.get("missing_cards", [])))
+    merged["flags"] = [card_flag(asset_id, entry) for section in ("characters", "locations")
+                       for asset_id, entry in sorted(merged[section].items()) if entry.get("actions")]
+    return merged
+
+
+def card_verdict_current(novel_dir: Path, asset_id: str) -> list[str] | None:
+    """The stored flags for a card whose verdict is newer than its image files; None when it must be judged."""
+    assets = novel_dir / "series_assets"
+    path = assets / "cards_review.json"
+    if not path.is_file():
+        return None
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    section = "characters" if asset_id.startswith("character_") else "locations"
+    entry = (report.get(section) or {}).get(asset_id)
+    if not entry or not entry.get("judged_at"):
+        return None
+    card_dir = assets / ("characters" if section == "characters" else "locations") / asset_id
+    images = [p for p in card_dir.glob("*.jpeg") if not p.name.endswith("-rejected.jpeg")]
+    if not images or max(p.stat().st_mtime for p in images) > float(entry["judged_at"]):
+        return None
+    return [card_flag(asset_id, entry)] if entry.get("actions") else []
 
 
 # ---- judge 3: episode ----
