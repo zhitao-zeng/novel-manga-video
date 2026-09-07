@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 from pathlib import Path
@@ -27,16 +28,18 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint
 
-POLICY = "thin-clip-plan-v12-six-stages"
+POLICY = "thin-clip-plan-v12-six-stages" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 TWO_VIEW_CAST_LIMIT = 2
 # Seedance sometimes burns its own caption bar into the picture; the film has its own
 # subtitle track, so every prompt forbids it explicitly.
 NO_SUBTITLES = "不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条"
 GENRE_REJECTS: list[str] = []  # from the genre preset; appended to 【不要】
 GENRE_CROWD = ""
-MAX_CLIP_SECONDS = 30.0
-SOFT_CUT_SECONDS = 18.0
-MAX_STAGES = 6
+# NOVEL_CLIP_SECONDS_MAX=15 is the sd2.0 lane (its reference-to-video mode
+# stops at 15 s): shorter clips, three stages at most, an earlier soft cut.
+MAX_CLIP_SECONDS = float(os.environ.get("NOVEL_CLIP_SECONDS_MAX", "30") or 30)
+SOFT_CUT_SECONDS = 18.0 if MAX_CLIP_SECONDS > 15 else round(MAX_CLIP_SECONDS * 0.6, 1)
+MAX_STAGES = 6 if MAX_CLIP_SECONDS > 15 else 3
 STRIP_PUNCT = r"[\s　，。！？；：、…—,.!?;:\"“”'‘’（）()]"
 STAGE_LABELS = ["一", "二", "三", "四", "五", "六"]
 ANON_VOICE = {

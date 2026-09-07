@@ -47,15 +47,20 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v13-bounded-repair"
+POLICY = "thin-chapter-plan-v13-bounded-repair" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
 QUOTE_MAX_CHARS = 200
 MAX_SKIPPED = 0  # every segment must be filmed; run longer instead of dropping story
 SHOT_RANGE = (12, 24)
-CLIP_RANGE = (3, 4)
-STAGE_RANGE = (4, 6)
+# Clip length budget.  The default (30 s) is what sd2.5 generates in one go;
+# NOVEL_CLIP_SECONDS_MAX=15 is the sd2.0 lane, whose reference-to-video mode
+# stops at 15 s: twice the clips, half the stages each, same everything else.
+CLIP_SECONDS_MAX = float(os.environ.get("NOVEL_CLIP_SECONDS_MAX", "30") or 30)
+SHORT_CLIPS = CLIP_SECONDS_MAX <= 15
+CLIP_RANGE = (6, 8) if SHORT_CLIPS else (3, 4)
+STAGE_RANGE = (2, 3) if SHORT_CLIPS else (4, 6)
 MAX_CLIP_SECONDS = 30.0
 CLIP_SECONDS_TOLERANCE = 1.0
 EPISODE_SECONDS_MAX = 105.0
@@ -138,8 +143,15 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
 8. clip.characters只填该段画面中出现的StoryBible具名角色；location只填给定地点名。speaker_name是具名角色，或"无名测验员""无名族人"这类无名画外角色；无名角色只能用offscreen_dialogue。silent_action和title_card的speaker_name留空字符串。
 9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。"""
 
+if SHORT_CLIPS:
+    # the same brief with the clip numbers swapped for the 15 s lane
+    for _old, _new in (("由3到4段可用视频模型", "由6到8段可用视频模型"), ("clips，3到4段", "clips，6到8段"),
+                       ("时长20到30秒，由4到6个\"阶段\"", "时长10到15秒，由2到3个\"阶段\""), ("单段不得超过30秒", "单段不得超过15秒")):
+        assert SYSTEM_PROMPT.count(_old) == 1, _old
+        SYSTEM_PROMPT = SYSTEM_PROMPT.replace(_old, _new)
+
 ANALYSIS_INSTRUCTION = (
-    "先做内部规划，不要输出JSON：第一步定时长预算，全集约90秒分成3到4段，每段写出覆盖哪些区段、几个阶段、估算秒数；"
+    f"先做内部规划，不要输出JSON：第一步定时长预算，全集约90秒分成{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段写出覆盖哪些区段、几个阶段、估算秒数；"
     "第二步定台词取舍，列出保留的原文台词（合计220到300字，可删子句）、合并或删掉的群众议论、以及必须用一两句画外议论外化的叙述事实（写出改成谁说的什么话）；"
     "第三步列每个阶段的景别和主要动作。不超过800字。"
 )

@@ -88,19 +88,18 @@ def main() -> int:
             if args.review and status == "built":
                 from thin_review import card_verdict_current, remediate_cards, review_cards
                 cached = card_verdict_current(novel_dir, asset_id)
-                if cached is not None:
-                    # judged before and unchanged since: the verdict stands
-                    row["flags"] = cached
-                    row["review"] = "cached"
-                else:
+                # judged before and unchanged since: a clean verdict stands, a
+                # flagged one goes straight to its one fix without re-judging
+                review = cached if cached is not None else review_cards(novel_dir, only_ids={asset_id})
+                if review["flags"]:
+                    fixes = remediate_cards(novel_dir, review)
+                    if fixes["deleted"]:
+                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
                     review = review_cards(novel_dir, only_ids={asset_id})
-                    if review["flags"]:
-                        fixes = remediate_cards(novel_dir, review)
-                        if fixes["deleted"]:
-                            build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
-                        review = review_cards(novel_dir, only_ids={asset_id})
-                        row["fixes"] = fixes["stylized"] + fixes["deleted"]
-                    row["flags"] = review["flags"]
+                    row["fixes"] = fixes["stylized"] + fixes["deleted"]
+                elif cached is not None:
+                    row["review"] = "cached"
+                row["flags"] = review["flags"]
             results[asset_id] = row
             print(json.dumps(row, ensure_ascii=False), flush=True)
     return 0 if all(r["status"] == "built" for r in results.values()) else 2

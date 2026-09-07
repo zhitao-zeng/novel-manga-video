@@ -507,8 +507,10 @@ def merge_card_report(path: Path, partial: dict) -> dict:
     return merged
 
 
-def card_verdict_current(novel_dir: Path, asset_id: str) -> list[str] | None:
-    """The stored flags for a card whose verdict is newer than its image files; None when it must be judged."""
+def card_verdict_current(novel_dir: Path, asset_id: str) -> dict | None:
+    """The stored verdict for a card whose images have not changed since it was
+    judged, shaped like a review_cards() report for that one card; None when
+    the card must be judged."""
     assets = novel_dir / "series_assets"
     path = assets / "cards_review.json"
     if not path.is_file():
@@ -525,7 +527,8 @@ def card_verdict_current(novel_dir: Path, asset_id: str) -> list[str] | None:
     images = [p for p in card_dir.glob("*.jpeg") if not p.name.endswith("-rejected.jpeg")]
     if not images or max(p.stat().st_mtime for p in images) > float(entry["judged_at"]):
         return None
-    return [card_flag(asset_id, entry)] if entry.get("actions") else []
+    return {"policy": report.get("policy"), "characters": {}, "locations": {}, "missing_cards": [],
+            section: {asset_id: entry}, "flags": [card_flag(asset_id, entry)] if entry.get("actions") else []}
 
 
 # ---- judge 3: episode ----
