@@ -63,7 +63,7 @@ def attributed_chunks(novel_dir: Path) -> dict[str, list[tuple[float, Path, floa
     return found
 
 
-def build(name: str, pieces: list[tuple[float, Path, float, float, str]], out_dir: Path, target: float) -> dict:
+def build(name: str, pieces: list[tuple[float, Path, float, float, str]], out_dir: Path, target: float, cap: float) -> dict:
     pieces = sorted(pieces, key=lambda item: -item[0])
     work = out_dir / ".work" / name
     work.mkdir(parents=True, exist_ok=True)
@@ -80,16 +80,19 @@ def build(name: str, pieces: list[tuple[float, Path, float, float, str]], out_di
     listing = work / "pieces.txt"
     listing.write_text("".join(f"file '{p.resolve()}'\n" for p in chosen), encoding="utf-8")
     target_path = out_dir / f"{name}.wav"
+    # Hard cap: Seedance allows 30.2 s of reference audio per request, and a
+    # clip may carry two or three voices, so one voice must not eat the budget.
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
-                    "-ac", "1", "-ar", "16000", str(target_path)], check=True)
-    return {"seconds": round(total, 1), "pieces": len(chosen), "sources": sorted(sources), "path": str(target_path.relative_to(out_dir.parent.parent))}
+                    "-t", f"{cap:.2f}", "-ac", "1", "-ar", "16000", str(target_path)], check=True)
+    return {"seconds": round(min(total, cap), 1), "pieces": len(chosen), "sources": sorted(sources), "path": str(target_path.relative_to(out_dir.parent.parent))}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--min-seconds", type=float, default=8.0, help="characters with less attributed speech get no reference")
-    parser.add_argument("--target-seconds", type=float, default=14.0)
+    parser.add_argument("--target-seconds", type=float, default=12.0)
+    parser.add_argument("--max-seconds", type=float, default=14.0, help="hard cap per voice; two voices must fit the service's 30 s")
     parser.add_argument("--only", help="comma-separated character names")
     parser.add_argument("--rebuild", action="store_true", help="rebuild every character, not just the ones with more material")
     args = parser.parse_args()
@@ -113,9 +116,9 @@ def main() -> int:
             skipped.append((name, round(available, 1)))
             continue
         previous = manifest.get(name) or {}
-        if not args.rebuild and previous.get("seconds", 0) >= min(args.target_seconds, available) - 0.5 and (out_dir / f"{name}.wav").is_file():
+        if not args.rebuild and previous.get("seconds", 0) >= min(args.target_seconds, available) - 0.5 and previous.get("seconds", 0) <= args.max_seconds and (out_dir / f"{name}.wav").is_file():
             continue
-        manifest[name] = build(name, pieces, out_dir, args.target_seconds)
+        manifest[name] = build(name, pieces, out_dir, args.target_seconds, args.max_seconds)
         built.append((name, manifest[name]["seconds"]))
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"音色库 {out_dir}：共 {len(manifest)} 个角色")

@@ -120,12 +120,15 @@ def load_avatars(novel_dir: Path, names: list[str], cache_dir: Path | None = Non
     cache_dir.mkdir(parents=True, exist_ok=True)
     avatars: dict[str, Image.Image] = {}
     for name in names:
-        cached = cache_dir / f"{name}.png"
+        card = cards.get(name)
+        from_card = bool(card and card.is_file())
+        # The cache name says where the avatar came from, so a character who
+        # gets a card later is re-cropped instead of keeping the coloured initial.
+        cached = cache_dir / f"{name}.{'card' if from_card else 'letter'}.png"
         if cached.is_file():
             avatars[name] = Image.open(cached).convert("RGBA")
             continue
-        card = cards.get(name)
-        avatars[name] = card_avatar(card) if card and card.is_file() else letter_avatar(name)
+        avatars[name] = card_avatar(card) if from_card else letter_avatar(name)
         avatars[name].save(cached)
     return avatars
 

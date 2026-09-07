@@ -24,6 +24,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import wave
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -48,9 +49,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chat_card
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v19-voices"
+POLICY = "thin-media-v20-voices"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
+CHAT_CONTEXT_MESSAGES = 2   # earlier messages shown above the new ones on a chat card
+CHAT_HISTORY_EPISODES = 3   # how far back to look for them
+VOICE_BUDGET_SECONDS = 29.0  # Seedance 2.5 caps reference audio at 30.2 s per request
 MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
 
 # ---- subtitle helpers (v16) ----
@@ -585,7 +589,10 @@ class ThinMediaRunner:
         self.fast = is_fast(self.profile)
         apply_genre(load_genre(self.profile))
         self._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)
-        self.max_attempts = 1 if self.fast else max_attempts
+        # Fast tier still gets a second attempt, but only when the first one
+        # failed the speech gate (the retry loop runs on gate failures alone):
+        # a line the model did not speak costs the line and its subtitles.
+        self.max_attempts = 2 if self.fast else max_attempts
         self.provider = FramedPhanRouter(self.settings, self.frame_spec, resolution="480p" if self.fast else "720p")
         self.renderer = Renderer(self.settings)
         self.work = episode_dir / "work"
@@ -705,6 +712,36 @@ class ThinMediaRunner:
         prompt = clip["prompt"] + (f"\n【导演修正】{note}" if note else "")
         return soften_prompt(prompt) if clip.get("_softened") else prompt
 
+    def reference_voices(self, clip: dict) -> tuple[Path, ...]:
+        """The clip's reference voices, kept under the service's 30 s total.
+
+        Seedance 2.5 refuses a request whose reference audio adds up to more
+        than 30.2 s.  Speakers with more lines in this clip come first, and a
+        voice that would push the total over the budget is left out (logged),
+        so a two- or three-hander still ships with the voices that matter most.
+        """
+        spoken: dict[str, int] = {}
+        for line in clip.get("lines", []):
+            spoken[line.get("speaker_name", "")] = spoken.get(line.get("speaker_name", ""), 0) + len(str(line.get("text", "")))
+        candidates = [ref for ref in clip.get("references", []) if ref.get("role") == "voice" and (self.novel_dir / ref["path"]).is_file()]
+        candidates.sort(key=lambda ref: -spoken.get(ref.get("name", ""), 0))
+        chosen, total, dropped = [], 0.0, []
+        for ref in candidates:
+            path = self.novel_dir / ref["path"]
+            try:
+                with wave.open(str(path), "rb") as handle:
+                    seconds = handle.getnframes() / float(handle.getframerate() or 16000)
+            except (wave.Error, OSError):
+                seconds = VOICE_BUDGET_SECONDS  # unreadable header: assume it fills the budget
+            if total + seconds > VOICE_BUDGET_SECONDS:
+                dropped.append(f"{ref.get('name')}({seconds:.0f}s)")
+                continue
+            chosen.append(path)
+            total += seconds
+        if chosen or dropped:
+            log(f"{clip['clip_id']}: reference voices {[p.stem for p in chosen]} ({total:.0f}s)" + (f", over budget: {dropped}" if dropped else ""))
+        return tuple(chosen)
+
     def generate_clip(self, clip: dict, attempt: int) -> Path:
         directory = self.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
         directory.mkdir(parents=True, exist_ok=True)
@@ -765,9 +802,7 @@ class ThinMediaRunner:
         try:
           for wait in (*SUBMIT_BACKOFF_SECONDS, None):
             try:
-                voices = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []) if ref.get("role") == "voice" and (self.novel_dir / ref["path"]).is_file())
-                if voices:
-                    log(f"{clip['clip_id']}: reference voices {[ref['name'] for ref in clip['references'] if ref.get('role') == 'voice']}")
+                voices = self.reference_voices(clip)
                 self.provider.create_video(prompt, None, output, duration=float(clip["request_seconds"]), additional_images=references, reference_audios=voices)
                 break
             except RuntimeError as error:
@@ -1168,6 +1203,33 @@ class ThinMediaRunner:
         run(["ffmpeg", "-y", "-v", "error", "-ss", f"{second:.3f}", "-i", str(video), "-frames:v", "1", "-q:v", "2", str(output)])
         return output
 
+    def chat_history(self, clip_id: str) -> dict[str, list[dict]]:
+        """Earlier messages per conversation: this episode's previous clips, then
+        the previous episodes, newest last.  Keyed like chat_card.channels()."""
+        history: dict[str, list[dict]] = {}
+
+        def absorb(plan: dict, stop_at: str | None) -> None:
+            for other in plan.get("clips", []):
+                if stop_at and other["clip_id"] == stop_at:
+                    break
+                for run in chat_card.channels(other.get("chat_lines") or [], str(self.chat_screen.get("self_name", ""))):
+                    history.setdefault(run["key"], []).extend(run["messages"])
+
+        try:
+            index = int(self.episode_dir.name.rsplit("_", 1)[1])
+        except (ValueError, IndexError):
+            index = None
+        if index is not None:
+            for previous in range(max(1, index - CHAT_HISTORY_EPISODES), index):
+                plan_path = self.novel_dir / f"{self.novel_dir.name}_{previous}" / "clip_plan.json"
+                if plan_path.is_file():
+                    try:
+                        absorb(json.loads(plan_path.read_text(encoding="utf-8")), None)
+                    except (OSError, ValueError):
+                        pass
+        absorb(self.clip_plan, clip_id)
+        return history
+
     def chat_segments(self, clip_id: str, clip_video: Path) -> list[dict]:
         """Phone-screen cards for this clip, drawn here instead of by the video model.
 
@@ -1181,6 +1243,7 @@ class ThinMediaRunner:
         runs = chat_card.channels(clip.get("chat_lines") or [], str(self.chat_screen.get("self_name", "")))
         if not runs:
             return []
+        history = self.chat_history(clip_id)
         out_dir = self.work / "chat"
         out_dir.mkdir(parents=True, exist_ok=True)
         background = None
@@ -1193,10 +1256,15 @@ class ThinMediaRunner:
         for run in runs:
             names = [str(m.get("speaker_name", "")) for m in run["messages"]] + [str(self.chat_screen.get("self_name", "")), run["target"]]
             avatars = chat_card.load_avatars(self.novel_dir, [name for name in names if name])
+            # A card that opens on an empty screen looks wrong; seed it with the
+            # last messages of the same conversation so the new ones land below them.
+            context = history.get(run["key"], [])[-CHAT_CONTEXT_MESSAGES:]
+            messages = context + run["messages"]
             for window in chat_card.windows(len(run["messages"])):
                 card += 1
+                window = (window[0] + len(context), window[1] + len(context))
                 path, seconds = chat_card.build_segment(
-                    run["messages"], out_dir / f"{clip_id}_chat_{card:02d}.mp4",
+                    messages, out_dir / f"{clip_id}_chat_{card:02d}.mp4",
                     title=run["target"] or str(self.chat_screen.get("group_name", "群聊")),
                     self_name=str(self.chat_screen.get("self_name", "")), group=not run["target"], avatars=avatars,
                     width=self.settings.width, height=self.settings.height, fps=self.settings.fps, background=background,

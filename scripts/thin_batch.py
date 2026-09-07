@@ -453,6 +453,18 @@ class Batch:
         row = self.rows[chapter]
         plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
         wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}}
+        # Named characters who keep coming back - in the group chat or off
+        # screen - without ever being on camera are never referenced by a clip,
+        # so they never got a card; the chat avatar and any later appearance
+        # need one.  Second appearance is the threshold.
+        try:
+            from recurring_cards_thin import recurring_without_cards
+            recurring = {asset_id for _, asset_id, _ in recurring_without_cards(self.novel_dir)}
+            if recurring:
+                log(f"ch{chapter}: cards for recurring off-screen characters {sorted(recurring)}")
+                wanted |= recurring
+        except Exception as error:  # noqa: BLE001 - a card is a nicety, not a blocker
+            log(f"ch{chapter}: recurring-card check failed: {type(error).__name__}")
         self.cards.want(wanted)
         rows = self.cards.wait(wanted)  # only this episode's assets, built in parallel by the factory
         row["card_flags"] = [flag for r in rows for flag in r.get("flags", [])]
