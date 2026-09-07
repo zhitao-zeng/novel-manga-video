@@ -556,6 +556,13 @@ class Batch:
 
     # ---- streaming: plan one chapter, hand it to the render pool, continue ----
     def stream(self, chapters: list[int]) -> None:
+        if self.args.stage == "render":
+            # Fresh chapters first: an episode that failed before, retried at the
+            # head of every round, would hold the slots while new ones wait.
+            def tried_and_failed(chapter: int) -> int:
+                report = self.episode_dir(chapter) / "thin_media_report.json"
+                return 1 if report.is_file() and self.render_status(chapter) not in {"done", "done_with_warnings"} else 0
+            chapters = sorted(chapters, key=lambda ch: (tried_and_failed(ch), ch))
         if not self.args.dry_run and any(self.plan_status(ch) != "planned" or self.args.replan for ch in chapters):
             self.check_qwen()
         futures = []
