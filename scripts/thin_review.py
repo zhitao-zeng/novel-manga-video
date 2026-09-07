@@ -273,6 +273,21 @@ def load_aliases(novel_dir: Path) -> dict:
 
 
 def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
+    """Grow the bible under a novel-wide lock.
+
+    Several planners run at once (one per block of chapters); growth is a
+    read-modify-write of story_bible.json, bible_aliases.json and
+    bible_growth.json, and two of them interleaving would drop one set of new
+    characters - which then come back later as duplicates.  The lock is held
+    across the model call too; growth is rare (every fifth chapter per block)
+    so serialising it costs nothing noticeable.
+    """
+    with open(novel_dir / "story_bible.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _grow_bible_unlocked(novel_dir, chapter_text, chapter_index)
+
+
+def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
     """Before a chapter is planned: append the chapter's new proper-named
     characters and new locations to the bible (ids are positions, so only
     appending is allowed).  Appellations become suggestions for the volume
