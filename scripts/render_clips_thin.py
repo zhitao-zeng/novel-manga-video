@@ -216,7 +216,7 @@ class ModerationRejected(RuntimeError):
 def moderation_error(error: Exception) -> bool:
     text = str(error).lower()
     return any(marker in text for marker in MODERATION_MARKERS)
-REDRAW_WAIT_SECONDS = 420
+REDRAW_WAIT_SECONDS = 180  # a stylised redraw normally lands in 60-100 s; past this the photoreal backup is used
 REPAIR_LOCK = threading.Lock()  # one card redraw at a time; parallel repairs of the same card raced
 PRIVACY_OK_FILE = "series_assets/.privacy_ok.json"  # cards used by clips that generated fine, shared across runs
 CARD_STYLE_SUFFIX_3D = (
