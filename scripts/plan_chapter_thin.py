@@ -1108,7 +1108,8 @@ def main() -> int:
     parser.add_argument("--model", default=os.getenv("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project"))
     # A healthy clip plan is 4.5-6.5K tokens.  Constrained decoding can derail
     # into endless whitespace; a tight cap turns that into a fast, cheap redo.
-    parser.add_argument("--max-tokens", type=int, default=9000)
+    parser.add_argument("--max-tokens", type=int, default=int(os.environ.get("NOVEL_PLAN_MAX_TOKENS") or (12000 if SHORT_CLIPS else 9000)),
+                        help="completion budget; the 15 s mode writes 6-8 clips and needs more room (chapter 381 was cut off three times at 9000)")
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--max-redo", type=int, default=1)
     parser.add_argument("--min-seconds", type=float, default=0.0, help="reject a plan shorter than this (drives the redo)")
@@ -1306,6 +1307,11 @@ def main() -> int:
             final_errors = [f"response is not one JSON object: {type(error).__name__}: {error}"]
             attempts.append({"attempt": attempt, **meta, "errors": final_errors})
             repair = {"validation_errors": final_errors}
+            if meta.get("finish_reason") == "length":
+                # The draft was cut off, not malformed: without saying so the
+                # next attempt is just as long and fails the same way.
+                repair["instruction"] = ("上一稿超过输出长度上限被截断。本次压缩篇幅：每个字段只写必要内容，camera 和 light 在机位或光源不变时写"
+                                         "\"同上\"，avoid 每段不超过 3 项，台词句子不加长；不得减少区段覆盖。")
             continue
         errors, warnings, shots = validate_and_normalize(raw, segments, bible, location_map, episode.source_text)
         fingerprint = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
