@@ -55,6 +55,27 @@ ASSET_RETRY_SECONDS = 90
 CHAT_CONTEXT_MESSAGES = 2   # earlier messages shown above the new ones on a chat card
 CHAT_HISTORY_EPISODES = 3   # how far back to look for them
 VOICE_BUDGET_SECONDS = 29.0  # Seedance 2.5 caps reference audio at 30.2 s per request
+VOICE_BUDGET_SHORT_SECONDS = 15.0  # Seedance 2.0 (the 15 s lane) caps it at 15.2 s
+
+
+def voice_budget_seconds() -> float:
+    """The reference-audio budget of this lane, from its clip length cap."""
+    try:
+        cap = float(os.environ.get("NOVEL_CLIP_SECONDS_MAX", "30") or 30)
+    except ValueError:
+        cap = 30.0
+    return VOICE_BUDGET_SHORT_SECONDS if cap <= 15 else VOICE_BUDGET_SECONDS
+
+
+def trimmed_voice(path: Path, seconds: float) -> Path:
+    """A copy of the voice sample cut to `seconds`, cached next to the bank."""
+    out = path.parent / ".trim" / f"{path.stem}.{seconds:g}s.wav"
+    if not out.is_file() or out.stat().st_mtime < path.stat().st_mtime:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        partial = out.with_suffix(".partial.wav")
+        run(["ffmpeg", "-y", "-v", "error", "-i", str(path), "-t", f"{seconds:.2f}", "-c:a", "pcm_s16le", str(partial)])
+        os.replace(partial, out)
+    return out
 MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
 
 # ---- subtitle helpers (v16) ----
@@ -748,6 +769,10 @@ class ThinMediaRunner:
             spoken[line.get("speaker_name", "")] = spoken.get(line.get("speaker_name", ""), 0) + len(str(line.get("text", "")))
         candidates = [ref for ref in clip.get("references", []) if ref.get("role") == "voice" and (self.novel_dir / ref["path"]).is_file()]
         candidates.sort(key=lambda ref: -spoken.get(ref.get("name", ""), 0))
+        budget = voice_budget_seconds()
+        # A tight budget (the 15 s lane) is shared by the two main speakers as
+        # trimmed samples rather than spent on one of them.
+        share = budget if budget >= VOICE_BUDGET_SECONDS or len(candidates) < 2 else round(budget / 2, 1)
         chosen, total, dropped = [], 0.0, []
         for ref in candidates:
             path = self.novel_dir / ref["path"]
@@ -755,8 +780,14 @@ class ThinMediaRunner:
                 with wave.open(str(path), "rb") as handle:
                     seconds = handle.getnframes() / float(handle.getframerate() or 16000)
             except (wave.Error, OSError):
-                seconds = VOICE_BUDGET_SECONDS  # unreadable header: assume it fills the budget
-            if total + seconds > VOICE_BUDGET_SECONDS:
+                seconds = budget  # unreadable header: assume it fills the budget
+            if seconds > share + 0.05:
+                try:
+                    path = trimmed_voice(path, share)
+                    seconds = share
+                except Exception as error:  # noqa: BLE001 - fall back to the budget check on the full sample
+                    log(f"{clip['clip_id']}: could not trim {path.name}: {type(error).__name__}")
+            if total + seconds > budget:
                 dropped.append(f"{ref.get('name')}({seconds:.0f}s)")
                 continue
             chosen.append(path)
