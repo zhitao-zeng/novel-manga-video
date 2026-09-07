@@ -49,7 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chat_card
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v21-voices"
+POLICY = "thin-media-v22-coverage-gate"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 CHAT_CONTEXT_MESSAGES = 2   # earlier messages shown above the new ones on a chat card
@@ -66,6 +66,24 @@ MIN_ASR_SECONDS = 0.8   # shorter than this is a murmur, not a line
 MIN_ASR_CHARS = 6       # ...and so is a block the recogniser barely heard
 SECONDS_PER_CHAR_CAP = 0.45   # a caption never stays longer than 0.8 s + this per character
 SECONDS_PER_CHAR_FLOOR = 0.2  # ...and never shorter than this per character (bounded by the next caption)
+
+
+def subsequence_overlap(reference: str, hypothesis: str) -> int:
+    """Length of the longest common subsequence: script characters heard in order.
+
+    Insertions in the hypothesis cost nothing, so an ad-lib or a read-out stage
+    direction does not count against the clip; only script text that never
+    appears does.
+    """
+    if not reference or not hypothesis:
+        return 0
+    previous = [0] * (len(hypothesis) + 1)
+    for r in reference:
+        current = [0]
+        for j, h in enumerate(hypothesis, start=1):
+            current.append(previous[j - 1] + 1 if r == h else max(previous[j], current[j - 1]))
+        previous = current
+    return previous[-1]
 
 
 def spoken_integer(digits: str) -> str:
@@ -159,7 +177,8 @@ def classify_unmatched(heard: str, seconds: float) -> str:
 
 
 MAX_HOLD_SECONDS = 6.0
-MAX_CER = 0.5
+MAX_CER = 0.5          # kept in the report; no longer gates
+MAX_MISSING = 0.5      # more than half of the script characters never spoken -> retry once
 MIN_PEAK_DB = -35.0
 PRIVACY_MARKER = "InputImageSensitiveContentDetected"
 REDRAW_ORIGIN = "privacy-stylized-redraw"
@@ -860,18 +879,23 @@ class ThinMediaRunner:
                 corrected, corrections = correct_protected_lexicon(row["hypothesis"], reference, self.protected_terms, self.aliases)
                 rows.append({**row, "raw_hypothesis": row["hypothesis"], "hypothesis": corrected, "corrections": corrections})
         hypothesis = "".join(row["hypothesis"] for row in rows)
-        reference_key = normalize_text(reference)
-        hypothesis_key = normalize_text(hypothesis)
+        reference_key = match_key(reference)    # numbers in spoken form: 50万 and 五十万 agree
+        hypothesis_key = match_key(hypothesis)
         cer = round(edit_distance(reference_key, hypothesis_key) / max(1, len(reference_key)), 4) if reference_key else 0.0
+        # CER punishes what the model ADDED (an ad-lib, a chuckle, a stage direction
+        # it read out) as much as what it dropped, and 12 of 14 gate failures in the
+        # first 46 episodes were of that kind - the lines were spoken.  The gate
+        # judges the share of the script that was never heard, in order.
+        missing = round(1.0 - subsequence_overlap(reference_key, hypothesis_key) / max(1, len(reference_key)), 4) if reference_key else 0.0
         issues = []
         if reference_key:
             if not hypothesis_key or peak_db is None or peak_db < MIN_PEAK_DB:
                 issues.append("voice_energy_missing")
-            if cer > MAX_CER:
-                issues.append(f"cer_{cer}_over_{MAX_CER}")
+            if missing > MAX_MISSING:
+                issues.append(f"missing_{missing}_over_{MAX_MISSING}")
         result = {
             "clip_id": clip["clip_id"], "video": str(video), "duration": round(media_duration(video), 3),
-            "reference": reference, "hypothesis": hypothesis, "cer": cer, "mean_volume_db": mean_db, "max_volume_db": peak_db,
+            "reference": reference, "hypothesis": hypothesis, "cer": cer, "missing": missing, "mean_volume_db": mean_db, "max_volume_db": peak_db,
             "chunks": rows, "issues": issues, "passed": not issues,
         }
         atomic_write_json(asr_path, result)

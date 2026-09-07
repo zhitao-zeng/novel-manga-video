@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v11-scale"
+POLICY = "thin-chapter-plan-v12-patch"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -376,6 +376,59 @@ def record_cast(novel_dir: Path, chapter: int, characters: list[str], locations:
                 chapters.add(chapter)
                 index[key][str(name)] = sorted(chapters)
         atomic_write_json(path, index)
+
+
+UNCITED_ERROR = re.compile(r"^(seg_\d+) is neither cited by any shot")
+
+
+def patch_uncited_segments(raw: dict, missing_ids: list[str], segments: list[dict], names: list[str], locations: list[str]) -> dict | None:
+    """Add one stage per forgotten segment to an otherwise valid plan.
+
+    The model sees the current clip list (clip ids, locations, the segments each
+    stage already covers) and the forgotten segments' text, and returns only the
+    new stages with where to put them.  Returned plan is a deep copy with the
+    stages inserted; the caller validates it like any draft.
+    """
+    from thin_review import ask_json
+    stage_schema = build_schema(names, locations, missing_ids)["properties"]["clips"]["items"]["properties"]["stages"]["items"]
+    clip_ids = [str(c.get("clip_id")) for c in raw.get("clips", []) if isinstance(c, dict)]
+    if not clip_ids:
+        return None
+    outline = []
+    for clip in raw.get("clips", []):
+        stages = clip.get("stages") or []
+        outline.append({
+            "clip_id": clip.get("clip_id"), "location": clip.get("location"), "characters": clip.get("characters"),
+            "stages": [{"n": i, "segment_id": s.get("segment_id"), "event": str(s.get("event", ""))[:60]} for i, s in enumerate(stages, start=1)],
+        })
+    texts = {s["segment_id"]: s["text"] for s in segments if s["segment_id"] in missing_ids}
+    schema = {
+        "type": "object", "additionalProperties": False, "required": ["insertions"],
+        "properties": {"insertions": {"type": "array", "minItems": len(missing_ids), "maxItems": len(missing_ids), "items": {
+            "type": "object", "additionalProperties": False, "required": ["clip_id", "after_stage", "stage"],
+            "properties": {
+                "clip_id": {"type": "string", "enum": clip_ids},
+                "after_stage": {"type": "integer", "minimum": 0},
+                "stage": stage_schema,
+            }}}},
+    }
+    prompt = (
+        "下面是一集短剧的分镜大纲，以及原文里被遗漏、还没有任何阶段引用的区段。为每个遗漏区段补写恰好一个阶段，插进最合适的 clip 里"
+        "（after_stage 是插在该 clip 第几个阶段之后，0 表示放在最前）。新阶段的 segment_id 必须是该遗漏区段，source_quote 从该区段原文逐字复制 8 到 120 字，"
+        "台词从原文取，只用给出的人物和地点名，格式和已有阶段一致。不要改动已有阶段。\n\n"
+        f"分镜大纲：{json.dumps(outline, ensure_ascii=False)}\n\n"
+        f"可用人物：{names}\n\n"
+        + "\n\n".join(f"遗漏区段 {sid} 原文：\n{texts.get(sid, '')[:1800]}" for sid in missing_ids)
+    )
+    verdict = ask_json([{"type": "text", "text": prompt}], schema, name="segment_patch", max_tokens=1800)
+    patched = json.loads(json.dumps(raw, ensure_ascii=False))
+    by_id = {str(c.get("clip_id")): c for c in patched.get("clips", [])}
+    for item in verdict.get("insertions", []):
+        clip = by_id.get(str(item.get("clip_id"))) or patched["clips"][-1]
+        stages = clip.setdefault("stages", [])
+        position = max(0, min(int(item.get("after_stage", len(stages))), len(stages)))
+        stages.insert(position, item["stage"])
+    return patched
 
 
 def compact_bible(bible: StoryBible, location_map: dict[str, str]) -> dict:
@@ -1076,6 +1129,21 @@ def main() -> int:
     recap_path = novel_dir / "recap.json"
     recap = json.loads(recap_path.read_text(encoding="utf-8")) if recap_path.is_file() else []
     previous_recap = [row for row in recap if int(row.get("chapter", 0)) < episode.index][-5:]
+    # Recap text carries the story; the closing picture of the previous episode
+    # carries the *scene* - where everyone stood and what they were doing when
+    # the last clip ended - so this episode can open by picking it up rather than
+    # re-establishing everything.
+    previous_ending = None
+    previous_script = novel_dir / f"{args.novel_id}_{episode.index - 1}" / "chapter_script.json"
+    if previous_script.is_file():
+        try:
+            last_shot = (json.loads(previous_script.read_text(encoding="utf-8")).get("shots") or [])[-1]
+            previous_ending = {"location": last_shot.get("location"), "characters": last_shot.get("characters"), "end_state": last_shot.get("end_state")}
+        except (OSError, ValueError, IndexError, AttributeError):
+            previous_ending = None
+    for row in previous_recap:  # the planner needs the gist, not the whole paragraph
+        if len(str(row.get("summary", ""))) > 180:
+            row["summary"] = str(row["summary"])[:180] + "…"
     # Chapter recaps only reach five chapters back; the volume summaries carry
     # the arc so a thousand-chapter story does not drift.
     volumes_path = novel_dir / "volumes.json"
@@ -1097,6 +1165,7 @@ def main() -> int:
         "era_setting": {"genre": genre["name"], "allowed": genre.get("era_allowed", ""), "not_allowed": genre.get("era_rejects", ""), "crowd": genre.get("crowd_default", "")},
         **({"previous_volumes_recap": previous_volumes} if previous_volumes else {}),
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
+        **({"previous_episode_ending": previous_ending, "previous_episode_ending_usage": "这是上一集最后一个画面的状态（地点、在场的人、结束时的动作）。本集开场如果是同一场景可以直接接上，不必重新交代；换了场景就忽略。"} if previous_ending else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
@@ -1126,6 +1195,7 @@ def main() -> int:
     repair: dict | None = None
     final_errors: list[str] = []
     result = None
+    patched_segments = False
     for attempt in range(1, args.max_redo + 2):
         request_payload = {**payload, **({"repair": repair} if repair else {})}
         atomic_write_json(episode_dir / f"request_attempt_{attempt:02d}.json", request_payload)
@@ -1159,6 +1229,27 @@ def main() -> int:
             errors = []
             attempts[-1]["errors"] = []
             attempts[-1]["floor_waived"] = True
+        uncited_only = bool(errors) and all(UNCITED_ERROR.match(e) for e in errors)
+        if errors and uncited_only and not patched_segments:
+            # Nine of thirteen redo triggers in the trial were "seg_N is neither
+            # cited nor skipped": the plan is fine except for one forgotten
+            # segment.  Ask for just the missing stage(s) and merge them in - a
+            # small call instead of a 150-650 s re-plan.
+            patched_segments = True
+            missing_ids = [UNCITED_ERROR.match(e).group(1) for e in errors]
+            try:
+                patched = patch_uncited_segments(raw, missing_ids, segments, names, list(location_map))
+            except Exception as error:  # noqa: BLE001 - fall through to the normal redo
+                patched = None
+                print(json.dumps({"attempt": attempt, "segment_patch": f"failed: {type(error).__name__}: {str(error)[:120]}"}, ensure_ascii=False))
+            if patched is not None:
+                errors, warnings, shots = validate_and_normalize(patched, segments, bible, location_map, episode.source_text)
+                attempts[-1]["segment_patch"] = {"segments": missing_ids, "errors_after": len(errors)}
+                print(json.dumps({"attempt": attempt, "segment_patch": missing_ids, "error_count": len(errors)}, ensure_ascii=False))
+                if not errors:
+                    raw = patched
+                    result = (raw, shots, warnings)
+                    break
         if errors:
             final_errors = errors
             repair = {
