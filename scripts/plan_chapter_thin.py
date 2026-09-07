@@ -921,8 +921,12 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             skipped.pop(segment_id)
     if len(skipped) > MAX_SKIPPED:
         errors.append(f"不允许跳过区段，skipped_segments 必须为空，但收到 {sorted(skipped)}：把这些区段各写进至少一个阶段（可以拉长集数）")
-    chat_source_lines = len(re.findall(r"^[^\n：:]{2,8}[：:]", chapter_text, re.M))
-    if chat_source_lines >= 5 and not any(turn["delivery_mode"] == "chat_message" for shot in normalized for turn in shot["turns"]):
+    chat_speakers = re.findall(r"^([^\n：:]{2,8})[：:]", chapter_text, re.M)
+    chat_source_lines = len(chat_speakers)
+    # A chat has somebody speaking more than once; a stat block (法宝名称：…
+    # 法宝属性：… 法宝等级：…) has the same line shape but every label once.
+    looks_like_chat = chat_source_lines >= 5 and max((chat_speakers.count(s) for s in set(chat_speakers)), default=0) >= 2
+    if looks_like_chat and not any(turn["delivery_mode"] == "chat_message" for shot in normalized for turn in shot["turns"]):
         errors.append(
             f"本章原文有 {chat_source_lines} 行聊天消息（形如「昵称：内容」），但没有任何 chat_message："
             "群聊和私聊必须用 chat_message 呈现（一个阶段最多八条），不得改写成画外音或角色自述"
