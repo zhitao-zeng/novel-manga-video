@@ -1,24 +1,30 @@
 #!/usr/bin/env python
 """Read the whole book before scripting any of it.
 
-    story_pass_thin.py --novel-dir outputs/X [--chapters 1-3848] [--summary-workers 4] [--volume-size 50]
+    story_pass_thin.py --novel-dir outputs/X [--chapters 1-3848] [--scan-workers 6] [--summary-workers 6] [--volume-size 50]
 
 Scripting a chapter needs three things that only exist if the chapters before it
 were read in order: a bible that already holds the people who will appear (with
 the look from the chapter that introduced them), a recap of the last few
 chapters, and the arc of the volumes before.  Planning is slow (minutes per
-chapter) and can run in parallel blocks; reading is cheap (seconds) but must be
-sequential.  This is the reading pass, kept separate so the planners can then run
-as many blocks as the GPUs allow with every chapter properly warmed up:
+chapter) and can run in parallel blocks; reading is cheap (seconds) but its
+result must be committed in order.  This is the reading pass, kept separate so
+the planners can then run as many blocks as the GPUs allow with every chapter
+properly warmed up.
 
-  * bible growth for every chapter, in order (new characters, locations,
-    aliases - through thin_review.grow_bible, under the novel-wide lock)
-  * a summary + hook per chapter into recap.json (order-free, so a small pool
-    runs these ahead of the growth loop)
+Only the *commit* is sequential.  The model calls that do not depend on the
+bible run ahead in pools:
+
+  * scan: the chapter's proper names and locations (thin_review.scan_chapter),
+    several chapters at once
+  * summary + hook per chapter into recap.json, order-free
+  * commit, in chapter order under the novel-wide lock: new names checked
+    against the bible as it is *now*, descriptions written for the genuinely
+    new ones (thin_review.grow_bible with the scan handed in)
   * a volume summary every --volume-size chapters into volumes.json
 
 Resumable: a chapter whose growth is recorded in bible_growth.json and whose
-summary is in recap.json is skipped.  Safe to run alongside a block-0 planner.
+summary is in recap.json is skipped.
 """
 from __future__ import annotations
 
@@ -31,7 +37,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_review import ask_json, grow_bible, summarize_volume  # noqa: E402
+from thin_review import ask_json, grow_bible, scan_chapter, summarize_volume  # noqa: E402
 
 from novel_manga.ingest import read_novel  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
@@ -75,6 +81,11 @@ def write_recap_row(novel_dir: Path, row: dict) -> None:
         atomic_write_json(path, sorted(rows, key=lambda r: int(r.get("chapter", 0))))
 
 
+def known_locations(novel_dir: Path) -> list[str]:
+    bible = json.loads((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
+    return [str(full).split("：", 1)[0].strip() for full in bible.get("locations", [])]
+
+
 def summarize_chapter(index: int, title: str, text: str) -> dict:
     """One short model call: what happened, and the cliff it leaves."""
     verdict = ask_json([{"type": "text", "text": (
@@ -90,7 +101,8 @@ def main() -> int:
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--source", type=Path, help="defaults to the path in novel.json")
     parser.add_argument("--chapters", default="1-100000")
-    parser.add_argument("--summary-workers", type=int, default=4, help="chapter summaries run ahead of the growth loop")
+    parser.add_argument("--scan-workers", type=int, default=6, help="chapters scanned (names, locations) at once, ahead of the ordered commit")
+    parser.add_argument("--summary-workers", type=int, default=6, help="chapter summaries run freely ahead; they are order-free")
     parser.add_argument("--volume-size", type=int, default=50)
     parser.add_argument("--min-chapter-chars", type=int, default=300)
     parser.add_argument("--no-grow", dest="grow", action="store_false", default=True)
@@ -101,56 +113,61 @@ def main() -> int:
     source = (args.source or Path(meta["source"])).resolve()
     novel = read_novel(source, novel_id=novel_dir.name)
     total = len(novel.episodes)
-    chapters = parse_chapters(args.chapters, total)
+    chapters = [c for c in parse_chapters(args.chapters, total) if len(novel.episodes[c - 1].source_text) >= args.min_chapter_chars]
     growth_path = novel_dir / "bible_growth.json"
     grown = set(json.loads(growth_path.read_text(encoding="utf-8")).keys()) if growth_path.is_file() else set()
     have_summary = recap_rows(novel_dir)
-    log(f"{novel_dir.name}: {len(chapters)} chapters ({chapters[0]}-{chapters[-1]}), {len(grown)} already grown, {len(have_summary)} already summarised")
+    to_grow = [c for c in chapters if args.grow and str(c) not in grown]
+    to_summarise = [c for c in chapters if c not in have_summary]
+    log(f"{novel_dir.name}: {len(chapters)} chapters ({chapters[0]}-{chapters[-1]}); to grow {len(to_grow)}, to summarise {len(to_summarise)}")
 
     started = time.monotonic()
-    pending: dict[int, Future] = {}
-    done_summaries = 0
-    with ThreadPoolExecutor(max_workers=max(1, args.summary_workers)) as pool:
-        def summarise_ahead(upto: int) -> None:
-            """Keep summaries queued a little ahead of the growth loop."""
-            for index in chapters:
-                if index > upto:
-                    break
-                if index in have_summary or index in pending:
-                    continue
-                episode = novel.episodes[index - 1]
-                if len(episode.source_text) < args.min_chapter_chars:
-                    continue
-                pending[index] = pool.submit(summarize_chapter, index, episode.source_title, episode.source_text)
+    summaries_done = 0
+    with ThreadPoolExecutor(max_workers=max(1, args.summary_workers)) as summary_pool, \
+            ThreadPoolExecutor(max_workers=max(1, args.scan_workers)) as scan_pool:
+        # summaries: submit everything, they are independent of each other
+        summary_futures: dict[int, Future] = {
+            c: summary_pool.submit(summarize_chapter, c, novel.episodes[c - 1].source_title, novel.episodes[c - 1].source_text)
+            for c in to_summarise
+        }
 
-        def collect(block: bool = False) -> None:
-            nonlocal done_summaries
-            for index, future in list(pending.items()):
-                if block or future.done():
+        def drain_summaries(block_upto: int | None = None) -> None:
+            nonlocal summaries_done
+            for index, future in list(summary_futures.items()):
+                if future.done() or (block_upto is not None and index <= block_upto):
                     try:
                         write_recap_row(novel_dir, future.result())
-                        done_summaries += 1
+                        summaries_done += 1
                     except Exception as error:  # noqa: BLE001 - one chapter's summary must not stop the pass
                         log(f"ch{index}: summary failed: {type(error).__name__}: {str(error)[:120]}")
-                    pending.pop(index, None)
+                    summary_futures.pop(index, None)
 
-        for position, index in enumerate(chapters):
-            episode = novel.episodes[index - 1]
-            if len(episode.source_text) < args.min_chapter_chars:
-                continue
-            summarise_ahead(index + 2 * args.summary_workers)
-            if args.grow and str(index) not in grown:
-                try:
-                    result = grow_bible(novel_dir, episode.source_text, index)
-                    added = (result.get("characters") or []) + (result.get("locations") or [])
-                    if added:
-                        log(f"ch{index}: bible +{len(added)} {added[:6]}")
-                except Exception as error:  # noqa: BLE001
-                    log(f"ch{index}: growth failed: {type(error).__name__}: {str(error)[:120]}")
-                grown.add(str(index))
-            collect()
+        # scans: keep a window of chapters in flight ahead of the ordered commit
+        scans: dict[int, Future] = {}
+        window = max(1, args.scan_workers) * 2
+
+        def scan_ahead(position: int) -> None:
+            for index in to_grow[position:position + window]:
+                if index not in scans:
+                    scans[index] = scan_pool.submit(scan_chapter, novel.episodes[index - 1].source_text, known_locations(novel_dir))
+
+        for position, index in enumerate(to_grow):
+            scan_ahead(position)
+            try:
+                scan = scans.pop(index).result()
+            except Exception as error:  # noqa: BLE001 - fall back to the in-lock scan
+                log(f"ch{index}: scan failed ({type(error).__name__}), growing without it")
+                scan = None
+            try:
+                result = grow_bible(novel_dir, novel.episodes[index - 1].source_text, index, scan=scan)
+                added = (result.get("characters") or []) + [str(x).split("：", 1)[0] for x in (result.get("locations") or [])]
+                if added:
+                    log(f"ch{index}: bible +{len(added)} {added[:6]}")
+            except Exception as error:  # noqa: BLE001
+                log(f"ch{index}: growth failed: {type(error).__name__}: {str(error)[:120]}")
+            drain_summaries()
             if index % args.volume_size == 0:
-                collect(block=True)
+                drain_summaries(block_upto=index)
                 first = index - args.volume_size + 1
                 try:
                     arc = summarize_volume(novel_dir, first, index)
@@ -159,9 +176,21 @@ def main() -> int:
                     log(f"volume {first}-{index} failed: {type(error).__name__}: {str(error)[:120]}")
             if position % 20 == 19:
                 elapsed = time.monotonic() - started
-                rate = (position + 1) / elapsed * 3600
-                log(f"progress {position + 1}/{len(chapters)} (ch{index}), {rate:.0f} chapters/h, {done_summaries} summaries written")
-        collect(block=True)
+                log(f"progress {position + 1}/{len(to_grow)} (ch{index}), {(position + 1) / elapsed * 3600:.0f} chapters/h, {summaries_done} summaries written")
+        drain_summaries(block_upto=10 ** 9)
+        # volumes whose chapters were all summarised earlier (resumed run) but never condensed
+        volumes_path = novel_dir / "volumes.json"
+        have_volumes = {int(v.get("to", 0)) for v in (json.loads(volumes_path.read_text(encoding="utf-8")) if volumes_path.is_file() else [])}
+        summarised = recap_rows(novel_dir)
+        for end in range(args.volume_size, (chapters[-1] // args.volume_size) * args.volume_size + 1, args.volume_size):
+            first = end - args.volume_size + 1
+            if end in have_volumes or not all(c in summarised for c in range(first, end + 1) if c in chapters):
+                continue
+            try:
+                summarize_volume(novel_dir, first, end)
+                log(f"volume {first}-{end} written")
+            except Exception as error:  # noqa: BLE001
+                log(f"volume {first}-{end} failed: {type(error).__name__}: {str(error)[:120]}")
     log(f"story pass done: {len(chapters)} chapters in {(time.monotonic() - started) / 60:.0f} min")
     return 0
 

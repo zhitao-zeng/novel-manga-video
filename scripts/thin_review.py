@@ -24,6 +24,7 @@ import argparse
 import base64
 import io
 import fcntl
+import itertools
 import json
 import os
 import re
@@ -68,6 +69,11 @@ def image_part(path: Path, max_side: int) -> dict:
     return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")}}
 
 
+# Prefix caching is off on the instances, so nothing is gained by pinning a
+# kind of call to one of them; a counter spreads the load evenly instead.
+_CALL_COUNTER = itertools.count()
+
+
 def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0) -> dict:
     """One strict-JSON question to the local VLM; ``parts`` is OpenAI multimodal content."""
     headers = {}
@@ -82,7 +88,7 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
     response = None
     last: Exception | None = None
     with httpx.Client(timeout=timeout, trust_env=False) as client:
-        for base_url in endpoint_order(name + str(len(parts))):  # spread judges over the Qwen instances
+        for base_url in endpoint_order(f"{name}-{next(_CALL_COUNTER)}"):  # round-robin over the Qwen instances
             try:
                 response = client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
@@ -272,7 +278,14 @@ def load_aliases(novel_dir: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
-def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
+def scan_chapter(chapter_text: str, known_locations: list[str]) -> dict:
+    """The model calls of bible growth that do not depend on the bible's state:
+    the chapter's proper names and its locations.  Safe to run for several
+    chapters at once; grow_bible() then commits them in order under the lock."""
+    return {"names": extract_names(chapter_text), "locations": extract_locations(chapter_text, known_locations)}
+
+
+def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int, scan: dict | None = None) -> dict:
     """Grow the bible under a novel-wide lock.
 
     Several planners run at once (one per block of chapters); growth is a
@@ -284,10 +297,10 @@ def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
     """
     with open(novel_dir / "story_bible.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        return _grow_bible_unlocked(novel_dir, chapter_text, chapter_index)
+        return _grow_bible_unlocked(novel_dir, chapter_text, chapter_index, scan)
 
 
-def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int) -> dict:
+def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int, scan: dict | None = None) -> dict:
     """Before a chapter is planned: append the chapter's new proper-named
     characters and new locations to the bible (ids are positions, so only
     appending is allowed).  Appellations become suggestions for the volume
@@ -303,7 +316,8 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int)
     growth = json.loads(growth_path.read_text(encoding="utf-8")) if growth_path.is_file() else {}
     held = {name for entry in growth.values() for name in [*entry.get("suggestions", {}), *entry.get("needs_human", {})]}
     counts: dict[str, dict] = {}
-    for row in extract_names(chapter_text):
+    name_rows = scan["names"] if scan else extract_names(chapter_text)
+    for row in name_rows:
         name = re.sub(r"\s+", "", str(row.get("name", "")))
         if row.get("kind") == "群体" or not name or name in GENERIC_NAMES or name_matches(name, known) or name in aliases or name in held:
             continue
@@ -324,7 +338,8 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int)
             atomic_write_json(novel_dir / "bible_aliases.json", aliases)
     known_locations = [full.split("：", 1)[0].strip() for full in bible.locations]
     added_locations: list[str] = []
-    for row in extract_locations(chapter_text, known_locations):
+    location_rows = scan["locations"] if scan else extract_locations(chapter_text, known_locations)
+    for row in location_rows:
         name = re.sub(r"\s+", "", str(row.get("name", "")))
         if len(name) < 2 or GENERIC_PLACES.match(name) or int(row.get("scene_count", 0)) < 1 or name_matches(name, known_locations):
             continue
