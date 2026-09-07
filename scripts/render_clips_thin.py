@@ -21,6 +21,7 @@ import math
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -610,7 +611,14 @@ def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> li
             continue  # deliberately deleted by the card review; the factory will rebuild it
         while not path.is_file() and backup.exists():
             if time.monotonic() > deadline:
-                raise RuntimeError(f"redraw of {path} did not finish within {timeout:.0f}s")
+                # The redraw is late or keeps failing (an nsfw refusal, say).
+                # A photoreal card beats no card and a failed episode: put the
+                # backup in place and mark the fix as tried so nobody retries it;
+                # a redraw that still lands later simply replaces the file.
+                shutil.copy2(backup, path)
+                (path.parent / f".regenerated.{path.stem}.txt").touch()
+                log(f"redraw of {path.parent.name}/{path.name} did not finish within {timeout:.0f}s; using the photoreal backup")
+                break
             if path not in waited:
                 waited.append(path)
                 log(f"waiting for in-flight redraw of {path.parent.name}/{path.name}")
