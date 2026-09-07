@@ -734,6 +734,12 @@ def main() -> int:
     if args.stage == "assets":
         batch.assets(chapters)
     if args.stage == "render":
+        # Fresh chapters first: an episode that failed before, retried at the
+        # head of every round, would hold the slots while new ones wait.
+        def tried_and_failed(chapter: int) -> int:
+            report = batch.episode_dir(chapter) / "thin_media_report.json"
+            return 1 if report.is_file() and batch.render_status(chapter) not in {"done", "done_with_warnings"} else 0
+        chapters = sorted(chapters, key=lambda ch: (tried_and_failed(ch), ch))
         with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
             for chapter, future in [(ch, pool.submit(batch.render, ch)) for ch in chapters]:
                 try:
