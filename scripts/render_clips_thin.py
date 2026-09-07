@@ -610,7 +610,7 @@ class ThinMediaRunner:
     # ---- assets ----
     def build_assets(self):
         character_ids = {ref["asset_id"] for clip in self.clip_plan["clips"] for ref in clip.get("references", []) if ref["role"] == "character"}
-        location_ids = {ref["asset_id"] for clip in self.clip_plan["clips"] for ref in clip.get("references", []) if ref["role"] != "character"}
+        location_ids = {ref["asset_id"] for clip in self.clip_plan["clips"] for ref in clip.get("references", []) if ref["role"] == "location"}
         wanted = character_ids | location_ids
         log(f"assets: {len(character_ids)} characters x2 images + {len(location_ids)} locations (only what this episode references)")
         factory = FramedAssetFactory(self.settings, self.provider)
@@ -710,7 +710,8 @@ class ThinMediaRunner:
         directory.mkdir(parents=True, exist_ok=True)
         output = directory / "clip.mp4"
         prompt = self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "") + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
-        references = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []))
+        # image references only; the voice references travel separately as reference_audio
+        references = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice")
         request = {
             "clip_id": clip["clip_id"], "attempt": attempt, "duration": clip["request_seconds"],
             "prompt": prompt, "references": [str(p) for p in references], "workflow": "thin-seedance-native-dialogue-v1",
@@ -843,6 +844,8 @@ class ThinMediaRunner:
         if not 0 <= index < len(references):
             return []
         ref = references[index]
+        if ref.get("role") == "voice":
+            return []  # a refused reference voice has no card to repair
         path = self.novel_dir / ref["path"]
         label = f"{ref['asset_id']}/{path.name}"
         with REPAIR_LOCK:

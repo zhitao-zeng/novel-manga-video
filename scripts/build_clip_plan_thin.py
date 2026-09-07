@@ -369,10 +369,11 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     location_asset = f"location_{location_index[location_short]:03d}"
     count += 1
     references.append({"tag": f"@图片{count}", "role": "location", "name": location_short, "asset_id": location_asset, "path": f"series_assets/locations/{location_asset}/establishing.jpeg"})
-    # One reference voice per speaking character that has one in the bank, in
-    # cast order (the order the prompt introduces them).  The model assigns the
-    # voices to the on-screen speakers by itself and ignores textual bindings,
-    # so no @音频N line goes into the prompt; the order is only a tie-break.
+    # One reference voice per speaking character that has one in the bank.  The
+    # model listens to the references and matches them to the on-screen speakers
+    # by itself; it ignores both @音频N text bindings and the order of the audio
+    # items (docs/seedance-reference-audio.md), so nothing about voices goes
+    # into the prompt.  Cast order here is just for a stable plan file.
     for voice_index, name in enumerate((n for n in cast if n in speakers and n in VOICES), start=1):
         references.append({"tag": f"@音频{voice_index}", "role": "voice", "name": name, "path": VOICES[name]})
     description = compact(full.split("：", 1)[1] if "：" in full else full, 40)

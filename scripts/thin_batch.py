@@ -452,7 +452,7 @@ class Batch:
         directory = self.episode_dir(chapter)
         row = self.rows[chapter]
         plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
-        wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", [])}
+        wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}}
         self.cards.want(wanted)
         rows = self.cards.wait(wanted)  # only this episode's assets, built in parallel by the factory
         row["card_flags"] = [flag for r in rows for flag in r.get("flags", [])]
