@@ -47,7 +47,7 @@ from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
-POLICY = "thin-chapter-plan-v12-patch"
+POLICY = "thin-chapter-plan-v13-repair"
 SEGMENT_COUNT = 8
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
@@ -102,6 +102,18 @@ def closest_source_line(quote: str, chapter_text: str) -> str:
         if score > best_score:
             best, best_score = line, score
     return best[:120]
+
+
+def trim_quote(quote: str, limit: int = QUOTE_MAX_CHARS) -> str:
+    """The longest verbatim prefix whose key fits the limit, cut back to a sentence end when one lies past the halfway point."""
+    end = len(quote)
+    while end > 0 and len(quote_key(quote[:end])) > limit:
+        end -= 1
+    head = quote[:end]
+    boundary = max(head.rfind(mark) for mark in "。！？；…”」")
+    if boundary >= len(head) // 2:
+        head = head[:boundary + 1]
+    return head.strip()
 
 
 def chapter_quotes(text: str) -> list[str]:
@@ -379,21 +391,62 @@ def record_cast(novel_dir: Path, chapter: int, characters: list[str], locations:
 
 
 UNCITED_ERROR = re.compile(r"^(seg_\d+) is neither cited by any shot")
+STAGE_ERROR = re.compile(r"^([A-Za-z0-9_\-]{1,24} stage \d+): ")
+CLIP_LEVEL_ERROR = re.compile(r"characters not in StoryBible|unknown location")
+PATCH_ROUNDS = 3  # small repair calls per chapter before a full re-plan is the only option left
 
 
-def patch_uncited_segments(raw: dict, missing_ids: list[str], segments: list[dict], names: list[str], locations: list[str]) -> dict | None:
-    """Add one stage per forgotten segment to an otherwise valid plan.
+def patchable_errors(errors: list[str]) -> tuple[list[str], dict[str, list[str]]] | None:
+    """Split gate errors into forgotten segments and faulty stages.
 
-    The model sees the current clip list (clip ids, locations, the segments each
-    stage already covers) and the forgotten segments' text, and returns only the
-    new stages with where to put them.  Returned plan is a deep copy with the
-    stages inserted; the caller validates it like any draft.
+    Returns None when any error needs the whole plan rewritten: nothing
+    returned, the length floor, a clip-level location or cast problem.
+    """
+    missing_ids: list[str] = []
+    faulty: dict[str, list[str]] = {}
+    for error in errors:
+        uncited = UNCITED_ERROR.match(error)
+        local = STAGE_ERROR.match(error)
+        if uncited:
+            missing_ids.append(uncited.group(1))
+        elif local and not CLIP_LEVEL_ERROR.search(error):
+            faulty.setdefault(local.group(1), []).append(error[local.end():])
+        else:
+            return None
+    return (list(dict.fromkeys(missing_ids)), faulty) if missing_ids or faulty else None
+
+
+def stage_slots(raw: dict) -> dict[str, tuple[int, int]]:
+    """label -> (clip index, stage index), numbered exactly like flatten_clips."""
+    slots: dict[str, tuple[int, int]] = {}
+    for clip_number, clip in enumerate(raw.get("clips") or [], start=1):
+        if not isinstance(clip, dict):
+            continue
+        raw_id = str(clip.get("clip_id") or "").strip()
+        clip_id = raw_id if re.fullmatch(r"[A-Za-z0-9_\-]{1,24}", raw_id) else f"clip_{clip_number:02d}"
+        for stage_number, stage in enumerate(clip.get("stages") or [], start=1):
+            if isinstance(stage, dict):
+                slots[f"{clip_id} stage {stage_number}"] = (clip_number - 1, stage_number - 1)
+    return slots
+
+
+def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], segments: list[dict], names: list[str], locations: list[str]) -> dict:
+    """Repair a plan with one small call instead of a 150-650 s re-plan.
+
+    The model sees the clip outline, the forgotten segments' text and the
+    rejected stages with their errors and source text; it returns only the
+    stages to insert and the replacements for the rejected ones.  The result
+    is a deep copy; the caller validates it like any draft.
     """
     from thin_review import ask_json
-    stage_schema = build_schema(names, locations, missing_ids)["properties"]["clips"]["items"]["properties"]["stages"]["items"]
+    segment_ids = [s["segment_id"] for s in segments]
+    texts = {s["segment_id"]: s["text"] for s in segments}
+    slots = stage_slots(raw)
+    faulty = {label: errs for label, errs in faulty.items() if label in slots}
     clip_ids = [str(c.get("clip_id")) for c in raw.get("clips", []) if isinstance(c, dict)]
-    if not clip_ids:
-        return None
+    if not clip_ids or not (missing_ids or faulty):
+        raise ValueError("nothing to patch")
+    stage_of = lambda ids: build_schema(names, locations, ids)["properties"]["clips"]["items"]["properties"]["stages"]["items"]  # noqa: E731
     outline = []
     for clip in raw.get("clips", []):
         stages = clip.get("stages") or []
@@ -401,27 +454,44 @@ def patch_uncited_segments(raw: dict, missing_ids: list[str], segments: list[dic
             "clip_id": clip.get("clip_id"), "location": clip.get("location"), "characters": clip.get("characters"),
             "stages": [{"n": i, "segment_id": s.get("segment_id"), "event": str(s.get("event", ""))[:60]} for i, s in enumerate(stages, start=1)],
         })
-    texts = {s["segment_id"]: s["text"] for s in segments if s["segment_id"] in missing_ids}
     schema = {
-        "type": "object", "additionalProperties": False, "required": ["insertions"],
-        "properties": {"insertions": {"type": "array", "minItems": len(missing_ids), "maxItems": len(missing_ids), "items": {
-            "type": "object", "additionalProperties": False, "required": ["clip_id", "after_stage", "stage"],
-            "properties": {
-                "clip_id": {"type": "string", "enum": clip_ids},
-                "after_stage": {"type": "integer", "minimum": 0},
-                "stage": stage_schema,
-            }}}},
+        "type": "object", "additionalProperties": False, "required": ["insertions", "replacements"],
+        "properties": {
+            "insertions": {"type": "array", "minItems": len(missing_ids), "maxItems": len(missing_ids), "items": {
+                "type": "object", "additionalProperties": False, "required": ["clip_id", "after_stage", "stage"],
+                "properties": {"clip_id": {"type": "string", "enum": clip_ids}, "after_stage": {"type": "integer", "minimum": 0},
+                               "stage": stage_of(missing_ids or segment_ids)}}},
+            "replacements": {"type": "array", "minItems": len(faulty), "maxItems": len(faulty), "items": {
+                "type": "object", "additionalProperties": False, "required": ["label", "stage"],
+                "properties": {"label": {"type": "string", "enum": list(faulty) or ["-"]}, "stage": stage_of(segment_ids)}}},
+        },
     }
-    prompt = (
-        "下面是一集短剧的分镜大纲，以及原文里被遗漏、还没有任何阶段引用的区段。为每个遗漏区段补写恰好一个阶段，插进最合适的 clip 里"
-        "（after_stage 是插在该 clip 第几个阶段之后，0 表示放在最前）。新阶段的 segment_id 必须是该遗漏区段，source_quote 从该区段原文逐字复制 8 到 120 字，"
-        "台词从原文取，只用给出的人物和地点名，格式和已有阶段一致。不要改动已有阶段。\n\n"
-        f"分镜大纲：{json.dumps(outline, ensure_ascii=False)}\n\n"
-        f"可用人物：{names}\n\n"
-        + "\n\n".join(f"遗漏区段 {sid} 原文：\n{texts.get(sid, '')[:1800]}" for sid in missing_ids)
-    )
-    verdict = ask_json([{"type": "text", "text": prompt}], schema, name="segment_patch", max_tokens=1800)
+    parts = ["下面是一集短剧的分镜大纲。只输出需要修改的部分，不要改动其他阶段。"]
+    if missing_ids:
+        parts.append(f"原文里有 {len(missing_ids)} 个区段还没有任何阶段引用（{'、'.join(missing_ids)}）。为每个遗漏区段补写恰好一个阶段，插进最合适的 clip"
+                     "（after_stage 是插在该 clip 第几个阶段之后，0 表示放在最前）；新阶段的 segment_id 必须是该遗漏区段。")
+    if faulty:
+        parts.append(f"另有 {len(faulty)} 个阶段没过硬门检查，逐个重写整个阶段（label 原样填回，segment_id 不变），只修错误指出的问题，其余内容尽量保持。")
+    parts.append("规则：source_quote 从该区段原文逐字复制 8 到 120 字；画面描述不得出现血液、伤口、破皮、流血，碑上的结果写成无字的发光纹路；"
+                 "offscreen_dialogue 和 chat_message 必须写 speaker_name；台词从原文取；只用给出的人物名，格式和已有阶段一致。")
+    parts.append(f"分镜大纲：{json.dumps(outline, ensure_ascii=False)}")
+    parts.append(f"可用人物：{names}")
+    shown: list[str] = list(missing_ids)
+    for label, errs in faulty.items():
+        clip_index, stage_index = slots[label]
+        stage = raw["clips"][clip_index]["stages"][stage_index]
+        parts.append(f"问题阶段 {label}\n错误：" + " | ".join(errs) + f"\n当前内容：{json.dumps(stage, ensure_ascii=False)}")
+        shown.append(str(stage.get("segment_id")))
+    for sid in dict.fromkeys(shown):
+        if sid in texts:
+            parts.append(f"区段 {sid} 原文：\n{texts[sid][:1800]}")
+    budget = min(6000, 800 + 900 * (len(missing_ids) + len(faulty)))
+    verdict = ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget)
     patched = json.loads(json.dumps(raw, ensure_ascii=False))
+    for item in verdict.get("replacements", []):  # replacements first: insertions shift stage numbers
+        slot = slots.get(str(item.get("label")))
+        if slot and isinstance(item.get("stage"), dict):
+            patched["clips"][slot[0]]["stages"][slot[1]] = item["stage"]
     by_id = {str(c.get("clip_id")): c for c in patched.get("clips", [])}
     for item in verdict.get("insertions", []):
         clip = by_id.get(str(item.get("clip_id"))) or patched["clips"][-1]
@@ -619,13 +689,18 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         segment_id = str(shot.get("segment_id", ""))
         quote = str(shot.get("source_quote", "")).strip()
         key = quote_key(quote)
+        if len(key) > QUOTE_MAX_CHARS:
+            # Seventeen of the trial's redo errors were quotes over the cap.  The
+            # words are verbatim; only the length is wrong, so keep the head up
+            # to a sentence end rather than sending the chapter back for a redo.
+            quote = trim_quote(quote)
+            warnings.append(f"{position}: source_quote {len(key)} chars, cut at a sentence end to {len(quote_key(quote))}")
+            key = quote_key(quote)
         full_line = key in {quote_key(q) for q in chapter_quotes(chapter_text)}
         # Length is judged on what the model wrote (punctuation included), the
         # same count it was given in the schema; the key is only for matching.
         if len(re.sub(r"[\s\u3000]+", "", quote)) < QUOTE_MIN_CHARS and not full_line:
             errors.append(f"{position}: source_quote too short, need at least {QUOTE_MIN_CHARS} chars: {quote!r}")
-        elif len(key) > QUOTE_MAX_CHARS:
-            errors.append(f"{position}: source_quote too long, at most {QUOTE_MAX_CHARS} chars")
         else:
             found = [sid for sid, segment_key in segment_keys.items() if key in segment_key]
             if segment_id in found:
@@ -1195,7 +1270,7 @@ def main() -> int:
     repair: dict | None = None
     final_errors: list[str] = []
     result = None
-    patched_segments = 0  # forgotten-segment patches used so far (at most two per chapter)
+    patch_rounds = 0  # small repair calls used so far on this chapter
     for attempt in range(1, args.max_redo + 2):
         request_payload = {**payload, **({"repair": repair} if repair else {})}
         atomic_write_json(episode_dir / f"request_attempt_{attempt:02d}.json", request_payload)
@@ -1229,27 +1304,25 @@ def main() -> int:
             errors = []
             attempts[-1]["errors"] = []
             attempts[-1]["floor_waived"] = True
-        uncited_only = bool(errors) and all(UNCITED_ERROR.match(e) for e in errors)
-        if errors and uncited_only and patched_segments < 2:
-            # Nine of thirteen redo triggers in the trial were "seg_N is neither
-            # cited nor skipped": the plan is fine except for one forgotten
-            # segment.  Ask for just the missing stage(s) and merge them in - a
-            # small call instead of a 150-650 s re-plan.
-            patched_segments += 1
-            missing_ids = [UNCITED_ERROR.match(e).group(1) for e in errors]
+        patchable = patchable_errors(errors) if errors else None
+        while patchable and patch_rounds < PATCH_ROUNDS:
+            # Nearly every redo trigger in the trial was local - a forgotten
+            # segment, a blood word in one start_state, a paraphrased quote, a
+            # missing speaker.  Fix those stages with one small call and re-check
+            # instead of a 150-650 s re-plan that tends to break something else.
+            patch_rounds += 1
+            missing_ids, faulty = patchable
+            summary = {"round": patch_rounds, "segments": missing_ids, "stages": list(faulty)}
             try:
-                patched = patch_uncited_segments(raw, missing_ids, segments, names, list(location_map))
+                patched = patch_plan(raw, missing_ids, faulty, segments, names, list(location_map))
             except Exception as error:  # noqa: BLE001 - fall through to the normal redo
-                patched = None
-                print(json.dumps({"attempt": attempt, "segment_patch": f"failed: {type(error).__name__}: {str(error)[:120]}"}, ensure_ascii=False))
-            if patched is not None:
-                errors, warnings, shots = validate_and_normalize(patched, segments, bible, location_map, episode.source_text)
-                attempts[-1]["segment_patch"] = {"segments": missing_ids, "errors_after": len(errors), "errors": errors[:6]}
-                print(json.dumps({"attempt": attempt, "segment_patch": missing_ids, "error_count": len(errors)}, ensure_ascii=False))
-                if not errors:
-                    raw = patched
-                    result = (raw, shots, warnings)
-                    break
+                print(json.dumps({"attempt": attempt, "patch": summary, "failed": f"{type(error).__name__}: {str(error)[:120]}"}, ensure_ascii=False))
+                break
+            errors, warnings, shots = validate_and_normalize(patched, segments, bible, location_map, episode.source_text)
+            attempts[-1].setdefault("patches", []).append({**summary, "errors_after": len(errors), "errors": errors[:6]})
+            print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False))
+            raw = patched  # the next round, or the full redo, starts from the improved draft
+            patchable = patchable_errors(errors) if errors else None
         if errors:
             final_errors = errors
             repair = {
