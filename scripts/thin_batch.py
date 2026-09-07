@@ -505,7 +505,7 @@ class Batch:
             parts.append(f"第 {first_shot} 镜起的一段（{kind}被拒）：台词 {lines or '无'}；画面：{stage_text}")
         if not parts:
             return ""
-        return ("\n平台审核具体拒绝了以下内容。重写时必须把这些句子和描写改成不含打斗伤害、血腥、死亡、武器、辱骂字眼的等义表达"
+        return ("\n平台审核具体拒绝了以下内容。重写时必须把这些句子和描写改成不含打斗伤害、血腥、死亡、武器、辱骂、脱衣裸露、性暗示字眼的等义表达"
                 "（台词可以换词、缩短或改为旁观者转述；画面改为对峙、退让和事后结果），其余段落尽量保持不变：\n" + "\n".join(parts))[:1500]
 
     def moderation_blocked(self, chapter: int) -> bool:
