@@ -274,7 +274,7 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "light": {"type": "string"},
             "sfx": {"type": "string"},
             "shot_scale": {"type": "string", "enum": SHOT_SCALES},
-            "turns": {"type": "array", "minItems": 1, "items": turn},
+            "turns": {"type": "array", "minItems": 1, "maxItems": 8, "items": turn},
         },
     }
     clip = {
@@ -284,7 +284,8 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
         "properties": {
             "clip_id": {"type": "string"},
             "location": {"type": "string", "enum": location_names},
-            "characters": {"type": "array", "items": {"type": "string", "enum": character_names}},
+            # capped: an uncapped array let the model repeat one name until the token budget ran out
+            "characters": {"type": "array", "maxItems": 6, "items": {"type": "string", "enum": character_names}},
             "avoid": {"type": "string"},
             "stages": {"type": "array", "minItems": 1, "maxItems": 6, "items": stage},
         },
@@ -297,9 +298,10 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "video_title": {"type": "string"},
             "hook": {"type": "string"},
             "summary": {"type": "string"},
-            "clips": {"type": "array", "minItems": 1, "items": clip},
+            "clips": {"type": "array", "minItems": 1, "maxItems": 10, "items": clip},
             "skipped_segments": {
                 "type": "array",
+                "maxItems": 8,
                 "items": {
                     "type": "object",
                     "additionalProperties": False,
