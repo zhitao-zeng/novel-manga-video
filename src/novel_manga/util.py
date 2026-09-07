@@ -13,7 +13,10 @@ T = TypeVar("T")
 
 def atomic_write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_suffix(path.suffix + ".partial")
+    # One temp name per writer: two processes updating the same file (the
+    # card factories all touch series_assets/manifest.json) must not share it,
+    # or the second os.replace finds its temp file already renamed away.
+    partial = path.with_suffix(path.suffix + f".{os.getpid()}.partial")
     partial.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     os.replace(partial, path)
 
