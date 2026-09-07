@@ -49,7 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chat_card
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
-POLICY = "thin-media-v20-voices"
+POLICY = "thin-media-v21-voices"
 ASSET_BUILD_ROUNDS = 6
 ASSET_RETRY_SECONDS = 90
 CHAT_CONTEXT_MESSAGES = 2   # earlier messages shown above the new ones on a chat card
@@ -792,6 +792,15 @@ class ThinMediaRunner:
                 continue
             saved = json.loads((other / "request.json").read_text(encoding="utf-8"))
             if saved.get("prompt", "").removesuffix(RETRY_SUFFIX) == self.clip_prompt(clip) and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+                # A retry exists to replace a clip that failed the speech gate;
+                # reusing that same clip would just fail it again.  Only a video
+                # that passed (or was never judged - a resumed run) is reused.
+                if attempt > 1 and (other / "asr.json").is_file():
+                    try:
+                        if not json.loads((other / "asr.json").read_text(encoding="utf-8")).get("passed", True):
+                            continue
+                    except (OSError, ValueError):
+                        pass
                 log(f"{clip['clip_id']} attempt {attempt}: reusing the matching video from {other.name}")
                 return other_video
         wait_for_inflight_redraws(references)
