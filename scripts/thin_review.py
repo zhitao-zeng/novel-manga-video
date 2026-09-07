@@ -226,7 +226,8 @@ def fill_characters(bible: StoryBible, bible_path: Path, missing: dict, text: st
         prompt = (
             "圣经里已有这些角色：\n" + existing + "\n\n下面是原文里反复出现但圣经缺失的人物及其原文摘录。为每个人物判断：same_as 填写它其实是哪个已有角色（或本列表中另一个人物）的另一种叫法，不是则填空字符串；"
             "confidence 是你对“这是一个需要单独定妆的独立人物”的把握（0到1）。然后写一条可跨集复用的选角条目（性别、年龄段、外貌、服装、发型、配色、基础服装、识别物），"
-            "只写原文能支持的信息，外貌和服装必须是具体可画的描述，原文没写的做克制设计，不要写“未详”。只输出JSON。\n\n"
+            "只写原文能支持的信息，外貌和服装必须是具体可画的描述，原文没写的做克制设计，不要写“未详”。"
+            "外貌只写稳定特征（体型、脸型、肤色、发型、年龄感），不写当下的状态：受伤、流血、伤痕、表情、哭泣、脏污、正在做的事都不算外貌。只输出JSON。\n\n"
             + "\n\n".join(f"【{name}】（出现 {info['mentions']} 次，章 {sorted(set(info['chapters']))}）\n{excerpts(text, name)}" for name, info in missing.items())
         )
         rows = ask_json([{"type": "text", "text": prompt}], FILL_SCHEMA, name="fill", max_tokens=3000).get("characters", [])
