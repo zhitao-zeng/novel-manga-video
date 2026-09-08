@@ -481,6 +481,7 @@ def main() -> int:
     global GENRE_REJECTS, GENRE_CROWD
     GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]
     GENRE_CROWD = genre.get("crowd_default", "")
+    ANON_VOICE.update(genre.get("anon_voice") or {})  # off-screen voice descriptions for the genre's anonymous roles
     if is_fast(profile):
         global TWO_VIEW_CAST_LIMIT
         TWO_VIEW_CAST_LIMIT = 0  # one reference card per character

@@ -150,6 +150,13 @@ if SHORT_CLIPS:
         assert SYSTEM_PROMPT.count(_old) == 1, _old
         SYSTEM_PROMPT = SYSTEM_PROMPT.replace(_old, _new)
 
+PROMPT_EXAMPLE_DEFAULTS = {
+    "light": "（月光从左上、案头油灯在右侧、灵碑纹路的金光从下方）",
+    "avoid": "例如\"灵碑上不要出现可读文字\"\"大厅不要出现现代家具\"\"不要给楚焱红色发光的眼睛\"；",
+    "text_props": "灵碑、石碑、牌匾、纸张上不得出现可读文字或数字，一律写成\"无字的发光纹路\"；",
+    "anon": "或\"无名测验员\"\"无名族人\"这类无名画外角色"
+}  # the brief's built-in examples; genre files override
+
 ANALYSIS_INSTRUCTION = (
     f"先做内部规划，不要输出JSON：第一步定时长预算，全集约90秒分成{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段写出覆盖哪些区段、几个阶段、估算秒数；"
     "第二步定台词取舍，列出保留的原文台词（合计220到300字，可删子句）、合并或删掉的群众议论、以及必须用一两句画外议论外化的叙述事实（写出改成谁说的什么话）；"
@@ -1158,8 +1165,13 @@ def main() -> int:
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     genre = load_genre(profile)
-    global ANONYMOUS_SPEAKERS, TEXT_ON_PROPS_GATE
+    global ANONYMOUS_SPEAKERS, TEXT_ON_PROPS_GATE, SYSTEM_PROMPT
     ANONYMOUS_SPEAKERS = list(genre.get("anonymous_roles") or ANONYMOUS_SPEAKERS)
+    # The brief's worked examples (light sources, avoid lines, text on props,
+    # anonymous roles) come from the genre file; the xianxia wording in the
+    # brief itself is only the default they replace.
+    for key, default in PROMPT_EXAMPLE_DEFAULTS.items():
+        SYSTEM_PROMPT = SYSTEM_PROMPT.replace(default, str((genre.get("prompt_examples") or {}).get(key) or default))
     TEXT_ON_PROPS_GATE = genre.get("text_on_props", "report") == "gate"
     fast = is_fast(profile)
     global FAST_TIER
