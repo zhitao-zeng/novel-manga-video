@@ -30,6 +30,7 @@ from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fin
 
 POLICY = "thin-clip-plan-v12-six-stages" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 TWO_VIEW_CAST_LIMIT = 2
+LEAD_ROLES = {"主角", "女主角", "男主角"}
 # Seedance sometimes burns its own caption bar into the picture; the film has its own
 # subtitle track, so every prompt forbids it explicitly.
 NO_SUBTITLES = "不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条"
@@ -346,9 +347,13 @@ def clip_cast(clip: dict) -> list[str]:
     return kept or listed
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = ()) -> tuple[list[dict], list[str], str]:
+def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None) -> tuple[list[dict], list[str], str]:
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
+    # The leads carry the story and were the most often face- or costume-swapped
+    # in review; they always get their expressions sheet as a second view when
+    # it exists on disk, whatever the tier.
+    leads = {character.name for character in bible.characters if str(character.role or "") in LEAD_ROLES}
     references: list[dict] = []
     bindings: list[str] = []
     count = 0
@@ -361,7 +366,8 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         count += 1
         first = count
         references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg"})
-        if two_views:
+        lead_sheet = novel_dir is not None and name in leads and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
+        if two_views or lead_sheet:
             count += 1
             second = count
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
@@ -395,6 +401,10 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     ]
     if bindings:
         lines.append("【人物】" + "。".join(bindings) + "。")
+    if cast:
+        # 133 of 613 flagged clips in review had people who were never cast.
+        others = "；远处模糊背景里只允许" + "、".join(clip["background_only"]) if clip.get("background_only") else ""
+        lines.append(f"【人数】画面中始终只有这{len(cast)}位人物：{cast_text}；无名角色只在画外发声、不入镜；不出现任何未列出的人（老者、路人、随从、背景人物都不要）{others}。")
     if clip.get("identity_notes"):
         lines.append("【身份区分】" + compact(clip["identity_notes"]) + "。")
     if clip.get("background_only"):
@@ -529,7 +539,7 @@ def main() -> int:
             turn["speaker_name"] for shot in clip["shots"] for turn in shot["turns"]
             if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
         ))
-        references, bindings, location_binding = build_references(cast, clip["location"], bible, location_map, speakers=speakers)
+        references, bindings, location_binding = build_references(cast, clip["location"], bible, location_map, speakers=speakers, novel_dir=episode_dir.parent)
         prompt = compile_prompt(clip, bible, cast, bindings, location_binding, grammar, frame)
         lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
         lint = {k: v for k, v in lint.items() if v}
