@@ -453,6 +453,7 @@ def fill_location_time(novel_dir: Path, location_rows: list[dict], known_locatio
         name = re.sub(r"\s+", "", str(row.get("name", "")))
         when = str(row.get("time_of_day") or "").strip()
         light = re.sub(r"\s+", " ", str(row.get("main_light") or "")).strip()
+        light = re.sub(r"（[^）]*）|\([^)]*\)", "", light).strip()  # no hedging notes: the planner copies this into every stage
         if len(name) < 2 or not when or when == "不定" and not light:
             continue
         key = next((k for k in known_locations if name_matches(name, [k])), name)
