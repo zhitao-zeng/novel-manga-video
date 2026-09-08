@@ -88,7 +88,7 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
     request.setdefault("reasoning_effort", os.environ.get("QWEN38_LOCAL_REASONING", "low"))
     # The callers' budgets fit the local model's context window; a platform
     # model has room to spare but counts its reasoning inside max_tokens.
-    floor = int(os.environ.get("QWEN38_LOCAL_MIN_MAX_TOKENS", "16000") or 0)
+    floor = int(os.environ.get("QWEN38_LOCAL_MIN_MAX_TOKENS", "50000") or 0)
     if floor > 0:
         request["max_tokens"] = max(int(request.get("max_tokens") or 0), floor)
     content, reasoning, finish, usage = [], [], None, None
