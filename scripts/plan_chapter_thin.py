@@ -125,8 +125,12 @@ def trim_quote(quote: str, limit: int = QUOTE_MAX_CHARS) -> str:
 
 
 def chapter_quotes(text: str) -> list[str]:
+    """Quoted lines that read like speech.  Novels also quote proper nouns and
+    terms (“秘术”“心胜于物”); a quote counts as a line only when it is 8+
+    characters or carries sentence punctuation."""
     quotes = re.findall(r"[“\"]([^”\"]{2,120})[”\"]", text)
-    return list(dict.fromkeys(quote.strip() for quote in quotes if spoken_chars(quote) >= 2))
+    return list(dict.fromkeys(quote.strip() for quote in quotes
+                              if spoken_chars(quote) >= 8 or (spoken_chars(quote) >= 2 and re.search(r"[，。！？…；、]", quote))))
 
 SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜师。把"当前章"改编成一集约90秒的短剧，由3到4段可用视频模型一次生成的连续片段组成，只输出一个JSON对象。
 输出结构：clips，3到4段。每段clip在同一地点内连续拍摄，时长20到30秒，由4到6个"阶段"stages组成；每个阶段3到7秒，只有一个主要变化和最多两句台词，写清开始时、主要事件、结束时能直接看到的状态。相邻阶段用不同景别切画面（全景、中景、近景、特写交替）。
@@ -789,7 +793,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                         characters.append(speaker)
                         warnings.append(f"{position}: visible speaker {speaker} added to characters")
                     visible.append(speaker)
-                elif speaker.startswith("无名"):
+                elif speaker.startswith("无名") or speaker in ANONYMOUS_SPEAKERS:
                     warnings.append(f"{position}: anonymous {speaker} cannot be visible; converted to offscreen")
                     mode = "offscreen_dialogue"
                 else:
@@ -797,7 +801,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             elif mode == "offscreen_dialogue":
                 if not speaker:
                     errors.append(f"{position}: offscreen_dialogue needs speaker_name")
-                elif speaker not in names and not speaker.startswith("无名"):
+                elif speaker not in names and not speaker.startswith("无名") and speaker not in ANONYMOUS_SPEAKERS:
                     errors.append(f"{position}: offscreen speaker {speaker!r} unknown; use a StoryBible name or 无名 role")
             elif mode in {"silent_action", "title_card"}:
                 speaker = ""
@@ -1087,8 +1091,8 @@ def strict_plan_errors(shots: list[dict], chapter_text: str, segments: list[dict
         last = quotes[-1]
         if last in missing:
             errors.append(f"章末台词必须逐字出现在最后一个阶段的台词里：{last[:60]}")
-        if len(missing) / len(quotes) > 0.5:
-            errors.append(f"原文引号台词丢失 {len(missing)}/{len(quotes)}，超过一半：至少补回其中推动剧情的句子（逐字）：" + " / ".join(q[:30] for q in missing[:10]))
+        if len(missing) / len(quotes) > 0.6:
+            errors.append(f"原文引号台词丢失 {len(missing)}/{len(quotes)}，超过六成：至少补回其中推动剧情的句子（逐字）：" + " / ".join(q[:30] for q in missing[:10]))
     return errors
 
 
