@@ -1220,9 +1220,30 @@ def main() -> int:
     present = [c for c in full_bible.characters if named_here(c.name)]
     carried = [c for c in full_bible.characters if c.name in recent_characters]
     sliced_characters = list({c.name: c for c in [*main_cast, *present, *carried]}.values()) or full_bible.characters[:8]
-    sliced_locations = [full for full in full_bible.locations
-                        if named_here(full.split("：", 1)[0].strip()) or full.split("：", 1)[0].strip() in recent_locations]
-    sliced_locations = sliced_locations or full_bible.locations[-6:]
+    # A location is known from the chapter that added it (bible_growth.json);
+    # the base bible's locations count as known from the start.  Never offer a
+    # place the story has not reached, and when nothing is named, fall back to
+    # the most recently introduced places BEFORE this chapter, not the newest
+    # ones in a bible that may be a thousand chapters ahead.
+    added_at: dict[str, int] = {}
+    growth_path = novel_dir / "bible_growth.json"
+    if growth_path.is_file():
+        try:
+            for ch, entry in json.loads(growth_path.read_text(encoding="utf-8")).items():
+                for loc in entry.get("locations", []) or []:
+                    added_at.setdefault(str(loc).split("：", 1)[0].strip(), int(ch))
+        except (OSError, ValueError):
+            added_at = {}
+
+    def short_of(full: str) -> str:
+        return full.split("：", 1)[0].strip()
+
+    known = [full for full in full_bible.locations if added_at.get(short_of(full), 0) <= episode.index]
+    sliced_locations = [full for full in known
+                        if named_here(short_of(full)) or short_of(full) in recent_locations
+                        or episode.index - CAST_RECENT_CHAPTERS <= added_at.get(short_of(full), -1) <= episode.index]
+    if not sliced_locations:
+        sliced_locations = sorted(known, key=lambda full: -added_at.get(short_of(full), 0))[:6] or full_bible.locations[:6]
     bible = full_bible.model_copy(update={"characters": sliced_characters, "locations": sliced_locations})
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     names = [character.name for character in bible.characters]
