@@ -280,7 +280,10 @@ class Batch:
         alive = []
         for base in qwen_endpoints():
             try:
-                with urllib.request.urlopen(f"{base}/models", timeout=5) as response:  # noqa: S310 - local service
+                probe = urllib.request.Request(f"{base}/models")
+                if os.environ.get("QWEN38_LOCAL_API_KEY"):  # an endpoint behind a key answers 401 to a bare probe
+                    probe.add_header("Authorization", "Bearer " + os.environ["QWEN38_LOCAL_API_KEY"])
+                with urllib.request.urlopen(probe, timeout=5) as response:  # noqa: S310 - local service
                     response.read(200)
                 alive.append(base)
             except Exception:  # noqa: BLE001
