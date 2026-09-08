@@ -66,6 +66,7 @@ CLIP_SECONDS_TOLERANCE = 1.0
 EPISODE_SECONDS_MAX = 105.0
 EPISODE_SECONDS_MIN = 0.0  # set by --min-seconds
 SPOKEN_RANGE = (220, 300)
+STRICT_PLAN = os.environ.get("NOVEL_PLAN_STRICT", "").strip() == "1"  # spoken budget and quoted lines become redo gates
 MIN_SPOKEN_CHARS = 220
 ANONYMOUS_SPEAKERS = ["无名测验员", "无名族人", "无名少年", "无名少女", "无名群声"]
 SCENE_JOBS = ["建立", "推进", "对峙", "揭示", "反转", "决定", "收束"]
@@ -1058,6 +1059,28 @@ def missing_quotes(shots: list[dict], chapter_text: str) -> list[str]:
     return [quote for quote in chapter_quotes(chapter_text) if quote_key(quote) not in joined]
 
 
+def strict_plan_errors(shots: list[dict], chapter_text: str, segments: list[dict], raw: dict) -> list[str]:
+    """Opt-in gates (NOVEL_PLAN_STRICT=1): the spoken-text budget and the quoted
+    lines the chapter cannot lose.  Each error tells the model what to do."""
+    skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in (raw.get("skipped_segments") or []) if isinstance(item, dict)}
+    found = metrics(shots, chapter_text, segments, skipped)
+    quotes = chapter_quotes(chapter_text)
+    missing = list(found.get("missing_quoted_lines", []))
+    low, high = SPOKEN_RANGE
+    errors: list[str] = []
+    if found["spoken_chars"] < low:
+        errors.append(f"发声字数 {found['spoken_chars']} 低于下限 {low}：把下列原文台词逐字加回对应阶段，作为可见或画外台词，不要改写：" + " / ".join(q[:40] for q in missing[:8]))
+    elif found["spoken_chars"] > high:
+        errors.append(f"发声字数 {found['spoken_chars']} 高于上限 {high}：删减铺垫和重复的台词，或把次要对话改为群消息、动作或跳过；保留原文引号里推动剧情的句子")
+    if quotes and missing:
+        last = quotes[-1]
+        if last in missing:
+            errors.append(f"章末台词必须逐字出现在最后一个阶段的台词里：{last[:60]}")
+        if len(missing) / len(quotes) > 0.5:
+            errors.append(f"原文引号台词丢失 {len(missing)}/{len(quotes)}，超过一半：至少补回其中推动剧情的句子：" + " / ".join(q[:30] for q in missing[:10]))
+    return errors
+
+
 def soft_warnings(report_metrics: dict) -> list[str]:
     notes = []
     for quote in report_metrics.get("missing_quoted_lines", []):
@@ -1402,6 +1425,15 @@ def main() -> int:
             print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False), flush=True)
             raw = patched  # the next round, or the full redo, starts from the improved draft
             patchable = patchable_errors(errors) if errors else None
+        if not errors and STRICT_PLAN:
+            strict = strict_plan_errors(shots, episode.source_text, segments, raw)
+            if strict and attempt == args.max_redo + 1:
+                warnings = [*warnings, *("report only (strict gate waived on the last attempt): " + e for e in strict)]
+                attempts[-1]["strict_waived"] = strict
+            elif strict:
+                errors = strict
+                attempts[-1]["errors"] = strict
+                print(json.dumps({"attempt": attempt, "strict_errors": strict}, ensure_ascii=False), flush=True)
         if errors:
             final_errors = errors
             repair = {
