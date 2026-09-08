@@ -162,7 +162,8 @@ class Conductor:
         return proc is not None and proc.poll() is None
 
     def external_running(self, pattern: str) -> bool:
-        return subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 0
+        # "--" ends pgrep's own options: the patterns start with "--chapters".
+        return subprocess.run(["pgrep", "-f", "--", pattern], capture_output=True).returncode == 0
 
     def spawn(self, name: str, command: list[str], extra_env: dict | None = None) -> None:
         if self.dry:
@@ -347,7 +348,8 @@ class Conductor:
                 continue
             name = f"plan_{block['a']}_{block['b']}"
             if self.external_running(f"--chapters {block['a']}-{block['b']} --stage plan"):
-                continue  # planned outside the conductor
+                active.append(block)  # planned outside the conductor (e.g. left from a restart): counts toward the target
+                continue
             command = [PY, str(SCRIPTS / "thin_batch.py"), "--novel-dir", str(self.novel_dir), "--chapters", f"{block['a']}-{block['b']}",
                        "--stage", "plan", "--tier", "fast", "--merge", "1", "--max-redo", "2", "--volume-size", "50", "--no-grow-bible"]
             self.spawn(name, command, {"NOVEL_CLIP_SECONDS_MAX": "15"} if block["mode"] == 15 else {})
