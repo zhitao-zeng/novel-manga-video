@@ -584,6 +584,9 @@ def _post_any(client: httpx.Client, base_urls: list[str], headers: dict, request
 
 
 def _post(client: httpx.Client, base_url: str, headers: dict, request: dict) -> dict:
+    if os.environ.get("QWEN38_LOCAL_STREAM", "").strip() == "1":
+        from thin_review import stream_completion  # a proxied platform cuts non-streaming calls at 60 s
+        return stream_completion(client, f"{base_url.rstrip('/')}/chat/completions", headers, request)
     response = client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=request)
     response.raise_for_status()
     return response.json()

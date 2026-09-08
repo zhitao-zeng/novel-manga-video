@@ -74,6 +74,46 @@ def image_part(path: Path, max_side: int) -> dict:
 _CALL_COUNTER = itertools.count()
 
 
+
+def stream_completion(client: httpx.Client, url: str, headers: dict, payload: dict, timeout: float | None = None) -> dict:
+    """POST with stream=True and rebuild the non-streaming response body.
+
+    A platform behind a proxy cuts non-streaming requests at about 60 s, far
+    less than a planner call takes; streaming keeps the connection alive.
+    The vLLM-only chat_template_kwargs is dropped and the platform's own
+    reasoning_effort field is set instead.
+    """
+    request = {k: v for k, v in payload.items() if k != "chat_template_kwargs"}
+    request.update({"stream": True, "stream_options": {"include_usage": True}})
+    request.setdefault("reasoning_effort", os.environ.get("QWEN38_LOCAL_REASONING", "low"))
+    content, reasoning, finish, usage = [], [], None, None
+    with client.stream("POST", url, headers=headers, json=request, timeout=timeout) as response:
+        if response.status_code >= 400:
+            response.read()
+            response.raise_for_status()
+        for line in response.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                event = json.loads(data)
+            except ValueError:
+                continue
+            for choice in event.get("choices") or []:
+                delta = choice.get("delta") or {}
+                content.append(delta.get("content") or "")
+                reasoning.append(delta.get("reasoning_content") or delta.get("reasoning") or "")
+                finish = choice.get("finish_reason") or finish
+            usage = event.get("usage") or usage
+    return {"choices": [{"message": {"content": "".join(content), "reasoning": "".join(reasoning)}, "finish_reason": finish}], "usage": usage}
+
+
+def streaming_wanted() -> bool:
+    return os.environ.get("QWEN38_LOCAL_STREAM", "").strip() == "1"
+
+
 def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True) -> dict:
     """Ask a JSON question, sharing the timeout across endpoints and at most one length retry."""
     headers = {}
@@ -94,8 +134,12 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
                 if remaining <= 0:
                     raise TimeoutError(f"{name}: {timeout:g}s request budget exhausted")
                 try:
+                    if streaming_wanted():
+                        body = stream_completion(client, f"{base_url}/chat/completions", headers, payload, timeout=remaining)
+                        break
                     response = client.post(f"{base_url}/chat/completions", json=payload, headers=headers, timeout=remaining)
                     response.raise_for_status()
+                    body = response.json()
                     break
                 except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
                     last = error
@@ -107,7 +151,7 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
             else:
                 assert last is not None
                 raise last
-            choice = response.json()["choices"][0]
+            choice = body["choices"][0]
             content = choice["message"].get("content") or "{}"
             try:
                 return json.loads(content)
