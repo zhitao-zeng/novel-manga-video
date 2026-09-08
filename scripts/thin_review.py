@@ -610,6 +610,29 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     return ask_json(parts, CLIP_SCHEMA, name="clip_review", max_tokens=600)
 
 
+BREAKDOWN = re.compile(r"尾巴|尖耳|崩坏|畸形|穿模|六指|多余(的)?(手|臂|腿|肢)|赤膊巨人|肌肉极其夸张|非人")
+SWAP = re.compile(r"错误地(渲染|绘制|画)成|被(渲染|绘制|画)成|完全一致|几乎一模一样|穿了.{0,6}的(衣服|服饰)|换脸|张冠李戴")
+MISSING = re.compile(r"缺失|未出现|完全未出现|没有出现|未出场")
+LEAD_ROLES = {"主角", "女主角", "男主角"}
+
+
+def fix_tier(verdict: dict, bible: StoryBible) -> str:
+    """must_fix / optional / ignore for a failed clip verdict.  A viewer notices a
+    broken body, a lead with the wrong face, or a speaking character who is not
+    there; a side character's shirt colour or a garbled phone screen they do not."""
+    issue = str(verdict.get("identity_issue") or "") + " " + str(verdict.get("defect_issue") or "")
+    if verdict.get("visual_defects") or BREAKDOWN.search(issue):
+        return "must_fix"
+    leads = [c.name for c in bible.characters if str(c.role or "") in LEAD_ROLES]
+    if any(name in issue for name in leads) and SWAP.search(issue):
+        return "must_fix"
+    if MISSING.search(issue) and any(name in issue for name in (c.name for c in bible.characters)):
+        return "must_fix"
+    if not verdict.get("identity_ok", True) or not verdict.get("location_ok", True) or not verdict.get("time_of_day_ok", True):
+        return "optional"
+    return "ignore"  # phone text, on-screen text, people count only
+
+
 def compose_feedback(verdict: dict) -> str:
     """The correction appended to a failed clip's prompt.  Text on screen gets a
     fixed instruction (the model's own suggestion tends to 'fix the subtitle'
@@ -666,8 +689,13 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
             continue
         report["clips"][clip_id] = {"video": str(video), **verdict}
         if verdict.get("severity") == "fail":
-            report["flags"].append(f"{clip_id}: {verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}")
-            report["feedback"][clip_id] = compose_feedback(verdict)
+            tier = fix_tier(verdict, bible)
+            verdict["tier"] = tier
+            if tier != "ignore":
+                prefix = "" if tier == "must_fix" else "[可选] "
+                report["flags"].append(f"{clip_id}: {prefix}{verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}")
+            if tier == "must_fix":
+                report["feedback"][clip_id] = compose_feedback(verdict)
         log(f"episode {episode_dir.name} {clip_id}: {verdict.get('severity')} people={verdict.get('visible_people')} identity={verdict.get('identity_ok')} loc={verdict.get('location_ok')}/{verdict.get('time_of_day_ok')} text={verdict.get('text_or_watermark')} defects={verdict.get('visual_defects')}" + (f" | {verdict.get('identity_issue') or verdict.get('defect_issue')}" if verdict.get("severity") != "pass" else ""))
     suffix = "" if video_name == "clip.mp4" else "." + video_name.replace(".mp4", "")
     atomic_write_json(episode_dir / f"episode_review{suffix}.json", report)
