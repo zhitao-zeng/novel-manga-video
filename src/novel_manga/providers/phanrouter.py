@@ -17,6 +17,9 @@ from ..util import atomic_write_json, retry
 from .base import ImageResult, MediaProvider
 
 
+SUBMIT_TIMEOUT_SECONDS = 120.0  # a task submission answers in seconds; downloads keep the long request timeout
+
+
 class PhanRouterMediaProvider(MediaProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -141,7 +144,7 @@ class PhanRouterMediaProvider(MediaProvider):
         def submit() -> httpx.Response:
             response = self.client.post(
                 f"{self.settings.phanrouter_base_url.rstrip('/')}/v3/images/generations",
-                headers=self.image_headers, json=payload,
+                headers=self.image_headers, json=payload, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
             )
             response.raise_for_status()
             return response
@@ -204,7 +207,7 @@ class PhanRouterMediaProvider(MediaProvider):
             response = self.client.post(
                 f"{self.settings.phanrouter_base_url.rstrip('/')}/v1/images/generations",
                 headers=self.image_headers,
-                json=payload,
+                json=payload, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
             )
             response.raise_for_status()
             return response
@@ -319,7 +322,7 @@ class PhanRouterMediaProvider(MediaProvider):
         def submit() -> httpx.Response:
             response = self.client.post(
                 f"{self.settings.phanrouter_base_url.rstrip('/')}/api/v3/contents/generations/tasks",
-                headers=self.video_headers, json=payload,
+                headers=self.video_headers, json=payload, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
             )
             try:
                 response.raise_for_status()
