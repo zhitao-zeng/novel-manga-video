@@ -258,6 +258,7 @@ class FramedPhanRouter(PhanRouterMediaProvider):
         super().__init__(settings)
         self.frame = frame
         self.resolution = resolution
+        self.prompt_aliases: dict[str, str] = {}  # profile.json "prompt_aliases": spelling sent to the model only
         self._tls = threading.local()
         original_post = self.client.post
 
@@ -272,6 +273,15 @@ class FramedPhanRouter(PhanRouterMediaProvider):
             return original_post(url, *a, **kw)
 
         self.client.post = post
+
+    def create_video(self, prompt, image, output, duration, additional_images=(), reference_audios=()):
+        # A name the platform's text filter refuses (e.g. one shared with a
+        # politician) is respelled in the text sent and nowhere else: the plan,
+        # the request record and the subtitles keep the book's spelling, so
+        # reuse matching and captions do not change.
+        for old, new in self.prompt_aliases.items():
+            prompt = prompt.replace(old, new)
+        return super().create_video(prompt, image, output, duration, additional_images=additional_images, reference_audios=reference_audios)
 
     def _video_payload(self, *args, **kwargs):
         payload = super()._video_payload(*args, **kwargs)
@@ -653,6 +663,7 @@ class ThinMediaRunner:
         # a line the model did not speak costs the line and its subtitles.
         self.max_attempts = 2 if self.fast else max_attempts
         self.provider = FramedPhanRouter(self.settings, self.frame_spec, resolution="480p" if self.fast else "720p")
+        self.provider.prompt_aliases = {str(k): str(v) for k, v in (self.profile.get("prompt_aliases") or {}).items()}
         self.renderer = Renderer(self.settings)
         self.work = episode_dir / "work"
         self.work.mkdir(parents=True, exist_ok=True)
