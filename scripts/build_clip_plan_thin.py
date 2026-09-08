@@ -72,7 +72,9 @@ def shot_seconds(shot: dict) -> float:
         elif mode == "silent_action":
             seconds += 3.0
         elif mode == "chat_message":
-            seconds += spoken_chars(turn["text"]) / 5.0 + 1.5
+            # card mode: the message lives on our chat card, the clip only
+            # shows the reaction - one beat, not the reading time
+            seconds += 1.0 if str(CHAT_SCREEN.get("render", "card")) == "card" else spoken_chars(turn["text"]) / 5.0 + 1.5
         elif mode == "singing":
             seconds += 6.0
     return max(3.0, round(seconds, 2))

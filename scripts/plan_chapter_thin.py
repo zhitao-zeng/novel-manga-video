@@ -89,7 +89,9 @@ def stage_seconds(turns: list[dict]) -> float:
         elif mode == "silent_action":
             seconds += 3.0
         elif mode == "chat_message":
-            seconds += spoken_chars(str(turn.get("text", ""))) / 5.0 + 1.5
+            # card mode (the default): the chat card carries the message; the
+            # stage itself is one reaction beat
+            seconds += 1.0 if CHAT_CARD_MODE else spoken_chars(str(turn.get("text", ""))) / 5.0 + 1.5
         elif mode == "singing":
             seconds += 6.0
     return max(3.0, round(seconds, 2))
@@ -686,6 +688,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
 ALIASES: dict[str, str] = {}  # alias -> canonical character name (bible_aliases.json)
 FAST_TIER = False
 CHAT_SELF = ""  # the protagonist, from chat_screen.json: a private chat is named after the OTHER party
+CHAT_CARD_MODE = True  # chat_screen.json render != "card" turns it off: messages are then filmed and take reading time
 TEXT_ON_PROPS_GATE = True  # genre preset: readable text on props is a hard gate (古风碑文) or a note (都市招牌)
 
 
@@ -1196,6 +1199,8 @@ def main() -> int:
     if chat_screen_path.is_file():
         global CHAT_SELF
         CHAT_SELF = str(json.loads(chat_screen_path.read_text(encoding="utf-8")).get("self_name", "")).strip()
+        global CHAT_CARD_MODE
+        CHAT_CARD_MODE = str(json.loads(chat_screen_path.read_text(encoding="utf-8")).get("render", "card")) == "card"
     aliases_path = novel_dir / "bible_aliases.json"
     ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
 
