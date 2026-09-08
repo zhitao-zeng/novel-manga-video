@@ -331,12 +331,17 @@ class PhanRouterMediaProvider(MediaProvider):
             return response
 
         task_path = output.with_suffix(output.suffix + ".task.json")
+        task_id = None
         if task_path.exists():
             cached = json.loads(task_path.read_text(encoding="utf-8"))
-            if cached.get("request_sha256") != request_sha256:
-                raise RuntimeError(f"cached video task request does not match current request: {task_path}")
-            task_id = cached.get("task_id")
-        else:
+            if cached.get("request_sha256") == request_sha256:
+                task_id = cached.get("task_id")
+            else:
+                # The request changed since that task was created (re-plan,
+                # sanitised line, send-time alias): the old task's video would
+                # not be this clip.  Keep the record aside and submit afresh.
+                task_path.replace(task_path.with_suffix(".stale.json"))
+        if not task_id:
             task_id = retry(submit).json().get("task_id")
             if task_id:
                 atomic_write_json(
