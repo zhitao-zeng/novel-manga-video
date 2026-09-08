@@ -122,7 +122,14 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
 def endpoint_key() -> str:
     """The endpoint's key, read from the variable QWEN38_LOCAL_API_KEY_VAR names
     (default QWEN38_LOCAL_API_KEY); empty for the local vLLM."""
-    return os.environ.get(os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY", "")
+    value = os.environ.get(os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY", "")
+    path = os.environ.get("QWEN38_LOCAL_API_KEY_FILE", "").strip()
+    if not value and path:
+        try:
+            value = Path(path).expanduser().read_text(encoding="utf-8").strip()
+        except OSError:
+            value = ""
+    return value
 
 
 def streaming_wanted() -> bool:

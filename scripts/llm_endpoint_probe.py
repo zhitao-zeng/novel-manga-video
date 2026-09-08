@@ -12,7 +12,9 @@ import httpx
 
 
 def main() -> int:
-    key = os.environ.get(os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY", "")
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from thin_review import endpoint_key
+    key = endpoint_key()
     headers = {"Authorization": "Bearer " + key} if key else {}
     print("key:", "present" if key else "none")
     for base in sys.argv[1:]:
