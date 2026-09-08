@@ -154,7 +154,9 @@ PROMPT_EXAMPLE_DEFAULTS = {
     "light": "（月光从左上、案头油灯在右侧、灵碑纹路的金光从下方）",
     "avoid": "例如\"灵碑上不要出现可读文字\"\"大厅不要出现现代家具\"\"不要给楚焱红色发光的眼睛\"；",
     "text_props": "灵碑、石碑、牌匾、纸张上不得出现可读文字或数字，一律写成\"无字的发光纹路\"；",
-    "anon": "或\"无名测验员\"\"无名族人\"这类无名画外角色"
+    "anon": "或\"无名测验员\"\"无名族人\"这类无名画外角色",
+    "offscreen": "（画外声：群众议论、测验员喊话等）",
+    "camera": "（灵碑侧后方、大厅长桌尽头、门框外、人群缝隙里）"
 }  # the brief's built-in examples; genre files override
 
 ANALYSIS_INSTRUCTION = (
