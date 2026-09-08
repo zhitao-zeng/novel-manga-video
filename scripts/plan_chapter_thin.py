@@ -624,7 +624,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
         system_prompt += f"\n\n【全书视觉语法，camera 和 light 字段必须与之一致】{grammar_text(grammar)}"
     system_prompt += (f"\n\n【本章导演意见，优先于一般偏好】{notes}" if notes else "")
     headers = {}
-    api_key = os.getenv("QWEN38_LOCAL_API_KEY")
+    api_key = os.getenv(os.getenv("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     user_content = json.dumps(payload, ensure_ascii=False)

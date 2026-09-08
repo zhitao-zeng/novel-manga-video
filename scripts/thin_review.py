@@ -119,6 +119,12 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
     return {"choices": [{"message": {"content": "".join(content), "reasoning": "".join(reasoning)}, "finish_reason": finish}], "usage": usage}
 
 
+def endpoint_key() -> str:
+    """The endpoint's key, read from the variable QWEN38_LOCAL_API_KEY_VAR names
+    (default QWEN38_LOCAL_API_KEY); empty for the local vLLM."""
+    return os.environ.get(os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY", "")
+
+
 def streaming_wanted() -> bool:
     return os.environ.get("QWEN38_LOCAL_STREAM", "").strip() == "1"
 
@@ -126,8 +132,8 @@ def streaming_wanted() -> bool:
 def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True) -> dict:
     """Ask a JSON question, sharing the timeout across endpoints and at most one length retry."""
     headers = {}
-    if os.environ.get("QWEN38_LOCAL_API_KEY"):
-        headers["Authorization"] = "Bearer " + os.environ["QWEN38_LOCAL_API_KEY"]
+    if endpoint_key():
+        headers["Authorization"] = "Bearer " + endpoint_key()
     payload = {
         "model": MODEL, "temperature": 0, "max_tokens": max_tokens,
         "chat_template_kwargs": {"enable_thinking": False},

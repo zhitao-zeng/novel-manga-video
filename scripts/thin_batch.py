@@ -281,8 +281,9 @@ class Batch:
         for base in qwen_endpoints():
             try:
                 probe = urllib.request.Request(f"{base}/models")
-                if os.environ.get("QWEN38_LOCAL_API_KEY"):  # an endpoint behind a key answers 401 to a bare probe
-                    probe.add_header("Authorization", "Bearer " + os.environ["QWEN38_LOCAL_API_KEY"])
+                key = os.environ.get(os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY", "")
+                if key:  # an endpoint behind a key answers 401 to a bare probe
+                    probe.add_header("Authorization", "Bearer " + key)
                 with urllib.request.urlopen(probe, timeout=20) as response:  # noqa: S310 - local service; a proxied catalogue takes ~8 s
                     response.read(200)
                 alive.append(base)
