@@ -86,6 +86,11 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
     request = {k: v for k, v in payload.items() if k != "chat_template_kwargs"}
     request.update({"stream": True, "stream_options": {"include_usage": True}})
     request.setdefault("reasoning_effort", os.environ.get("QWEN38_LOCAL_REASONING", "low"))
+    # The callers' budgets fit the local model's context window; a platform
+    # model has room to spare but counts its reasoning inside max_tokens.
+    floor = int(os.environ.get("QWEN38_LOCAL_MIN_MAX_TOKENS", "16000") or 0)
+    if floor > 0:
+        request["max_tokens"] = max(int(request.get("max_tokens") or 0), floor)
     content, reasoning, finish, usage = [], [], None, None
     with client.stream("POST", url, headers=headers, json=request, timeout=timeout) as response:
         if response.status_code >= 400:
