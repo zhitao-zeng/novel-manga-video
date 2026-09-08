@@ -331,6 +331,8 @@ def fill_characters(bible: StoryBible, bible_path: Path, missing: dict, text: st
 
 LOCATION_SCHEMA = obj({"locations": {"type": "array", "items": obj({
     "name": {"type": "string"}, "description": {"type": "string"}, "scene_count": {"type": "integer"},
+    "time_of_day": {"type": "string", "enum": ["白天", "夜晚", "黄昏", "清晨", "不定"]},
+    "main_light": {"type": "string"},
 })}})
 GENERIC_PLACES = re.compile(r"^(路上|远处|门外|门口|外面|里面|附近|某处|空中|天上|地上|前方|后方|这里|那里|途中|路边)$")
 
@@ -340,6 +342,8 @@ def extract_locations(chapter_text: str, known_locations: list[str]) -> list[dic
     prompt = (
         "列出这段小说里发生场景的地点：能画成一张空场景图的具体地方（如 楚家广场、山崖之巅、赤岩城药材店），每个给一句可画的视觉描述"
         "（空间、主要物件、时间与光线）和本段在此发生的场景数。不要列泛指的地点（路上、远处、门口）。"
+        "另给每个地点判断 time_of_day（本段在此发生时通常是白天、夜晚、黄昏、清晨，说不清写不定）和 main_light"
+        "（主光源，如 煤气灯、壁炉、窗外日光、篝火、洞顶天光、手机屏幕；按原文写，没写就按地点常识）。"
         + (f"已有的地点名：{recent}。如果本段的地点就是其中之一，name 必须原样使用已有名字。" if recent else "")
         + "只输出JSON。\n\n" + chapter_text
     )
@@ -422,10 +426,43 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     if added_locations:
         bible = bible.model_copy(update={"locations": [*bible.locations, *added_locations]})
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
+    timed = fill_location_time(novel_dir, location_rows, known_locations)
+    if timed:
+        log(f"bible ch{chapter_index}: location_time filled for {timed}")
     growth[str(chapter_index)] = {"characters": filled, "locations": [x.split("：", 1)[0] for x in added_locations], "suggestions": suggestions, "needs_human": needs_human}
     atomic_write_json(growth_path, growth)
     log(f"bible ch{chapter_index}: +{len(filled)} characters {filled or ''} +{len(added_locations)} locations {[x.split('：', 1)[0] for x in added_locations] or ''}; suggestions {list(suggestions) or 'none'}; bible now {len(bible.characters)}/{len(bible.locations)}")
     return {"characters": filled, "locations": added_locations, "suggestions": suggestions}
+
+
+def fill_location_time(novel_dir: Path, location_rows: list[dict], known_locations: list[str]) -> list[str]:
+    """Write the usual time of day and main light of the scanned places into
+    visual_grammar.json's location_time, for entries still empty.  The planner
+    locks each stage's light to this table and the reviewer checks against it;
+    an empty entry leaves both guessing (chapter 1 of 诸天 went night -> day)."""
+    grammar_path = novel_dir / "visual_grammar.json"
+    if not grammar_path.is_file():
+        return []
+    try:
+        grammar = json.loads(grammar_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    table = grammar.setdefault("location_time", {})
+    filled: list[str] = []
+    for row in location_rows:
+        name = re.sub(r"\s+", "", str(row.get("name", "")))
+        when = str(row.get("time_of_day") or "").strip()
+        light = re.sub(r"\s+", " ", str(row.get("main_light") or "")).strip()
+        if len(name) < 2 or not when or when == "不定" and not light:
+            continue
+        key = next((k for k in known_locations if name_matches(name, [k])), name)
+        if str(table.get(key, "")).strip():
+            continue
+        table[key] = (f"{when}，{light}为主光" if light and when != "不定" else (light + "为主光" if light else when))
+        filled.append(key)
+    if filled:
+        atomic_write_json(grammar_path, grammar)
+    return filled
 
 
 # ---- judge 2: cards ----
