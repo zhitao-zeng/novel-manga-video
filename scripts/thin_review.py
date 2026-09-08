@@ -101,12 +101,16 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
                 event = json.loads(data)
             except ValueError:
                 continue
+            if isinstance(event, dict) and event.get("error"):
+                raise RuntimeError(f"streamed error from {url}: {json.dumps(event['error'], ensure_ascii=False)[:300]}")
             for choice in event.get("choices") or []:
                 delta = choice.get("delta") or {}
                 content.append(delta.get("content") or "")
                 reasoning.append(delta.get("reasoning_content") or delta.get("reasoning") or "")
                 finish = choice.get("finish_reason") or finish
             usage = event.get("usage") or usage
+    if not "".join(content) and not "".join(reasoning):
+        raise RuntimeError(f"empty streamed response from {url} (finish={finish}, usage={usage})")
     return {"choices": [{"message": {"content": "".join(content), "reasoning": "".join(reasoning)}, "finish_reason": finish}], "usage": usage}
 
 
