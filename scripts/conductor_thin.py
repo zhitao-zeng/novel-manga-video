@@ -162,8 +162,13 @@ class Conductor:
         return proc is not None and proc.poll() is None
 
     def external_running(self, pattern: str) -> bool:
+        """A process matching `pattern` that this conductor did not start."""
         # "--" ends pgrep's own options: the patterns start with "--chapters".
-        return subprocess.run(["pgrep", "-f", "--", pattern], capture_output=True).returncode == 0
+        result = subprocess.run(["pgrep", "-f", "--", pattern], capture_output=True, text=True)
+        if result.returncode != 0:
+            return False
+        own = {str(proc.pid) for proc in self.procs.values() if proc.poll() is None}
+        return any(pid.strip() and pid.strip() not in own for pid in result.stdout.split())
 
     def spawn(self, name: str, command: list[str], extra_env: dict | None = None) -> None:
         if self.dry:
