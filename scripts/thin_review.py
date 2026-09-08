@@ -720,6 +720,15 @@ MISSING = re.compile(r"缺失|未出现|完全未出现|没有出现|未出场")
 LEAD_ROLES = {"主角", "女主角", "男主角"}
 
 
+def apply_genre_review_rules(novel_dir: Path) -> None:
+    """Per-novel review rules from the genre preset: a fantasy cast has tails
+    and horns by design, so the breakdown pattern drops those words."""
+    global BREAKDOWN
+    pattern = load_genre(load_profile(novel_dir)).get("breakdown_pattern")
+    if pattern:
+        BREAKDOWN = re.compile(pattern)
+
+
 def fix_tier(verdict: dict, bible: StoryBible) -> str:
     """must_fix / optional / ignore for a failed clip verdict.  A viewer notices a
     broken body, a lead with the wrong face, or a speaking character who is not
@@ -763,6 +772,7 @@ def bible_root(work_dir: Path) -> Path:
 
 def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     novel_dir = episode_dir.parent
+    apply_genre_review_rules(novel_dir)
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}
