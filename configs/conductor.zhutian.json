@@ -11,7 +11,9 @@
   ],
   "ranges": [
     {"chapters": "1001-1250", "plan_mode": 30},
-    {"chapters": "1251-1500", "plan_mode": 15}
+    {"chapters": "1251-1500", "plan_mode": 30},
+    {"chapters": "1501-1750", "plan_mode": 15},
+    {"chapters": "1751-2000", "plan_mode": 15}
   ],
   "planning": {"blocks_max": 8, "blocks_min": 2, "block_size": 63, "margin": 20},
   "qwen": {

@@ -41,9 +41,10 @@ BASE_ENV = {"PYTHONPATH": "src:scripts", "NOVEL_PLANNER_BACKEND": "deterministic
 
 
 class Conductor:
-    def __init__(self, config: dict, dry_run: bool):
+    def __init__(self, config: dict, dry_run: bool, plan_only: bool = False):
         self.cfg = config
         self.dry = dry_run
+        self.plan_only = plan_only  # reading, planning and cards only: no rendering lanes
         self.novel_dir = (REPO / config["novel_dir"]).resolve()
         self.novel_id = self.novel_dir.name
         self.tmp = Path(config.get("tmp_dir", "/mnt/disk1/zengzhitao/tmp/conductor"))
@@ -370,11 +371,12 @@ class Conductor:
         locked = [int(p.parent.name.split("_")[-1]) for p in self.novel_dir.glob(f"{self.novel_id}_*/.render.lock")]
         card_waits = self.recent_lines(locked, "waiting for in-flight redraw", 600)
         congested = waiting > self.cfg["qwen"].get("waiting_high", 40) or card_waits > self.cfg["qwen"].get("card_waits_high", 3)
-        for name, key in self.keys.items():
-            lane = self.lanes[name]
-            chapters = list(range(lane["range"][0], lane["range"][1] + 1)) if lane["range"] else []
-            self.tick_aimd(name, key, chapters)
-        self.tick_lanes(stats)
+        if not self.plan_only:
+            for name, key in self.keys.items():
+                lane = self.lanes[name]
+                chapters = list(range(lane["range"][0], lane["range"][1] + 1)) if lane["range"] else []
+                self.tick_aimd(name, key, chapters)
+            self.tick_lanes(stats)
         self.tick_planning(congested)
         self.tick_review(waiting, stats)
         summary = " | ".join(f"{r['a']}-{r['b']}: done {s['done']}/{s['total']} planned {s['planned']} renderable {len(s['renderable'])}"
@@ -383,11 +385,14 @@ class Conductor:
         self.log(f"tick: {summary} | inflight {pools} | qwen waiting {waiting} card waits {card_waits}{' CONGESTED' if congested else ''}")
         state = {"lanes": self.lanes, "blocks": [{k: v for k, v in b.items()} for b in self.blocks], "time": time.time()}
         (self.tmp / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-        all_done = all(self.range_finished(r, stats[id(r)]) for r in self.ranges)
+        if self.plan_only:
+            all_done = all(b["done"] for b in self.blocks) and not any(self.alive(n) for n in self.procs if n.startswith("prepass_"))
+        else:
+            all_done = all(self.range_finished(r, stats[id(r)]) for r in self.ranges)
         return not all_done
 
     def run(self, once: bool) -> None:
-        self.log(f"conductor up ({'dry run' if self.dry else 'live'}), ranges {[(r['a'], r['b'], r['plan_mode']) for r in self.ranges]}")
+        self.log(f"conductor up ({'dry run' if self.dry else 'live'}{', plan only' if self.plan_only else ''}), ranges {[(r['a'], r['b'], r['plan_mode']) for r in self.ranges]}")
         while True:
             more = self.tick()
             if once or not more:
@@ -404,9 +409,10 @@ def main() -> int:
     parser.add_argument("--config", required=True)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--plan-only", action="store_true", help="reading, planning and cards only; no rendering lanes")
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text(encoding="utf-8"))
-    Conductor(config, args.dry_run).run(args.once)
+    Conductor(config, args.dry_run, args.plan_only).run(args.once)
     return 0
 
 
