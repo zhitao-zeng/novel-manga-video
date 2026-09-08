@@ -562,7 +562,14 @@ def acquire_inflight_slot(novel_dir: Path, limit: int):
     directory = novel_dir / (f".inflight-{pool}" if pool else ".inflight")
     directory.mkdir(parents=True, exist_ok=True)
     while True:
-        for index in range(limit):
+        # A `limit` file in the pool (the conductor's AIMD on 429s) lowers the
+        # cap live; --inflight stays the ceiling.
+        effective = limit
+        try:
+            effective = max(1, min(limit, int((directory / "limit").read_text(encoding="utf-8").strip() or limit)))
+        except (OSError, ValueError):
+            pass
+        for index in range(effective):
             handle = open(directory / f"slot_{index:02d}.lock", "w")
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -1,0 +1,24 @@
+{
+  "novel_dir": "outputs/zhutian-card",
+  "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor",
+  "tick_seconds": 90,
+  "round_gap_seconds": 120,
+  "keys": [
+    {"name": "sd25", "model": "sd2.5", "key_var": "PHANROUTER_API_KEY", "pool": "", "clip_cap": 30,
+     "inflight": {"min": 4, "max": 30, "start": 24}, "parallel": 9},
+    {"name": "sd20", "model": "sd2.0", "key_var": "PHANROUTER_IMAGE_API_KEY", "pool": "sd20", "clip_cap": 15,
+     "inflight": {"min": 4, "max": 30, "start": 16}, "parallel": 6}
+  ],
+  "ranges": [
+    {"chapters": "1001-1250", "plan_mode": 30},
+    {"chapters": "1251-1500", "plan_mode": 15}
+  ],
+  "planning": {"blocks_max": 8, "blocks_min": 2, "block_size": 63, "margin": 20},
+  "qwen": {
+    "urls": ["http://127.0.0.1:18120/v1", "http://127.0.0.1:18121/v1", "http://127.0.0.1:18122/v1", "http://127.0.0.1:18123/v1", "http://127.0.0.1:18124/v1"],
+    "waiting_high": 40, "waiting_low": 5, "card_waits_high": 3
+  },
+  "aimd": {"window_seconds": 600, "decrease_at": 5, "increase_after_seconds": 600, "increase_step": 2,
+           "park_after_seconds": 1800, "park_seconds": 3600},
+  "review": {"parallel": 3}
+}
