@@ -1071,7 +1071,11 @@ def strict_plan_errors(shots: list[dict], chapter_text: str, segments: list[dict
     if found["spoken_chars"] < low:
         errors.append(f"发声字数 {found['spoken_chars']} 低于下限 {low}：把下列原文台词逐字加回对应阶段，作为可见或画外台词，不要改写：" + " / ".join(q[:40] for q in missing[:8]))
     elif found["spoken_chars"] > high:
-        errors.append(f"发声字数 {found['spoken_chars']} 高于上限 {high}：删减铺垫和重复的台词，或把次要对话改为群消息、动作或跳过；保留原文引号里推动剧情的句子")
+        turns = sorted(((spoken_chars(turn["text"]), turn["text"]) for shot in shots for turn in shot["turns"]
+                        if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}), reverse=True)
+        longest = "；".join(f"「{text[:24]}…」({chars}字)" for chars, text in turns[:5])
+        errors.append(f"发声字数 {found['spoken_chars']} 高于上限 {high}，至少删掉 {found['spoken_chars'] - high} 字：优先把这些最长的台词删掉或改为一句动作描述："
+                      f"{longest}；铺垫、寒暄、重复的话不要保留，只留原文引号里推动剧情的句子，不要新增台词")
     if quotes and missing:
         last = quotes[-1]
         if last in missing:
