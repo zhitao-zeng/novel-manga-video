@@ -1064,35 +1064,22 @@ def missing_quotes(shots: list[dict], chapter_text: str) -> list[str]:
 
 
 def strict_plan_errors(shots: list[dict], chapter_text: str, segments: list[dict], raw: dict) -> list[str]:
-    """Opt-in gates (NOVEL_PLAN_STRICT=1).  Fidelity first: paraphrased lines go
-    back to the original wording, the closing line and the bulk of the quoted
-    lines must survive; the spoken budget only gates when far outside its
-    range, and never by rewriting.  Each error tells the model what to do."""
+    """Opt-in gates (NOVEL_PLAN_STRICT=1), kept to what changes an episode's
+    length a lot: a plan far below or far above the spoken budget is redone
+    once or twice.  Wording fidelity, the closing line and the share of quoted
+    lines stay report-only (the user chose throughput over verbatim lines)."""
     skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in (raw.get("skipped_segments") or []) if isinstance(item, dict)}
     found = metrics(shots, chapter_text, segments, skipped)
-    quotes = chapter_quotes(chapter_text)
     missing = list(found.get("missing_quoted_lines", []))
     low, high = SPOKEN_RANGE
     errors: list[str] = []
-    chapter_key = quote_key(chapter_text)
     spoken_turns = [turn["text"] for shot in shots for turn in shot["turns"] if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}]
-    rewritten = [text for text in spoken_turns if spoken_chars(text) >= 6 and quote_key(text) not in chapter_key]
-    ratio = found.get("verbatim_ratio")
-    if ratio is not None and found["spoken_chars"] >= 60 and ratio < 0.6 and rewritten:
-        errors.append(f"逐字率 {ratio:.2f} 低于 0.6：这些台词不是原文原句，换回原文里对应的整句（逐字复制，不得改写、缩写或合并）："
-                      + " / ".join(f"「{text[:30]}」" for text in rewritten[:6]))
     if found["spoken_chars"] < low * 0.6:
-        errors.append(f"发声字数 {found['spoken_chars']} 远低于下限 {low}：把下列原文台词逐字加回对应阶段，作为可见或画外台词，不要改写：" + " / ".join(q[:40] for q in missing[:8]))
+        errors.append(f"发声字数 {found['spoken_chars']} 远低于下限 {low}：把下列原文台词加回对应阶段，作为可见或画外台词（可适当精简）：" + " / ".join(q[:40] for q in missing[:8]))
     elif found["spoken_chars"] > high * 1.5:
         longest = "；".join(f"「{text[:24]}…」({spoken_chars(text)}字)" for text in sorted(spoken_turns, key=spoken_chars, reverse=True)[:5])
-        errors.append(f"发声字数 {found['spoken_chars']} 远高于上限 {high}，至少删掉 {found['spoken_chars'] - high} 字：整句删除寒暄、铺垫和重复的台词（例如 {longest}），"
-                      "或把整句改为一句动作描述；凡是保留的台词一个字都不能改，不得缩写或合并，不得新增台词")
-    if quotes and missing:
-        last = quotes[-1]
-        if last in missing:
-            errors.append(f"章末台词必须逐字出现在最后一个阶段的台词里：{last[:60]}")
-        if len(missing) / len(quotes) > 0.6:
-            errors.append(f"原文引号台词丢失 {len(missing)}/{len(quotes)}，超过六成：至少补回其中推动剧情的句子（逐字）：" + " / ".join(q[:30] for q in missing[:10]))
+        errors.append(f"发声字数 {found['spoken_chars']} 远高于上限 {high}，至少删掉 {found['spoken_chars'] - high} 字：删除或精简寒暄、铺垫和重复的台词（例如 {longest}），"
+                      "或把整句改为一句动作描述；不要新增台词")
     return errors
 
 
