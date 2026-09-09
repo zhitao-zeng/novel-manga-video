@@ -432,21 +432,21 @@ PAGE = """<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>小说成片进度</title><style>
 :root{
-  --bg:#0c0e13; --surface:#14171f; --surface-2:#1a1e29; --line:#232836;
-  --text:#e9ebf2; --dim:#9aa2b5; --faint:#6d7590;
-  --ok:#3ddc97; --warn:#f5b942; --bad:#f97066; --accent:#5b8cff; --accent-2:#38bdf8;
+  --bg:#f3f4f8; --surface:#ffffff; --surface-2:#f0f2f8; --line:#e2e5ee;
+  --text:#1f2430; --dim:#667085; --faint:#98a0b3;
+  --ok:#0e9f6e; --warn:#d97706; --bad:#e02424; --accent:#3b6fe0; --accent-2:#0ea5e9;
 }
 *{box-sizing:border-box}
-html{color-scheme:dark}
+html{color-scheme:light}
 body{margin:0;background:
-  radial-gradient(1200px 500px at 80% -10%, #16203a55, transparent),
-  radial-gradient(900px 400px at 0% -10%, #1a153055, transparent),
+  radial-gradient(1200px 500px at 80% -10%, #d7e2f766, transparent),
+  radial-gradient(900px 400px at 0% -10%, #e6dcf266, transparent),
   var(--bg);
   color:var(--text);font:14px/1.55 -apple-system,"SF Pro SC","PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased}
 .num,.stat b,.mono{font-variant-numeric:tabular-nums}
 header{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);
-  background:#0c0e13cc;border-bottom:1px solid var(--line);
+  background:#f3f4f8d9;border-bottom:1px solid var(--line);
   padding:14px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.02em}
 .health{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;
@@ -454,23 +454,23 @@ h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.02em}
 #stamp{margin-left:auto;color:var(--dim);font-size:12px}
 #stamp.err{color:var(--bad)}
 main{padding:20px 24px 40px;display:grid;gap:16px;max-width:1180px;margin:0 auto}
-.card{background:linear-gradient(180deg,#161a24, var(--surface));
+.card{background:var(--surface);
   border:1px solid var(--line);border-radius:14px;padding:16px 18px;
-  box-shadow:0 1px 0 #ffffff08 inset, 0 8px 24px #00000026}
+  box-shadow:0 1px 2px #1f24300a, 0 8px 24px #1f243008}
 .label{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:10px;font-weight:600}
 
 /* status dot with glow */
 .dot{display:inline-block;width:8px;height:8px;border-radius:99px;flex:none}
-.dot.ok{background:var(--ok);box-shadow:0 0 8px #3ddc9780}
-.dot.warn{background:var(--warn);box-shadow:0 0 8px #f5b94280}
-.dot.bad{background:var(--bad);box-shadow:0 0 8px #f9706680}
-.dot.idle{background:#4a5068;box-shadow:none}
+.dot.ok{background:var(--ok);box-shadow:0 0 6px #0e9f6e59}
+.dot.warn{background:var(--warn);box-shadow:0 0 6px #d9770659}
+.dot.bad{background:var(--bad);box-shadow:0 0 6px #e0242459}
+.dot.idle{background:#b7bdc9;box-shadow:none}
 .health.ok{color:var(--ok)}.health.warn{color:var(--warn)}.health.bad{color:var(--bad)}
 
 /* hero stats */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.stat{background:linear-gradient(180deg,#161a24,var(--surface));border:1px solid var(--line);
-  border-radius:14px;padding:14px 16px}
+.stat{background:var(--surface);border:1px solid var(--line);
+  border-radius:14px;padding:14px 16px;box-shadow:0 1px 2px #1f24300a}
 .stat .k{font-size:11.5px;color:var(--dim);letter-spacing:.06em;margin-bottom:4px}
 .stat b{font-size:22px;font-weight:680;letter-spacing:-.01em}
 .stat .u{font-size:12px;color:var(--dim);font-weight:500;margin-left:2px}
@@ -481,18 +481,18 @@ main{padding:20px 24px 40px;display:grid;gap:16px;max-width:1180px;margin:0 auto
 .nrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
 .nname{font-size:16px;font-weight:650;display:flex;align-items:center;gap:9px}
 .pill{font-size:11.5px;font-weight:600;padding:2px 10px;border-radius:99px;border:1px solid var(--line);background:var(--surface-2);color:var(--dim)}
-.pill.ok{color:var(--ok);border-color:#3ddc9740}
-.pill.warn{color:var(--warn);border-color:#f5b94240}
-.pill.bad{color:var(--bad);border-color:#f9706640}
+.pill.ok{color:var(--ok);border-color:#0e9f6e40}
+.pill.warn{color:var(--warn);border-color:#d9770640}
+.pill.bad{color:var(--bad);border-color:#e0242440}
 .neta{font-size:13px;color:var(--dim)}
 .neta b{color:var(--text);font-weight:650}
 .nbody{display:grid;grid-template-columns:1fr 240px;gap:18px;align-items:end}
-.track{height:7px;background:#20242f;border-radius:99px;overflow:hidden;display:flex;margin:10px 0 8px}
+.track{height:7px;background:#e7eaf2;border-radius:99px;overflow:hidden;display:flex;margin:10px 0 8px}
 .fill{background:linear-gradient(90deg,var(--accent),var(--accent-2));height:100%}
-.fill.plan{background:#3a4358;height:100%}
+.fill.plan{background:#c6cddd;height:100%}
 .nmeta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--dim);font-size:12.5px}
 .spark{display:flex;align-items:flex-end;gap:2px;height:34px}
-.spark i{flex:1;background:linear-gradient(180deg,var(--accent),#5b8cff55);border-radius:2px 2px 0 0;min-height:2px;opacity:.55}
+.spark i{flex:1;background:linear-gradient(180deg,var(--accent),#3b6fe055);border-radius:2px 2px 0 0;min-height:2px;opacity:.55}
 .spark i:last-child{opacity:1}
 .spark-label{font-size:11px;color:var(--dim);text-align:right;margin-top:4px}
 .tick{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dim);
@@ -517,9 +517,9 @@ summary:hover{color:var(--text)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{color:var(--dim);font-weight:600;font-size:11.5px;letter-spacing:.06em;text-align:left;
   padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap}
-td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid #1d222e;white-space:nowrap}
+td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid #eef0f6;white-space:nowrap}
 tbody tr{transition:background .15s}
-tbody tr:hover{background:#ffffff06}
+tbody tr:hover{background:#1f243005}
 tr:last-child td{border-bottom:0}
 .dim{color:var(--dim)}.warn-t{color:var(--warn)}.ok-t{color:var(--ok)}
 .pills{display:flex;gap:8px;flex-wrap:wrap}
