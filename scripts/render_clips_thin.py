@@ -44,6 +44,7 @@ from novel_manga.render import Renderer
 from novel_manga.runtime_backends import correct_protected_lexicon, edit_distance, normalize_text
 from novel_manga.sd_dialogue import timed_subtitle_pages
 from novel_manga.util import atomic_write_json, media_duration, run
+import moderation_repair
 from novel_manga.render import _fit_cover
 from dataclasses import replace as dc_replace
 
@@ -645,10 +646,11 @@ def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> li
     return waited
 
 class ThinMediaRunner:
-    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False):
+    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False, moderation_repair: bool = True):
         self.novel_dir = novel_dir
         self.inflight = inflight  # global cap on clips in flight across every runner of this novel (0 = none)
         self.prescreen = prescreen
+        self.moderation_repair = moderation_repair
         self.episode_dir = episode_dir
         self.profile = profile or load_profile(novel_dir)
         # Named frame_spec: ``self.frame`` is the frame-extraction method.
@@ -777,6 +779,47 @@ class ThinMediaRunner:
             except Exception:
                 broken.append(path)
         return broken
+
+    def save_clip_plan(self) -> None:
+        """Write the plan back without the runner's own bookkeeping keys."""
+        plan = {**self.clip_plan, "clips": [{k: v for k, v in clip.items() if not k.startswith("_")} for clip in self.clip_plan["clips"]]}
+        atomic_write_json(self.episode_dir / "clip_plan.json", plan)
+
+    def repair_refused_prompt(self, clip: dict, attempt: int) -> bool:
+        """Rewrite a prompt the text filter refuses, verified before it is paid for."""
+        def assemble(base: str) -> str:
+            saved = clip["prompt"]
+            clip["prompt"] = base
+            try:
+                return self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "") + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
+            finally:
+                clip["prompt"] = saved
+
+        # A guest character may be renamed to get past the filter (the card binding
+        # is by image index, so the picture does not change), but the series leads
+        # may not: their names run through every episode's plan and review.
+        leads = tuple(c.name for c in self.bible.characters if str(getattr(c, "role", "")) in {"主角", "女主角", "男主角"})
+        repaired = moderation_repair.repair(
+            clip["prompt"], self.settings, assemble=assemble, protect=leads,
+            log=lambda message: log(f"{clip['clip_id']}: {message}"))
+        if not repaired:
+            return False
+        text, line_edits = repaired
+        clip.setdefault("prompt_before_repair", clip["prompt"])
+        clip["prompt"] = text
+        # Subtitles and the speech gate read clip["lines"], so a line the rewrite
+        # had to change is changed there too - otherwise the episode would caption
+        # words nobody says.
+        for edit in line_edits:
+            for line in clip.get("lines", []):
+                if edit["old"] in str(line.get("text", "")):
+                    line["text"] = str(line["text"]).replace(edit["old"], edit["new"])
+        if line_edits:
+            log(f"{clip['clip_id']}: repaired lines {[e['new'] for e in line_edits]}")
+        # The plan is the cache key of a clip: keeping the accepted wording there
+        # means a later run reuses this video instead of paying for it again.
+        self.save_clip_plan()
+        return True
 
     # ---- one clip ----
     def clip_prompt(self, clip: dict) -> str:
@@ -1088,6 +1131,14 @@ class ThinMediaRunner:
                         clip["_softened"] = True
                         log(f"{clip['clip_id']}: prompt text refused by input moderation; retrying once with softened wording")
                         continue
+                    if INPUT_TEXT_MARKER in str(error) and self.moderation_repair and not clip.get("_repaired"):
+                        # Softening did not help.  Ask the filter itself where the
+                        # refusal lives, rewrite that part and verify the rewrite
+                        # before another video is paid for.
+                        clip["_repaired"] = True
+                        log(f"{clip['clip_id']}: still refused after softening; repairing the wording against the filter")
+                        if self.repair_refused_prompt(clip, attempt):
+                            continue
                     if any(marker in str(error) for marker in OUTPUT_MODERATION_MARKERS) and not clip.get("_compliance"):
                         # The generated video tripped the service's output filter;
                         # one retry with an explicit compliance line, same attempt.
@@ -1489,6 +1540,7 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=4, help="clips submitted at once for this episode; 0 = one per clip")
     parser.add_argument("--inflight", type=int, default=0, help="global cap on clips in flight across all runners of the novel (lock-file semaphore); 0 = none")
     parser.add_argument("--prescreen", action="store_true", help="ask the local Qwen for content-filter risk and soften risky prompts before the first submission")
+    parser.add_argument("--no-moderation-repair", dest="moderation_repair", action="store_false", default=True, help="do not bisect and rewrite a prompt the text filter keeps refusing")
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--assets-only", action="store_true", help="build the cards this episode needs, write series_assets/cards_sheet.jpg for review, and stop before any video")
@@ -1501,7 +1553,7 @@ def main() -> int:
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
-    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen)
+    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair)
     clips = [c for c in runner.clip_plan["clips"] if c["kind"] == "video"]
     summary = {
         "profile": runner.profile, "canvas": f"{runner.settings.width}x{runner.settings.height}",

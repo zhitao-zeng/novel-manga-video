@@ -439,7 +439,7 @@ class Batch:
         lock.write_text(str(os.getpid()), encoding="utf-8")
         try:
             self.prepare_cards(chapter)
-            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else [])
+            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"])
             for attempt in (1, 2):
                 log(f"ch{chapter}: rendering (attempt {attempt})")
                 code, problem = self.run(command, directory / "render.log")
@@ -749,6 +749,7 @@ def main() -> int:
     parser.add_argument("--card-parallel", type=int, default=6, help="asset cards built at the same time (one process per asset)")
     parser.add_argument("--inflight", type=int, default=20, help="global cap on clips in flight across all rendering episodes (0 = none)")
     parser.add_argument("--no-prescreen", dest="prescreen", action="store_false", default=True, help="skip the local content-filter prescreen of prompts")
+    parser.add_argument("--no-moderation-repair", dest="moderation_repair", action="store_false", default=True, help="skip the bisect-and-rewrite rescue of prompts the text filter refuses")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
 
