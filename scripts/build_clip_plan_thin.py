@@ -84,7 +84,24 @@ def is_title_card(shot: dict) -> bool:
     return all(turn["delivery_mode"] == "title_card" for turn in shot["turns"])
 
 
+PACKER_VERSION = "thin-packer-2026-09-09+decisions"
+DECISIONS: list[dict] = []  # observation only; written to pack_decisions.json by main()
+
+
+def _cut_checks(current: dict, last: dict, shot: dict, seconds: float) -> dict[str, bool]:
+    """Every cut condition the packer tests, in the order it tests them."""
+    return {
+        "location": shot["location"] != current["location"],
+        "clip_hint": bool(shot.get("clip_hint") and shot.get("clip_hint") != last.get("clip_hint")),
+        "duration": current["seconds"] + seconds > MAX_CLIP_SECONDS,
+        "stage_limit": len(current["shots"]) >= MAX_STAGES,
+        "source_chunk": bool(not shot.get("clip_hint") and current["seconds"] >= SOFT_CUT_SECONDS
+                             and shot["segment_id"] != last["segment_id"]),
+    }
+
+
 def pack(shots: list[dict]) -> list[dict]:
+    DECISIONS.clear()
     clips: list[dict] = []
     current: dict | None = None
     for shot in shots:
@@ -95,20 +112,22 @@ def pack(shots: list[dict]) -> list[dict]:
             clips.append({"kind": "title_card", "location": shot["location"], "shots": [shot], "seconds": 3.0})
             continue
         seconds = shot_seconds(shot)
+        if seconds > MAX_CLIP_SECONDS:
+            # Nothing below re-checks a stage that is too long on its own: recorded, not fixed.
+            DECISIONS.append({"kind": "single_stage_over_cap", "stage": shot.get("origin_index"),
+                              "seconds": round(seconds, 2), "cap": MAX_CLIP_SECONDS})
         if current is not None:
             last = current["shots"][-1]
-            cut = (
-                shot["location"] != current["location"]
-                or (shot.get("clip_hint") and shot.get("clip_hint") != last.get("clip_hint"))
-                or current["seconds"] + seconds > MAX_CLIP_SECONDS
-                or len(current["shots"]) >= MAX_STAGES
-                or (
-                    not shot.get("clip_hint")
-                    and current["seconds"] >= SOFT_CUT_SECONDS
-                    and shot["segment_id"] != last["segment_id"]
-                )
-            )
+            checks = _cut_checks(current, last, shot, seconds)
+            cut = any(checks.values())  # the same disjunction as before; every term is side-effect free
             if cut:
+                violated = [name for name, hit in checks.items() if hit]
+                DECISIONS.append({
+                    "kind": "cut", "after_stage": last.get("origin_index"), "before_stage": shot.get("origin_index"),
+                    "decision_reason": violated[0], "violated_constraints": violated,
+                    "candidate_seconds": round(current["seconds"] + seconds, 2),
+                    "candidate_stages": len(current["shots"]) + 1,
+                })
                 clips.append(current)
                 current = None
         if current is None:
@@ -143,6 +162,9 @@ def absorb_small_clips(clips: list[dict]) -> list[dict]:
                     and len(neighbour["shots"]) + len(clip["shots"]) <= MAX_STAGES
                 ):
                     shots = clip["shots"] + neighbour["shots"] if neighbour_index > index else neighbour["shots"] + clip["shots"]
+                    DECISIONS.append({"kind": "absorbed", "small_clip_seconds": clip["seconds"],
+                                      "into": "next" if neighbour_index > index else "previous",
+                                      "merged_seconds": round(neighbour["seconds"] + clip["seconds"], 2)})
                     neighbour["shots"] = shots
                     neighbour["seconds"] = round(neighbour["seconds"] + clip["seconds"], 2)
                     result.pop(index)
@@ -590,6 +612,13 @@ def main() -> int:
     plan = {"policy": POLICY, "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
     totals["lint_by_code"] = {k: v for k, v in totals["lint_by_code"].items() if v}
     atomic_write_json(episode_dir / "clip_plan.json", plan)
+    # Observation only: why the packer cut where it did.  clip_plan.json is unchanged by this.
+    atomic_write_json(episode_dir / "pack_decisions.json", {
+        "packer_version": PACKER_VERSION,
+        "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "max_stages": MAX_STAGES, "soft_cut_seconds": SOFT_CUT_SECONDS,
+                   "min_standalone_seconds": MIN_STANDALONE_SECONDS},
+        "decisions": list(DECISIONS),
+    })
     report_path = episode_dir / "thin_media_report.json"
     if report_path.is_file():
         # The runner stamps the plan it rendered; a report for a different plan

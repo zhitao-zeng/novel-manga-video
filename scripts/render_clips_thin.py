@@ -933,6 +933,10 @@ class ThinMediaRunner:
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
         started = time.monotonic()
         slot = acquire_inflight_slot(self.novel_dir, self.inflight)
+        # Everything before this point was waiting for a free slot of the key's
+        # concurrency, not the video service working: timing them together hid
+        # how long a generation really takes and how long the lane was queueing.
+        submitted = time.monotonic()
         try:
           for wait in (*SUBMIT_BACKOFF_SECONDS, None):
             try:
@@ -948,7 +952,9 @@ class ThinMediaRunner:
                 time.sleep(wait)
         finally:
             release_inflight_slot(slot)
-        log(f"{clip['clip_id']} attempt {attempt}: video ready in {time.monotonic() - started:.0f}s ({media_duration(output):.1f}s long)")
+        finished = time.monotonic()
+        log(f"{clip['clip_id']} attempt {attempt}: video ready in {finished - submitted:.0f}s "
+            f"(queued {submitted - started:.0f}s, {media_duration(output):.1f}s long)")
         return output
 
     def analyse_clip(self, clip: dict, video: Path) -> dict:
