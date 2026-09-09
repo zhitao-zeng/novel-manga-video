@@ -88,7 +88,7 @@ PACKER_VERSION = "thin-packer-2026-09-09+decisions"
 # "planned": every rule below cuts (today's behaviour).  "execution": only the rules the
 # video service enforces cut - location, length cap, stage ceiling - and the planner's
 # clip_hint and the source-segment boundary are recorded but not acted on.
-PACK_MODE = os.environ.get("NOVEL_PACK_MODE", "planned").strip() or "planned"
+PACK_MODE = os.environ.get("NOVEL_PACK_MODE", "execution").strip() or "execution"
 EXECUTION_RULES = ("location", "duration", "stage_limit")
 DECISIONS: list[dict] = []  # observation only; written to pack_decisions.json by main()
 
