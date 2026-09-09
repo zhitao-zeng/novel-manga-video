@@ -193,6 +193,30 @@ def _range_bounds(spec: str) -> list[int]:
     return numbers
 
 
+def _range_display(spec: str) -> tuple[str, str]:
+    """A compact label for a --chapters spec.  A replan lane can carry hundreds
+    of scattered chapter numbers; consecutive runs collapse ("576-578") and a
+    long result truncates to its first segments plus a count - the full compact
+    form goes to the tooltip so one wide cell can't wreck the whole table."""
+    numbers = sorted(set(_range_bounds(spec)))
+    if not numbers:
+        return spec, spec
+    parts = []
+    start = prev = numbers[0]
+    for number in numbers[1:]:
+        if number == prev + 1:
+            prev = number
+            continue
+        parts.append(f"{start}-{prev}" if prev > start else str(start))
+        start = prev = number
+    parts.append(f"{start}-{prev}" if prev > start else str(start))
+    full = ", ".join(parts)
+    if len(full) <= 60:
+        return full, full
+    tip = full if len(full) <= 600 else full[:600] + " …"
+    return f"{', '.join(parts[:3])} … 共 {len(numbers)} 章", tip
+
+
 def _lanes() -> list[dict]:
     """One row per running batch lane, described by its own command line and environment."""
     rows = []
@@ -245,10 +269,12 @@ def _lanes() -> list[dict]:
         hours = max((time.time() - since) / 3600, 1 / 3600) if since else 0
         rate = round(done / hours, 1) if hours else None
         left = len(chapters) - covered
+        short_range, full_range = _range_display(range_match.group(1))
         rows.append({
             "novel": TITLES.get(novel_id, novel_id),
             "stage": {"plan": "规划", "render": "渲染", "review": "审查"}.get(stage, stage),
-            "range": range_match.group(1), "mode": mode, "model": (f"{model} · {host}" if host else model),
+            "range": short_range, "range_full": full_range,
+            "mode": mode, "model": (f"{model} · {host}" if host else model),
             "done": done, "covered": covered, "total": len(chapters), "current": newest,
             "rate": rate, "eta_hours": round(left / rate, 1) if rate else None,
             "age": round(time.time() - newest_at) if newest_at else None,
@@ -693,6 +719,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 th{color:var(--dim);font-weight:600;font-size:11.5px;letter-spacing:.06em;text-align:left;
   padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap}
 td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid #eef0f6;white-space:nowrap}
+td.rng{max-width:280px;overflow:hidden;text-overflow:ellipsis;cursor:default}
 tbody tr{transition:background .15s}
 tbody tr:hover{background:#1f243005}
 tr:last-child td{border-bottom:0}
@@ -702,6 +729,7 @@ tr:last-child td{border-bottom:0}
 /* tooltip + charts */
 #tip{display:none;position:fixed;z-index:50;pointer-events:none;background:#1f2430;color:#f2f4f8;
   font-size:12px;padding:4px 10px;border-radius:8px;box-shadow:0 4px 16px #1f243040;white-space:nowrap}
+#tip.long{white-space:normal;max-width:70vw;word-break:break-all}
 .sparksvg{width:100%;display:block;overflow:visible}
 .sparksvg .sb{fill:url(#sbg)}
 .sparksvg .sb:hover{stroke:var(--accent);stroke-width:1.2}
@@ -757,10 +785,12 @@ TIP_JS = """const tipEl=document.getElementById("tip");
 document.addEventListener("mousemove",e=>{
   const t=e.target.closest&&e.target.closest("[data-tip]");
   if(!t){tipEl.style.display="none";return;}
-  tipEl.textContent=t.dataset.tip;tipEl.style.display="block";
+  tipEl.textContent=t.dataset.tip;
+  tipEl.className=t.dataset.tip.length>80?"long":"";
+  tipEl.style.display="block";
   const w=tipEl.offsetWidth,h=tipEl.offsetHeight;
   let x=e.clientX+12,y=e.clientY-h-10;
-  if(x+w>innerWidth-8)x=e.clientX-w-12;
+  if(x+w>innerWidth-8)x=Math.max(8,e.clientX-w-12);
   if(y<8)y=e.clientY+14;
   tipEl.style.left=x+"px";tipEl.style.top=y+"px";
 });"""
@@ -822,7 +852,7 @@ function novelCard(d, n){
   const last = n.last_final ? new Date(n.last_final*1000).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}) : "—";
   const detailRows = (lanes.length + workers.length)
     ? `<table style="margin-top:8px"><tbody>` +
-      lanes.map(l=>`<tr><td class="dim">${l.stage}通道</td><td class="num">${l.range}</td><td>${l.mode}</td><td class="dim">${l.model||"—"}</td><td class="num">本轮 ${l.done} · 剩 ${l.total-l.covered}</td><td class="${l.age>1800?"warn-t":"dim"}">${fmtAgo(l.age)}</td></tr>`).join("") +
+      lanes.map(l=>`<tr><td class="dim">${l.stage}通道</td><td class="num rng" data-tip="${l.range_full}">${l.range}</td><td>${l.mode}</td><td class="dim">${l.model||"—"}</td><td class="num">本轮 ${l.done} · 剩 ${l.total-l.covered}</td><td class="${l.age>1800?"warn-t":"dim"}">${fmtAgo(l.age)}</td></tr>`).join("") +
       workers.map(w=>`<tr><td class="dim">${w.kind}</td><td class="num">${w.what}</td><td colspan="2" class="dim">${w.detail}</td><td></td><td class="${w.elapsed>1800?"warn-t":"dim"}">已跑 ${fmtAgo(w.elapsed).replace("前","")}</td></tr>`).join("") +
       `</tbody></table>` : `<div class="dim" style="margin-top:8px;font-size:12.5px">这本书当前没有在跑的任务</div>`;
   return `<div class="card ncard">
@@ -869,7 +899,7 @@ function laneRow(l){
   return `<tr>
     <td data-l="状态"><i class="dot ${h}"></i></td>
     <td data-l="任务">${l.stage} · ${l.novel}</td>
-    <td data-l="章节" class="num">${l.range}${l.current?` · 在 ${l.current}`:""}</td>
+    <td data-l="章节" class="num rng" data-tip="${l.range_full}">${l.range}${l.current?` · 在 ${l.current}`:""}</td>
     <td data-l="档位">${l.mode} <span class="dim">${l.model||""}</span></td>
     <td data-l="进度" class="num">本轮 ${l.done} · 剩 ${l.total-l.covered}</td>
     <td data-l="速度" class="num">${l.rate==null?"—":l.rate+"/时"}${l.eta_hours!=null?` · ${fmtETA(l.eta_hours)}`:""}</td>
