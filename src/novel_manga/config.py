@@ -19,9 +19,13 @@ DEFAULT_FONT_PATH = _default_font_path()
 NATIVE_DIALOGUE_POLICY = "native_dialogue"
 
 
-# Seedance generations the production path is known to handle: 2.0 returns
-# 864x496, which the assembly step scales and pads like any other clip.
-PHANROUTER_VIDEO_MODELS = {"sd2.5", "sd2.0"}
+# Video models the production path is known to handle behind PhanRouter's
+# tasks endpoint: Seedance 2.0 returns 864x496, which the assembly step scales
+# and pads like any other clip; MiniMax-H3 is the self-hosted H3-Base service
+# (probed 2026-09-09): 768P only (1344x768 for 16:9), 4-15 s clips, AAC audio,
+# so it belongs on a 15 s lane like sd2.0.  Its limits live in
+# providers.phanrouter.VIDEO_MODEL_LIMITS.
+PHANROUTER_VIDEO_MODELS = {"sd2.5", "sd2.0", "MiniMax-H3"}
 
 
 @dataclass(frozen=True)

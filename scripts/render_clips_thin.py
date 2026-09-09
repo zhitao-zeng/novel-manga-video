@@ -33,6 +33,7 @@ from pathlib import Path
 from PIL import Image
 
 from novel_manga.config import Settings
+from novel_manga.providers.phanrouter import VIDEO_MODEL_LIMITS
 from novel_manga.models import StoryBible
 from novel_manga.production import SeriesAssetFactory
 from novel_manga.production_models import AssetRecord, SeriesAssetManifest
@@ -286,7 +287,8 @@ class FramedPhanRouter(PhanRouterMediaProvider):
     def _video_payload(self, *args, **kwargs):
         payload = super()._video_payload(*args, **kwargs)
         payload["ratio"] = self.frame["video_ratio"]
-        payload["resolution"] = self.resolution
+        # The tier's resolution (480p fast / 720p) unless the model only serves one.
+        payload["resolution"] = VIDEO_MODEL_LIMITS.get(self.settings.video_model, {}).get("resolution", self.resolution)
         return payload
 
     def create_image(self, prompt, output, reference=None, additional_references=()):

@@ -20,6 +20,15 @@ from .base import ImageResult, MediaProvider
 SUBMIT_TIMEOUT_SECONDS = 120.0  # a task submission answers in seconds; downloads keep the long request timeout
 
 
+# Per-model limits of the tasks endpoint, applied to every request regardless of
+# the frame or tier: the self-hosted H3-Base service ("MiniMax-H3") rejects any
+# resolution but 768P and any duration outside 4-15 s (probed 2026-09-09).
+# Seedance models take the caller's resolution and up to 30 s.
+VIDEO_MODEL_LIMITS: dict[str, dict[str, object]] = {
+    "MiniMax-H3": {"resolution": "768P", "max_duration": 15},
+}
+
+
 class PhanRouterMediaProvider(MediaProvider):
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -249,6 +258,7 @@ class PhanRouterMediaProvider(MediaProvider):
         additional_image_urls: tuple[str, ...] = (),
         reference_audio_urls: tuple[str, ...] = (),
     ) -> dict:
+        limits = VIDEO_MODEL_LIMITS.get(self.settings.video_model, {})
         content = [{"type": "text", "text": prompt}]
         if image_url is not None:
             content.append(
@@ -281,8 +291,8 @@ class PhanRouterMediaProvider(MediaProvider):
             "model": self.settings.video_model,
             "content": content,
             "ratio": "9:16",
-            "resolution": "720p",
-            "duration": max(4, min(30, math.ceil(duration))),
+            "resolution": limits.get("resolution", "720p"),
+            "duration": max(4, min(int(limits.get("max_duration", 30)), math.ceil(duration))),
             "generate_audio": True,
             "watermark": False,
             "output_format": "mp4",
