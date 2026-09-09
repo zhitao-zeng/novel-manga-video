@@ -69,5 +69,8 @@
   },
   "review": {
     "parallel": 3
+  },
+  "render": {
+    "prescreen": true
   }
 }

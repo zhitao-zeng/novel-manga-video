@@ -272,7 +272,10 @@ class Conductor:
                     continue  # a lane started outside the conductor is still on this range: adopt, do not duplicate
                 command = [PY, str(SCRIPTS / "thin_batch.py"), "--novel-dir", str(self.novel_dir), "--chapters", f"{r['a']}-{r['b']}",
                            "--stage", "render", "--tier", "fast", "--merge", "1", "--parallel", str(key["parallel"]), "--workers", "0",
-                           "--inflight", str(key["inflight"]["max"]), "--no-prescreen", "--prune"]
+                           "--inflight", str(key["inflight"]["max"]),
+                           # render.prescreen: the local Qwen scores each prompt for content-filter risk and softens the
+                           # wording before the first submission (worth it now that planning no longer queues on Qwen).
+                           *([] if self.cfg.get("render", {}).get("prescreen") else ["--no-prescreen"]), "--prune"]
                 self.spawn(f"lane_{name}", command, self.key_env(key))
                 lane["next_round_at"] = now + self.cfg.get("round_gap_seconds", 120)
             elif not self.alive(f"lane_{name}"):
