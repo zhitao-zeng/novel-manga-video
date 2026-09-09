@@ -14,6 +14,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -418,6 +419,171 @@ def snapshot() -> dict:
     }
 
 
+# ---- analytics board -----------------------------------------------------
+# Everything below is still derived from files the pipeline already writes:
+# review verdicts from episode_review.json, attempt counts from
+# thin_media_report.json, the video model from render.log's header, daily
+# throughput from finished-video mtimes.  A full pass over a two-thousand-
+# episode novel reads ~100 MB once; per-file mtime caching makes later
+# passes touch only what changed, and the board rebuilds in a background
+# thread every few minutes so page loads never wait on it.
+
+REVIEW_CATS = [
+    ("identity_ok", False, "身份"), ("location_ok", False, "场景"),
+    ("time_of_day_ok", False, "时段"), ("text_or_watermark", True, "水印/文字"),
+    ("chat_text_ok", False, "聊天文字"), ("visual_defects", True, "画面缺陷"),
+]
+VIDEO_MODEL = re.compile(r'"video_model":\s*"([^"]+)"')
+BOARD_SECONDS = 300
+_FILE_CACHE: dict[str, tuple[float, object]] = {}
+
+
+def _cached(path: Path, parser):
+    """Parse a per-episode file, re-parsing only when its mtime changed."""
+    try:
+        stamp = path.stat().st_mtime
+    except OSError:
+        return None
+    key = str(path)
+    hit = _FILE_CACHE.get(key)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    data = parser(path)
+    _FILE_CACHE[key] = (stamp, data)
+    return data
+
+
+def _parse_review(path: Path):
+    try:
+        clips = json.loads(path.read_text(encoding="utf-8")).get("clips", {})
+    except (OSError, ValueError):
+        return None
+    sev: dict[str, int] = {}
+    cats: dict[str, int] = {}
+    for clip in clips.values():
+        severity = str(clip.get("severity", "?"))
+        sev[severity] = sev.get(severity, 0) + 1
+        for key, bad, name in REVIEW_CATS:
+            if clip.get(key) == bad:
+                cats[name] = cats.get(name, 0) + 1
+    return {"sev": sev, "cats": cats}
+
+
+def _parse_media(path: Path):
+    try:
+        clips = json.loads(path.read_text(encoding="utf-8")).get("clips", [])
+    except (OSError, ValueError):
+        return None
+    return {"clips": len(clips), "attempts": sum(len(c.get("attempts", [])) for c in clips)}
+
+
+def _parse_render_model(path: Path):
+    """The video model an episode was rendered with, from the settings header
+    render_clips_thin.py prints into render.log."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(262144)
+    except OSError:
+        return None
+    found = VIDEO_MODEL.search(head)
+    return found.group(1) if found else ""
+
+
+def _board_novel(novel: dict) -> dict:
+    nid = novel["id"]
+    finals, planned = _episode_numbers(nid)
+    chapters = _chapters(nid)
+    done = len(finals)
+    by_day: dict[str, int] = {}
+    for t in finals:
+        day = time.strftime("%Y-%m-%d", time.localtime(t))
+        by_day[day] = by_day.get(day, 0) + 1
+    week_ago = time.time() - 7 * 86400
+    rate7 = round(sum(1 for t in finals if t >= week_ago) / 7, 1)
+    left = max(0, planned - done)
+    projected = None
+    if rate7 and left:
+        projected = time.strftime("%Y-%m-%d", time.localtime(time.time() + left / rate7 * 86400))
+    sev_all: dict[str, int] = {}
+    cats: dict[str, int] = {}
+    recent_pass = recent_total = 0
+    lanes: dict[str, dict] = {}
+    base = ROOT / "outputs" / nid
+    try:
+        entries = [e for e in os.scandir(base)
+                   if e.is_dir() and e.name.startswith(f"{nid}_") and e.name.rsplit("_", 1)[-1].isdigit()]
+    except OSError:
+        entries = []
+    for entry in entries:
+        directory = Path(entry.path)
+        review = _cached(directory / "episode_review.json", _parse_review)
+        media = _cached(directory / "thin_media_report.json", _parse_media)
+        model = _cached(directory / "render.log", _parse_render_model)
+        if not (review or media):
+            continue
+        lane = lanes.setdefault(model or "未知", {"episodes": 0, "clips": 0, "attempts": 0, "sev": {}})
+        lane["episodes"] += 1
+        if media:
+            lane["clips"] += media["clips"]
+            lane["attempts"] += media["attempts"]
+        if not review:
+            continue
+        for key, value in review["sev"].items():
+            sev_all[key] = sev_all.get(key, 0) + value
+            lane["sev"][key] = lane["sev"].get(key, 0) + value
+        for key, value in review["cats"].items():
+            cats[key] = cats.get(key, 0) + value
+        try:
+            reviewed_at = (directory / "episode_review.json").stat().st_mtime
+        except OSError:
+            reviewed_at = 0
+        if reviewed_at >= week_ago:
+            recent_total += sum(review["sev"].values())
+            recent_pass += review["sev"].get("pass", 0)
+    total = sum(sev_all.values())
+    lane_rows = []
+    for name, lane in sorted(lanes.items()):
+        reviewed = sum(lane["sev"].values())
+        lane_rows.append({
+            "model": name, "episodes": lane["episodes"], "clips": lane["clips"],
+            "avg_attempts": round(lane["attempts"] / lane["clips"], 2) if lane["clips"] else None,
+            "pass_rate": round(100 * lane["sev"].get("pass", 0) / reviewed, 1) if reviewed else None,
+            "reviewed": reviewed,
+        })
+    return {
+        "id": nid, "title": novel["title"], "done": done, "planned": planned, "chapters": chapters,
+        "daily": sorted(by_day.items()), "rate7": rate7, "projected": projected,
+        "quality": {
+            "clips": total, "sev": sev_all,
+            "pass_rate": round(100 * sev_all.get("pass", 0) / total, 1) if total else None,
+            "recent_rate": round(100 * recent_pass / recent_total, 1) if recent_total else None,
+            "cats": sorted(cats.items(), key=lambda kv: -kv[1]),
+        },
+        "lanes": lane_rows,
+    }
+
+
+def _build_board() -> None:
+    try:
+        data = {"now": time.strftime("%Y-%m-%d %H:%M:%S"), "novels": [_board_novel(n) for n in NOVELS]}
+        _board_cache.update(at=time.time(), data=data)
+    finally:
+        _board_cache["building"] = False
+
+
+_board_cache: dict = {"at": 0.0, "data": None, "building": False}
+
+
+def board_snapshot() -> dict:
+    stale = _board_cache["data"] is None or time.time() - _board_cache["at"] > BOARD_SECONDS
+    if stale and not _board_cache["building"]:
+        _board_cache["building"] = True
+        threading.Thread(target=_build_board, daemon=True).start()
+    if _board_cache["data"] is None:
+        return {"building": True}
+    return _board_cache["data"]
+
+
 _cache: dict = {"at": 0.0, "data": None}
 
 
@@ -428,9 +594,7 @@ def cached_snapshot() -> dict:
     return _cache["data"]
 
 
-PAGE = """<!doctype html><html lang="zh"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>小说成片进度</title><style>
+STYLE = """
 :root{
   --bg:#f3f4f8; --surface:#ffffff; --surface-2:#f0f2f8; --line:#e2e5ee;
   --text:#1f2430; --dim:#667085; --faint:#98a0b3;
@@ -444,11 +608,14 @@ body{margin:0;background:
   var(--bg);
   color:var(--text);font:14px/1.55 -apple-system,"SF Pro SC","PingFang SC","Microsoft YaHei",sans-serif;
   -webkit-font-smoothing:antialiased}
-.num,.stat b,.mono{font-variant-numeric:tabular-nums}
+.num,.stat b{font-variant-numeric:tabular-nums}
 header{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);
   background:#f3f4f8d9;border-bottom:1px solid var(--line);
   padding:14px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.02em}
+nav{display:flex;gap:2px;background:var(--surface-2);border-radius:9px;padding:2px}
+nav a{color:var(--dim);text-decoration:none;font-size:12.5px;padding:3px 12px;border-radius:7px;font-weight:600}
+nav a.on{color:var(--text);background:var(--surface);box-shadow:0 1px 2px #1f243012}
 .health{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;
   padding:3px 12px;border-radius:99px;border:1px solid var(--line);background:var(--surface)}
 #stamp{margin-left:auto;color:var(--dim);font-size:12px}
@@ -491,9 +658,6 @@ main{padding:20px 24px 40px;display:grid;gap:16px;max-width:1180px;margin:0 auto
 .fill{background:linear-gradient(90deg,var(--accent),var(--accent-2));height:100%}
 .fill.plan{background:#c6cddd;height:100%}
 .nmeta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--dim);font-size:12.5px}
-.spark{display:flex;align-items:flex-end;gap:2px;height:34px}
-.spark i{flex:1;background:linear-gradient(180deg,var(--accent),#3b6fe055);border-radius:2px 2px 0 0;min-height:2px;opacity:.55}
-.spark i:last-child{opacity:1}
 .spark-label{font-size:11px;color:var(--dim);text-align:right;margin-top:4px}
 .tick{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dim);
   word-break:break-all;border-top:1px dashed var(--line);padding-top:8px}
@@ -507,7 +671,6 @@ summary:hover{color:var(--text)}
 .attn-item{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
 .attn-item:last-child{border-bottom:0}
 .attn-item .when{color:var(--dim);font-size:12px;margin-left:auto;flex:none}
-.attn-item .src{color:var(--dim);font-size:12px;flex:none}
 .attn-raw{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dim);
   word-break:break-all;margin:2px 0 6px 18px}
 .all-clear{color:var(--ok);font-size:13px}
@@ -524,31 +687,93 @@ tr:last-child td{border-bottom:0}
 .dim{color:var(--dim)}.warn-t{color:var(--warn)}.ok-t{color:var(--ok)}
 .pills{display:flex;gap:8px;flex-wrap:wrap}
 
+/* tooltip + charts */
+#tip{display:none;position:fixed;z-index:50;pointer-events:none;background:#1f2430;color:#f2f4f8;
+  font-size:12px;padding:4px 10px;border-radius:8px;box-shadow:0 4px 16px #1f243040;white-space:nowrap}
+.sparksvg{width:100%;display:block;overflow:visible}
+.sparksvg .sb{fill:url(#sbg)}
+.sparksvg .sb:hover{stroke:var(--accent);stroke-width:1.2}
+.sparksvg .cur{fill:var(--accent-2)}
+.sparksvg .avg{stroke:var(--dim);stroke-width:1;stroke-dasharray:3 3;opacity:.55}
+.burnsvg{width:100%;height:auto;display:block;overflow:visible}
+.burnsvg .area{fill:url(#areag)}
+.burnsvg .bline{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round}
+.burnsvg .scope{stroke:var(--faint);stroke-width:1;stroke-dasharray:5 4}
+.burnsvg .scope.p{stroke:var(--warn)}
+.burnsvg .proj{stroke:var(--accent);stroke-width:1.6;stroke-dasharray:2 3;opacity:.8}
+.burnsvg .projdot{fill:var(--accent)}
+.burnsvg .slab,.burnsvg .plab{font-size:10px;fill:var(--dim)}
+.burnsvg .plab{fill:var(--accent);font-weight:600}
+.burnsvg .xlab{font-size:10px;fill:var(--faint)}
+.donutwrap{display:flex;align-items:center;gap:14px}
+.ring{fill:none;stroke-width:10}
+.ring.base{stroke:var(--surface-2)}
+.ring.p{stroke:var(--ok)}.ring.m{stroke:var(--warn)}.ring.f{stroke:var(--bad)}
+.dnum{font-size:15px;font-weight:700;fill:var(--text)}
+.dlab{font-size:9px;fill:var(--dim)}
+.dleg{display:grid;gap:4px;font-size:12px;color:var(--dim)}
+.dleg .dot{margin-right:6px}
+.catrow{display:flex;align-items:center;gap:10px;padding:3px 0;font-size:12.5px}
+.catname{width:64px;color:var(--dim);flex:none}
+.catbar{flex:1;height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden}
+.catbar i{display:block;height:100%;background:linear-gradient(90deg,var(--warn),var(--bad));border-radius:99px}
+.catn{width:34px;text-align:right;color:var(--dim)}
+.board2{display:grid;grid-template-columns:340px 1fr;gap:22px;margin-top:6px}
+
 @media (max-width:820px){
   main{padding:14px 12px 32px}
   header{padding:12px 14px}
   .nbody{grid-template-columns:1fr}
+  .board2{grid-template-columns:1fr}
   table.resp thead{display:none}
   table.resp, table.resp tbody, table.resp tr, table.resp td{display:block;width:100%}
   table.resp tr{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;padding:6px 12px}
   table.resp td{border-bottom:0;padding:3px 0;display:flex;justify-content:space-between;gap:12px;white-space:normal}
   table.resp td::before{content:attr(data-l);color:var(--dim);font-size:12px;flex:none}
 }
-</style></head><body>
-<header>
-  <h1>小说成片进度</h1>
-  <span class="health" id="health"><i class="dot idle"></i>读取中</span>
-  <span id="stamp">加载中…</span>
-</header>
-<main>
-  <div class="stats" id="stats"></div>
-  <div id="novels" style="display:grid;gap:16px"></div>
-  <div class="card" id="attention-card"><div class="label">需要关注</div><div id="attention"></div></div>
-  <div class="card"><div class="label">运行明细 · 通道</div><div class="twrap"><table class="resp" id="lanes"></table></div></div>
-  <div class="card"><div class="label">运行明细 · 单集任务</div><div class="twrap"><table class="resp" id="workers"></table></div></div>
-  <div class="card"><div class="label">进程与在途</div><div class="pills" id="procs"></div>
-    <div class="twrap" style="margin-top:12px"><table class="resp" id="inflight"></table></div></div>
-</main>
+"""
+
+DEFS = """<svg width="0" height="0" style="position:absolute"><defs>
+<linearGradient id="sbg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#3b6fe0"/><stop offset="1" stop-color="#3b6fe0" stop-opacity=".3"/>
+</linearGradient>
+<linearGradient id="areag" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#3b6fe0" stop-opacity=".22"/><stop offset="1" stop-color="#3b6fe0" stop-opacity="0"/>
+</linearGradient></defs></svg>"""
+
+TIP_JS = """const tipEl=document.getElementById("tip");
+document.addEventListener("mousemove",e=>{
+  const t=e.target.closest&&e.target.closest("[data-tip]");
+  if(!t){tipEl.style.display="none";return;}
+  tipEl.textContent=t.dataset.tip;tipEl.style.display="block";
+  const w=tipEl.offsetWidth,h=tipEl.offsetHeight;
+  let x=e.clientX+12,y=e.clientY-h-10;
+  if(x+w>innerWidth-8)x=e.clientX-w-12;
+  if(y<8)y=e.clientY+14;
+  tipEl.style.left=x+"px";tipEl.style.top=y+"px";
+});"""
+
+
+def _page(active: str, header_extra: str, body: str) -> str:
+    nav = ""
+    for name, href in (("实时", "/"), ("看板", "/board")):
+        nav += '<a href="%s" class="%s">%s</a>' % (href, "on" if name == active else "", name)
+    return ("<!doctype html><html lang=\"zh\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<title>小说成片进度</title><style>" + STYLE + "</style></head><body>"
+            "<header><h1>小说成片进度</h1><nav>" + nav + "</nav>" + header_extra + "</header>"
+            "<main>" + body + "</main>" + DEFS + "<div id=\"tip\"></div>"
+            "<script>" + TIP_JS + "</script></body></html>")
+
+
+LIVE_BODY = """
+<div class="stats" id="stats"></div>
+<div id="novels" style="display:grid;gap:16px"></div>
+<div class="card" id="attention-card"><div class="label">需要关注</div><div id="attention"></div></div>
+<div class="card"><div class="label">运行明细 · 通道</div><div class="twrap"><table class="resp" id="lanes"></table></div></div>
+<div class="card"><div class="label">运行明细 · 单集任务</div><div class="twrap"><table class="resp" id="workers"></table></div></div>
+<div class="card"><div class="label">进程与在途</div><div class="pills" id="procs"></div>
+  <div class="twrap" style="margin-top:12px"><table class="resp" id="inflight"></table></div></div>
 <script>
 const $ = id => document.getElementById(id);
 const pct = (a,b) => b ? Math.min(100, a*100/b) : 0;
@@ -560,10 +785,21 @@ const HEALTH_TEXT = {ok:"全部正常", warn:"有任务停滞", bad:"有异常"}
 const WORST = {ok:0, warn:1, bad:2};
 
 function spark(bars){
-  const max = Math.max(...bars, 1);
-  return `<div><div class="spark">` + bars.map((v,i) =>
-    `<i style="height:${Math.max(6, v*100/max)}%" title="${24-1-i} 小时前: ${v} 集"></i>`).join("") +
-    `</div><div class="spark-label">近 24 小时 · 共 ${bars.reduce((a,b)=>a+b,0)} 集</div></div>`;
+  const W=260, H=46, n=bars.length, gap=1.6;
+  const max=Math.max(...bars,1);
+  const bw=(W-gap*(n-1))/n;
+  const total=bars.reduce((a,b)=>a+b,0), avg=total/n;
+  const hour0=new Date(); hour0.setMinutes(0,0,0);
+  const rects=bars.map((v,i)=>{
+    const h=Math.max(2, v/max*(H-6));
+    const s=new Date(hour0.getTime()-(n-1-i)*3600000);
+    const when=i===n-1 ? "当前小时" : `${s.getMonth()+1}-${s.getDate()} ${s.getHours()}:00–${s.getHours()+1}:00`;
+    return `<rect data-tip="${when} · ${v} 集" x="${(i*(bw+gap)).toFixed(2)}" y="${(H-h).toFixed(2)}" width="${bw.toFixed(2)}" height="${h.toFixed(2)}" rx="1.6" class="sb${i===n-1?" cur":""}"${v?"":' style="opacity:.18"'}></rect>`;
+  }).join("");
+  const avgY=(H-Math.max(2, avg/max*(H-6))).toFixed(2);
+  return `<div><svg class="sparksvg" style="height:46px" viewBox="0 0 ${W} ${H}">` +
+    (total?`<line class="avg" x1="0" x2="${W}" y1="${avgY}" y2="${avgY}"></line>`:"") + rects +
+    `</svg><div class="spark-label">近 24 小时 · 共 ${total} 集 · 均值 ${avg.toFixed(1)}/时</div></div>`;
 }
 
 function novelCard(d, n){
@@ -606,8 +842,7 @@ function attention(d){
   for (const w of d.workers) if (w.elapsed > 1800)
     items.push({level: "warn", ts: null, html: `${w.novel} · ${w.kind} ${w.what} 已运行 ${fmtAgo(w.elapsed).replace("前","")}`});
   for (const w of d.warnings)
-    items.push({level: w.level, ts: w.ts, novel: w.novel,
-      html: `${w.novel} · ${w.kind}`, raw: w.text});
+    items.push({level: w.level, ts: w.ts, html: `${w.novel} · ${w.kind}`, raw: w.text});
   if (!items.length) return `<div class="all-clear">✓ 没有需要关注的情况</div>`;
   items.sort((a,b)=>WORST[b.level]-WORST[a.level] || (b.ts||0)-(a.ts||0));
   return items.map(i=>{
@@ -653,7 +888,6 @@ function tick(){
          <div class="sub">按当前速度约 ${fmtETA(speed ? Math.round(totalLeft/speed*10)/10 : null)}</div></div>`;
     $("novels").innerHTML = d.novels.map(n=>novelCard(d,n)).join("");
     $("attention").innerHTML = attention(d);
-    $("attention-card").style.display = "";
     $("lanes").innerHTML = `<thead><tr><th></th><th>任务</th><th>章节</th><th>档位</th><th>进度</th><th>速度</th><th>更新</th></tr></thead><tbody>` +
       (d.lanes.length ? d.lanes.map(laneRow).join("") : `<tr><td class="dim">没有在跑的通道</td></tr>`) + `</tbody>`;
     $("workers").innerHTML = `<thead><tr><th>类型</th><th>小说</th><th>对象</th><th>进度</th><th>已跑</th></tr></thead><tbody>` +
@@ -673,7 +907,121 @@ function tick(){
   }).catch(e=>{ $("stamp").textContent = "读取失败：" + e; $("stamp").className = "err"; });
 }
 tick(); setInterval(tick, 20000);
-</script></body></html>"""
+</script>"""
+
+BOARD_BODY = """
+<div id="board" style="display:grid;gap:16px"></div>
+<script>
+const DAY = 86400000;
+const md = s => { const d = new Date(s+"T00:00:00"); return (d.getMonth()+1)+"/"+d.getDate(); };
+
+function barsSVG(items, W, H){
+  const n = items.length || 1, gap = Math.min(3, (W/n)*0.25), bw = Math.max(1, (W-gap*(n-1))/n);
+  const max = Math.max(...items.map(i=>i.v), 1);
+  const rects = items.map((it,i)=>{
+    const h = Math.max(2, it.v/max*(H-6));
+    return `<rect data-tip="${it.tip}" x="${(i*(bw+gap)).toFixed(2)}" y="${(H-h).toFixed(2)}" width="${bw.toFixed(2)}" height="${h.toFixed(2)}" rx="1.6" class="sb"${it.v?"":' style="opacity:.18"'}></rect>`;
+  }).join("");
+  return `<svg class="sparksvg" style="height:${H}px" viewBox="0 0 ${W} ${H}">${rects}</svg>`;
+}
+
+function burnup(n){
+  if (!n.daily.length) return `<div class="dim" style="padding:8px 0">还没有成片数据</div>`;
+  const W=760, H=210, pl=8, pr=64, pt=16, pb=26;
+  const first = Date.parse(n.daily[0][0]+"T00:00:00");
+  const last = Date.parse(n.daily[n.daily.length-1][0]+"T00:00:00");
+  const projT = n.projected ? Date.parse(n.projected+"T00:00:00") : null;
+  const xEnd = Math.max(last + DAY, projT || 0);
+  const X = t => pl + (t-first)/(xEnd-first)*(W-pl-pr);
+  let cum = 0;
+  const pts = n.daily.map(([d,c]) => { cum += c; return [X(Date.parse(d+"T00:00:00")), cum]; });
+  const yMax = Math.max(n.chapters||0, n.planned||0, cum, 1) * 1.06;
+  const Y = v => pt + (1 - v/yMax)*(H-pt-pb);
+  const line = pts.map((p,i) => (i?"L":"M") + p[0].toFixed(1) + "," + Y(p[1]).toFixed(1)).join(" ");
+  const area = line + ` L${pts[pts.length-1][0].toFixed(1)},${Y(0).toFixed(1)} L${pts[0][0].toFixed(1)},${Y(0).toFixed(1)} Z`;
+  let proj = "";
+  if (projT && n.rate7){
+    const done = pts[pts.length-1][1];
+    proj = `<line class="proj" x1="${pts[pts.length-1][0].toFixed(1)}" y1="${Y(done).toFixed(1)}" x2="${X(projT).toFixed(1)}" y2="${Y(n.planned).toFixed(1)}"></line>
+      <circle class="projdot" cx="${X(projT).toFixed(1)}" cy="${Y(n.planned).toFixed(1)}" r="3"></circle>
+      <text class="plab" x="${X(projT).toFixed(1)}" y="${(Y(n.planned)-8).toFixed(1)}" text-anchor="middle">预计 ${md(n.projected)}</text>`;
+  }
+  const scope = (v,lab,cls) => v ? `<line class="${cls}" x1="${pl}" x2="${W-pr}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"></line>
+    <text class="slab" x="${W-pr+6}" y="${(Y(v)+3).toFixed(1)}">${lab} ${v}</text>` : "";
+  const ticks = [...new Set([n.daily[0][0], n.daily[Math.floor(n.daily.length/2)][0], n.daily[n.daily.length-1][0], ...(n.projected?[n.projected]:[])])]
+    .map(d => `<text class="xlab" x="${X(Date.parse(d+"T00:00:00")).toFixed(1)}" y="${H-8}" text-anchor="middle">${md(d)}</text>`).join("");
+  return `<svg class="burnsvg" viewBox="0 0 ${W} ${H}">
+    ${scope(n.chapters,"全书","scope")}${n.planned && n.planned !== n.chapters ? scope(n.planned,"已规划","scope p") : ""}
+    <path class="area" d="${area}"></path><path class="bline" d="${line}"></path>${proj}${ticks}</svg>`;
+}
+
+function donut(sev){
+  const p = sev.pass||0, m = sev.minor||0, f = sev.fail||0, t = (p+m+f)||1;
+  const C = 2*Math.PI*34;
+  let off = 0;
+  const seg = (v,cls) => {
+    if (!v) return "";
+    const len = v/t*C;
+    const s = `<circle class="ring ${cls}" cx="42" cy="42" r="34" transform="rotate(-90 42 42)" stroke-dasharray="${len.toFixed(1)} ${(C-len).toFixed(1)}" stroke-dashoffset="${(-off).toFixed(1)}"></circle>`;
+    off += len; return s;
+  };
+  return `<div class="donutwrap"><svg width="84" height="84" viewBox="0 0 84 84">
+    <circle class="ring base" cx="42" cy="42" r="34"></circle>${seg(p,"p")}${seg(m,"m")}${seg(f,"f")}
+    <text class="dnum" x="42" y="40" text-anchor="middle">${(100*p/t).toFixed(1)}%</text>
+    <text class="dlab" x="42" y="54" text-anchor="middle">通过</text></svg>
+    <div class="dleg"><span><i class="dot ok"></i>pass ${p}</span><span><i class="dot warn"></i>minor ${m}</span><span><i class="dot bad"></i>fail ${f}</span></div></div>`;
+}
+
+function catRow(name, v, maxV){
+  return `<div class="catrow"><span class="catname">${name}</span><span class="catbar"><i style="width:${(v/maxV*100).toFixed(1)}%"></i></span><span class="num catn">${v}</span></div>`;
+}
+
+function laneTable(lanes){
+  return `<table><thead><tr><th>模型</th><th>集数</th><th>clip 数</th><th>平均尝试</th><th>审查通过率</th></tr></thead><tbody>` +
+    lanes.map(l=>`<tr><td>${l.model}</td><td class="num">${l.episodes}</td><td class="num">${l.clips}</td>
+      <td class="num">${l.avg_attempts ?? "—"}</td>
+      <td class="num">${l.pass_rate == null ? "—" : l.pass_rate+"%"} <span class="dim">(${l.reviewed} clip)</span></td></tr>`).join("") +
+    `</tbody></table>`;
+}
+
+function boardCard(n){
+  const q = n.quality;
+  const recent = q.recent_rate == null ? "" :
+    ` · 近 7 天 <b class="${q.pass_rate != null && q.recent_rate >= q.pass_rate ? "ok-t" : "warn-t"}">${q.recent_rate}%</b>`;
+  const cats = q.cats.length ? q.cats.map(([k,v]) => catRow(k, v, q.cats[0][1])).join("")
+    : `<div class="dim">没有被判失败的类别</div>`;
+  return `<div class="card ncard">
+    <div class="nrow"><span class="nname">${n.title}</span>
+      <span class="neta">${n.projected ? `按近 7 天 <b>${n.rate7}</b> 集/天，已规划部分预计 <b>${md(n.projected)}</b> 完成` : "暂无投影"}</span></div>
+    ${burnup(n)}
+    ${n.daily.length ? barsSVG(n.daily.map(([d,c]) => ({v:c, tip:`${md(d)} · ${c} 集`})), 760, 64) : ""}
+    <div class="board2">
+      <div><div class="label">审查质量</div>
+        ${q.clips ? donut(q.sev) : `<div class="dim">还没有审查数据</div>`}
+        <div class="dim" style="margin:8px 0 10px;font-size:12.5px">全部通过率 ${q.pass_rate ?? "—"}%（${q.clips} clip）${recent}</div>
+        ${cats}</div>
+      <div><div class="label">车道对比</div>
+        ${n.lanes.length ? laneTable(n.lanes) : `<div class="dim">暂无</div>`}</div>
+    </div></div>`;
+}
+
+function load(){
+  fetch("board.json", {cache:"no-store"}).then(r=>r.json()).then(d=>{
+    if (d.building){
+      document.getElementById("board").innerHTML = `<div class="card dim">首次统计要扫一遍每集的审查和渲染报告，十几秒到一分钟，好了会自动出来…</div>`;
+      setTimeout(load, 3000); return;
+    }
+    document.getElementById("board").innerHTML = d.novels.map(boardCard).join("");
+    document.getElementById("stamp").textContent = `统计于 ${d.now} · 每 5 分钟重算`;
+  }).catch(e=>{ const s=document.getElementById("stamp"); s.textContent="读取失败："+e; s.className="err"; });
+}
+load();
+</script>"""
+
+PAGE = _page("实时",
+             '<span class="health" id="health"><i class="dot idle"></i>读取中</span><span id="stamp">加载中…</span>',
+             LIVE_BODY)
+PAGE_BOARD = _page("看板", '<span id="stamp"></span>', BOARD_BODY)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -681,8 +1029,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/status.json"):
             body = json.dumps(cached_snapshot(), ensure_ascii=False).encode("utf-8")
             content_type = "application/json; charset=utf-8"
+        elif self.path.startswith("/board.json"):
+            body = json.dumps(board_snapshot(), ensure_ascii=False).encode("utf-8")
+            content_type = "application/json; charset=utf-8"
         elif self.path in ("/", "/index.html"):
             body = PAGE.encode("utf-8")
+            content_type = "text/html; charset=utf-8"
+        elif self.path == "/board":
+            body = PAGE_BOARD.encode("utf-8")
             content_type = "text/html; charset=utf-8"
         else:
             self.send_error(404)
@@ -701,4 +1055,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
+    _board_cache["building"] = True
+    threading.Thread(target=_build_board, daemon=True).start()  # warm the board cache
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
