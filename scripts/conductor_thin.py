@@ -52,7 +52,7 @@ class Conductor:
         self.procs: dict[str, subprocess.Popen] = {}
         self.keys = {k["name"]: k for k in config["keys"]}
         self.ranges = [self._parse_range(r) for r in config["ranges"]]
-        self.lanes = {name: {"range": None, "next_round_at": 0.0, "parked_until": 0.0, "limit": k["inflight"]["start"],
+        self.lanes = {name: {"range": None, "next_round_at": 0.0, "parked_until": 0.0, "limit": self._initial_limit(k),
                              "limit_changed": time.time(), "throttled_since": None} for name, k in self.keys.items()}
         self.blocks: list[dict] = []  # planning blocks in queue order
         for r in self.ranges:
@@ -202,7 +202,17 @@ class Conductor:
         return env
 
     def compatible(self, key: dict, r: dict) -> bool:
-        return r["plan_mode"] <= int(key["clip_cap"])
+        return r["plan_mode"] == int(key["clip_cap"])
+
+    def _initial_limit(self, key: dict) -> int:
+        """Resume the AIMD where the last conductor left it: a restart is not a throttle.
+        Falls back to the configured start when the pool has no limit file yet."""
+        lo, hi = int(key["inflight"]["min"]), int(key["inflight"]["max"])
+        path = self.novel_dir / (f".inflight-{key['pool']}" if key.get("pool") else ".inflight") / "limit"
+        try:
+            return max(lo, min(hi, int(path.read_text(encoding="utf-8").strip())))
+        except (OSError, ValueError):
+            return int(key["inflight"]["start"])
 
     def write_limit(self, key: dict, limit: int) -> None:
         directory = self.novel_dir / (f".inflight-{key['pool']}" if key.get("pool") else ".inflight")
