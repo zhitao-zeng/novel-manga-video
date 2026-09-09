@@ -49,6 +49,7 @@ from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME
 
 POLICY = "thin-chapter-plan-v13-bounded-repair" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 SEGMENT_COUNT = 8
+STAGES_PER_SEGMENT_MAX = 3  # stages one source segment may take in the brief
 TURN_MAX_CHARS = 26
 QUOTE_MIN_CHARS = 8
 QUOTE_MAX_CHARS = 200
@@ -132,12 +133,12 @@ def chapter_quotes(text: str) -> list[str]:
     return list(dict.fromkeys(quote.strip() for quote in quotes
                               if spoken_chars(quote) >= 8 or (spoken_chars(quote) >= 2 and re.search(r"[，。！？…；、]", quote))))
 
-SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜师。把"当前章"改编成一集约90秒的短剧，由3到4段可用视频模型一次生成的连续片段组成，只输出一个JSON对象。
-输出结构：clips，3到4段。每段clip在同一地点内连续拍摄，时长20到30秒，由4到6个"阶段"stages组成；每个阶段3到7秒，只有一个主要变化和最多两句台词，写清开始时、主要事件、结束时能直接看到的状态。相邻阶段用不同景别切画面（全景、中景、近景、特写交替）。
-时长预算是硬约束：每个发声汉字0.25秒，每句台词加1秒，每个阶段加1秒，无声动作阶段按4秒；单段不得超过30秒，全集不得超过100秒。全集发声字数控制在220到300字之间。
+SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜师。把"当前章"改编成一集约90秒的短剧，由{clip_lo}到{clip_hi}段可用视频模型一次生成的连续片段组成，只输出一个JSON对象。
+输出结构：clips，{clip_lo}到{clip_hi}段。每段clip在同一地点内连续拍摄，时长{clip_secs_lo}到{clip_secs_hi}秒，由{stage_lo}到{stage_hi}个"阶段"stages组成；每个阶段3到7秒，只有一个主要变化和最多两句台词，写清开始时、主要事件、结束时能直接看到的状态。相邻阶段用不同景别切画面（全景、中景、近景、特写交替）。
+时长预算是硬约束：每个发声汉字0.25秒，每句台词加1秒，每个阶段加1秒，无声动作阶段按4秒；单段不得超过{clip_secs_hi}秒，全集不得超过100秒。全集发声字数控制在220到300字之间。
 硬规则：
 1. 只用当前章的事实、人物和顺序。不得引入后文信息、新事件、新地点，或StoryBible之外的具名角色。
-2. 原文已切成8个连续区段 seg_1 到 seg_8。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段都必须至少被一个阶段引用，一个都不许跳过；skipped_segments 必须是空数组 []。每个区段用1到3个阶段带过：内容多的区段把对话压成一两句、把过程并成一个阶段，也不能整段不拍。
+2. 原文已切成{segment_count}个连续区段 seg_1 到 seg_{segment_count}。每个阶段必须写 segment_id，并把该区段里一段连续原文逐字复制到 source_quote（8到120字；不得改字、不得拼接）。每个区段都必须至少被一个阶段引用，一个都不许跳过；skipped_segments 必须是空数组 []。每个区段用1到{stages_per_segment}个阶段带过：内容多的区段把对话压成一两句、把过程并成一个阶段，也不能整段不拍。
 3. 成片没有旁白、没有内心独白。可听的只有四种：visible_dialogue（画内可见说话者，一个阶段只允许一个可见说话者）、offscreen_dialogue（画外声：群众议论、测验员喊话等）、silent_action（无声的可见动作或反应，text写动作）、title_card（时间或地点跳转的字幕卡，只在必要时用）。另有一种不发声的 chat_message：手机或电脑屏幕上显示的聊天消息，speaker_name 写发消息的人，text 写消息原文，逐字取自原文、不超过36字（更长的只取到一个标点为止）；一个阶段最多八条（消息由插卡呈现，一个阶段可以带一整轮对话，不必为了拆消息而多写阶段）；群聊消息的 chat_target 留空；一对一私聊的消息把 chat_target 写成和主角私聊的那个人的名字——绝不能写主角自己，同一段私聊里每条消息（无论谁发的）都写同一个名字；私聊是两个人来回说话：对方发的消息 speaker_name 要写对方的名字，只有主角自己发的才写主角，不要把整段私聊都记成主角发的；同一阶段不要混用群聊和私聊。屏幕上的聊天界面由后期插卡渲染，画面里不需要拍清屏幕文字，含 chat_message 的阶段 start_state 和 event 只写看手机的人的动作与反应。原文里凡是聊天软件上的消息（形如「昵称：内容」的对话、群里的喊话、私聊），必须用 chat_message 呈现，一条都不许改成画外音、旁白或角色自己念出来。唱歌场景用 singing：speaker_name 写唱歌的人，text 只写演唱方式（如"轻声哼唱一段温柔的无词旋律"），绝不写任何歌词、歌名或已有歌曲，观众的反应用其他阶段的画面和画外音表现。silent_action只能写此刻能拍到的动作，不能用来表达回忆、心理活动、气质评价或规则说明。
 4. 台词取舍：推动剧情和人物关系的原文台词必须保留，可以只删子句、不改词序；重复表达同一意思的群众议论要合并成一两句或删掉。叙述里承载来历、规则和身份的信息（谁曾经是什么、某条规则意味着什么、某个称号指谁）用一两句无名族人的画外议论或角色问答说出来，改成口语但不新增原文没有的事实。内心独白不要改成出声自语，改成可见反应。
 5. 每条turn的text不超过26个汉字，长句拆成多条turn。
@@ -150,12 +151,18 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
 8. clip.characters只填该段画面中出现的StoryBible具名角色；location只填给定地点名。speaker_name是具名角色，或"无名测验员""无名族人"这类无名画外角色；无名角色只能用offscreen_dialogue。silent_action和title_card的speaker_name留空字符串。
 9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。"""
 
-if SHORT_CLIPS:
-    # the same brief with the clip numbers swapped for the 15 s lane
-    for _old, _new in (("由3到4段可用视频模型", "由6到8段可用视频模型"), ("clips，3到4段", "clips，6到8段"),
-                       ("时长20到30秒，由4到6个\"阶段\"", "时长10到15秒，由2到3个\"阶段\""), ("单段不得超过30秒", "单段不得超过15秒")):
-        assert SYSTEM_PROMPT.count(_old) == 1, _old
-        SYSTEM_PROMPT = SYSTEM_PROMPT.replace(_old, _new)
+
+def render_brief(prompt: str) -> str:
+    """Fill the brief's clip and stage numbers from the ranges in force for this run."""
+    # CLIP_SECONDS_MAX is this lane's cap (15 s on sd2.0); MAX_CLIP_SECONDS is the model's
+    # own 30 s ceiling.  The brief has to quote the lane's, or a 15 s lane is invited to
+    # film for 30 s and the packer has to cut the result apart.
+    low = 10 if SHORT_CLIPS else 20
+    return (prompt.replace("{clip_lo}", str(CLIP_RANGE[0])).replace("{clip_hi}", str(CLIP_RANGE[1]))
+            .replace("{stage_lo}", str(STAGE_RANGE[0])).replace("{stage_hi}", str(STAGE_RANGE[1]))
+            .replace("{clip_secs_lo}", str(low)).replace("{clip_secs_hi}", str(int(CLIP_SECONDS_MAX)))
+            .replace("{segment_count}", str(SEGMENT_COUNT)).replace("{stages_per_segment}", str(STAGES_PER_SEGMENT_MAX)))
+
 
 PROMPT_EXAMPLE_DEFAULTS = {
     "light": "（月光从左上、案头油灯在右侧、灵碑纹路的金光从下方）",
@@ -167,16 +174,13 @@ PROMPT_EXAMPLE_DEFAULTS = {
     "narrator": "用一两句无名族人的画外议论"
 }  # the brief's built-in examples; genre files override
 
-ANALYSIS_INSTRUCTION = (
-    f"先做内部规划，不要输出JSON：第一步定时长预算，全集约90秒分成{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段写出覆盖哪些区段、几个阶段、估算秒数；"
-    "第二步定台词取舍，列出保留的原文台词（合计220到300字，可删子句）、合并或删掉的群众议论、以及必须用一两句画外议论外化的叙述事实（写出改成谁说的什么话）；"
-    "第三步列每个阶段的景别和主要动作。不超过800字。"
-)
-
-ANALYSIS_INSTRUCTION = (
-    "先做内部规划，不要输出JSON：逐区段列出必须保留的引号台词、必须外化成台词的叙述事实（写出改成谁说的什么话）、"
-    "此刻可拍的动作；然后给出片段划分：每段覆盖哪些区段、几个阶段、估算秒数，总共6到10段。不超过800字。"
-)
+def analysis_instruction() -> str:
+    """Rendered at call time: the fast tier changes CLIP_RANGE after import."""
+    return (
+        "先做内部规划，不要输出JSON：逐区段列出必须保留的引号台词、必须外化成台词的叙述事实（写出改成谁说的什么话）、"
+        "此刻可拍的动作；然后给出片段划分：每段覆盖哪些区段、几个阶段、估算秒数，"
+        f"总共{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段。不超过800字。"
+    )
 
 
 def compact(value: str) -> str:
@@ -623,7 +627,7 @@ def qwen_default() -> str:
 
 def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 2500, notes: str = "", grammar: dict | None = None, profile: dict | None = None, fast: bool = False) -> tuple[str, dict]:
     frame = frame_spec(profile) if profile else FRAMES["9:16"]
-    system_prompt = SYSTEM_PROMPT.replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
+    system_prompt = render_brief(SYSTEM_PROMPT).replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
     system_prompt += f"\n\n【画幅】{frame['text']}。{frame['composition']}。"
     if grammar:
         system_prompt += f"\n\n【全书视觉语法，camera 和 light 字段必须与之一致】{grammar_text(grammar)}"
@@ -659,7 +663,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
               "max_tokens": analysis_tokens,
               "chat_template_kwargs": {"enable_thinking": True, "preserve_thinking": True, "reasoning_effort": "low"},
               "messages": [
-                  {"role": "system", "content": system_prompt + "\n\n" + ANALYSIS_INSTRUCTION},
+                  {"role": "system", "content": system_prompt + "\n\n" + analysis_instruction()},
                   {"role": "user", "content": user_content},
               ],
           })
@@ -1218,9 +1222,12 @@ def main() -> int:
         # episode target scales with the text (~60 s per 3000 chars, max 100 s)
         # so merged chapters do not come out as 40 s stubs.  Redos stay at two:
         # with parallel planning they are cheap and lift the pass rate.
-        global CLIP_RANGE, SPOKEN_RANGE, EPISODE_SECONDS_MAX
+        global CLIP_RANGE, STAGE_RANGE, SPOKEN_RANGE, EPISODE_SECONDS_MAX
         fast_target = int(min(150, max(75, round(episode.text_count / 3000 * 85 / 10) * 10)))
-        CLIP_RANGE = (3, 5)  # every segment gets filmed, so the clip count follows the chapter
+        # The brief is rendered from these, so they must follow the lane: the 15 s lane
+        # keeps twice the clips at half the stages, exactly as its brief has always said.
+        CLIP_RANGE = (6, 8) if SHORT_CLIPS else (3, 5)  # every segment gets filmed, so the count follows the chapter
+        STAGE_RANGE = (2, 3) if SHORT_CLIPS else (3, 5)  # the fast tier's requirements line has always said 3-5
         SPOKEN_RANGE = (180, 300) if fast_target <= 90 else (240, 400)
         EPISODE_SECONDS_MAX = 210.0
         EPISODE_SECONDS_MIN = max(EPISODE_SECONDS_MIN, fast_target - 25)  # soft: waived on the last redo
@@ -1336,7 +1343,7 @@ def main() -> int:
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
             "clip_count": f"{CLIP_RANGE[0]}-{CLIP_RANGE[1]}",
-            **({"episode_target": f"约{fast_target}秒，{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段3到5个阶段，全集阶段总数12到18个；8个区段每一个都必须至少被一个阶段引用（每个区段1到3个阶段），skipped_segments 必须为空——长对话压成一两句、群众议论合并、次要过程一个阶段带过，但不许整段不拍；不得低于{max(55, fast_target - 25)}秒"} if fast else {}),
+            **({"episode_target": f"约{fast_target}秒，{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段，每段{STAGE_RANGE[0]}到{STAGE_RANGE[1]}个阶段，全集阶段总数12到18个；{SEGMENT_COUNT}个区段每一个都必须至少被一个阶段引用（每个区段1到{STAGES_PER_SEGMENT_MAX}个阶段），skipped_segments 必须为空——长对话压成一两句、群众议论合并、次要过程一个阶段带过，但不许整段不拍；不得低于{max(55, fast_target - 25)}秒"} if fast else {}),
             "stages_per_clip": f"{STAGE_RANGE[0]}-{STAGE_RANGE[1]}",
             "clip_seconds": f"20-{int(MAX_CLIP_SECONDS)}",
             "episode_seconds": f"about 90, max {int(EPISODE_SECONDS_MAX)}",
