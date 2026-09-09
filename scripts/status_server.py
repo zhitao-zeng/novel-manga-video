@@ -125,6 +125,22 @@ def _rate(finals: list[float], window: float) -> int:
     return sum(1 for t in finals if now - t <= window)
 
 
+def _spark(finals: list[float]) -> list[int]:
+    """Finished episodes per hour for the last 24 hours, oldest first."""
+    now = time.time()
+    start = now - 24 * 3600
+    buckets = [0] * 24
+    for t in finals:
+        if t >= start:
+            buckets[min(23, int((t - start) // 3600))] += 1
+    return buckets
+
+
+def _today(finals: list[float]) -> int:
+    midnight = time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
+    return sum(1 for t in finals if t >= midnight)
+
+
 def _novel_status(novel: dict) -> dict:
     finals, planned = _episode_numbers(novel["id"])
     chapters = _chapters(novel["id"])
@@ -145,6 +161,7 @@ def _novel_status(novel: dict) -> dict:
         "eta_hours": round(left / speed, 1) if speed else None,
         "last_final": max(finals) if finals else None, "tick": tick,
         "modes": _plan_modes(novel["id"]),
+        "spark": _spark(finals), "today": _today(finals),
     }
 
 
@@ -348,14 +365,44 @@ def _held_slots(directory: Path) -> int:
     return held
 
 
-def _warnings() -> list[str]:
+LOG_TS = re.compile(r"^(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})")
+WARNING_KINDS = [
+    (re.compile(r"(?<!\d)429(?!\d)"), "限流", "warn"),
+    (re.compile(r"Traceback"), "异常", "bad"),
+    (re.compile(r"auth", re.I), "鉴权", "bad"),
+    (re.compile(r"FAILED"), "失败", "bad"),
+    (re.compile(r"stopped"), "停止", "warn"),
+    (re.compile(r"park"), "暂停", "warn"),
+]
+
+
+def _log_ts(line: str) -> float | None:
+    """Epoch of a conductor log line ("MM-DD HH:MM:SS ..."); the year is this year,
+    backed off one year if that lands in the future (a log spanning New Year)."""
+    found = LOG_TS.match(line)
+    if not found:
+        return None
+    month, day, clock = int(found.group(1)), int(found.group(2)), found.group(3)
+    try:
+        stamp = time.mktime(time.strptime(f"{time.localtime().tm_year}-{month:02d}-{day:02d} {clock}", "%Y-%m-%d %H:%M:%S"))
+    except ValueError:
+        return None
+    return stamp - 366 * 86400 if stamp > time.time() + 86400 else stamp
+
+
+def _warnings() -> list[dict]:
     out = []
     for novel in NOVELS:
         if not novel["conductor"] or not novel["conductor"].is_file():
             continue
         for line in _read_tail(novel["conductor"], 400):
-            if re.search(r"429|Traceback|stopped|auth|FAILED|park", line) and "tick:" not in line:
-                out.append(f"{novel['title']}: {line.strip()[:150]}")
+            # A lane that stops because every range finished is a normal ending, not a warning.
+            if "tick:" in line or "all ranges finished" in line:
+                continue
+            hit = next((k for k in WARNING_KINDS if k[0].search(line)), None)
+            if hit:
+                out.append({"novel": novel["title"], "kind": hit[1], "level": hit[2],
+                            "text": line.strip()[:150], "ts": _log_ts(line)})
     return out[-8:]
 
 
@@ -384,74 +431,246 @@ def cached_snapshot() -> dict:
 PAGE = """<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>小说成片进度</title><style>
-:root{--bg:#0f1115;--card:#171a21;--line:#252a34;--text:#e6e8ee;--dim:#8b93a3;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--bar:#3b82f6}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
-header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px}
-h1{font-size:16px;margin:0;font-weight:600}.dim{color:var(--dim);font-size:12px}
-main{padding:16px 20px;display:grid;gap:14px;max-width:1100px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
-.novel{display:grid;grid-template-columns:1fr;gap:8px}
-.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
-.name{font-size:15px;font-weight:600}.num{font-variant-numeric:tabular-nums}
-.track{height:8px;background:#22262f;border-radius:99px;overflow:hidden;display:flex}
-.fill{background:var(--bar);height:100%}.fill.plan{background:#334155}
-table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line)}
-th{color:var(--dim);font-weight:500}tr:last-child td{border-bottom:0}
-.tick{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dim);word-break:break-all}
-.warn{color:var(--warn)}.bad{color:var(--bad)}.ok{color:var(--ok)}
-.pills{display:flex;gap:8px;flex-wrap:wrap}.pill{background:#22262f;border-radius:99px;padding:2px 10px;font-size:12px}
+:root{
+  --bg:#0c0e13; --surface:#14171f; --surface-2:#1a1e29; --line:#232836;
+  --text:#e9ebf2; --dim:#9aa2b5; --faint:#6d7590;
+  --ok:#3ddc97; --warn:#f5b942; --bad:#f97066; --accent:#5b8cff; --accent-2:#38bdf8;
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+body{margin:0;background:
+  radial-gradient(1200px 500px at 80% -10%, #16203a55, transparent),
+  radial-gradient(900px 400px at 0% -10%, #1a153055, transparent),
+  var(--bg);
+  color:var(--text);font:14px/1.55 -apple-system,"SF Pro SC","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased}
+.num,.stat b,.mono{font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);
+  background:#0c0e13cc;border-bottom:1px solid var(--line);
+  padding:14px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.02em}
+.health{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;
+  padding:3px 12px;border-radius:99px;border:1px solid var(--line);background:var(--surface)}
+#stamp{margin-left:auto;color:var(--dim);font-size:12px}
+#stamp.err{color:var(--bad)}
+main{padding:20px 24px 40px;display:grid;gap:16px;max-width:1180px;margin:0 auto}
+.card{background:linear-gradient(180deg,#161a24, var(--surface));
+  border:1px solid var(--line);border-radius:14px;padding:16px 18px;
+  box-shadow:0 1px 0 #ffffff08 inset, 0 8px 24px #00000026}
+.label{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin-bottom:10px;font-weight:600}
+
+/* status dot with glow */
+.dot{display:inline-block;width:8px;height:8px;border-radius:99px;flex:none}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px #3ddc9780}
+.dot.warn{background:var(--warn);box-shadow:0 0 8px #f5b94280}
+.dot.bad{background:var(--bad);box-shadow:0 0 8px #f9706680}
+.dot.idle{background:#4a5068;box-shadow:none}
+.health.ok{color:var(--ok)}.health.warn{color:var(--warn)}.health.bad{color:var(--bad)}
+
+/* hero stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:linear-gradient(180deg,#161a24,var(--surface));border:1px solid var(--line);
+  border-radius:14px;padding:14px 16px}
+.stat .k{font-size:11.5px;color:var(--dim);letter-spacing:.06em;margin-bottom:4px}
+.stat b{font-size:22px;font-weight:680;letter-spacing:-.01em}
+.stat .u{font-size:12px;color:var(--dim);font-weight:500;margin-left:2px}
+.stat .sub{font-size:11.5px;color:var(--dim);margin-top:2px}
+
+/* novel cards */
+.ncard{display:grid;gap:12px}
+.nrow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.nname{font-size:16px;font-weight:650;display:flex;align-items:center;gap:9px}
+.pill{font-size:11.5px;font-weight:600;padding:2px 10px;border-radius:99px;border:1px solid var(--line);background:var(--surface-2);color:var(--dim)}
+.pill.ok{color:var(--ok);border-color:#3ddc9740}
+.pill.warn{color:var(--warn);border-color:#f5b94240}
+.pill.bad{color:var(--bad);border-color:#f9706640}
+.neta{font-size:13px;color:var(--dim)}
+.neta b{color:var(--text);font-weight:650}
+.nbody{display:grid;grid-template-columns:1fr 240px;gap:18px;align-items:end}
+.track{height:7px;background:#20242f;border-radius:99px;overflow:hidden;display:flex;margin:10px 0 8px}
+.fill{background:linear-gradient(90deg,var(--accent),var(--accent-2));height:100%}
+.fill.plan{background:#3a4358;height:100%}
+.nmeta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--dim);font-size:12.5px}
+.spark{display:flex;align-items:flex-end;gap:2px;height:34px}
+.spark i{flex:1;background:linear-gradient(180deg,var(--accent),#5b8cff55);border-radius:2px 2px 0 0;min-height:2px;opacity:.55}
+.spark i:last-child{opacity:1}
+.spark-label{font-size:11px;color:var(--dim);text-align:right;margin-top:4px}
+.tick{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dim);
+  word-break:break-all;border-top:1px dashed var(--line);padding-top:8px}
+details{border-top:1px dashed var(--line);padding-top:6px}
+summary{cursor:pointer;color:var(--dim);font-size:12.5px;list-style:none;user-select:none}
+summary::before{content:"▸ ";font-size:10px}
+details[open] summary::before{content:"▾ "}
+summary:hover{color:var(--text)}
+
+/* attention */
+.attn-item{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.attn-item:last-child{border-bottom:0}
+.attn-item .when{color:var(--dim);font-size:12px;margin-left:auto;flex:none}
+.attn-item .src{color:var(--dim);font-size:12px;flex:none}
+.attn-raw{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--dim);
+  word-break:break-all;margin:2px 0 6px 18px}
+.all-clear{color:var(--ok);font-size:13px}
+
+/* tables */
+.twrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{color:var(--dim);font-weight:600;font-size:11.5px;letter-spacing:.06em;text-align:left;
+  padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid #1d222e;white-space:nowrap}
+tbody tr{transition:background .15s}
+tbody tr:hover{background:#ffffff06}
+tr:last-child td{border-bottom:0}
+.dim{color:var(--dim)}.warn-t{color:var(--warn)}.ok-t{color:var(--ok)}
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+
+@media (max-width:820px){
+  main{padding:14px 12px 32px}
+  header{padding:12px 14px}
+  .nbody{grid-template-columns:1fr}
+  table.resp thead{display:none}
+  table.resp, table.resp tbody, table.resp tr, table.resp td{display:block;width:100%}
+  table.resp tr{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;padding:6px 12px}
+  table.resp td{border-bottom:0;padding:3px 0;display:flex;justify-content:space-between;gap:12px;white-space:normal}
+  table.resp td::before{content:attr(data-l);color:var(--dim);font-size:12px;flex:none}
+}
 </style></head><body>
-<header><h1>小说成片进度</h1><div class="dim" id="stamp">加载中…</div></header>
+<header>
+  <h1>小说成片进度</h1>
+  <span class="health" id="health"><i class="dot idle"></i>读取中</span>
+  <span id="stamp">加载中…</span>
+</header>
 <main>
-  <div id="novels" class="novel"></div>
-  <div class="card"><div class="dim" style="margin-bottom:6px">正在跑的任务</div><table id="lanes"></table></div>
-  <div class="card"><div class="dim" style="margin-bottom:6px">具体在处理的东西</div><table id="workers"></table></div>
-  <div class="card"><div class="dim" style="margin-bottom:6px">进程与在途</div><div class="pills" id="procs"></div>
-    <table id="inflight" style="margin-top:10px"></table></div>
-  <div class="card"><div class="dim" style="margin-bottom:6px">最近告警</div><div id="warnings" class="tick"></div></div>
+  <div class="stats" id="stats"></div>
+  <div id="novels" style="display:grid;gap:16px"></div>
+  <div class="card" id="attention-card"><div class="label">需要关注</div><div id="attention"></div></div>
+  <div class="card"><div class="label">运行明细 · 通道</div><div class="twrap"><table class="resp" id="lanes"></table></div></div>
+  <div class="card"><div class="label">运行明细 · 单集任务</div><div class="twrap"><table class="resp" id="workers"></table></div></div>
+  <div class="card"><div class="label">进程与在途</div><div class="pills" id="procs"></div>
+    <div class="twrap" style="margin-top:12px"><table class="resp" id="inflight"></table></div></div>
 </main>
 <script>
+const $ = id => document.getElementById(id);
 const pct = (a,b) => b ? Math.min(100, a*100/b) : 0;
-function novelCard(n){
-  const eta = n.eta_hours == null ? "—" : (n.eta_hours < 1 ? Math.round(n.eta_hours*60)+" 分钟" : n.eta_hours+" 小时");
-  const last = n.last_final ? new Date(n.last_final*1000).toLocaleTimeString("zh-CN") : "—";
-  return `<div class="card">
-    <div class="row"><span class="name">${n.title}</span>
-      <span class="num">成片 <b>${n.done}</b> / 已规划 ${n.planned} / 全书 ${n.chapters}</span></div>
-    <div class="track"><div class="fill" style="width:${pct(n.done,n.chapters)}%"></div>
-      <div class="fill plan" style="width:${pct(n.planned-n.done,n.chapters)}%"></div></div>
-    <div class="row dim"><span>已规划里 30 秒档 ${n.modes["30"]} 集（走 sd2.5） · 15 秒档 ${n.modes["15"]} 集（走 sd2.0）</span><span></span></div>
-    <div class="row dim"><span>近一小时 ${n.per_hour} 集 · 近 15 分钟折合 ${n.recent_per_hour} 集/小时</span>
-      <span>剩 ${n.left} 集，约 ${eta} · 最近一集 ${last}</span></div>
-    ${n.tick ? `<div class="tick">${n.tick}</div>` : ""}</div>`;
+const fmtETA = h => h == null ? "—" : (h < 1 ? Math.round(h*60)+" 分钟" : h < 48 ? h+" 小时" : (h/24).toFixed(1)+" 天");
+const fmtAgo = s => s == null ? "—" : (s < 90 ? s+" 秒前" : s < 5400 ? Math.round(s/60)+" 分钟前" : (s/3600).toFixed(1)+" 小时前");
+const laneHealth = l => l.age == null ? "warn" : l.age < 600 ? "ok" : l.age < 1800 ? "warn" : "bad";
+const workerHealth = w => w.elapsed < 900 ? "ok" : w.elapsed < 1800 ? "warn" : "bad";
+const HEALTH_TEXT = {ok:"全部正常", warn:"有任务停滞", bad:"有异常"};
+const WORST = {ok:0, warn:1, bad:2};
+
+function spark(bars){
+  const max = Math.max(...bars, 1);
+  return `<div><div class="spark">` + bars.map((v,i) =>
+    `<i style="height:${Math.max(6, v*100/max)}%" title="${24-1-i} 小时前: ${v} 集"></i>`).join("") +
+    `</div><div class="spark-label">近 24 小时 · 共 ${bars.reduce((a,b)=>a+b,0)} 集</div></div>`;
 }
-async function tick(){
-  try{
-    const r = await fetch("status.json", {cache:"no-store"});
-    const d = await r.json();
-    document.getElementById("stamp").textContent = d.now + " · 每 20 秒刷新";
-    document.getElementById("novels").innerHTML = d.novels.map(novelCard).join("");
-    document.getElementById("lanes").innerHTML =
-      "<tr><th>任务</th><th>小说</th><th>章节</th><th>档位</th><th>模型</th><th>本轮</th><th>速度</th><th>该段剩余</th><th>当前章</th><th>更新</th></tr>" +
-      (d.lanes.length ? d.lanes.map(l=>`<tr><td>${l.stage}</td><td>${l.novel}</td><td class="num">${l.range}</td>
-        <td>${l.mode}</td><td>${l.model||"—"}</td>
-        <td class="num">${l.done}</td>
-        <td class="num">${l.rate==null?"—":l.rate+" /小时"}</td>
-        <td class="num">${l.total-l.covered}${l.eta_hours!=null?` · ${l.eta_hours<1?Math.round(l.eta_hours*60)+" 分":l.eta_hours+" 时"}`:""}</td>
-        <td class="num">${l.current||"—"}</td>
-        <td class="${l.age!=null&&l.age>1800?"warn":"dim"}">${l.age==null?"—":(l.age<90?l.age+" 秒前":Math.round(l.age/60)+" 分钟前")}</td></tr>`).join("")
-        : "<tr><td class='dim'>没有在跑的任务</td></tr>");
-    const mins = s => s<90 ? s+" 秒" : Math.round(s/60)+" 分钟";
-    document.getElementById("workers").innerHTML = "<tr><th>类型</th><th>小说</th><th>对象</th><th>进度</th><th>已跑</th></tr>" +
-      (d.workers.length ? d.workers.map(w=>`<tr><td>${w.kind}</td><td>${w.novel}</td><td class="num">${w.what}</td>
-        <td class="dim">${w.detail}</td><td class="${w.elapsed>1800?"warn":"dim"}">${mins(w.elapsed)}</td></tr>`).join("")
-        : "<tr><td class='dim'>暂时没有</td></tr>");
-    document.getElementById("procs").innerHTML = Object.entries(d.processes)
-      .map(([k,v])=>`<span class="pill">${({runners:"渲染",planners:"规划",cards:"角色卡",reviews:"审查",conductors:"调度器",uploads:"上传"})[k]||k} <b>${v}</b></span>`).join("");
-    document.getElementById("inflight").innerHTML = "<tr><th>小说</th><th>通道</th><th>在途/上限</th></tr>" +
-      d.inflight.map(i=>`<tr><td>${i.novel}</td><td>${i.pool}</td><td class="num">${i.slots} / ${i.limit}</td></tr>`).join("");
-    document.getElementById("warnings").innerHTML = d.warnings.length ? d.warnings.map(w=>`<div>${w}</div>`).join("") : "<span class='ok'>无</span>";
-  }catch(e){ document.getElementById("stamp").textContent = "读取失败：" + e; }
+
+function novelCard(d, n){
+  const lanes = d.lanes.filter(l => l.novel === n.title);
+  const workers = d.workers.filter(w => w.novel === n.title);
+  const pools = d.inflight.filter(i => i.novel === n.title);
+  const health = lanes.length ? lanes.map(laneHealth).reduce((a,b)=>WORST[a]>WORST[b]?a:b) : (n.done ? "ok" : "warn");
+  const last = n.last_final ? new Date(n.last_final*1000).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}) : "—";
+  const detailRows = (lanes.length + workers.length)
+    ? `<table style="margin-top:8px"><tbody>` +
+      lanes.map(l=>`<tr><td class="dim">${l.stage}通道</td><td class="num">${l.range}</td><td>${l.mode}</td><td class="dim">${l.model||"—"}</td><td class="num">本轮 ${l.done} · 剩 ${l.total-l.covered}</td><td class="${l.age>1800?"warn-t":"dim"}">${fmtAgo(l.age)}</td></tr>`).join("") +
+      workers.map(w=>`<tr><td class="dim">${w.kind}</td><td class="num">${w.what}</td><td colspan="2" class="dim">${w.detail}</td><td></td><td class="${w.elapsed>1800?"warn-t":"dim"}">已跑 ${fmtAgo(w.elapsed).replace("前","")}</td></tr>`).join("") +
+      `</tbody></table>` : `<div class="dim" style="margin-top:8px;font-size:12.5px">这本书当前没有在跑的任务</div>`;
+  return `<div class="card ncard">
+    <div class="nrow">
+      <span class="nname"><i class="dot ${health}"></i>${n.title}<span class="pill ${health}">${health==="ok"?"正常":health==="warn"?"放缓":"停滞"}</span></span>
+      <span class="neta">剩 <b>${n.left}</b> 集 · 约 <b>${fmtETA(n.eta_hours)}</b> · 最近一集 ${last}</span>
+    </div>
+    <div class="nbody">
+      <div>
+        <div class="nmeta"><span>成片 <b class="num" style="color:var(--text)">${n.done}</b> / 已规划 ${n.planned} / 全书 ${n.chapters}</span>
+          <span>今日 +${n.today} · 近一小时 ${n.per_hour} 集 · 近 15 分钟折合 ${n.recent_per_hour}/时</span></div>
+        <div class="track"><div class="fill" style="width:${pct(n.done,n.chapters)}%"></div>
+          <div class="fill plan" style="width:${pct(n.planned-n.done,n.chapters)}%"></div></div>
+        <div class="nmeta"><span>30 秒档 ${n.modes["30"]} 集（sd2.5） · 15 秒档 ${n.modes["15"]} 集（sd2.0）</span>
+          <span>${pools.map(p=>`${p.pool} ${p.slots}/${p.limit}`).join(" · ")||"无在途通道"}</span></div>
+      </div>
+      ${spark(n.spark)}
+    </div>
+    ${n.tick ? `<div class="tick">tick: ${n.tick}</div>` : ""}
+    <details><summary>这本书的运行明细（${lanes.length + workers.length} 个在跑）</summary>${detailRows}</details>
+  </div>`;
+}
+
+function attention(d){
+  const items = [];
+  for (const l of d.lanes) if (l.age != null && l.age > 1800)
+    items.push({level: l.age > 3600 ? "bad" : "warn", ts: Date.now()/1000 - l.age,
+      html: `${l.novel} · ${l.stage}通道 <span class="num">${l.range}</span> — ${fmtAgo(l.age)}无产出（最后在 ${l.current||"?"} 章）`});
+  for (const w of d.workers) if (w.elapsed > 1800)
+    items.push({level: "warn", ts: null, html: `${w.novel} · ${w.kind} ${w.what} 已运行 ${fmtAgo(w.elapsed).replace("前","")}`});
+  for (const w of d.warnings)
+    items.push({level: w.level, ts: w.ts, novel: w.novel,
+      html: `${w.novel} · ${w.kind}`, raw: w.text});
+  if (!items.length) return `<div class="all-clear">✓ 没有需要关注的情况</div>`;
+  items.sort((a,b)=>WORST[b.level]-WORST[a.level] || (b.ts||0)-(a.ts||0));
+  return items.map(i=>{
+    const when = i.ts ? fmtAgo(Math.max(0, Date.now()/1000 - i.ts)) : "";
+    return `<div class="attn-item"><i class="dot ${i.level}"></i><span>${i.html}</span><span class="when">${when}</span></div>` +
+      (i.raw ? `<div class="attn-raw">${i.raw}</div>` : "");
+  }).join("");
+}
+
+function laneRow(l){
+  const h = laneHealth(l);
+  return `<tr>
+    <td data-l="状态"><i class="dot ${h}"></i></td>
+    <td data-l="任务">${l.stage} · ${l.novel}</td>
+    <td data-l="章节" class="num">${l.range}${l.current?` · 在 ${l.current}`:""}</td>
+    <td data-l="档位">${l.mode} <span class="dim">${l.model||""}</span></td>
+    <td data-l="进度" class="num">本轮 ${l.done} · 剩 ${l.total-l.covered}</td>
+    <td data-l="速度" class="num">${l.rate==null?"—":l.rate+"/时"}${l.eta_hours!=null?` · ${fmtETA(l.eta_hours)}`:""}</td>
+    <td data-l="更新" class="${h==="ok"?"dim":"warn-t"}">${fmtAgo(l.age)}</td></tr>`;
+}
+
+function tick(){
+  fetch("status.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{
+    const totalLeft = d.novels.reduce((a,n)=>a+n.left,0);
+    const speed = d.novels.reduce((a,n)=>a+(n.recent_per_hour||n.per_hour),0);
+    const today = d.novels.reduce((a,n)=>a+n.today,0);
+    const nowSec = Date.now()/1000;
+    const states = [
+      ...d.lanes.map(laneHealth), ...d.workers.map(workerHealth),
+      // only fresh warnings say something about right now; a 429 from hours ago doesn't
+      ...d.warnings.filter(w=>w.ts && nowSec - w.ts < 7200).map(w=>w.level),
+      ...(d.lanes.length||d.workers.length ? [] : ["warn"]),
+    ];
+    const overall = states.reduce((a,b)=>WORST[a]>WORST[b]?a:b, "ok");
+    $("health").className = "health " + overall;
+    $("health").innerHTML = `<i class="dot ${overall}"></i>${HEALTH_TEXT[overall]}`;
+    $("stats").innerHTML =
+      `<div class="stat"><div class="k">今日成片</div><b>${today}</b><span class="u">集</span></div>
+       <div class="stat"><div class="k">当前速度</div><b>${speed}</b><span class="u">集/时</span></div>
+       <div class="stat"><div class="k">在跑任务</div><b>${d.lanes.length + d.workers.length}</b><span class="u">个</span>
+         <div class="sub">${d.lanes.length} 条通道 · ${d.workers.length} 个单集</div></div>
+       <div class="stat"><div class="k">全部剩余</div><b>${totalLeft}</b><span class="u">集</span>
+         <div class="sub">按当前速度约 ${fmtETA(speed ? Math.round(totalLeft/speed*10)/10 : null)}</div></div>`;
+    $("novels").innerHTML = d.novels.map(n=>novelCard(d,n)).join("");
+    $("attention").innerHTML = attention(d);
+    $("attention-card").style.display = "";
+    $("lanes").innerHTML = `<thead><tr><th></th><th>任务</th><th>章节</th><th>档位</th><th>进度</th><th>速度</th><th>更新</th></tr></thead><tbody>` +
+      (d.lanes.length ? d.lanes.map(laneRow).join("") : `<tr><td class="dim">没有在跑的通道</td></tr>`) + `</tbody>`;
+    $("workers").innerHTML = `<thead><tr><th>类型</th><th>小说</th><th>对象</th><th>进度</th><th>已跑</th></tr></thead><tbody>` +
+      (d.workers.length ? d.workers.map(w=>`<tr>
+        <td data-l="类型">${w.kind}</td><td data-l="小说">${w.novel}</td><td data-l="对象" class="num">${w.what}</td>
+        <td data-l="进度" class="dim">${w.detail}</td>
+        <td data-l="已跑" class="${w.elapsed>1800?"warn-t":"dim"}">${fmtAgo(w.elapsed).replace("前","")}</td></tr>`).join("")
+        : `<tr><td class="dim">暂时没有</td></tr>`) + `</tbody>`;
+    $("procs").innerHTML = Object.entries(d.processes)
+      .map(([k,v])=>`<span class="pill">${({runners:"渲染",planners:"规划",cards:"角色卡",reviews:"审查",conductors:"调度器",uploads:"上传"})[k]||k} <b class="num">${v}</b></span>`).join("");
+    $("inflight").innerHTML = `<thead><tr><th>小说</th><th>通道</th><th>在途/上限</th></tr></thead><tbody>` +
+      d.inflight.map(i=>`<tr><td data-l="小说">${i.novel}</td><td data-l="通道">${i.pool}</td>
+        <td data-l="在途" class="num">${i.slots} / ${i.limit}</td></tr>`).join("") + `</tbody>`;
+    const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.now.replace(" ","T")))/1000));
+    $("stamp").className = "";
+    $("stamp").textContent = `数据 ${ageSec} 秒前 · 每 20 秒刷新`;
+  }).catch(e=>{ $("stamp").textContent = "读取失败：" + e; $("stamp").className = "err"; });
 }
 tick(); setInterval(tick, 20000);
 </script></body></html>"""
