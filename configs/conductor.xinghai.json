@@ -12,10 +12,10 @@
       "clip_cap": 30,
       "inflight": {
         "min": 4,
-        "max": 30,
-        "start": 24
+        "max": 40,
+        "start": 34
       },
-      "parallel": 9
+      "parallel": 14
     },
     {
       "name": "sd20",
