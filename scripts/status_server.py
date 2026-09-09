@@ -494,16 +494,27 @@ def _board_novel(novel: dict) -> dict:
     finals, planned = _episode_numbers(nid)
     chapters = _chapters(nid)
     done = len(finals)
+    now = time.time()
     by_day: dict[str, int] = {}
+    by_hour: dict[str, int] = {}
     for t in finals:
         day = time.strftime("%Y-%m-%d", time.localtime(t))
         by_day[day] = by_day.get(day, 0) + 1
-    week_ago = time.time() - 7 * 86400
+        hour = time.strftime("%Y-%m-%dT%H:00", time.localtime(t))
+        by_hour[hour] = by_hour.get(hour, 0) + 1
+    week_ago = now - 7 * 86400
     rate7 = round(sum(1 for t in finals if t >= week_ago) / 7, 1)
+    # A book's whole run is a day or two, so the working estimate is the
+    # last six hours; the 7-day rate only matters for long-running books.
+    rate_h = round(sum(1 for t in finals if t >= now - 6 * 3600) / 6, 1)
     left = max(0, planned - done)
     projected = None
-    if rate7 and left:
-        projected = time.strftime("%Y-%m-%d", time.localtime(time.time() + left / rate7 * 86400))
+    projected_ts = None
+    if left:
+        if rate7:
+            projected = time.strftime("%Y-%m-%d", time.localtime(now + left / rate7 * 86400))
+        if rate_h:
+            projected_ts = time.strftime("%Y-%m-%dT%H:%M", time.localtime(now + left / rate_h * 3600))
     sev_all: dict[str, int] = {}
     cats: dict[str, int] = {}
     recent_pass = recent_total = 0
@@ -552,7 +563,8 @@ def _board_novel(novel: dict) -> dict:
         })
     return {
         "id": nid, "title": novel["title"], "done": done, "planned": planned, "chapters": chapters,
-        "daily": sorted(by_day.items()), "rate7": rate7, "projected": projected,
+        "daily": sorted(by_day.items()), "hourly": sorted(by_hour.items()),
+        "rate7": rate7, "projected": projected, "rate_h": rate_h, "projected_ts": projected_ts,
         "quality": {
             "clips": total, "sev": sev_all,
             "pass_rate": round(100 * sev_all.get("pass", 0) / total, 1) if total else None,
@@ -913,7 +925,8 @@ BOARD_BODY = """
 <div id="board" style="display:grid;gap:16px"></div>
 <script>
 const DAY = 86400000;
-const md = s => { const d = new Date(s+"T00:00:00"); return (d.getMonth()+1)+"/"+d.getDate(); };
+const mdT = t => { const d = new Date(t); return (d.getMonth()+1)+"/"+d.getDate(); };
+const mdHm = t => { const d = new Date(t); return (d.getMonth()+1)+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
 
 function barsSVG(items, W, H){
   const n = items.length || 1, gap = Math.min(3, (W/n)*0.25), bw = Math.max(1, (W-gap*(n-1))/n);
@@ -925,31 +938,27 @@ function barsSVG(items, W, H){
   return `<svg class="sparksvg" style="height:${H}px" viewBox="0 0 ${W} ${H}">${rects}</svg>`;
 }
 
-function burnup(n){
-  if (!n.daily.length) return `<div class="dim" style="padding:8px 0">还没有成片数据</div>`;
+function burnup(n, series, projT, stepMs, fmt){
+  if (!series.length) return `<div class="dim" style="padding:8px 0">还没有成片数据</div>`;
   const W=760, H=210, pl=8, pr=64, pt=16, pb=26;
-  const first = Date.parse(n.daily[0][0]+"T00:00:00");
-  const last = Date.parse(n.daily[n.daily.length-1][0]+"T00:00:00");
-  const projT = n.projected ? Date.parse(n.projected+"T00:00:00") : null;
-  const xEnd = Math.max(last + DAY, projT || 0);
-  const X = t => pl + (t-first)/(xEnd-first)*(W-pl-pr);
-  let cum = 0;
-  const pts = n.daily.map(([d,c]) => { cum += c; return [X(Date.parse(d+"T00:00:00")), cum]; });
-  const yMax = Math.max(n.chapters||0, n.planned||0, cum, 1) * 1.06;
+  const first = series[0][0], last = series[series.length-1][0];
+  const xEnd = Math.max(last + stepMs, projT || 0);
+  const X = t => pl + (t-first)/((xEnd-first)||1)*(W-pl-pr);
+  const yMax = Math.max(n.chapters||0, n.planned||0, series[series.length-1][1], 1) * 1.06;
   const Y = v => pt + (1 - v/yMax)*(H-pt-pb);
-  const line = pts.map((p,i) => (i?"L":"M") + p[0].toFixed(1) + "," + Y(p[1]).toFixed(1)).join(" ");
-  const area = line + ` L${pts[pts.length-1][0].toFixed(1)},${Y(0).toFixed(1)} L${pts[0][0].toFixed(1)},${Y(0).toFixed(1)} Z`;
+  const line = series.map((p,i) => (i?"L":"M") + X(p[0]).toFixed(1) + "," + Y(p[1]).toFixed(1)).join(" ");
+  const area = line + ` L${X(last).toFixed(1)},${Y(0).toFixed(1)} L${X(first).toFixed(1)},${Y(0).toFixed(1)} Z`;
   let proj = "";
-  if (projT && n.rate7){
-    const done = pts[pts.length-1][1];
-    proj = `<line class="proj" x1="${pts[pts.length-1][0].toFixed(1)}" y1="${Y(done).toFixed(1)}" x2="${X(projT).toFixed(1)}" y2="${Y(n.planned).toFixed(1)}"></line>
+  if (projT){
+    const done = series[series.length-1][1];
+    proj = `<line class="proj" x1="${X(last).toFixed(1)}" y1="${Y(done).toFixed(1)}" x2="${X(projT).toFixed(1)}" y2="${Y(n.planned).toFixed(1)}"></line>
       <circle class="projdot" cx="${X(projT).toFixed(1)}" cy="${Y(n.planned).toFixed(1)}" r="3"></circle>
-      <text class="plab" x="${X(projT).toFixed(1)}" y="${(Y(n.planned)-8).toFixed(1)}" text-anchor="middle">预计 ${md(n.projected)}</text>`;
+      <text class="plab" x="${X(projT).toFixed(1)}" y="${(Y(n.planned)-8).toFixed(1)}" text-anchor="middle">预计 ${fmt(projT)}</text>`;
   }
   const scope = (v,lab,cls) => v ? `<line class="${cls}" x1="${pl}" x2="${W-pr}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}"></line>
     <text class="slab" x="${W-pr+6}" y="${(Y(v)+3).toFixed(1)}">${lab} ${v}</text>` : "";
-  const ticks = [...new Set([n.daily[0][0], n.daily[Math.floor(n.daily.length/2)][0], n.daily[n.daily.length-1][0], ...(n.projected?[n.projected]:[])])]
-    .map(d => `<text class="xlab" x="${X(Date.parse(d+"T00:00:00")).toFixed(1)}" y="${H-8}" text-anchor="middle">${md(d)}</text>`).join("");
+  const ticks = [...new Set([first, series[Math.floor(series.length/2)][0], last, ...(projT?[projT]:[])])]
+    .map(t => `<text class="xlab" x="${X(t).toFixed(1)}" y="${H-8}" text-anchor="middle">${fmt(t)}</text>`).join("");
   return `<svg class="burnsvg" viewBox="0 0 ${W} ${H}">
     ${scope(n.chapters,"全书","scope")}${n.planned && n.planned !== n.chapters ? scope(n.planned,"已规划","scope p") : ""}
     <path class="area" d="${area}"></path><path class="bline" d="${line}"></path>${proj}${ticks}</svg>`;
@@ -986,15 +995,29 @@ function laneTable(lanes){
 
 function boardCard(n){
   const q = n.quality;
+  // a book's whole run is a day or two, so short runs switch to hourly granularity
+  const hourlyMode = n.daily.length <= 3;
+  const src = hourlyMode ? n.hourly : n.daily;
+  let cum = 0;
+  const series = src.map(([k,c]) => { cum += c; return [Date.parse(k), cum]; });
+  const projT = hourlyMode ? (n.projected_ts ? Date.parse(n.projected_ts) : null)
+                           : (n.projected ? Date.parse(n.projected+"T00:00:00") : null);
+  const fmt = hourlyMode ? mdHm : mdT;
+  const stepMs = hourlyMode ? 3600000 : DAY;
+  const bars = src.map(([k,c]) => ({v:c, tip: fmt(Date.parse(k)) + " · " + c + " 集"}));
+  const etaTxt = n.done > 0 && n.done >= n.planned ? "已规划部分全部跑完 ✓"
+    : hourlyMode
+    ? (n.projected_ts ? `按近 6 小时 <b>${n.rate_h}</b> 集/时，已规划部分预计 <b>${mdHm(Date.parse(n.projected_ts))}</b> 完成` : "暂无投影")
+    : (n.projected ? `按近 7 天 <b>${n.rate7}</b> 集/天，已规划部分预计 <b>${mdT(Date.parse(n.projected+"T00:00:00"))}</b> 完成` : "暂无投影");
   const recent = q.recent_rate == null ? "" :
     ` · 近 7 天 <b class="${q.pass_rate != null && q.recent_rate >= q.pass_rate ? "ok-t" : "warn-t"}">${q.recent_rate}%</b>`;
   const cats = q.cats.length ? q.cats.map(([k,v]) => catRow(k, v, q.cats[0][1])).join("")
     : `<div class="dim">没有被判失败的类别</div>`;
   return `<div class="card ncard">
     <div class="nrow"><span class="nname">${n.title}</span>
-      <span class="neta">${n.projected ? `按近 7 天 <b>${n.rate7}</b> 集/天，已规划部分预计 <b>${md(n.projected)}</b> 完成` : "暂无投影"}</span></div>
-    ${burnup(n)}
-    ${n.daily.length ? barsSVG(n.daily.map(([d,c]) => ({v:c, tip:`${md(d)} · ${c} 集`})), 760, 64) : ""}
+      <span class="neta">${etaTxt}</span></div>
+    ${burnup(n, series, projT, stepMs, fmt)}
+    ${bars.length ? barsSVG(bars, 760, 64) : ""}
     <div class="board2">
       <div><div class="label">审查质量</div>
         ${q.clips ? donut(q.sev) : `<div class="dim">还没有审查数据</div>`}
