@@ -572,7 +572,10 @@ def acquire_inflight_slot(novel_dir: Path, limit: int):
     # allowance) names its pool with NOVEL_INFLIGHT_POOL so the two caps do not
     # share one set of slots.
     pool = os.environ.get("NOVEL_INFLIGHT_POOL", "").strip()
-    directory = novel_dir / (f".inflight-{pool}" if pool else ".inflight")
+    # NOVEL_INFLIGHT_DIR makes the pool belong to the API key rather than to this novel, so
+    # two novels rendering on one key share a single ceiling instead of one each.
+    shared = os.environ.get("NOVEL_INFLIGHT_DIR", "").strip()
+    directory = Path(shared) if shared else novel_dir / (f".inflight-{pool}" if pool else ".inflight")
     directory.mkdir(parents=True, exist_ok=True)
     while True:
         # A `limit` file in the pool (the conductor's AIMD on 429s) lowers the

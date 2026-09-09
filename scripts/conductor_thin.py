@@ -102,7 +102,8 @@ class Conductor:
 
     def range_stats(self, r: dict) -> dict:
         chapters = [self.chapter(n) for n in range(r["a"], r["b"] + 1)]
-        renderable = [c["n"] for c in chapters if c["planned"] and not c["done"] and c["runs"] < 3]
+        renderable = [c["n"] for c in chapters if c["planned"] and not c["done"] and c["runs"] < 3
+                      and c["mode"] == int(r.get("plan_mode", 30))]
         return {"total": len(chapters), "planned": sum(c["planned"] for c in chapters), "done": sum(c["done"] for c in chapters),
                 "renderable": renderable, "unreviewed": [c["n"] for c in chapters if c["unreviewed"]]}
 
@@ -161,14 +162,28 @@ class Conductor:
         proc = self.procs.get(name)
         return proc is not None and proc.poll() is None
 
-    def external_running(self, pattern: str) -> bool:
-        """A process matching `pattern` that this conductor did not start."""
+    def external_running(self, pattern: str, mode: int | None = None) -> bool:
+        """A process matching `pattern` that this conductor did not start.
+
+        With `mode`, only a lane rendering that clip length counts; a lane that predates the
+        --plan-mode flag carries none and counts for either, so restarts never duplicate it."""
         # "--" ends pgrep's own options: the patterns start with "--chapters".
         result = subprocess.run(["pgrep", "-f", "--", pattern], capture_output=True, text=True)
         if result.returncode != 0:
             return False
         own = {str(proc.pid) for proc in self.procs.values() if proc.poll() is None}
-        return any(pid.strip() and pid.strip() not in own for pid in result.stdout.split())
+        for pid in (p.strip() for p in result.stdout.split()):
+            if not pid or pid in own:
+                continue
+            if mode is None:
+                return True
+            try:
+                cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
+            except OSError:
+                continue
+            if "--plan-mode" not in cmdline or f"--plan-mode {mode}" in cmdline:
+                return True
+        return False
 
     def spawn(self, name: str, command: list[str], extra_env: dict | None = None) -> None:
         if self.dry:
@@ -197,6 +212,8 @@ class Conductor:
         env = {"NOVEL_VIDEO_MODEL": key["model"], "PHANROUTER_VIDEO_KEY_VAR": key["key_var"]}
         if key.get("pool"):
             env["NOVEL_INFLIGHT_POOL"] = key["pool"]
+        if key.get("inflight_dir"):
+            env["NOVEL_INFLIGHT_DIR"] = key["inflight_dir"]
         if int(key["clip_cap"]) <= 15:
             env["NOVEL_CLIP_SECONDS_MAX"] = "15"
         return env
@@ -208,14 +225,45 @@ class Conductor:
         """Resume the AIMD where the last conductor left it: a restart is not a throttle.
         Falls back to the configured start when the pool has no limit file yet."""
         lo, hi = int(key["inflight"]["min"]), int(key["inflight"]["max"])
-        path = self.novel_dir / (f".inflight-{key['pool']}" if key.get("pool") else ".inflight") / "limit"
+        return max(lo, min(hi, self.read_limit(key, int(key["inflight"]["start"]))))
+
+    def pool_dir(self, key: dict) -> Path:
+        if key.get("inflight_dir"):
+            return Path(key["inflight_dir"])
+        return self.novel_dir / (f".inflight-{key['pool']}" if key.get("pool") else ".inflight")
+
+    def owns_limit(self, key: dict) -> bool:
+        """One conductor drives the AIMD on a shared pool; the others follow what they read.
+        Ownership is a pid beside the limit and passes on when that process is gone."""
+        if not key.get("inflight_dir"):
+            return True
+        path = self.pool_dir(key) / "limit.owner"
         try:
-            return max(lo, min(hi, int(path.read_text(encoding="utf-8").strip())))
+            pid = int(path.read_text(encoding="utf-8").strip())
         except (OSError, ValueError):
-            return int(key["inflight"]["start"])
+            pid = 0
+        if pid == os.getpid():
+            return True
+        if pid > 0:
+            try:
+                os.kill(pid, 0)
+                return False
+            except (OSError, ProcessLookupError):
+                pass
+        if not self.dry:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(os.getpid()), encoding="utf-8")
+            self.log(f"{key['name']}: taking the in-flight limit for {self.pool_dir(key)}")
+        return True
+
+    def read_limit(self, key: dict, fallback: int) -> int:
+        try:
+            return int((self.pool_dir(key) / "limit").read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return fallback
 
     def write_limit(self, key: dict, limit: int) -> None:
-        directory = self.novel_dir / (f".inflight-{key['pool']}" if key.get("pool") else ".inflight")
+        directory = self.pool_dir(key)
         directory.mkdir(parents=True, exist_ok=True)
         if not self.dry:
             (directory / "limit").write_text(str(limit), encoding="utf-8")
@@ -227,6 +275,13 @@ class Conductor:
         # Count only the lines since the last limit change: one burst of 429s halves the
         # limit once, instead of on every tick until the burst ages out of the window.
         window = int(min(aimd.get("window_seconds", 600), max(1.0, now - lane["limit_changed"])))
+        quota = self.recent_lines(chapters, "quota_not_enough", aimd.get("window_seconds", 600)) if chapters else 0
+        if quota:
+            park = max(1800, int(aimd.get("park_seconds", 3600)))
+            self.log(f"{name}: QUOTA EXHAUSTED - {quota} x HTTP 403 quota_not_enough; parking this key for {park} s "
+                     "and stopping its lane (top the account up, then restart the conductor)")
+            lane["parked_until"] = now + park
+            return
         n429 = self.recent_lines(chapters, "HTTP 429", window) if chapters else 0
         lo, hi = int(key["inflight"]["min"]), int(key["inflight"]["max"])
         if n429 >= aimd.get("decrease_at", 5):
@@ -246,11 +301,14 @@ class Conductor:
                 lane["limit"] = min(hi, lane["limit"] + aimd.get("increase_step", 2))
                 lane["limit_changed"] = now
                 self.log(f"{name}: calm; in-flight -> {lane['limit']}")
-        self.write_limit(key, lane["limit"])
+        if self.owns_limit(key):
+            self.write_limit(key, lane["limit"])
+        else:  # another conductor drives this pool; follow it so this lane's view stays true
+            lane["limit"] = max(int(key["inflight"]["min"]), min(int(key["inflight"]["max"]), self.read_limit(key, lane["limit"])))
 
     def range_finished(self, r: dict, stats: dict) -> bool:
         blocks_done = all(b["done"] for b in self.blocks if b["a"] >= r["a"] and b["b"] <= r["b"])
-        batch = self.external_running(f"--chapters {r['a']}-{r['b']} --stage render")
+        batch = self.external_running(f"--chapters {r['a']}-{r['b']} --stage render", r["plan_mode"])
         return blocks_done and not stats["renderable"] and not batch
 
     def tick_lanes(self, stats: dict[int, dict]) -> None:
@@ -262,30 +320,30 @@ class Conductor:
                 self.stop(f"lane_{name}", "key parked")
                 lane["range"] = None
                 continue
-            current = next((r for r in self.ranges if lane["range"] and (r["a"], r["b"]) == tuple(lane["range"])), None)
+            current = next((r for r in self.ranges if lane["range"] and [r["a"], r["b"], r["plan_mode"]] == list(lane["range"])), None)
             if current and self.range_finished(current, stats[id(current)]):
                 self.log(f"{name}: range {current['a']}-{current['b']} finished")
                 lane["range"] = None
                 current = None
             if current is None:
-                free = [r for r in self.ranges if self.compatible(key, r) and (r["a"], r["b"]) not in assigned and not self.range_finished(r, stats[id(r)])]
-                busy = [r for r in self.ranges if self.compatible(key, r) and (r["a"], r["b"]) in assigned
+                free = [r for r in self.ranges if self.compatible(key, r) and (r["a"], r["b"], r["plan_mode"]) not in assigned and not self.range_finished(r, stats[id(r)])]
+                busy = [r for r in self.ranges if self.compatible(key, r) and (r["a"], r["b"], r["plan_mode"]) in assigned
                         and len(stats[id(r)]["renderable"]) >= 2 * int(key["parallel"])]
                 pick = free[0] if free else (max(busy, key=lambda r: len(stats[id(r)]["renderable"])) if busy else None)
                 if pick is None:
                     continue
-                lane["range"] = [pick["a"], pick["b"]]
-                assigned.add((pick["a"], pick["b"]))
+                lane["range"] = [pick["a"], pick["b"], pick["plan_mode"]]
+                assigned.add((pick["a"], pick["b"], pick["plan_mode"]))
                 current = pick
                 self.log(f"{name}: takes range {pick['a']}-{pick['b']} (plan mode {pick['plan_mode']} s)")
                 self.ensure_prepass(pick)
             if not self.alive(f"lane_{name}") and now >= lane["next_round_at"]:
                 r = current
-                if self.external_running(f"--chapters {r['a']}-{r['b']} --stage render"):
+                if self.external_running(f"--chapters {r['a']}-{r['b']} --stage render", r["plan_mode"]):
                     continue  # a lane started outside the conductor is still on this range: adopt, do not duplicate
                 command = [PY, str(SCRIPTS / "thin_batch.py"), "--novel-dir", str(self.novel_dir), "--chapters", f"{r['a']}-{r['b']}",
                            "--stage", "render", "--tier", "fast", "--merge", "1", "--parallel", str(key["parallel"]), "--workers", "0",
-                           "--inflight", str(key["inflight"]["max"]),
+                           "--inflight", str(key["inflight"]["max"]), "--plan-mode", str(r["plan_mode"]),
                            # render.prescreen: the local Qwen scores each prompt for content-filter risk and softens the
                            # wording before the first submission (worth it now that planning no longer queues on Qwen).
                            *([] if self.cfg.get("render", {}).get("prescreen") else ["--no-prescreen"]), "--prune"]

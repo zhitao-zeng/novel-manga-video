@@ -358,11 +358,27 @@ def _processes() -> dict:
     }
 
 
+def _pool_dir(novel_id: str, pool: str) -> Path:
+    """Where this novel's key keeps its slots.  Since 2026-09-10 a key can own one directory
+    shared by every novel it renders, named in the conductor config as inflight_dir."""
+    for config in sorted((ROOT / "configs").glob("conductor.*.json")):
+        try:
+            cfg = json.loads(config.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if Path(str(cfg.get("novel_dir", ""))).name != novel_id:
+            continue
+        for key in cfg.get("keys", []):
+            if (key.get("pool") or "") == pool and key.get("inflight_dir"):
+                return Path(key["inflight_dir"])
+    return ROOT / "outputs" / novel_id / (f".inflight-{pool}" if pool else ".inflight")
+
+
 def _inflight() -> list[dict]:
     rows = []
     for novel in NOVELS:
         for pool in ("", "sd20", "h3"):
-            directory = ROOT / "outputs" / novel["id"] / (f".inflight-{pool}" if pool else ".inflight")
+            directory = _pool_dir(novel["id"], pool)
             limit_file = directory / "limit"
             if not limit_file.is_file():
                 continue

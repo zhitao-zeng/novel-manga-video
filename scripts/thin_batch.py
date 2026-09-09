@@ -732,6 +732,8 @@ def main() -> int:
     parser.add_argument("--max-redo", type=int, default=2, help="planner redo rounds")
     parser.add_argument("--min-seconds", type=float, default=0.0, help="planner floor for the episode estimate")
     parser.add_argument("--notes-json", help='director notes per chapter: {"3": "...", "*": "for every chapter"}')
+    parser.add_argument("--plan-mode", type=int, choices=(15, 30), default=None,
+                        help="render only episodes whose clip plan has this clip length (guards a lane against the other mode's plans)")
     parser.add_argument("--replan", action="store_true", help="re-plan chapters that already have a clip plan")
     parser.add_argument("--rerender", action="store_true", help="re-render episodes that already have a final video")
     parser.add_argument("--unattended", action="store_true", help="automatic reviews with bounded paid fixes: cards after the assets stage (one redraw/regeneration), clips after each render (one regeneration with the reviewer's correction); then delivery_report.md")
@@ -771,6 +773,19 @@ def main() -> int:
     if args.stage == "assets":
         batch.assets(chapters)
     if args.stage == "render":
+        if args.plan_mode:
+            def clip_plan_mode(chapter: int) -> int | None:
+                path = batch.episode_dir(chapter) / "clip_plan.json"
+                try:
+                    policy = str(json.loads(path.read_text(encoding="utf-8")).get("policy", ""))
+                except (OSError, ValueError):
+                    return None
+                return 15 if policy.endswith("-15s") else 30
+            wrong = [ch for ch in chapters if clip_plan_mode(ch) not in (None, args.plan_mode)]
+            if wrong:
+                log(f"skipping {len(wrong)} episodes planned for the other clip length: {wrong[:8]}"
+                    f"{' ...' if len(wrong) > 8 else ''}")
+                chapters = [ch for ch in chapters if ch not in set(wrong)]
         # Fresh chapters first: an episode that failed before, retried at the
         # head of every round, would hold the slots while new ones wait.
         def tried_and_failed(chapter: int) -> int:

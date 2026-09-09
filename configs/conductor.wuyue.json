@@ -1,6 +1,6 @@
 {
-  "novel_dir": "outputs/xinghai",
-  "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-xinghai",
+  "novel_dir": "outputs/wuyue",
+  "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
   "tick_seconds": 90,
   "round_gap_seconds": 120,
   "keys": [
@@ -35,19 +35,27 @@
   ],
   "ranges": [
     {
-      "chapters": "1-480",
+      "chapters": "1-578",
       "plan_mode": 30
     },
     {
-      "chapters": "481-800",
+      "chapters": "579-1158",
+      "plan_mode": 30
+    },
+    {
+      "chapters": "579-1158",
       "plan_mode": 15
     },
     {
-      "chapters": "801-1200",
+      "chapters": "1159-1200",
       "plan_mode": 30
     },
     {
-      "chapters": "1201-1600",
+      "chapters": "1621-1815",
+      "plan_mode": 15
+    },
+    {
+      "chapters": "1816-1862",
       "plan_mode": 30
     }
   ],
