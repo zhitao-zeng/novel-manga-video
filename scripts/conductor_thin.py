@@ -223,8 +223,11 @@ class Conductor:
     def tick_aimd(self, name: str, key: dict, chapters: list[int]) -> None:
         lane = self.lanes[name]
         aimd = self.cfg.get("aimd", {})
-        n429 = self.recent_lines(chapters, "HTTP 429", aimd.get("window_seconds", 600)) if chapters else 0
         now = time.time()
+        # Count only the lines since the last limit change: one burst of 429s halves the
+        # limit once, instead of on every tick until the burst ages out of the window.
+        window = int(min(aimd.get("window_seconds", 600), max(1.0, now - lane["limit_changed"])))
+        n429 = self.recent_lines(chapters, "HTTP 429", window) if chapters else 0
         lo, hi = int(key["inflight"]["min"]), int(key["inflight"]["max"])
         if n429 >= aimd.get("decrease_at", 5):
             new = max(lo, lane["limit"] // 2)

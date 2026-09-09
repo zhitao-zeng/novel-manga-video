@@ -39,6 +39,10 @@
     {
       "chapters": "481-800",
       "plan_mode": 15
+    },
+    {
+      "chapters": "801-1200",
+      "plan_mode": 30
     }
   ],
   "planning": {
