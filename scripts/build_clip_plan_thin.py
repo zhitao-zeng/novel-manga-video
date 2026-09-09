@@ -85,6 +85,11 @@ def is_title_card(shot: dict) -> bool:
 
 
 PACKER_VERSION = "thin-packer-2026-09-09+decisions"
+# "planned": every rule below cuts (today's behaviour).  "execution": only the rules the
+# video service enforces cut - location, length cap, stage ceiling - and the planner's
+# clip_hint and the source-segment boundary are recorded but not acted on.
+PACK_MODE = os.environ.get("NOVEL_PACK_MODE", "planned").strip() or "planned"
+EXECUTION_RULES = ("location", "duration", "stage_limit")
 DECISIONS: list[dict] = []  # observation only; written to pack_decisions.json by main()
 
 
@@ -119,12 +124,13 @@ def pack(shots: list[dict]) -> list[dict]:
         if current is not None:
             last = current["shots"][-1]
             checks = _cut_checks(current, last, shot, seconds)
-            cut = any(checks.values())  # the same disjunction as before; every term is side-effect free
+            acted = {name: hit for name, hit in checks.items() if PACK_MODE != "execution" or name in EXECUTION_RULES}
+            cut = any(acted.values())  # in "planned" mode this is the same disjunction as before
             if cut:
                 violated = [name for name, hit in checks.items() if hit]
                 DECISIONS.append({
                     "kind": "cut", "after_stage": last.get("origin_index"), "before_stage": shot.get("origin_index"),
-                    "decision_reason": violated[0], "violated_constraints": violated,
+                    "decision_reason": next(name for name, hit in acted.items() if hit), "violated_constraints": violated,
                     "candidate_seconds": round(current["seconds"] + seconds, 2),
                     "candidate_stages": len(current["shots"]) + 1,
                 })
@@ -614,7 +620,7 @@ def main() -> int:
     atomic_write_json(episode_dir / "clip_plan.json", plan)
     # Observation only: why the packer cut where it did.  clip_plan.json is unchanged by this.
     atomic_write_json(episode_dir / "pack_decisions.json", {
-        "packer_version": PACKER_VERSION,
+        "packer_version": PACKER_VERSION, "pack_mode": PACK_MODE,
         "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "max_stages": MAX_STAGES, "soft_cut_seconds": SOFT_CUT_SECONDS,
                    "min_standalone_seconds": MIN_STANDALONE_SECONDS},
         "decisions": list(DECISIONS),
