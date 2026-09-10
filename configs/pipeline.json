@@ -147,8 +147,8 @@
    "active": true,
    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
    "render_keys": [
-    "sd20",
-    "sd25"
+    "h3a",
+    "h3b"
    ],
    "planning": {
     "local": 2
@@ -180,6 +180,10 @@
      "chapters": "1816-2043",
      "plan_mode": 30
     }
+   ],
+   "paused_keys": [
+    "sd20",
+    "sd25"
    ]
   },
   {

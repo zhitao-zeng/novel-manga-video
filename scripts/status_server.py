@@ -15,6 +15,8 @@ import os
 import re
 import subprocess
 import threading
+import urllib.error
+import urllib.request
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -470,9 +472,65 @@ def _inflight() -> list[dict]:
                     limit = 0
                 cache[directory] = {"limit": limit, "held": _held_by_novel(directory), "total": _held_slots(directory)}
             info = cache[directory]
-            rows.append({"novel": TITLES[novel_id], "pool": key.get("model") or key.get("name", ""),
+            label = f"本地H3 · {key.get('name')}" if key.get("base_url") else (key.get("model") or key.get("name", ""))
+            rows.append({"novel": TITLES[novel_id], "pool": label, "local": bool(key.get("base_url")),
                          "limit": info["limit"], "slots": info["held"].get(novel_id, 0),
                          "shared": info["total"]})
+    return rows
+
+
+_LOCAL_CACHE: dict = {"at": 0.0, "rows": []}
+
+
+def _local_video(ttl: float = 20.0) -> list[dict]:
+    """What the local H3 instances say about themselves.
+
+    The service knows things our own files cannot: what it is rendering right now, what is
+    queued behind it, and how long the last hour's jobs took.  Asked directly, with a short
+    cache so the board's twenty-second refresh does not become a poll loop on that machine.
+    """
+    now = time.time()
+    if now - _LOCAL_CACHE["at"] < ttl:
+        return _LOCAL_CACHE["rows"]
+    rows = []
+    for novel_id, keys in _lane_keys().items():
+        for key in keys:
+            base = str(key.get("base_url") or "").rstrip("/")
+            if not base:
+                continue
+            row = {"name": key.get("name", ""), "novel": TITLES.get(novel_id, novel_id),
+                   "alive": False, "pending": 0, "done_hour": 0,
+                   "seconds_hour": 0.0, "avg_take": None}
+            try:
+                with urllib.request.urlopen(f"{base}/health", timeout=3) as response:
+                    row["alive"] = response.status == 200
+            except (urllib.error.URLError, OSError, ValueError):
+                rows.append(row)
+                continue
+            try:
+                with urllib.request.urlopen(f"{base}/v1/videos?limit=100&order=desc", timeout=6) as response:
+                    jobs = json.loads(response.read()).get("data", [])
+            except (urllib.error.URLError, OSError, ValueError):
+                jobs = []
+            took = []
+            for job in jobs:
+                # The service has no running state: whatever it is rendering this second is
+                # still reported as queued with progress 0, so both count as waiting.
+                status = str(job.get("status", "")).lower()
+                if status in {"queued", "running", "in_progress", "processing"}:
+                    row["pending"] += 1
+                created, finished = job.get("created_at"), job.get("completed_at")
+                if status == "completed" and created and finished and now - float(finished) < 3600:
+                    row["done_hour"] += 1
+                    try:
+                        row["seconds_hour"] += float(job.get("seconds") or 0)
+                    except (TypeError, ValueError):
+                        pass
+                    took.append(float(finished) - float(created))
+            if took:
+                row["avg_take"] = round(sum(took) / len(took), 1)
+            rows.append(row)
+    _LOCAL_CACHE.update({"at": now, "rows": rows})
     return rows
 
 
@@ -552,6 +610,7 @@ def snapshot() -> dict:
         "workers": _workers(),
         "processes": _processes(),
         "inflight": _inflight(),
+        "local": _local_video(),
         "warnings": _warnings(),
     }
 
@@ -925,6 +984,8 @@ LIVE_BODY = """
 <div class="card" id="attention-card"><div class="label">需要关注</div><div id="attention"></div></div>
 <div class="card"><div class="label">运行明细 · 通道</div><div class="twrap"><table class="resp" id="lanes"></table></div></div>
 <div class="card"><div class="label">运行明细 · 单集任务</div><div class="twrap"><table class="resp" id="workers"></table></div></div>
+<div class="card" id="local-card" style="display:none"><div class="label">本地 H3 · 不花钱的算力</div>
+  <div class="twrap"><table class="resp" id="local"></table></div></div>
 <div class="card"><div class="label">进程与在途</div><div class="pills" id="procs"></div>
   <div class="twrap" style="margin-top:12px"><table class="resp" id="inflight"></table></div></div>
 <script>
@@ -1054,6 +1115,22 @@ function tick(){
     $("inflight").innerHTML = `<thead><tr><th>小说</th><th>通道</th><th>在途/上限</th></tr></thead><tbody>` +
       d.inflight.map(i=>`<tr><td data-l="小说">${i.novel}</td><td data-l="通道">${i.pool}</td>
         <td data-l="在途" class="num">${i.slots} / ${i.limit}</td></tr>`).join("") + `</tbody>`;
+    const L = d.local || [];
+    $("local-card").style.display = L.length ? "" : "none";
+    if (L.length) {
+      const secs = L.reduce((a,l)=>a+l.seconds_hour,0), made = L.reduce((a,l)=>a+l.done_hour,0);
+      $("local").innerHTML = `<thead><tr><th>实例</th><th>小说</th><th>状态</th><th>待处理</th>` +
+        `<th>近一小时片段</th><th>近一小时视频秒数</th><th>平均每段耗时</th></tr></thead><tbody>` +
+        L.map(l=>`<tr><td data-l="实例">${l.name}</td><td data-l="小说">${l.novel}</td>
+          <td data-l="状态" class="${l.alive?"ok-t":"err"}">${l.alive?"在线":"离线"}</td>
+          <td data-l="待处理" class="num">${l.pending}</td>
+          <td data-l="片段" class="num">${l.done_hour}</td>
+          <td data-l="视频秒数" class="num">${Math.round(l.seconds_hour)}</td>
+          <td data-l="耗时" class="num">${l.avg_take==null?"—":l.avg_take+" 秒"}</td></tr>`).join("") +
+        `<tr><td class="dim">合计</td><td class="dim"></td><td class="dim"></td><td class="dim"></td>` +
+        `<td class="num"><b>${made}</b></td><td class="num"><b>${Math.round(secs)}</b></td><td class="dim"></td></tr>` +
+        `</tbody>`;
+    }
     const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.now.replace(" ","T")))/1000));
     $("stamp").className = "";
     $("stamp").textContent = `数据 ${ageSec} 秒前 · 每 20 秒刷新`;
