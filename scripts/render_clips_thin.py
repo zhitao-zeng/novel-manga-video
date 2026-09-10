@@ -34,6 +34,7 @@ from pathlib import Path
 from PIL import Image
 
 from novel_manga.config import Settings
+from novel_manga.providers.local_h3 import LocalH3MediaProvider
 from novel_manga.providers.phanrouter import VIDEO_MODEL_LIMITS
 from novel_manga.models import StoryBible
 from novel_manga.production import SeriesAssetFactory
@@ -303,6 +304,25 @@ class FramedPhanRouter(PhanRouterMediaProvider):
             return super().create_image(prompt, output, reference=reference)
         finally:
             self._tls.ratio = None
+
+
+class FramedLocalH3(FramedPhanRouter):
+    """Cards through PhanRouter as before; video from the local H3 service.
+
+    Composition rather than a second base class: the picture path and the video path share
+    nothing, and one line naming the object that answers create_video reads better than a
+    method resolution order that has to be worked out.
+    """
+
+    def __init__(self, settings, frame: dict, base_url: str, resolution: str = "720p"):
+        super().__init__(settings, frame, resolution)
+        self.local = LocalH3MediaProvider(settings, base_url, ratio=frame["video_ratio"])
+
+    def create_video(self, prompt, image, output, duration, additional_images=(), reference_audios=()):
+        for old, new in self.prompt_aliases.items():
+            prompt = prompt.replace(old, new)
+        return self.local.create_video(prompt, image, output, duration,
+                                       additional_images=additional_images, reference_audios=reference_audios)
 
 
 class FramedAssetFactory(SeriesAssetFactory):
@@ -681,7 +701,10 @@ class ThinMediaRunner:
         # failed the speech gate (the retry loop runs on gate failures alone):
         # a line the model did not speak costs the line and its subtitles.
         self.max_attempts = 2 if self.fast else max_attempts
-        self.provider = FramedPhanRouter(self.settings, self.frame_spec, resolution="480p" if self.fast else "720p")
+        resolution = "480p" if self.fast else "720p"
+        local = self.settings.local_h3_base_url
+        self.provider = (FramedLocalH3(self.settings, self.frame_spec, local, resolution=resolution)
+                         if local else FramedPhanRouter(self.settings, self.frame_spec, resolution=resolution))
         self.provider.prompt_aliases = {str(k): str(v) for k, v in (self.profile.get("prompt_aliases") or {}).items()}
         self.renderer = Renderer(self.settings)
         self.work = episode_dir / "work"

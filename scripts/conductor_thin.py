@@ -214,6 +214,8 @@ class Conductor:
             env["NOVEL_INFLIGHT_POOL"] = key["pool"]
         if key.get("inflight_dir"):
             env["NOVEL_INFLIGHT_DIR"] = key["inflight_dir"]
+        if key.get("base_url"):  # a key that names an instance renders locally, not through PhanRouter
+            env["NOVEL_LOCAL_H3_URL"] = key["base_url"]
         if int(key["clip_cap"]) <= 15:
             env["NOVEL_CLIP_SECONDS_MAX"] = "15"
         return env

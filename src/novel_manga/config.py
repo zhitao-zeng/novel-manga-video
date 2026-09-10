@@ -26,6 +26,9 @@ NATIVE_DIALOGUE_POLICY = "native_dialogue"
 # so it belongs on a 15 s lane like sd2.0.  Its limits live in
 # providers.phanrouter.VIDEO_MODEL_LIMITS.
 PHANROUTER_VIDEO_MODELS = {"sd2.5", "sd2.0", "MiniMax-H3"}
+# Video models served from inside the network instead of behind PhanRouter.  These are
+# selected by NOVEL_LOCAL_H3_URL naming an instance, cost nothing, and cap a clip at 15 s.
+LOCAL_VIDEO_MODELS = {"minimax-h3-ref2va-turbo"}
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,7 @@ class Settings:
     phanrouter_image_api_key: str | None = None
     image_model: str = "gpt-image-2"
     video_model: str = "sd2.5"
+    local_h3_base_url: str | None = None
     final_audio_policy: str = NATIVE_DIALOGUE_POLICY
     video_max_seconds: float = 14.0
     image_command: str | None = None
@@ -136,6 +140,9 @@ class Settings:
             video_model=os.getenv(
                 "NOVEL_VIDEO_MODEL", os.getenv("PHANROUTER_VIDEO_MODEL", cls.video_model)
             ),
+            # A lane renders through the local H3 service when its key names an instance;
+            # pictures keep going to PhanRouter either way.
+            local_h3_base_url=os.getenv("NOVEL_LOCAL_H3_URL") or None,
             final_audio_policy=os.getenv(
                 "NOVEL_FINAL_AUDIO_POLICY", NATIVE_DIALOGUE_POLICY
             ),
@@ -256,7 +263,10 @@ class Settings:
                 "openai-compatible planner requires NOVEL_LLM_BASE_URL and NOVEL_LLM_API_KEY"
             )
         if self.provider == "phanrouter":
-            if self.video_model not in PHANROUTER_VIDEO_MODELS:
+            if self.local_h3_base_url:
+                if self.video_model not in LOCAL_VIDEO_MODELS:
+                    raise ValueError(f"local video model must be one of {sorted(LOCAL_VIDEO_MODELS)}")
+            elif self.video_model not in PHANROUTER_VIDEO_MODELS:
                 raise ValueError(f"PhanRouter video model must be one of {sorted(PHANROUTER_VIDEO_MODELS)}")
             missing = []
             for name, value in (("PHANROUTER_API_KEY", self.phanrouter_api_key),):
