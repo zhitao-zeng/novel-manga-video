@@ -39,6 +39,9 @@ from .phanrouter import PhanRouterMediaProvider
 PICTURE_TAG = re.compile(r"@图片(\d+)")
 AUDIO_TAG = re.compile(r"@音频(\d+)")
 # The planner writes every spoken line as 说：{台词}; H3 delimits speech as <d>[Language] ...</d>.
+# Off by default: it does make H3 say every line (missing 0.080 -> 0.000) but it then invents
+# even more on top, and CER goes 0.78 -> 1.04.  Kept behind a flag as a component of a fix,
+# not a fix.
 SPOKEN_LINE = re.compile(r"说：\{([^}]*)\}")
 NOTHING_ELSE = (
     "\n【只说这些】本段的全部人声就是上面 <d> 标记里的台词，逐字说完即可；"
@@ -52,7 +55,7 @@ POLL_SECONDS = 3.0
 
 def h3_prompt(prompt: str) -> str:
     prompt = AUDIO_TAG.sub(r"<Audio \1>", PICTURE_TAG.sub(r"<Picture \1>", prompt))
-    if os.environ.get("NOVEL_H3_MARK_DIALOGUE", "1") != "1":
+    if os.environ.get("NOVEL_H3_MARK_DIALOGUE", "0") != "1":
         return prompt
     marked, count = SPOKEN_LINE.subn(r"说：<d>[Chinese] \1</d>", prompt)
     # Only worth saying when there is dialogue: a wordless clip has no lines to be the whole of.
