@@ -59,6 +59,36 @@
     },
     "parallel": 2,
     "note": "GPU052 本地 H3 实例B，免费，单任务串行，960x544"
+   },
+   "h3c": {
+    "model": "minimax-h3-ref2va-turbo",
+    "key_var": "",
+    "base_url": "http://172.28.4.3:30020",
+    "clip_cap": 15,
+    "pool": "h3c",
+    "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/h3c",
+    "inflight": {
+     "min": 1,
+     "max": 2,
+     "start": 1
+    },
+    "parallel": 2,
+    "note": "GPU003 本地 H3，0-3 卡，免费，单任务串行，960x544"
+   },
+   "h3d": {
+    "model": "minimax-h3-ref2va-turbo",
+    "key_var": "",
+    "base_url": "http://172.28.4.3:30018",
+    "clip_cap": 15,
+    "pool": "h3d",
+    "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/h3d",
+    "inflight": {
+     "min": 1,
+     "max": 2,
+     "start": 1
+    },
+    "parallel": 2,
+    "note": "GPU003 本地 H3，5、6 卡，免费，单任务串行，960x544"
    }
   },
   "planning_models": {
@@ -148,7 +178,9 @@
    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
    "render_keys": [
     "h3a",
-    "h3b"
+    "h3b",
+    "h3c",
+    "h3d"
    ],
    "planning": {
     "local": 2
