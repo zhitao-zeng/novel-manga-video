@@ -73,6 +73,8 @@ def main() -> int:
     parser.add_argument("novel")
     parser.add_argument("--seconds", type=int, default=15, choices=(15, 30))
     parser.add_argument("--apply", action="store_true", help="不加就只看会动哪些集")
+    parser.add_argument("--force", action="store_true",
+                        help="长度已经对也重排：用来吸收音色库、辨识特征这类打包期的新东西")
     parser.add_argument("--include-rendered", action="store_true",
                         help="连已经渲过的集也重排——它们的成片会全部作废，要重渲")
     parser.add_argument("--workers", type=int, default=8)
@@ -105,7 +107,7 @@ def main() -> int:
             skipped["没有分镜稿"] += 1
             continue
         length = plan_length(episode)
-        if length == args.seconds:
+        if length == args.seconds and not args.force:
             skipped[f"已经是 {args.seconds} 秒"] += 1
             continue
         made = rendered_clips(episode)

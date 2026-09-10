@@ -20,7 +20,11 @@ redo everything.  The renderer attaches these automatically.
 from __future__ import annotations
 
 import argparse
+import array
 import json
+import math
+import tempfile
+import wave
 import subprocess
 import sys
 from collections import defaultdict
@@ -63,6 +67,77 @@ def attributed_chunks(novel_dir: Path) -> dict[str, list[tuple[float, Path, floa
     return found
 
 
+def piece_pitch(wav: Path, start: float, span: float) -> float | None:
+    """Median fundamental of one span, by average magnitude difference at 4 kHz.
+
+    Cheap on purpose: a handful of frames is enough to tell a 110 Hz voice from a 250 Hz one,
+    which is the only distinction this filter needs to make.
+    """
+    scratch = Path(tempfile.mkstemp(suffix=".wav")[1])
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{span:.2f}",
+                        "-i", str(wav), "-ac", "1", "-ar", "4000", str(scratch)], check=False)
+        with wave.open(str(scratch), "rb") as handle:
+            raw = handle.readframes(handle.getnframes())
+    except (wave.Error, OSError):
+        return None
+    finally:
+        scratch.unlink(missing_ok=True)
+    samples = array.array("h")
+    samples.frombytes(raw[: len(raw) // 2 * 2])
+    if len(samples) < 1024:
+        return None
+    rate, win = 4000, 512
+    lo, hi = rate // 400, rate // 70          # 70-400 Hz
+    loud = sum(abs(v) for v in samples) / len(samples)
+    step = max(win // 2, (len(samples) - win) // 16)
+    scored = []
+    for begin in range(0, len(samples) - win, step):
+        frame = samples[begin:begin + win]
+        energy = sum(abs(v) for v in frame) / win
+        if energy < loud * 0.6:               # quiet frames carry no usable pitch
+            continue
+        best_lag, best_score = None, None
+        for lag in range(lo, hi):
+            score = 0
+            for i in range(0, win - lag, 2):  # every other sample: same shape, half the work
+                score += abs(frame[i] - frame[i + lag])
+            score /= (win - lag) / 2
+            if best_score is None or score < best_score:
+                best_lag, best_score = lag, score
+        if best_lag:
+            scored.append((best_score / max(1.0, energy), rate / best_lag))
+    if len(scored) < 4:
+        return None
+    scored.sort()                              # most periodic first
+    pitches = sorted(hz for _, hz in scored[: max(3, len(scored) // 2)])
+    return pitches[len(pitches) // 2]
+
+
+def one_voice_only(pieces: list, limit: int = 30) -> tuple[list, list]:
+    """Split the candidates into the dominant pitch group and the rest.
+
+    Pieces are bucketed by pitch in two-semitone steps; the bucket holding the most seconds
+    wins, and its neighbours come along, because a single speaker's median wanders a little.
+    """
+    measured = []
+    for span, wav, start, end, episode in sorted(pieces, key=lambda item: -item[0])[:limit]:
+        hz = piece_pitch(wav, start, span)
+        if hz:
+            measured.append((hz, (span, wav, start, end, episode)))
+    if len(measured) < 3:
+        return pieces, []
+    def bucket(hz: float) -> int:
+        return int(round(12 * math.log2(hz / 70.0) / 2))   # two-semitone steps from 70 Hz
+    weight: dict[int, float] = {}
+    for hz, item in measured:
+        weight[bucket(hz)] = weight.get(bucket(hz), 0.0) + item[0]
+    best = max(weight, key=weight.get)
+    keep = [item for hz, item in measured if abs(bucket(hz) - best) <= 2]  # the cheap estimator drifts ~25%, so the band is wide
+    drop = [(round(hz), item[4]) for hz, item in measured if abs(bucket(hz) - best) > 2]
+    return keep, drop
+
+
 def build(name: str, pieces: list[tuple[float, Path, float, float, str]], out_dir: Path, target: float, cap: float) -> dict:
     pieces = sorted(pieces, key=lambda item: -item[0])
     work = out_dir / ".work" / name
@@ -94,6 +169,8 @@ def main() -> int:
     parser.add_argument("--target-seconds", type=float, default=12.0)
     parser.add_argument("--max-seconds", type=float, default=14.0, help="hard cap per voice; two voices must fit the service's 30 s")
     parser.add_argument("--only", help="comma-separated character names")
+    parser.add_argument("--no-pitch-filter", action="store_true",
+                        help="不做音高筛选：素材本身音色就一致时可以关掉")
     parser.add_argument("--rebuild", action="store_true", help="rebuild every character, not just the ones with more material")
     args = parser.parse_args()
 
@@ -115,6 +192,14 @@ def main() -> int:
         if available < args.min_seconds:
             skipped.append((name, round(available, 1)))
             continue
+        kept, dropped = (pieces, []) if args.no_pitch_filter else one_voice_only(pieces)
+        if dropped:
+            print(f"  {name}: 音高不一致，丢掉 {len(dropped)} 段（{sorted({hz for hz, _ in dropped})} Hz）")
+            pieces = kept
+            available = sum(p[0] for p in pieces)
+            if available < args.min_seconds:
+                skipped.append((name, round(available, 1)))
+                continue
         previous = manifest.get(name) or {}
         if not args.rebuild and previous.get("seconds", 0) >= min(args.target_seconds, available) - 0.5 and previous.get("seconds", 0) <= args.max_seconds and (out_dir / f"{name}.wav").is_file():
             continue
