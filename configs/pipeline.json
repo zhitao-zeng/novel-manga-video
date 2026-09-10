@@ -190,19 +190,15 @@
    "ranges": [
     {
      "chapters": "1-578",
-     "plan_mode": 30
+     "plan_mode": 15
     },
     {
      "chapters": "579-1158",
      "plan_mode": 15
     },
     {
-     "chapters": "579-1158",
-     "plan_mode": 30
-    },
-    {
      "chapters": "1159-1620",
-     "plan_mode": 30
+     "plan_mode": 15
     },
     {
      "chapters": "1621-1815",
@@ -210,7 +206,7 @@
     },
     {
      "chapters": "1816-2043",
-     "plan_mode": 30
+     "plan_mode": 15
     }
    ],
    "paused_keys": [
