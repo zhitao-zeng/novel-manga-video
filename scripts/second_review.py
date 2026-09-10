@@ -8,9 +8,12 @@ asks one question: watching this once, would an ordinary viewer see something wr
 told explicitly that two characters resembling each other is not a fault here, so what comes
 back is the list worth paying to re-render.
 
-    second_review.py <novel> [--all] [--workers N]
+    second_review.py <novel> [--all] [--workers N] [--judge local|flashnext] [--summary]
 
-Without --all it only re-examines clips the first review already doubted.
+Without --all it only re-examines clips the first review already doubted.  Each verdict is
+written to its own file the moment it arrives, and a worker claims a clip by creating that
+file exclusively - so a crash costs one clip, a restart resumes, and two judges on different
+machines can chew through the same queue at their own pace without coordinating.
 """
 import json
 import os
@@ -23,29 +26,59 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
-from thin_review import ask_json, image_part  # noqa: E402
+
+# The two Qwen that can see pictures.  ask_json carries one model name and one key for the
+# whole endpoint list, so a judge is selected per process, not per call.
+JUDGES = {
+    "local": {"QWEN38_LOCAL_BASE_URL": ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)),
+              "QWEN38_LOCAL_MODEL": "Qwen3.8-27B-Project",
+              "QWEN38_LOCAL_API_KEY_VAR": "SECOND_REVIEW_NO_KEY", "QWEN38_LOCAL_STREAM": "0"},
+    "flashnext": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.81:8038/v1",
+                  "QWEN38_LOCAL_MODEL": "Qwen3.8-Flash-Next",
+                  "QWEN38_LOCAL_API_KEY_VAR": "GPU81_QWEN_API_KEY", "QWEN38_LOCAL_STREAM": "1"},
+}
+JUDGE = os.environ.get("SECOND_REVIEW_JUDGE", "local")
+if JUDGE not in JUDGES:
+    raise SystemExit(f"unknown judge {JUDGE}")
+os.environ.update(JUDGES[JUDGE])
+
+from thin_review import ask_json, image_part  # noqa: E402  (after the endpoint choice)
 
 SCHEMA = {
     "type": "object", "additionalProperties": False,
-    "required": ["viewer_notices", "kind", "what", "severity"],
+    "required": ["saw", "wrong_out_of_100", "kind"],
     "properties": {
-        "viewer_notices": {"type": "boolean"},
-        "kind": {"type": "string", "enum": ["多出人物", "该说话的人不在画面", "身体或物件崩坏",
-                                            "画面出现文字", "场景明显不符", "无问题"]},
-        "what": {"type": "string"},
-        "severity": {"type": "string", "enum": ["明显", "轻微", "无"]},
+        "saw": {"type": "string"},
+        "wrong_out_of_100": {"type": "integer"},
+        "kind": {"type": "string", "enum": ["身体结构错误", "同一角色重复出现", "穿模或比例荒谬",
+                                            "画面出现文字", "有台词却空无一人", "无问题"]},
     },
 }
+# Asking "is there a fault?" while listing the possible faults gets a fault every time: the
+# first wording flagged 74% of the film, and the clips it named were taverns full of dragons.
+# Asking for a number instead gives a weak suspicion somewhere to go that is not 明显, and
+# saying most clips are fine sets the prior the model otherwise takes from the question itself.
 RULES = (
-    "你是普通观众，第一次看这段短剧，只看一遍。请只回答：画面里有没有一眼就看出不对的地方？\n"
-    "算问题的：画面里多出一个本段没有的人或生物；有人说话但画面里根本没有这个人；"
-    "身体结构崩坏（多手多头、肢体扭曲、穿模、凭空多出物件）；画面上出现文字、字幕或乱码；"
-    "场景和台词说的地方明显对不上。\n"
-    "不算问题的：两个角色长得像、颜色深浅有出入、发型或角的形状跟设定不完全一致、"
-    "服装细节不同、表情不到位——这些观众看一遍不会发现，一律当作没问题。\n"
-    "severity：明显＝看一眼就发现；轻微＝要盯着看才发现；无＝没问题。\n"
-    "what 用一句话说清楚看到了什么。只输出 JSON。"
+    "这是一段 AI 生成的短剧画面，抽了几帧。先用一句话客观描述你看到了什么（saw），"
+    "再回答：一百个普通观众看一遍，有几个人会说这段“画错了”（wrong_out_of_100，填 0 到 100 的整数）。\n"
+    "判断依据只有画面本身，不需要知道剧情：手脚多了少了、手指数目明显不对、动物身上长出人的手臂、"
+    "两个身体粘连、脸融化、同一个角色在一个画面里出现两次、画面上有文字或乱码——这些一眼就能看出，"
+    "会有很多人说画错了。\n"
+    "以下情况观众不会说画错：画面里人多、有群众、有敌人或怪物、背景里还有别的龙或别的人；"
+    "两个角色长得像、颜色深浅不同、发型或角的形状和设定不一致、服装细节不同；"
+    "肢体互相遮挡、边缘不清、构图拥挤；地点和台词对不上。\n"
+    "绝大多数片段是没问题的。如果你要放大或者盯着看才能说出毛病，那就是观众不会发现，填 0 到 10。\n"
+    "kind 填最主要的那一类，没问题就填“无问题”。只输出 JSON。"
 )
+# Kept out of the model's hands so a threshold can be moved without judging anything twice.
+BAD, MAYBE = 60, 30
+
+
+def severity_of(row: dict) -> str:
+    n = row.get("wrong_out_of_100")
+    if not isinstance(n, int):
+        return "无"
+    return "明显" if n >= BAD else ("轻微" if n >= MAYBE else "无")
 
 
 def frames_of(video: Path, count: int = 4) -> list[Path]:
@@ -58,44 +91,100 @@ def frames_of(video: Path, count: int = 4) -> list[Path]:
     out = []
     for i in range(count):
         at = duration * (i + 1) / (count + 1)
-        path = Path(tempfile.mkstemp(suffix=".png")[1])
+        # mkstemp hands back an open descriptor as well as a name; dropping it on the floor
+        # leaks one per frame, and at four frames a clip the process dies around clip 250.
+        handle, name = tempfile.mkstemp(suffix=".png")
+        os.close(handle)
+        path = Path(name)
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{at:.1f}", "-i", str(video),
                         "-frames:v", "1", "-vf", "scale=640:-1", str(path)], check=False)
         if path.is_file() and path.stat().st_size:
             out.append(path)
+        else:
+            path.unlink(missing_ok=True)
     return out
 
 
-def judge(job: tuple) -> dict | None:
-    novel, index, clip_id, clip = job
-    d = ROOT / "outputs" / novel / f"{novel}_{index}"
-    video = d / "work" / "clips" / clip_id / "attempt_01" / "clip.mp4"
-    if not video.is_file():
-        return None
-    images = frames_of(video)
-    if len(images) < 2:
-        return None
-    cast = "、".join(clip.get("cast") or []) or "（未列出）"
-    lines = "；".join(str(l.get("text", ""))[:30] for l in (clip.get("lines") or [])[:4] if isinstance(l, dict))
+def claim(path: Path) -> bool:
+    """Take a clip by creating its result file exclusively; whoever loses moves on."""
     try:
-        answer = ask_json([{"type": "text", "text": RULES + f"\n\n本段应该出场的角色：{cast}。"
-                            + (f"\n本段台词：{lines}" if lines else "")},
-                           *[image_part(p, 768) for p in images]], SCHEMA, name="second", max_tokens=500)
-    except Exception as error:  # noqa: BLE001
-        return {"episode": f"{novel}_{index}", "clip": clip_id, "error": f"{type(error).__name__}"}
+        os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        return True
+    except FileExistsError:
+        return False
+
+
+def judge(job: tuple) -> dict | None:
+    novel, index, clip_id, clip, rows_dir = job
+    episode = f"{novel}_{index}"
+    out = rows_dir / f"{episode}__{clip_id}.json"
+    if out.exists() or not claim(out):
+        return None
+    row = None
+    try:
+        video = ROOT / "outputs" / novel / episode / "work" / "clips" / clip_id / "attempt_01" / "clip.mp4"
+        if not video.is_file():
+            return None
+        images = frames_of(video)
+        if len(images) < 2:
+            return None
+        lines = "；".join(str(l.get("text", ""))[:30] for l in (clip.get("lines") or [])[:4] if isinstance(l, dict))
+        try:
+            answer = ask_json([{"type": "text", "text": RULES
+                                + (f"\n\n本段台词：{lines}" if lines else "\n\n本段没有台词。")},
+                               *[image_part(p, 768) for p in images]], SCHEMA, name="second", max_tokens=500)
+        except Exception as error:  # noqa: BLE001
+            row = {"episode": episode, "clip": clip_id, "judge": JUDGE, "error": f"{type(error).__name__}: {error}"[:200]}
+            return row
+        finally:
+            for p in images:
+                p.unlink(missing_ok=True)
+        row = {"episode": episode, "clip": clip_id, "judge": JUDGE, **answer}
+        row["severity"] = severity_of(row)
+        if row["severity"] != "无":
+            print(f"  {episode} {clip_id}: {row['severity']} {answer.get('wrong_out_of_100')}/100 "
+                  f"{answer.get('kind')} — {answer.get('saw', '')[:60]}", flush=True)
+        return row
     finally:
-        for p in images:
-            p.unlink(missing_ok=True)
-    row = {"episode": f"{novel}_{index}", "clip": clip_id, **answer}
-    if answer.get("viewer_notices"):
-        print(f"  {row['episode']} {clip_id}: {answer['severity']} {answer['kind']} — {answer['what'][:60]}", flush=True)
-    return row
+        # A claim with nothing behind it would block the retry, so it is given back.
+        if row is None:
+            out.unlink(missing_ok=True)
+        else:
+            out.write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+
+
+def collect(rows_dir: Path) -> list[dict]:
+    rows = []
+    for f in sorted(rows_dir.glob("*.json")):
+        try:
+            rows.append(json.loads(f.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return rows
+
+
+def report(novel: str, rows: list[dict]) -> None:
+    good = [r for r in rows if not r.get("error")]
+    notices = [r for r in good if r.get("severity") != "无"]
+    obvious = [r for r in notices if r.get("severity") == "明显"]
+    print(f"\n二审 {len(good)} 个片段（出错 {len(rows) - len(good)}）：观众会发现 {len(notices)}，其中明显 {len(obvious)}")
+    print("按类型：", dict(Counter(r.get("kind") for r in obvious)))
+    print("涉及集数：", len({r["episode"] for r in obvious}))
+    out = ROOT / "outputs" / novel / f"second_review_{os.environ.get('SECOND_REVIEW_RULES', 'v2')}.json"
+    out.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    print("→", out)
 
 
 def main() -> int:
     novel = sys.argv[1] if len(sys.argv) > 1 else "xinghai"
     everything = "--all" in sys.argv
     workers = int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else 6
+    version = os.environ.get("SECOND_REVIEW_RULES", "v2")
+    rows_dir = ROOT / "outputs" / novel / f"second_review_rows_{version}"
+    rows_dir.mkdir(parents=True, exist_ok=True)
+    if "--summary" in sys.argv:
+        report(novel, collect(rows_dir))
+        return 0
     jobs = []
     for d in sorted((ROOT / "outputs" / novel).glob(f"{novel}_*")):
         index = d.name.rsplit("_", 1)[-1]
@@ -117,20 +206,13 @@ def main() -> int:
                 continue
             doubted = verdicts.get(clip_id, {}).get("severity") == "fail"
             if everything or doubted:
-                jobs.append((novel, index, clip_id, clip))
-    print(f"{novel}: 二审 {len(jobs)} 个片段，{workers} 路并行")
-    rows = []
+                jobs.append((novel, index, clip_id, clip, rows_dir))
+    done = len(list(rows_dir.glob("*.json")))
+    print(f"{novel}: 二审队列 {len(jobs)} 个片段，已判 {done}，判官 {JUDGE}，{workers} 路并行", flush=True)
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for row in pool.map(judge, jobs):
-            if row:
-                rows.append(row)
-    out = ROOT / "outputs" / novel / "second_review.json"
-    out.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
-    notices = [r for r in rows if r.get("viewer_notices")]
-    obvious = [r for r in notices if r.get("severity") == "明显"]
-    print(f"\n二审 {len(rows)} 个片段：观众会发现 {len(notices)}，其中明显 {len(obvious)}")
-    print("按类型：", dict(Counter(r.get("kind") for r in obvious)))
-    print("涉及集数：", len({r["episode"] for r in obvious}), "→", out)
+        for _ in pool.map(judge, jobs):
+            pass
+    report(novel, collect(rows_dir))
     return 0
 
 
