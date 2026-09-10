@@ -33,27 +33,29 @@
   ],
   "ranges": [
     {
-      "chapters": "1001-1250",
+      "chapters": "2001-3848",
       "plan_mode": 30
-    },
-    {
-      "chapters": "1501-1750",
-      "plan_mode": 15
-    },
-    {
-      "chapters": "1251-1500",
-      "plan_mode": 30
-    },
-    {
-      "chapters": "1751-2000",
-      "plan_mode": 15
     }
   ],
   "planning": {
-    "blocks_max": 8,
+    "blocks_max": 4,
     "blocks_min": 2,
     "block_size": 63,
-    "margin": 20
+    "margin": 20,
+    "models": [
+      {
+        "base": "http://172.28.4.81:8038/v1",
+        "model": "Qwen3.8-Flash-Next",
+        "key_var": "GPU81_QWEN_API_KEY",
+        "slots": 2
+      },
+      {
+        "base": "http://172.28.4.52:8831/v1",
+        "model": "DeepSeek-V4-Flash-Vision-Exp",
+        "key_var": "GPU52_DEEPSEEK_API_KEY",
+        "slots": 2
+      }
+    ]
   },
   "qwen": {
     "urls": [

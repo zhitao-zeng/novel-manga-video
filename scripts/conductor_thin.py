@@ -58,7 +58,7 @@ class Conductor:
         for r in self.ranges:
             size = config["planning"]["block_size"]
             for a in range(r["a"], r["b"] + 1, size):
-                self.blocks.append({"a": a, "b": min(r["b"], a + size - 1), "mode": r["plan_mode"], "done": False, "proc": None, "started": 0.0})
+                self.blocks.append({"a": a, "b": min(r["b"], a + size - 1), "mode": r["plan_mode"], "done": False, "proc": None, "started": 0.0, "server": None})
         self.prepassed: dict[str, int] = {}
         self.last_review = 0.0
         self.log_path = self.tmp / "conductor.log"
@@ -107,8 +107,8 @@ class Conductor:
         return {"total": len(chapters), "planned": sum(c["planned"] for c in chapters), "done": sum(c["done"] for c in chapters),
                 "renderable": renderable, "unreviewed": [c["n"] for c in chapters if c["unreviewed"]]}
 
-    def held_slots(self, pool: str) -> int:
-        directory = self.novel_dir / (f".inflight-{pool}" if pool else ".inflight")
+    def held_slots(self, key: dict) -> int:
+        directory = self.pool_dir(key)
         held = 0
         for path in directory.glob("slot_*.lock"):
             try:
@@ -393,6 +393,30 @@ class Conductor:
                 todo.append(asset_id)
         return todo
 
+    def planning_models(self) -> list[dict]:
+        """Servers the planning blocks may use, each with its own slot count.  Empty means
+        the conductor's own environment, which is one server."""
+        return list(self.cfg.get("planning", {}).get("models") or [])
+
+    def free_server(self) -> dict | None:
+        """A server with a slot to spare, fullest-first so blocks bunch on one box rather
+        than spreading thin across all of them."""
+        models = self.planning_models()
+        if not models:
+            return None
+        used: dict[str, int] = {}
+        for block in self.blocks:
+            if block.get("server") and block["proc"] and self.alive(block["proc"]):
+                used[block["server"]] = used.get(block["server"], 0) + 1
+        free = [m for m in models if used.get(m["model"], 0) < int(m.get("slots", 1))]
+        return max(free, key=lambda m: used.get(m["model"], 0)) if free else None
+
+    def server_env(self, server: dict) -> dict:
+        env = {"QWEN38_LOCAL_BASE_URL": server["base"], "QWEN38_LOCAL_MODEL": server["model"],
+               "NOVEL_LLM_BASE_URL": server["base"].split(",")[0], "NOVEL_LLM_MODEL": server["model"]}
+        env["QWEN38_LOCAL_API_KEY_VAR"] = server.get("key_var", "")  # named, never the key itself
+        return env
+
     def tick_planning(self, congested: bool) -> None:
         plan_cfg = self.cfg["planning"]
         for block in self.blocks:
@@ -401,6 +425,7 @@ class Conductor:
             if block["proc"] and not self.alive(block["proc"]):
                 block["done"] = True
                 block["proc"] = None
+                block["server"] = None
                 self.log(f"planning block {block['a']}-{block['b']} finished")
                 for r in self.ranges:
                     if r["a"] <= block["a"] and block["b"] <= r["b"] and all(b["done"] for b in self.blocks if r["a"] <= b["a"] <= r["b"]):
@@ -429,10 +454,19 @@ class Conductor:
             if self.external_running(f"--chapters {block['a']}-{block['b']} --stage plan"):
                 active.append(block)  # planned outside the conductor (e.g. left from a restart): counts toward the target
                 continue
+            server = self.free_server()
+            if self.planning_models() and server is None:
+                continue  # every planning server is full; try again next tick
             command = [PY, str(SCRIPTS / "thin_batch.py"), "--novel-dir", str(self.novel_dir), "--chapters", f"{block['a']}-{block['b']}",
                        "--stage", "plan", "--tier", "fast", "--merge", "1", "--max-redo", "2", "--volume-size", "50", "--no-grow-bible"]
-            self.spawn(name, command, {"NOVEL_CLIP_SECONDS_MAX": "15"} if block["mode"] == 15 else {})
-            block["proc"], block["started"] = name, time.time()
+            if server:
+                command += ["--plan-parallel", str(server.get("slots", 1))]
+            extra = {"NOVEL_CLIP_SECONDS_MAX": "15"} if block["mode"] == 15 else {}
+            if server:
+                extra = {**extra, **self.server_env(server)}
+                self.log(f"planning block {block['a']}-{block['b']} ({block['mode']} s) on {server['model']}")
+            self.spawn(name, command, extra)
+            block["proc"], block["started"], block["server"] = name, time.time(), (server or {}).get("model")
             active.append(block)
 
     def tick_review(self, waiting: int, stats: dict[int, dict]) -> None:
@@ -462,7 +496,7 @@ class Conductor:
         self.tick_review(waiting, stats)
         summary = " | ".join(f"{r['a']}-{r['b']}: done {s['done']}/{s['total']} planned {s['planned']} renderable {len(s['renderable'])}"
                              for r, s in ((r, stats[id(r)]) for r in self.ranges))
-        pools = " ".join(f"{name}={self.held_slots(k.get('pool', ''))}/{self.lanes[name]['limit']}" for name, k in self.keys.items())
+        pools = " ".join(f"{name}={self.held_slots(k)}/{self.lanes[name]['limit']}" for name, k in self.keys.items())
         self.log(f"tick: {summary} | inflight {pools} | qwen waiting {waiting} card waits {card_waits}{' CONGESTED' if congested else ''}")
         state = {"lanes": self.lanes, "blocks": [{k: v for k, v in b.items()} for b in self.blocks], "time": time.time()}
         (self.tmp / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=1, default=str), encoding="utf-8")

@@ -374,20 +374,79 @@ def _pool_dir(novel_id: str, pool: str) -> Path:
     return ROOT / "outputs" / novel_id / (f".inflight-{pool}" if pool else ".inflight")
 
 
+def _conductor_running(config_name: str) -> bool:
+    """Is a conductor live for this config?  A stopped novel leaves its limit files behind."""
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            cmd = (entry / "cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
+        except OSError:
+            continue
+        if "conductor_thin.py" in cmd and config_name in cmd:
+            return True
+    return False
+
+
+def _held_by_novel(directory: Path) -> dict:
+    """Which novel is holding each lock in a shared pool, by the runner that owns it."""
+    inodes = {}
+    for path in directory.glob("slot_*.lock"):
+        try:
+            inodes[path.stat().st_ino] = path
+        except OSError:
+            pass
+    counts: dict[str, int] = {}
+    try:
+        lines = Path("/proc/locks").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return counts
+    for line in lines:
+        parts = line.split()
+        if len(parts) < 6 or parts[1] != "FLOCK":
+            continue
+        try:
+            pid, ino = int(parts[4]), int(parts[5].split(":")[-1])
+        except ValueError:
+            continue
+        if ino not in inodes:
+            continue
+        try:
+            cmd = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
+        except OSError:
+            continue
+        match = re.search(r"--episode (\w+?)_\d+", cmd)
+        if match:
+            counts[match.group(1)] = counts.get(match.group(1), 0) + 1
+    return counts
+
+
 def _inflight() -> list[dict]:
+    """One row per key a novel actually renders with, from the conductor configs."""
     rows = []
-    for novel in NOVELS:
-        for pool in ("", "sd20", "h3"):
-            directory = _pool_dir(novel["id"], pool)
-            limit_file = directory / "limit"
-            if not limit_file.is_file():
+    cache: dict[Path, dict] = {}
+    for config in sorted((ROOT / "configs").glob("conductor.*.json")):
+        try:
+            cfg = json.loads(config.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        novel_id = Path(str(cfg.get("novel_dir", ""))).name
+        if novel_id not in TITLES or not _conductor_running(config.name):
+            continue
+        for key in cfg.get("keys", []):
+            directory = _pool_dir(novel_id, key.get("pool") or "")
+            if not (directory / "limit").is_file():
                 continue
-            try:
-                limit = int(limit_file.read_text().strip() or 0)
-            except (OSError, ValueError):
-                continue
-            slots = _held_slots(directory)
-            rows.append({"novel": novel["title"], "pool": pool or "sd2.5", "limit": limit, "slots": slots})
+            if directory not in cache:
+                try:
+                    limit = int((directory / "limit").read_text().strip() or 0)
+                except (OSError, ValueError):
+                    limit = 0
+                cache[directory] = {"limit": limit, "held": _held_by_novel(directory), "total": _held_slots(directory)}
+            info = cache[directory]
+            rows.append({"novel": TITLES[novel_id], "pool": key.get("model") or key.get("name", ""),
+                         "limit": info["limit"], "slots": info["held"].get(novel_id, 0),
+                         "shared": info["total"]})
     return rows
 
 

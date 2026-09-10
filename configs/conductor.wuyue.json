@@ -5,20 +5,6 @@
   "round_gap_seconds": 120,
   "keys": [
     {
-      "name": "sd25",
-      "model": "sd2.5",
-      "key_var": "PHANROUTER_API_KEY",
-      "pool": "",
-      "clip_cap": 30,
-      "inflight": {
-        "min": 4,
-        "max": 56,
-        "start": 42
-      },
-      "parallel": 20,
-      "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/sd25"
-    },
-    {
       "name": "sd20",
       "model": "sd2.0",
       "key_var": "PHANROUTER_IMAGE_API_KEY",
@@ -40,14 +26,14 @@
     },
     {
       "chapters": "579-1158",
-      "plan_mode": 30
-    },
-    {
-      "chapters": "579-1158",
       "plan_mode": 15
     },
     {
-      "chapters": "1159-1200",
+      "chapters": "579-1158",
+      "plan_mode": 30
+    },
+    {
+      "chapters": "1159-1620",
       "plan_mode": 30
     },
     {
@@ -55,15 +41,22 @@
       "plan_mode": 15
     },
     {
-      "chapters": "1816-1862",
+      "chapters": "1816-2043",
       "plan_mode": 30
     }
   ],
   "planning": {
-    "blocks_max": 0,
-    "blocks_min": 0,
+    "blocks_max": 2,
+    "blocks_min": 1,
     "block_size": 63,
-    "margin": 20
+    "margin": 20,
+    "models": [
+      {
+        "base": "http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http://127.0.0.1:18122/v1,http://127.0.0.1:18123/v1,http://127.0.0.1:18124/v1",
+        "model": "Qwen3.8-27B-Project",
+        "slots": 2
+      }
+    ]
   },
   "qwen": {
     "urls": [
