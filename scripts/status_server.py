@@ -353,7 +353,7 @@ def _processes() -> dict:
         "planners": count("plan_chapter_thin.py"),
         "cards": count("build_cards_thin.py"),
         "reviews": count("--review-only"),
-        "conductors": count("conductor_thin.py --config"),
+        "conductors": count("conductor_thin.py --config") + count("conductor_thin.py --pipeline"),
         "uploads": count("ms_upload_once.py"),
     }
 
@@ -374,8 +374,10 @@ def _pool_dir(novel_id: str, pool: str) -> Path:
     return ROOT / "outputs" / novel_id / (f".inflight-{pool}" if pool else ".inflight")
 
 
-def _conductor_running(config_name: str) -> bool:
-    """Is a conductor live for this config?  A stopped novel leaves its limit files behind."""
+def _conductor_running(novel_id: str) -> bool:
+    """Is a conductor live for this novel?  Started either from the shared pipeline file
+    (--novel <id>) or from the older per-novel config.  A stopped novel leaves its limit
+    files behind, which is why the rows are gated on this."""
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -383,7 +385,9 @@ def _conductor_running(config_name: str) -> bool:
             cmd = (entry / "cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
         except OSError:
             continue
-        if "conductor_thin.py" in cmd and config_name in cmd:
+        if "conductor_thin.py" not in cmd:
+            continue
+        if f"--novel {novel_id} " in cmd + " " or f"conductor.{novel_id}.json" in cmd:
             return True
     return False
 
@@ -421,20 +425,42 @@ def _held_by_novel(directory: Path) -> dict:
     return counts
 
 
-def _inflight() -> list[dict]:
-    """One row per key a novel actually renders with, from the conductor configs."""
-    rows = []
-    cache: dict[Path, dict] = {}
+def _lane_keys() -> dict:
+    """Which video keys each novel renders with: from the shared pipeline file if it is there,
+    otherwise from the per-novel conductor configs."""
+    out: dict[str, list] = {}
+    pipeline = ROOT / "configs" / "pipeline.json"
+    if pipeline.is_file():
+        try:
+            cfg = json.loads(pipeline.read_text(encoding="utf-8"))
+            video = cfg.get("resources", {}).get("video_keys", {})
+            for novel in cfg.get("novels", []):
+                names = [n for n in novel.get("render_keys", []) if n in video]
+                if names:
+                    out[novel["id"]] = [{"name": n, **video[n]} for n in names]
+            return out
+        except (OSError, ValueError):
+            pass
     for config in sorted((ROOT / "configs").glob("conductor.*.json")):
         try:
             cfg = json.loads(config.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         novel_id = Path(str(cfg.get("novel_dir", ""))).name
-        if novel_id not in TITLES or not _conductor_running(config.name):
+        if cfg.get("keys"):
+            out[novel_id] = cfg["keys"]
+    return out
+
+
+def _inflight() -> list[dict]:
+    """One row per key a novel actually renders with, from the conductor configs."""
+    rows = []
+    cache: dict[Path, dict] = {}
+    for novel_id, keys in _lane_keys().items():
+        if novel_id not in TITLES or not _conductor_running(novel_id):
             continue
-        for key in cfg.get("keys", []):
-            directory = _pool_dir(novel_id, key.get("pool") or "")
+        for key in keys:
+            directory = Path(key["inflight_dir"]) if key.get("inflight_dir") else _pool_dir(novel_id, key.get("pool") or "")
             if not (directory / "limit").is_file():
                 continue
             if directory not in cache:
@@ -492,20 +518,30 @@ def _log_ts(line: str) -> float | None:
     return stamp - 366 * 86400 if stamp > time.time() + 86400 else stamp
 
 
+WARNING_WINDOW_SECONDS = 6 * 3600
+
+
 def _warnings() -> list[dict]:
     out = []
+    cutoff = time.time() - WARNING_WINDOW_SECONDS
     for novel in NOVELS:
         if not novel["conductor"] or not novel["conductor"].is_file():
             continue
+        if not _conductor_running(novel["id"]):
+            continue  # a stopped novel's old lines are history, not something to act on
         for line in _read_tail(novel["conductor"], 400):
             # A lane that stops because every range finished is a normal ending, not a warning.
             if "tick:" in line or "all ranges finished" in line:
                 continue
             hit = next((k for k in WARNING_KINDS if k[0].search(line)), None)
             if hit:
+                stamp = _log_ts(line)
+                if stamp is None or stamp < cutoff:
+                    continue
                 out.append({"novel": novel["title"], "kind": hit[1], "level": hit[2],
-                            "text": line.strip()[:150], "ts": _log_ts(line)})
-    return out[-8:]
+                            "text": line.strip()[:150], "ts": stamp})
+    out.sort(key=lambda row: row["ts"], reverse=True)
+    return out[:8]
 
 
 def snapshot() -> dict:

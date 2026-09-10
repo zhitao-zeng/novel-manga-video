@@ -92,9 +92,7 @@
       "title": "星海龙途",
       "active": true,
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-xinghai",
-      "render_keys": [
-        "sd25"
-      ],
+      "render_keys": [],
       "planning": {
         "local": 1
       },
@@ -117,7 +115,8 @@
           "chapters": "1201-1600",
           "plan_mode": 30
         }
-      ]
+      ],
+      "plan_only": true
     },
     {
       "id": "wuyue",
@@ -125,7 +124,8 @@
       "active": true,
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
       "render_keys": [
-        "sd20"
+        "sd20",
+        "sd25"
       ],
       "planning": {
         "local": 2
