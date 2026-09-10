@@ -19,6 +19,7 @@ import hashlib
 import io
 import json
 import math
+import os
 import re
 import time
 from pathlib import Path
@@ -37,13 +38,25 @@ from .phanrouter import PhanRouterMediaProvider
 # the tags the rest of the pipeline matches on.
 PICTURE_TAG = re.compile(r"@图片(\d+)")
 AUDIO_TAG = re.compile(r"@音频(\d+)")
+# The planner writes every spoken line as 说：{台词}; H3 delimits speech as <d>[Language] ...</d>.
+SPOKEN_LINE = re.compile(r"说：\{([^}]*)\}")
+NOTHING_ELSE = (
+    "\n【只说这些】本段的全部人声就是上面 <d> 标记里的台词，逐字说完即可；"
+    "除此之外不得再说任何话，不得即兴发挥、不得重复台词、不得添加旁白或语气词。"
+    "没有台词的时间里保持安静，只有环境声和动作音效。"
+)
 SHORT_EDGE = 544  # what the deployed four-step Ref2VA turbo build renders
 MIN_SECONDS, MAX_SECONDS = 4, 15
 POLL_SECONDS = 3.0
 
 
 def h3_prompt(prompt: str) -> str:
-    return AUDIO_TAG.sub(r"<Audio \1>", PICTURE_TAG.sub(r"<Picture \1>", prompt))
+    prompt = AUDIO_TAG.sub(r"<Audio \1>", PICTURE_TAG.sub(r"<Picture \1>", prompt))
+    if os.environ.get("NOVEL_H3_MARK_DIALOGUE", "1") != "1":
+        return prompt
+    marked, count = SPOKEN_LINE.subn(r"说：<d>[Chinese] \1</d>", prompt)
+    # Only worth saying when there is dialogue: a wordless clip has no lines to be the whole of.
+    return marked + NOTHING_ELSE if count else marked
 
 
 class LocalH3MediaProvider(PhanRouterMediaProvider):
