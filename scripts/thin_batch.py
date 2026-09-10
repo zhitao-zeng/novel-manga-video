@@ -411,7 +411,12 @@ class Batch:
         # clip_plan.json) starts the count again.
         runs_path = directory / ".render_runs"
         plan_path = directory / "clip_plan.json"
-        plan_mtime = plan_path.stat().st_mtime if plan_path.is_file() else 0.0
+        # The count is per plan, and a director correction counts as new grounds to try again:
+        # without this an episode that used up its runs can never be repaired, because it is
+        # refused before the runner starts and so never reads the correction written for it.
+        feedback_path = directory / "review_feedback.json"
+        plan_mtime = [plan_path.stat().st_mtime if plan_path.is_file() else 0.0,
+                      feedback_path.stat().st_mtime if feedback_path.is_file() else 0.0]
         try:
             runs = json.loads(runs_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):

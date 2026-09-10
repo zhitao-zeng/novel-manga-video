@@ -94,6 +94,17 @@ BAD, MAYBE = 60, 30  # kept out of the model's hands so a threshold moves withou
 POLL_FRAMES = 4
 
 
+# The one thing a show's note may not do is make a broken body acceptable.  No art direction
+# gives a character two heads on one neck or a limb that melts, so these are restated after the
+# note, in code, where a per-novel file cannot soften them.
+NEVER_NORMAL = (
+    "【以下永远算生成错误，不受本片设定影响】一个身体上长出多个头或多张脸；"
+    "同一个身体多出或缺少手臂、腿、翅膀；两个身体粘在一起；肢体扭曲、融化、断裂、错位；"
+    "同一个角色在同一个画面里出现两次；画面上出现文字、字幕或乱码。"
+    "即使描述里说这是某种奇幻生物，多头、粘连、断肢也依然算错误。\n"
+)
+
+
 def normal_note(novel_dir: Path) -> str:
     """What this show's art direction makes normal, so a general rule does not condemn it.
 
@@ -108,7 +119,9 @@ def normal_note(novel_dir: Path) -> str:
         return ""
     text = " ".join(line.strip() for line in path.read_text(encoding="utf-8").splitlines()
                     if line.strip() and not line.startswith("#"))
-    return f"\n【本片设定，以下一律算正常，绝不要判成错误】{text}\n" if text else ""
+    if not text:
+        return ""
+    return f"\n【本片设定】以下是本片的美术设定，属于正常，不要当成生成错误：{text}\n" + NEVER_NORMAL
 
 
 def frames_of(video: Path, count: int = POLL_FRAMES) -> list[Path]:
