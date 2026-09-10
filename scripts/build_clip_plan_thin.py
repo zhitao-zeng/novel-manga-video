@@ -377,6 +377,23 @@ def clip_cast(clip: dict) -> list[str]:
     return kept or listed
 
 
+def anchor_of(name: str, bible: StoryBible, limit: int = 34) -> str:
+    """A few words that tell this character apart, for the prompt to say out loud."""
+    character = next((c for c in bible.characters if c.name == name), None)
+    if character is None:
+        return ""
+    for field in ("silhouette", "hair", "palette", "appearance"):
+        value = str(getattr(character, field, "") or "").strip()
+        if value in {"无", "none", "-", "无特殊", "暂无"} or len(value) < 6:
+            continue  # a placeholder is worse than saying nothing
+        if value:
+            text = value.replace("\n", " ")
+            cut = text[:limit]
+            end = max(cut.rfind(mark) for mark in "。，；,;")
+            return cut[:end] if end > limit // 2 else cut
+    return ""
+
+
 def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None) -> tuple[list[dict], list[str], str]:
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
@@ -401,9 +418,17 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
             count += 1
             second = count
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
-            bindings.append(f"<{name}>对应@图片{first}和@图片{second}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图")
+            anchor = anchor_of(name, bible)
+            bindings.append(
+                f"<{name}>对应@图片{first}和@图片{second}：@图片{first}定五官、发型、年龄感和肤色，"
+                f"@图片{second}定身体比例、服装版型、主色和配饰；两张都不采用背景、姿势和构图"
+                + (f"。{name}的辨识特征：{anchor}" if anchor else ""))
         else:
-            bindings.append(f"<{name}>只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上")
+            anchor = anchor_of(name, bible)
+            bindings.append(
+                f"<{name}>只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；"
+                "不得把该角色的长相用在其他人身上"
+                + (f"。{name}的辨识特征：{anchor}" if anchor else ""))
     full = location_map[location_short]
     location_asset = f"location_{location_index[location_short]:03d}"
     count += 1

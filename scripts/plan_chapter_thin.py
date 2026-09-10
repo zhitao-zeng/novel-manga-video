@@ -154,6 +154,7 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
 
 def render_brief(prompt: str) -> str:
     """Fill the brief's clip and stage numbers from the ranges in force for this run."""
+    prompt = prompt + separate_clause()
     # CLIP_SECONDS_MAX is this lane's cap (15 s on sd2.0); MAX_CLIP_SECONDS is the model's
     # own 30 s ceiling.  The brief has to quote the lane's, or a 15 s lane is invited to
     # film for 30 s and the packer has to cut the result apart.
@@ -181,6 +182,53 @@ def analysis_instruction() -> str:
         "此刻可拍的动作；然后给出片段划分：每段覆盖哪些区段、几个阶段、估算秒数，"
         f"总共{CLIP_RANGE[0]}到{CLIP_RANGE[1]}段。不超过800字。"
     )
+
+
+SEPARATE_MIN_FAILURES = 100
+SEPARATE_MIN_RATE = 0.5
+SEPARATE_MAX_PAIRS = 3
+SEPARATE_PAIRS: list[tuple[str, str]] = []  # filled by load_separate_pairs() in main()
+
+
+def load_separate_pairs(novel_dir: Path) -> list[tuple[str, str]]:
+    """Character pairs this novel's review record says the generator cannot tell apart."""
+    path = novel_dir / "confusable_pairs.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    pairs = [tuple(entry["pair"]) for entry in data.get("pairs", [])
+             if entry.get("failed", 0) >= SEPARATE_MIN_FAILURES and entry.get("rate", 0) >= SEPARATE_MIN_RATE]
+    return pairs[:SEPARATE_MAX_PAIRS]
+
+
+def separate_clause() -> str:
+    """The brief's rule about those pairs, empty when the novel has none."""
+    if not SEPARATE_PAIRS:
+        return ""
+    listed = "、".join(f"{a}与{b}" for a, b in SEPARATE_PAIRS)
+    return ("\n\n【同框限制】以下角色对不要出现在同一个阶段的画面里：" + listed + "。"
+            "这几对角色在成片里反复被画成同一个人，所以同场时只让其中一个入画，另一个用 offscreen_dialogue 说话、"
+            "或者写成刚离开、在画外、背对镜头看不见脸；需要两人交替说话就拆成前后两个阶段，各拍一个。"
+            "这条只约束画面里同时出现谁，不改变剧情、台词内容和顺序。")
+
+
+def separation_warnings(shots: list[dict]) -> list[str]:
+    """Stages that still put a forbidden pair on screen together."""
+    if not SEPARATE_PAIRS:
+        return []
+    out = []
+    for index, shot in enumerate(shots, start=1):
+        visible = {turn.get("speaker_name") for turn in shot.get("turns") or []
+                   if turn.get("delivery_mode") == "visible_dialogue"}
+        text = " ".join(str(shot.get(key) or "") for key in ("start_state", "event", "end_state"))
+        for a, b in SEPARATE_PAIRS:
+            on_screen = {name for name in (a, b) if name in visible or name in text}
+            if len(on_screen) == 2:
+                out.append(f"阶段{index}：{a} 与 {b} 同时入画（这两个角色容易被画成同一个人）")
+    return out
 
 
 def compact(value: str) -> str:
@@ -1295,6 +1343,9 @@ def main() -> int:
     if not bible_target.is_file():
         shutil.copy2(args.bible, bible_target)
 
+    globals()["SEPARATE_PAIRS"] = load_separate_pairs(novel_dir)
+    if SEPARATE_PAIRS:
+        print(f"keeping apart: {'、'.join(f'{a}+{b}' for a, b in SEPARATE_PAIRS)}", file=sys.stderr)
     segments = split_segments(episode.source_text, episode.source_title, SEGMENT_COUNT)
     atomic_write_json(episode_dir / "segments.json", segments)
     # Rolling recap: the summaries the planner itself wrote for the previous
