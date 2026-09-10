@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -562,6 +563,17 @@ def prescreen_prompt(prompt: str) -> float:
         return 0.0
 
 
+def reference_digests(paths) -> list[str]:
+    """Short content digests for the reference pictures sent with a clip."""
+    out = []
+    for path in paths:
+        try:
+            out.append(hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16])
+        except OSError:
+            out.append("")
+    return out
+
+
 def acquire_inflight_slot(novel_dir: Path, limit: int):
     """A cross-process counting semaphore made of lock files: every runner of the
     novel competes for the same `limit` slots, so the clips in flight stay at a
@@ -879,7 +891,8 @@ class ThinMediaRunner:
         references = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice")
         request = {
             "clip_id": clip["clip_id"], "attempt": attempt, "duration": clip["request_seconds"],
-            "prompt": prompt, "references": [str(p) for p in references], "workflow": "thin-seedance-native-dialogue-v1",
+            "prompt": prompt, "references": [str(p) for p in references],
+            "reference_sha256": reference_digests(references), "workflow": "thin-seedance-native-dialogue-v1",
         }
         if (directory / "request.json").is_file() and output.is_file() and output.stat().st_size > 0:
             # Reuse only a clip generated from this exact prompt and references.
@@ -891,7 +904,12 @@ class ThinMediaRunner:
             # A clip generated from the softened wording (prescreen or moderation
             # retry) is the same clip: do not pay again because a later run made
             # the other choice.
-            if saved.get("prompt") in acceptable and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            saved_digests = saved.get("reference_sha256")
+            # A request written before digests existed is compared on paths alone, so the
+            # cache built up to 2026-09-10 stays valid instead of re-rendering wholesale.
+            references_match = saved.get("references") == [str(p) for p in references] and (
+                saved_digests is None or list(saved_digests) == reference_digests(references))
+            if saved.get("prompt") in acceptable and references_match and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
                 return output
             # Move the clip AND its provider task sidecar aside together: the

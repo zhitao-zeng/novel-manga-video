@@ -746,23 +746,32 @@ def fix_tier(verdict: dict, bible: StoryBible) -> str:
     return "ignore"  # phone text, on-screen text, people count only
 
 
-def compose_feedback(verdict: dict) -> str:
-    """The correction appended to a failed clip's prompt.  Text on screen gets a
-    fixed instruction (the model's own suggestion tends to 'fix the subtitle'
-    instead of removing it); identity and defect issues use the reviewer's
-    sentence, which names who should look like what."""
+def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | None = None) -> str:
+    """The correction appended to a failed clip's prompt.
+
+    Text on screen gets a fixed instruction, because the model's own suggestion tends to "fix
+    the subtitle" rather than remove it.  Identity issues keep the reviewer's sentence exactly
+    as written: it names who should look like what and points at the reference sheets by the
+    same @图片N numbering the request uses, and an attempt to reword it into a generic rule
+    dropped the repair rate from 86% to 25% (2026-09-10, 15 clips).  Defects get the sentence
+    plus a fixed rule about anatomy, which is what fixed the穿模 clip in that trial.
+
+    clip and manifest are accepted so a caller can pass them; they are unused on purpose.
+    """
     parts = []
     if verdict.get("text_or_watermark"):
         parts.append("除手机屏幕上指定的聊天消息外，画面中不得出现任何文字、字幕、弹幕或水印，台词只以语音出现")
     if verdict.get("chat_text_ok") is False:
         parts.append("手机屏幕上的消息文字必须是清晰端正的简体中文，内容与指定的消息逐字一致，不得乱码或出现无关文字；屏幕要正对镜头、占画面主体")
-    if not verdict.get("identity_ok", True) or verdict.get("visual_defects"):
+    if not verdict.get("identity_ok", True):
         note = str(verdict.get("feedback") or "").strip()
-        if note and not re.search(r"字幕|文字", note):
-            parts.append(note)
-        elif not verdict.get("identity_ok", True):
-            parts.append("每个角色必须与其角色卡一致，不得把一个角色画成另一个角色的相貌或服装")
-    return "；".join(parts) or str(verdict.get("feedback") or "").strip()
+        parts.append(note if note and not re.search(r"字幕|文字", note)
+                     else "每个角色必须与其角色卡一致，不得把一个角色画成另一个角色的相貌或服装")
+    if verdict.get("visual_defects"):
+        parts.append("人物肢体、面部和道具必须结构正常：不得多出或缺少肢体、手指，不得穿模、重影或出现多余物体；"
+                     "动作幅度放小，保持角色形体稳定")
+    joined = "；".join(part.rstrip("。；;，, ") for part in parts if part)
+    return joined or str(verdict.get("feedback") or "").strip()
 
 
 def bible_root(work_dir: Path) -> Path:
@@ -777,6 +786,8 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}
     plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
+    manifest_path = novel_dir / "series_assets" / "manifest.json"
+    card_manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     report_path = episode_dir / "thin_media_report.json"
     media = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
     selected = {row["clip_id"]: row.get("selected") or {} for row in media.get("clips", [])}
@@ -809,7 +820,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
                 prefix = "" if tier == "must_fix" else "[可选] "
                 report["flags"].append(f"{clip_id}: {prefix}{verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}")
             if tier == "must_fix":
-                report["feedback"][clip_id] = compose_feedback(verdict)
+                report["feedback"][clip_id] = compose_feedback(verdict, clip, card_manifest)
         log(f"episode {episode_dir.name} {clip_id}: {verdict.get('severity')} people={verdict.get('visible_people')} identity={verdict.get('identity_ok')} loc={verdict.get('location_ok')}/{verdict.get('time_of_day_ok')} text={verdict.get('text_or_watermark')} defects={verdict.get('visual_defects')}" + (f" | {verdict.get('identity_issue') or verdict.get('defect_issue')}" if verdict.get("severity") != "pass" else ""))
     suffix = "" if video_name == "clip.mp4" else "." + video_name.replace(".mp4", "")
     atomic_write_json(episode_dir / f"episode_review{suffix}.json", report)
