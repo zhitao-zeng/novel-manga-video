@@ -519,15 +519,60 @@ class Conductor:
             time.sleep(self.cfg.get("tick_seconds", 90))
 
 
+def config_for_novel(pipeline: dict, novel_id: str) -> dict:
+    """Build one novel's conductor config out of the shared pipeline description."""
+    novels = {n["id"]: n for n in pipeline.get("novels", [])}
+    if novel_id not in novels:
+        raise SystemExit(f"{novel_id} is not in the pipeline file: {sorted(novels)}")
+    novel = novels[novel_id]
+    resources = pipeline.get("resources", {})
+    video = resources.get("video_keys", {})
+    models = resources.get("planning_models", {})
+    missing = [k for k in novel.get("render_keys", []) if k not in video] + \
+              [m for m in novel.get("planning", {}) if m not in models]
+    if missing:
+        raise SystemExit(f"{novel_id} asks for resources that are not defined: {missing}")
+    defaults = pipeline.get("defaults", {})
+    planning = {**defaults.get("planning", {}),
+                "blocks_max": novel.get("blocks_max", 0), "blocks_min": novel.get("blocks_min", 0),
+                "models": [{**models[name], "slots": slots} for name, slots in novel.get("planning", {}).items()]}
+    return {
+        "novel_dir": f"outputs/{novel_id}",
+        "tmp_dir": novel.get("tmp_dir", f"/mnt/disk1/zengzhitao/tmp/conductor-{novel_id}"),
+        "tick_seconds": pipeline.get("tick_seconds", 90),
+        "round_gap_seconds": pipeline.get("round_gap_seconds", 120),
+        "keys": [{"name": name, **video[name]} for name in novel.get("render_keys", [])],
+        "ranges": novel["ranges"],
+        "planning": planning,
+        "qwen": defaults.get("qwen", {}),
+        "aimd": defaults.get("aimd", {}),
+        "review": defaults.get("review", {}),
+        "render": defaults.get("render", {}),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", required=True)
+    parser.add_argument("--config", help="one novel's conductor config (the older form)")
+    parser.add_argument("--pipeline", help="the shared pipeline file; use with --novel")
+    parser.add_argument("--novel", help="which novel of the pipeline file to run")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--plan-only", action="store_true", help="reading, planning and cards only; no rendering lanes")
     args = parser.parse_args()
-    config = json.loads(Path(args.config).read_text(encoding="utf-8"))
-    Conductor(config, args.dry_run, args.plan_only).run(args.once)
+    if args.pipeline:
+        if not args.novel:
+            raise SystemExit("--pipeline needs --novel")
+        pipeline = json.loads(Path(args.pipeline).read_text(encoding="utf-8"))
+        config = config_for_novel(pipeline, args.novel)
+        entry = next(n for n in pipeline["novels"] if n["id"] == args.novel)
+        plan_only = args.plan_only or bool(entry.get("plan_only"))
+    elif args.config:
+        config = json.loads(Path(args.config).read_text(encoding="utf-8"))
+        plan_only = args.plan_only
+    else:
+        raise SystemExit("give either --config, or --pipeline with --novel")
+    Conductor(config, args.dry_run, plan_only).run(args.once)
     return 0
 
 

@@ -1,0 +1,183 @@
+{
+  "_comment": "整条流水线的唯一事实来源。视频 key 和规划模型是共享资源，在 resources 里定义一次；每本小说只声明它可以用哪些、用多少。scripts/pipeline.py validate 会检查冲突。",
+  "tick_seconds": 90,
+  "round_gap_seconds": 120,
+  "resources": {
+    "video_keys": {
+      "sd25": {
+        "model": "sd2.5",
+        "key_var": "PHANROUTER_API_KEY",
+        "clip_cap": 30,
+        "pool": "",
+        "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/sd25",
+        "inflight": {
+          "min": 4,
+          "max": 56,
+          "start": 56
+        },
+        "parallel": 20
+      },
+      "sd20": {
+        "model": "sd2.0",
+        "key_var": "PHANROUTER_IMAGE_API_KEY",
+        "clip_cap": 15,
+        "pool": "sd20",
+        "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/sd20",
+        "inflight": {
+          "min": 4,
+          "max": 30,
+          "start": 16
+        },
+        "parallel": 6
+      }
+    },
+    "planning_models": {
+      "local": {
+        "base": "http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http://127.0.0.1:18122/v1,http://127.0.0.1:18123/v1,http://127.0.0.1:18124/v1",
+        "model": "Qwen3.8-27B-Project",
+        "slots": 3,
+        "note": "本机 5 个端口，同时还要给渲染的提交前预审留余量"
+      },
+      "flashnext": {
+        "base": "http://172.28.4.81:8038/v1",
+        "model": "Qwen3.8-Flash-Next",
+        "key_var": "GPU81_QWEN_API_KEY",
+        "slots": 2,
+        "note": "别人的机器，最多 2 个请求"
+      },
+      "deepseek": {
+        "base": "http://172.28.4.52:8831/v1",
+        "model": "DeepSeek-V4-Flash-Vision-Exp",
+        "key_var": "GPU52_DEEPSEEK_API_KEY",
+        "slots": 2,
+        "note": "别人的机器，最多 2 个请求"
+      }
+    }
+  },
+  "defaults": {
+    "planning": {
+      "block_size": 63,
+      "margin": 20
+    },
+    "qwen": {
+      "urls": [
+        "http://127.0.0.1:18120/v1",
+        "http://127.0.0.1:18121/v1",
+        "http://127.0.0.1:18122/v1",
+        "http://127.0.0.1:18123/v1",
+        "http://127.0.0.1:18124/v1"
+      ],
+      "waiting_high": 40,
+      "waiting_low": 5,
+      "card_waits_high": 3
+    },
+    "aimd": {
+      "window_seconds": 600,
+      "decrease_at": 5,
+      "increase_after_seconds": 600,
+      "increase_step": 2,
+      "park_after_seconds": 1800,
+      "park_seconds": 3600
+    },
+    "review": {
+      "parallel": 3
+    },
+    "render": {
+      "prescreen": true
+    }
+  },
+  "novels": [
+    {
+      "id": "xinghai",
+      "title": "星海龙途",
+      "active": true,
+      "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-xinghai",
+      "render_keys": [
+        "sd25"
+      ],
+      "planning": {
+        "local": 1
+      },
+      "blocks_max": 1,
+      "blocks_min": 0,
+      "ranges": [
+        {
+          "chapters": "1-480",
+          "plan_mode": 30
+        },
+        {
+          "chapters": "481-800",
+          "plan_mode": 15
+        },
+        {
+          "chapters": "801-1200",
+          "plan_mode": 30
+        },
+        {
+          "chapters": "1201-1600",
+          "plan_mode": 30
+        }
+      ]
+    },
+    {
+      "id": "wuyue",
+      "title": "雾月秘典",
+      "active": true,
+      "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
+      "render_keys": [
+        "sd20"
+      ],
+      "planning": {
+        "local": 2
+      },
+      "blocks_max": 2,
+      "blocks_min": 1,
+      "ranges": [
+        {
+          "chapters": "1-578",
+          "plan_mode": 30
+        },
+        {
+          "chapters": "579-1158",
+          "plan_mode": 15
+        },
+        {
+          "chapters": "579-1158",
+          "plan_mode": 30
+        },
+        {
+          "chapters": "1159-1620",
+          "plan_mode": 30
+        },
+        {
+          "chapters": "1621-1815",
+          "plan_mode": 15
+        },
+        {
+          "chapters": "1816-2043",
+          "plan_mode": 30
+        }
+      ]
+    },
+    {
+      "id": "zhutian-card",
+      "title": "诸天万象录",
+      "active": true,
+      "plan_only": true,
+      "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor",
+      "render_keys": [],
+      "planning": {
+        "flashnext": 2,
+        "deepseek": 2
+      },
+      "blocks_max": 4,
+      "blocks_min": 2,
+      "ranges": [
+        {
+          "chapters": "2001-3848",
+          "plan_mode": 30
+        }
+      ]
+    }
+  ]
+}
