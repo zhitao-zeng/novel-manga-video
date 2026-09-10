@@ -74,13 +74,6 @@
     "key_var": "GPU81_QWEN_API_KEY",
     "slots": 2,
     "note": "别人的机器，最多 2 个请求"
-   },
-   "deepseek": {
-    "base": "http://172.28.4.52:8831/v1",
-    "model": "DeepSeek-V4-Flash-Vision-Exp",
-    "key_var": "GPU52_DEEPSEEK_API_KEY",
-    "slots": 2,
-    "note": "别人的机器，最多 2 个请求"
    }
   }
  },
@@ -197,8 +190,7 @@
    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor",
    "render_keys": [],
    "planning": {
-    "flashnext": 2,
-    "deepseek": 2
+    "flashnext": 2
    },
    "blocks_max": 4,
    "blocks_min": 2,
