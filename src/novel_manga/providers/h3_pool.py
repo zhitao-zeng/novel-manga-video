@@ -362,6 +362,34 @@ class H3Pool:
                         return instance, handle
                     release(handle)
                     break  # not fit: the next instance
-            if timeout is not None and time.monotonic() - started >= timeout:
-                raise TimeoutError("no H3 pool instance has a free slot")
-            time.sleep(0.05 if timeout is not None else 3.0)
+            self._pause(started, timeout, "no H3 pool instance has a free slot")
+
+    def hold(self, url: str, timeout: float | None = None):
+        """A slot on one particular instance - the one a resumed task already runs on - waiting while its
+        slots are busy.  Taken whatever the instance's state: a draining night instance still finishes the
+        clips it has, and the caller's polling judges its health."""
+        instance = self.lookup(url)
+        directory = self._dir(instance.url)
+        started = time.monotonic()
+        while True:
+            for index in range(instance.slots):
+                handle = open(directory / f"slot_{index:02d}.lock", "w")
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    return handle
+                except OSError:
+                    handle.close()
+            self._pause(started, timeout, f"no free slot on {instance.name} for the task it already holds")
+
+    @staticmethod
+    def _pause(started: float, timeout: float | None, message: str) -> None:
+        """Wait before looking again, or raise TimeoutError once `timeout` has passed.  A short wait (a test)
+        looks often; a clip waiting out a busy pool looks every few seconds, not twenty times a second in
+        every waiting runner."""
+        if timeout is None:
+            time.sleep(3.0)
+            return
+        left = timeout - (time.monotonic() - started)
+        if left <= 0:
+            raise TimeoutError(message)
+        time.sleep(min(left, 0.05 if timeout <= 5 else 3.0))

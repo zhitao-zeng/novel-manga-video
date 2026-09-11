@@ -52,7 +52,7 @@ from dataclasses import replace as dc_replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chat_card
-from thin_profile import frame_spec, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
+from thin_profile import frame_spec, h3_prompt_fingerprint, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 
 POLICY = "thin-media-v22-coverage-gate"
 ASSET_BUILD_ROUNDS = 6
@@ -81,6 +81,28 @@ def trimmed_voice(path: Path, seconds: float) -> Path:
         run(["ffmpeg", "-y", "-v", "error", "-i", str(path), "-t", f"{seconds:.2f}", "-c:a", "pcm_s16le", str(partial)])
         os.replace(partial, out)
     return out
+
+
+AUDIO_TAG_H3 = re.compile(r"<Audio (\d+)>")
+
+
+def renumber_audio(prompt: str, sent: list[int]) -> str:
+    """Point an H3 prompt's <Audio N> at the voices its request actually carries.
+
+    build_h3_prompts.py numbers the voices in the order the plan lists them; the runner sends only
+    those that fit the reference-audio budget, most-spoken first.  So the N-th audio of a request was
+    often another character's voice (雾月 208 gave 莱恩 比尔's).  `sent` holds plan positions in request
+    order: a line about a voice left out is dropped and the others are renumbered, and a prompt whose
+    voices all go out in plan order comes back unchanged."""
+    position = {plan_index: request_index for request_index, plan_index in enumerate(sent, 1)}
+    kept = []
+    for line in prompt.split("\n"):
+        if any(int(n) not in position for n in AUDIO_TAG_H3.findall(line)):
+            continue
+        kept.append(AUDIO_TAG_H3.sub(lambda m: f"<Audio {position[int(m.group(1))]}>", line))
+    return "\n".join(kept)
+
+
 MIN_LINE_SIMILARITY = 0.35  # order-constrained match; was 0.5 with a two-line lookahead
 
 # ---- subtitle helpers (v16) ----
@@ -222,6 +244,7 @@ def moderation_error(error: Exception) -> bool:
     return any(marker in text for marker in MODERATION_MARKERS)
 REDRAW_WAIT_SECONDS = 180  # a stylised redraw normally lands in 60-100 s; past this the photoreal backup is used
 REPAIR_LOCK = threading.Lock()  # one card redraw at a time; parallel repairs of the same card raced
+MANIFEST_LOCK = threading.Lock()  # series_assets/manifest.json is merged under this and a file lock
 PRIVACY_OK_FILE = "series_assets/.privacy_ok.json"  # cards used by clips that generated fine, shared across runs
 CARD_STYLE_SUFFIX_3D = (
     "。整体必须是一眼可辨的风格化三维动画角色（国漫/皮克斯式概括造型）：眼睛略大、五官简化、皮肤光滑无毛孔、"
@@ -235,6 +258,12 @@ STYLIZE_PROMPT = (
     "布料和头发是干净的三维建模材质，柔和体积光；纯色简洁背景；禁止真人照片质感、真实人物肖像、写实皮肤纹理、文字、Logo或水印。"
 )
 RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完整。保持以上全部内容不变重新生成，每句台词都必须清晰完整地说出。"
+# An English prompt (local H3) gets its retake note in English: H3 speaks what is written in Chinese, and
+# read the note above out as dialogue - 雾月 58, 59, 97, 1262 and 1736 kept such takes.
+RETRY_SUFFIX_H3 = ("\n\nretake_note:\nThe previous take dropped or slurred some of the lines. Keep everything "
+                   "above unchanged, and have every <d> line spoken clearly and completely.")
+RETRY_TAIL = re.compile("(?:" + re.escape(RETRY_SUFFIX) + "|" + re.escape(RETRY_SUFFIX_H3) + r")(?: This is take \d+\.|（第\d+次）)?\Z")
+MAX_ATTEMPTS_FREE = 8  # a free lane retakes a failing clip past the usual two attempts, but not without end
 OUTPUT_MODERATION_MARKERS = ("OutputVideoSensitiveContentDetected", "OutputAudioSensitiveContentDetected")
 RATE_LIMIT_RE = re.compile(r"HTTP (429|502|503|504)\b|Too Many Requests|rate ?limit|concurren|QuotaExceeded|RequestLimit|ServerOverloaded", re.I)
 INPUT_TEXT_MARKER = "InputTextSensitiveContentDetected"
@@ -367,10 +396,9 @@ class FramedAssetFactory(SeriesAssetFactory):
             if style_master is not None else ""
         )
         manifest_path = root / "manifest.json"
-        existing = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
-        characters = {row["asset_id"]: row for row in existing.get("characters", [])}
-        locations = {row["asset_id"]: row for row in existing.get("locations", [])}
-        voices = dict(existing.get("voice_assignments") or {"narrator": "native:narrator"})
+        characters: dict[str, dict] = {}  # the records this call builds, merged into the manifest at the end
+        locations: dict[str, dict] = {}
+        voices: dict[str, str] = {}
         for index, character in enumerate(bible.characters, start=1):
             asset_id = f"character_{index:03d}"
             if asset_id not in character_ids:
@@ -428,13 +456,22 @@ class FramedAssetFactory(SeriesAssetFactory):
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(image.path.relative_to(root.parent)),
                 prompt_sha256=sha256_text(prompt),
             ).model_dump(mode="json")
-        manifest = SeriesAssetManifest(
-            style_fingerprint=bible.style_fingerprint,
-            characters=[AssetRecord(**characters[key]) for key in sorted(characters)],
-            locations=[AssetRecord(**locations[key]) for key in sorted(locations)],
-            voice_assignments=voices,
-        )
-        atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
+        # Card builds run in parallel, one process per asset.  Each used to write back the whole manifest it
+        # had read at the start, so the last to finish dropped the records the others had added (two cards
+        # on disk, one in the manifest).  Merge into what is on disk now, under a lock.
+        with MANIFEST_LOCK, open(root / ".manifest.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            existing = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+            characters = {**{row["asset_id"]: row for row in existing.get("characters", [])}, **characters}
+            locations = {**{row["asset_id"]: row for row in existing.get("locations", [])}, **locations}
+            voices = {**(existing.get("voice_assignments") or {"narrator": "native:narrator"}), **voices}
+            manifest = SeriesAssetManifest(
+                style_fingerprint=bible.style_fingerprint,
+                characters=[AssetRecord(**characters[key]) for key in sorted(characters)],
+                locations=[AssetRecord(**locations[key]) for key in sorted(locations)],
+                voice_assignments=voices,
+            )
+            atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
         return manifest
 
 
@@ -701,6 +738,9 @@ class ThinMediaRunner:
         # failed the speech gate (the retry loop runs on gate failures alone):
         # a line the model did not speak costs the line and its subtitles.
         self.max_attempts = 2 if self.fast else max_attempts
+        # On a free lane (local H3) a clip whose cached takes all failed gets fresh ones on a later run,
+        # not the same verdict again (process_clip); a paid lane leaves further takes to a person.
+        self.free_retries = bool(self.settings.local_h3_base_url)
         resolution = "480p" if self.fast else "720p"
         local = self.settings.local_h3_base_url
         self.provider = (FramedLocalH3(self.settings, self.frame_spec, local, resolution=resolution)
@@ -829,7 +869,7 @@ class ThinMediaRunner:
             saved = clip["prompt"]
             clip["prompt"] = base
             try:
-                return self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "") + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
+                return self.clip_prompt(clip) + self.retry_suffix(clip, attempt) + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
             finally:
                 clip["prompt"] = saved
 
@@ -860,6 +900,11 @@ class ThinMediaRunner:
         return True
 
     # ---- one clip ----
+    def uses_h3_prompt(self, clip: dict) -> bool:
+        # prompt_h3_skip keeps a clip already rendered from the Chinese prompt whose dialogue checked
+        # out: it points the request back at the one that produced the clip, so the cache holds it.
+        return bool(self.settings.local_h3_base_url and clip.get("prompt_h3") and not clip.get("prompt_h3_skip"))
+
     def clip_base(self, clip: dict) -> str:
         """The clip's prompt before any softening: what clip_prompt sends, and what the cache compares."""
         note = str(self.feedback.get(clip["clip_id"], "")).strip()
@@ -867,18 +912,44 @@ class ThinMediaRunner:
         # the English rendering of the same plan; Seedance keeps the Chinese one.  A correction
         # is appended in Chinese either way - it is an instruction, and both models follow it
         # without speaking it (H3 speaks description, and this reads as direction).
-        # prompt_h3_skip keeps a clip already rendered from the Chinese prompt whose dialogue checked
-        # out: it points the request back at the one that produced the clip, so the cache holds it.
-        use_h3 = self.settings.local_h3_base_url and clip.get("prompt_h3") and not clip.get("prompt_h3_skip")
-        base = clip["prompt_h3"] if use_h3 else clip["prompt"]
+        if self.uses_h3_prompt(clip):
+            # Its <Audio N> count the plan's voices; the request carries those within budget, most-spoken first.
+            base = renumber_audio(clip["prompt_h3"], [position for position, _ in self.chosen_voices(clip)[0]])
+        else:
+            base = clip["prompt"]
         return base + (f"\n【导演修正】{note}" if note else "")
+
+    def retry_suffix(self, clip: dict, attempt: int) -> str:
+        """The note a retake carries: in the prompt's own language, since H3 reads Chinese out; and from the
+        third take on a local lane, numbered - that service seeds from the request, so a third take worded
+        like the second would come back frame for frame the same."""
+        if attempt <= 1:
+            return ""
+        english = self.uses_h3_prompt(clip)
+        suffix = RETRY_SUFFIX_H3 if english else RETRY_SUFFIX
+        if attempt >= 3 and self.settings.local_h3_base_url:
+            suffix += f" This is take {attempt}." if english else f"（第{attempt}次）"
+        return suffix
+
+    @staticmethod
+    def without_retry(prompt: str) -> str:
+        return RETRY_TAIL.sub("", prompt, count=1)
+
+    @staticmethod
+    def references_match(saved: dict, references, digests: list[str]) -> bool:
+        """The saved request used these very pictures: the same paths and, where it recorded them, the same
+        contents.  A request written before digests existed is compared on paths alone, so the cache built
+        up to 2026-09-10 stays valid instead of re-rendering wholesale."""
+        saved_digests = saved.get("reference_sha256")
+        return saved.get("references") == [str(p) for p in references] and (saved_digests is None or list(saved_digests) == digests)
 
     def clip_prompt(self, clip: dict) -> str:
         prompt = self.clip_base(clip)
         return soften_prompt(prompt) if clip.get("_softened") else prompt
 
-    def reference_voices(self, clip: dict) -> tuple[Path, ...]:
-        """The clip's reference voices, kept under the service's 30 s total.
+    def chosen_voices(self, clip: dict) -> tuple[list[tuple[int, Path]], list[str], float]:
+        """The clip's reference voices kept under the service's budget, as (position among the plan's voice
+        references, sample) in the order they are sent; the ones left out; and the seconds used.
 
         Seedance 2.5 refuses a request whose reference audio adds up to more
         than 30.2 s.  Speakers with more lines in this clip come first, and a
@@ -888,14 +959,15 @@ class ThinMediaRunner:
         spoken: dict[str, int] = {}
         for line in clip.get("lines", []):
             spoken[line.get("speaker_name", "")] = spoken.get(line.get("speaker_name", ""), 0) + len(str(line.get("text", "")))
-        candidates = [ref for ref in clip.get("references", []) if ref.get("role") == "voice" and (self.novel_dir / ref["path"]).is_file()]
-        candidates.sort(key=lambda ref: -spoken.get(ref.get("name", ""), 0))
+        voices = [ref for ref in clip.get("references", []) if ref.get("role") == "voice"]
+        candidates = [(position, ref) for position, ref in enumerate(voices, 1) if (self.novel_dir / ref["path"]).is_file()]
+        candidates.sort(key=lambda item: -spoken.get(item[1].get("name", ""), 0))
         budget = voice_budget_seconds()
         # A tight budget (the 15 s lane) is shared by the two main speakers as
         # trimmed samples rather than spent on one of them.
         share = budget if budget >= VOICE_BUDGET_SECONDS or len(candidates) < 2 else round(budget / 2, 1)
         chosen, total, dropped = [], 0.0, []
-        for ref in candidates:
+        for position, ref in candidates:
             path = self.novel_dir / ref["path"]
             try:
                 with wave.open(str(path), "rb") as handle:
@@ -911,23 +983,31 @@ class ThinMediaRunner:
             if total + seconds > budget:
                 dropped.append(f"{ref.get('name')}({seconds:.0f}s)")
                 continue
-            chosen.append(path)
+            chosen.append((position, path))
             total += seconds
+        return chosen, dropped, total
+
+    def reference_voices(self, clip: dict) -> tuple[Path, ...]:
+        """The voice samples sent with the clip (chosen_voices), logged."""
+        chosen, dropped, total = self.chosen_voices(clip)
         if chosen or dropped:
-            log(f"{clip['clip_id']}: reference voices {[p.stem for p in chosen]} ({total:.0f}s)" + (f", over budget: {dropped}" if dropped else ""))
-        return tuple(chosen)
+            log(f"{clip['clip_id']}: reference voices {[p.stem for _, p in chosen]} ({total:.0f}s)" + (f", over budget: {dropped}" if dropped else ""))
+        return tuple(path for _, path in chosen)
 
     def generate_clip(self, clip: dict, attempt: int) -> Path:
+        clip["_generated"] = False  # set once a new video is actually made: process_clip counts only those
         directory = self.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
         directory.mkdir(parents=True, exist_ok=True)
         output = directory / "clip.mp4"
-        prompt = self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "") + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
+        retry = self.retry_suffix(clip, attempt)
+        prompt = self.clip_prompt(clip) + retry + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
         # image references only; the voice references travel separately as reference_audio
         references = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice")
+        digests = reference_digests(references)
         request = {
             "clip_id": clip["clip_id"], "attempt": attempt, "duration": clip["request_seconds"],
             "prompt": prompt, "references": [str(p) for p in references],
-            "reference_sha256": reference_digests(references), "workflow": "thin-seedance-native-dialogue-v1",
+            "reference_sha256": digests, "workflow": "thin-seedance-native-dialogue-v1",
         }
         if (directory / "request.json").is_file() and output.is_file() and output.stat().st_size > 0:
             # Reuse only a clip generated from this exact prompt and references.
@@ -938,16 +1018,11 @@ class ThinMediaRunner:
             # clips H3 had rendered from the Chinese prompt, which H3 reads aloud (雾月 1732 on 2026-09-11
             # kept 11 of its 18 that way).
             base = self.clip_base(clip)
-            acceptable = {prompt, base + (RETRY_SUFFIX if attempt > 1 else ""), soften_prompt(base) + (RETRY_SUFFIX if attempt > 1 else "")}
+            acceptable = {prompt, base + retry, soften_prompt(base) + retry}
             # A clip generated from the softened wording (prescreen or moderation
             # retry) is the same clip: do not pay again because a later run made
             # the other choice.
-            saved_digests = saved.get("reference_sha256")
-            # A request written before digests existed is compared on paths alone, so the
-            # cache built up to 2026-09-10 stays valid instead of re-rendering wholesale.
-            references_match = saved.get("references") == [str(p) for p in references] and (
-                saved_digests is None or list(saved_digests) == reference_digests(references))
-            if saved.get("prompt") in acceptable and references_match and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            if saved.get("prompt") in acceptable and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
                 return output
             # Move the clip AND its provider task sidecar aside together: the
@@ -966,7 +1041,7 @@ class ThinMediaRunner:
             if risk >= PRESCREEN_RISK:
                 clip["_softened"] = True
                 log(f"{clip['clip_id']}: prescreen risk {risk:.2f}; softening the wording before the first submission")
-                prompt = self.clip_prompt(clip) + (RETRY_SUFFIX if attempt > 1 else "")
+                prompt = self.clip_prompt(clip) + retry
                 request["prompt"] = prompt
         # Earlier runs (or the pre-v11 privacy retry) may hold the matching video
         # under another attempt directory; use it rather than paying again.
@@ -975,7 +1050,9 @@ class ThinMediaRunner:
             if other == directory or not (other / "request.json").is_file() or not other_video.is_file() or other_video.stat().st_size == 0:
                 continue
             saved = json.loads((other / "request.json").read_text(encoding="utf-8"))
-            if saved.get("prompt", "").removesuffix(RETRY_SUFFIX) == self.clip_prompt(clip) and saved.get("references") == [str(p) for p in references] and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            # The same wording and the same pictures.  Comparing paths alone handed back a video of the old card
+            # after the card was redrawn - the very video the check above had just set aside for that reason.
+            if self.without_retry(saved.get("prompt", "")) == self.clip_prompt(clip) and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 # A retry exists to replace a clip that failed the speech gate;
                 # reusing that same clip would just fail it again.  Only a video
                 # that passed (or was never judged - a resumed run) is reused.
@@ -1011,6 +1088,7 @@ class ThinMediaRunner:
                 time.sleep(wait)
         finally:
             release_inflight_slot(slot)
+        clip["_generated"] = True
         finished = time.monotonic()
         log(f"{clip['clip_id']} attempt {attempt}: video ready in {finished - submitted:.0f}s "
             f"(queued {submitted - started:.0f}s, {media_duration(output):.1f}s long)")
@@ -1164,7 +1242,7 @@ class ThinMediaRunner:
         return repaired
 
     def process_clip(self, clip: dict) -> dict:
-        """Generate, gate and (once) regenerate one clip.
+        """Generate, gate and regenerate one clip: once - or, on a free lane, twice per run past its cached takes.
 
         A privacy rejection is retried inside the same attempt: the cache key
         stays the one a later run looks for first, and the quality-retry
@@ -1175,8 +1253,9 @@ class ThinMediaRunner:
         attempts: list[dict] = []
         privacy_repairs = 0
         attempt = 1
+        limit = self.max_attempts
         try:
-            while attempt <= self.max_attempts:
+            while attempt <= limit:
                 try:
                     video = self.generate_clip(clip, attempt)
                 except RuntimeError as error:
@@ -1220,6 +1299,10 @@ class ThinMediaRunner:
                 log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
                 if analysis["passed"]:
                     break
+                if self.free_retries and not clip.get("_generated", True) and limit < MAX_ATTEMPTS_FREE:
+                    # A failure served from the cache does not use up this run's takes on a free lane: an episode
+                    # taken back for its failed clips gets new takes of them, not the old verdicts over again.
+                    limit += 1
                 attempt += 1
         except Exception as error:  # noqa: BLE001 - one clip must not sink the episode
             message = f"{type(error).__name__}: {str(error)[:600]}"
@@ -1584,6 +1667,8 @@ class ThinMediaRunner:
             # Batch drivers compare this with the current clip_plan.json to tell
             # a finished episode from one whose plan changed since.
             "clip_plan_fingerprint": plan_fingerprint(self.clip_plan),
+            # ...and, on a local-H3 lane, of the English prompts it rendered from (thin_batch.render_status)
+            "prompt_h3_fingerprint": h3_prompt_fingerprint(self.clip_plan) if self.settings.local_h3_base_url else None,
             "review_feedback": self.feedback,
             "clips": results, "failed_clips": errored, "gate_failed_clips": failed,
         }

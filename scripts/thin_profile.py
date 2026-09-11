@@ -81,6 +81,29 @@ def plan_fingerprint(plan: dict) -> str:
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def h3_source_digest(prompt: str) -> str:
+    """What build_h3_prompts.py stamps as prompt_h3_of: which Chinese prompt an English one was made from."""
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+
+
+def h3_prompt_outdated(clip: dict) -> bool:
+    """A video clip a local-H3 lane cannot render yet: it has no English prompt, or one made from an
+    earlier Chinese prompt (the chapter was re-packed since)."""
+    if not clip.get("prompt_h3"):
+        return True
+    made_from = clip.get("prompt_h3_of")
+    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "")
+
+
+def h3_prompt_fingerprint(plan: dict) -> str:
+    """Digest of the English prompts a local-H3 lane renders the plan from.  plan_fingerprint covers the
+    Chinese prompts only, so the runner stamps this beside it and thin_batch compares it on an H3 lane:
+    a new English prompt makes the episode stale there, as a new Chinese one does everywhere."""
+    material = [(clip.get("clip_id"), None if clip.get("prompt_h3_skip") else clip.get("prompt_h3"))
+                for clip in plan.get("clips", []) if clip.get("kind") == "video"]
+    return hashlib.sha256(json.dumps(material, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
 def qwen_endpoints() -> list[str]:
     """All local Qwen base URLs (QWEN38_LOCAL_BASE_URL may be comma-separated)."""
     raw = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")

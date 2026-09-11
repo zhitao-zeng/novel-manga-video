@@ -223,3 +223,68 @@ def test_busy_gpus_or_no_waiting_jobs_or_a_stale_inspection_raise_nothing(tmp_pa
         assert pool.problem(idle) is None  # idle with an empty queue is just idle
     os.utime(tmp_path / "tick.json", (start - 3600, start - 3600))
     assert pool.gpu_verdict(resident("http://10.0.0.8:8", "zzt-h3-a100-b.service")) is None  # stale: says nothing
+
+
+def test_a_clip_waits_for_the_pool_no_longer_than_its_own_time(tmp_path, monkeypatch):
+    provider, card = make_provider(tmp_path, lambda request: httpx.Response(500))
+    provider.settings.poll_timeout = 1.5
+    monkeypatch.setattr(provider.pool, "problem", lambda target: None)
+    held = [provider.pool.acquire(timeout=1) for _ in range(2)]  # both instances busy, one slot each
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        provider.create_video("prompt", None, tmp_path / "clip.mp4", 5.0, additional_images=(card,))
+    assert time.monotonic() - started < 5
+    for _, handle in held:
+        h3_pool.release(handle)
+
+
+def test_a_failed_task_is_set_aside_and_the_next_call_submits_again(tmp_path, monkeypatch):
+    posts = []
+
+    def handler(request):
+        if request.method == "POST":
+            posts.append(1)
+            return httpx.Response(200, json={"id": f"t{len(posts)}"})
+        if request.url.path.endswith("/content"):
+            return httpx.Response(200, content=b"mp4")
+        failed = request.url.path.endswith("/t1")
+        return httpx.Response(200, json={"status": "failed" if failed else "completed", "error": "CUDA error" if failed else None})
+
+    provider, card = make_provider(tmp_path, handler)
+    monkeypatch.setattr(provider.pool, "problem", lambda target: None)
+    output = tmp_path / "clip.mp4"
+    with pytest.raises(RuntimeError, match="failed"):
+        provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
+    assert (tmp_path / "clip.mp4.task.failed.json").is_file()
+    provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
+    assert output.read_bytes() == b"mp4" and len(posts) == 2
+
+
+def test_a_resumed_task_holds_a_slot_on_its_instance(tmp_path, monkeypatch):
+    def handler(request):
+        if request.method == "POST":
+            return httpx.Response(200, json={"id": "t1"})
+        if request.url.path.endswith("/content"):
+            return httpx.Response(200, content=b"mp4")
+        return httpx.Response(200, json={"status": "queued"})
+
+    provider, card = make_provider(tmp_path, handler)
+    provider.settings.poll_timeout = 0.3
+    monkeypatch.setattr(provider.pool, "problem", lambda target: None)
+    monkeypatch.setattr(local_h3, "POLL_SECONDS", 0.01)
+    first_listed_first(monkeypatch)
+    output = tmp_path / "clip.mp4"
+    with pytest.raises(TimeoutError):  # still queued on instance a when this call gives up
+        provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
+    seen = []
+
+    def state(task_id, base):
+        with pytest.raises(TimeoutError):  # while the resumed task is polled, a has no slot for anyone else
+            provider.pool.hold(base, timeout=0.1)
+        seen.append(base)
+        return {"status": "completed"}
+
+    monkeypatch.setattr(provider, "_state", state)
+    provider.settings.poll_timeout = 5.0
+    provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
+    assert seen == ["http://10.0.0.1:1"] and output.read_bytes() == b"mp4"

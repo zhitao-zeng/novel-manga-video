@@ -1780,12 +1780,14 @@ def test_legacy_sd25_audio_policy_is_read_only() -> None:
         settings.validate()
 
 
-def test_phanrouter_rejects_legacy_sd20_model() -> None:
-    with pytest.raises(ValueError, match="must be sd2.5"):
+def test_phanrouter_takes_sd20_and_refuses_an_unknown_model() -> None:
+    # sd2.0 is back as the 15 s lane's model; the allow-list is config.PHANROUTER_VIDEO_MODELS.
+    Settings(provider="phanrouter", phanrouter_api_key="runtime-only", video_model="sd2.0").validate()
+    with pytest.raises(ValueError, match="PhanRouter video model must be one of"):
         Settings(
             provider="phanrouter",
             phanrouter_api_key="runtime-only",
-            video_model="sd2.0",
+            video_model="sd1.0",
         ).validate()
 
 

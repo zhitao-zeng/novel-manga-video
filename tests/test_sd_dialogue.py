@@ -229,6 +229,7 @@ def test_seedream_image_submit_download_and_sanitized_metadata(tmp_path) -> None
     provider.settings = SimpleNamespace(
         image_model="doubao-seedream-5.0-lite",
         phanrouter_base_url="https://cloud.test/phanrouter",
+        request_timeout=30.0,
     )
     provider.image_headers = {"Authorization": "Bearer runtime-secret"}
     provider.client = httpx.Client(transport=httpx.MockTransport(handle), timeout=2.0)
@@ -297,6 +298,7 @@ def test_seedance25_retries_succeeded_task_until_cdn_file_is_ready(
         video_model="sd2.5",
         phanrouter_base_url="https://cloud.test/phanrouter",
         poll_timeout=2.0,
+        request_timeout=30.0,
     )
     provider.video_headers = {"Authorization": "Bearer runtime-secret"}
     provider.client = httpx.Client(transport=httpx.MockTransport(handle), timeout=2.0)

@@ -186,7 +186,7 @@ def test_phanrouter_forwards_gpt_image_references_as_two_urls(tmp_path: Path) ->
     class Client:
         payload = None
 
-        def post(self, url, headers=None, json=None):
+        def post(self, url, headers=None, json=None, timeout=None):
             self.payload = json
             return Response()
 
@@ -195,6 +195,7 @@ def test_phanrouter_forwards_gpt_image_references_as_two_urls(tmp_path: Path) ->
         image_model="gpt-image-2",
         phanrouter_base_url="https://example.invalid",
         inline_reference_images=False,
+        request_timeout=30.0,
     )
     provider.client = Client()
     provider.image_headers = {}

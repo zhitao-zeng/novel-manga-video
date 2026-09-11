@@ -792,6 +792,17 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     media = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
     selected = {row["clip_id"]: row.get("selected") or {} for row in media.get("clips", [])}
     report = {"policy": POLICY, "episode": episode_dir.name, "video_name": video_name, "clips": {}, "flags": [], "feedback": {}}
+    suffix = "" if video_name == "clip.mp4" else "." + video_name.replace(".mp4", "")
+    review_path = episode_dir / f"episode_review{suffix}.json"
+    try:
+        previous = json.loads(review_path.read_text(encoding="utf-8")) if review_path.is_file() else {}
+    except (OSError, ValueError):
+        previous = {}
+    # Only a review the judge could not finish is resumed: its verdicts on the very same videos stand, and
+    # just the clips it failed on are judged again.  Any other review judges every clip afresh.
+    earlier = (previous.get("clips") or {}) if previous.get("policy") == POLICY else {}
+    resume = any(c.get("severity") == "review_error" for c in earlier.values())
+    reviewed_at = review_path.stat().st_mtime if resume else 0.0
     for clip in plan["clips"]:
         if clip["kind"] != "video":
             continue
@@ -806,8 +817,13 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
                 continue
             asr = video.parent / ("stale_asr.json" if "stale" in video_name else "asr.json")
             hypothesis = json.loads(asr.read_text(encoding="utf-8")).get("hypothesis", "") if asr.is_file() else ""
+        old = earlier.get(clip_id) if resume else None
         try:
-            verdict = judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)
+            if (old and old.get("severity") != "review_error" and old.get("video") == str(video)
+                    and video.is_file() and video.stat().st_mtime <= reviewed_at):
+                verdict = {key: value for key, value in old.items() if key != "video"}
+            else:
+                verdict = judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)
         except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
             log(f"episode {episode_dir.name} {clip_id}: review error {type(error).__name__}: {str(error)[:120]}")
             report["clips"][clip_id] = {"video": str(video), "severity": "review_error", "error": f"{type(error).__name__}: {str(error)[:300]}"}
@@ -822,8 +838,10 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
             if tier == "must_fix":
                 report["feedback"][clip_id] = compose_feedback(verdict, clip, card_manifest)
         log(f"episode {episode_dir.name} {clip_id}: {verdict.get('severity')} people={verdict.get('visible_people')} identity={verdict.get('identity_ok')} loc={verdict.get('location_ok')}/{verdict.get('time_of_day_ok')} text={verdict.get('text_or_watermark')} defects={verdict.get('visual_defects')}" + (f" | {verdict.get('identity_issue') or verdict.get('defect_issue')}" if verdict.get("severity") != "pass" else ""))
-    suffix = "" if video_name == "clip.mp4" else "." + video_name.replace(".mp4", "")
-    atomic_write_json(episode_dir / f"episode_review{suffix}.json", report)
+    # Rounds in a row that left clips unjudged: the conductor queues such a review again, a few times.
+    errors = sum(1 for c in report["clips"].values() if c.get("severity") == "review_error")
+    report["error_rounds"] = int(previous.get("error_rounds", 0)) + 1 if errors else 0
+    atomic_write_json(review_path, report)
     return report
 
 

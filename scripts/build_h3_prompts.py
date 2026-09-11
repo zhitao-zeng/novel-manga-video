@@ -14,10 +14,15 @@ The translation is one local Qwen call per clip, so this is free and runs beside
 It writes prompt_h3 into the plan next to prompt, keyed by a digest of the Chinese one: re-pack
 a chapter and its English prompt is rebuilt rather than silently kept.
 
-    build_h3_prompts.py <novel> [--workers N] [--limit N] [--rebuild]
+    build_h3_prompts.py <novel> [--novel-dir DIR] [--chapters 1-50,60] [--workers N] [--limit N] [--rebuild]
+
+A local-H3 lane (thin_batch.py) runs this for one episode right before rendering it whenever a clip has
+no current English prompt - a new plan, a re-pack - so nothing waits for a pass run by hand.  A
+translation that fails, or comes back with a different number of sentences than the clip has shots,
+is asked again; after three tries the clip is left without one and the lane waits for it, rather than
+render a shot under another shot's description.
 """
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -31,6 +36,9 @@ os.environ.setdefault("QWEN38_LOCAL_BASE_URL", ",".join(f"http://127.0.0.1:{p}/v
 os.environ.setdefault("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 os.environ.setdefault("QWEN38_LOCAL_API_KEY_VAR", "H3_PROMPT_NO_KEY")
 from thin_review import ask_json  # noqa: E402
+from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
+
+from novel_manga.util import atomic_write_json  # noqa: E402
 
 STAGE = re.compile(r"【阶段[^】]*】(.*?)(?=【阶段|画面呈现|$)", re.S)
 SOUND = re.compile(r"声音：.*?(?=结束时：|$)", re.S)
@@ -43,6 +51,7 @@ ASK = ("Translate each numbered Chinese shot description into ONE English senten
        "Refer to each character by the tag given below, never by name and never by a translated name, "
        "so the sentence points at the same reference picture the tag does.\n"
        "Return one sentence per input shot, in order.\n\n")
+TRIES = 3  # translations per clip before it is left without an English prompt
 
 
 def stages_of(prompt: str) -> list[tuple[str, list[tuple[str, str, bool]]]]:
@@ -100,68 +109,112 @@ def compose(clip: dict, english: list[str], stages: list) -> str:
               "non_diegetic_music:\nNone.")
 
 
-def convert(clip: dict) -> bool:
+def warn(clip: dict, message: str) -> None:
+    print(f"  {clip.get('clip_id', '?')}: H3 prompt {message}", file=sys.stderr, flush=True)
+
+
+def convert(clip: dict, tries: int = TRIES) -> bool:
+    """Write clip["prompt_h3"]; True when written.
+
+    A translation that fails, or comes back with a different number of sentences than the clip has
+    shots, is asked again.  After `tries` the clip is left without an English prompt - an H3 lane then
+    waits for it - instead of being padded out: that attached descriptions to the wrong shots, and
+    filled the gap with the Chinese text, which H3 reads aloud."""
     prompt = clip.get("prompt") or ""
-    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+    digest = h3_source_digest(prompt)
     if clip.get("prompt_h3_of") == digest:
         return False
     stages = stages_of(prompt)
     if not stages:
+        warn(clip, "FAILED: the Chinese prompt has no 【阶段】 block to translate")
         return False
     _, subject_of = subject_lines(clip)
     naming = "".join(f"{name} = <Subject {n}>\n" for name, n in subject_of.items())
-    try:
-        answer = ask_json([{"type": "text", "text": ASK + naming + "\n" + "\n".join(
-            f"{i}. {visual}" for i, (visual, _) in enumerate(stages, 1))}],
-            SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(stages))
-    except Exception:  # noqa: BLE001
-        return False
-    english = [str(s) for s in (answer.get("shots") or [])]
-    if len(english) != len(stages):
-        # A mismatch would silently attach the wrong description to a shot.
-        english = (english + [visual for visual, _ in stages])[:len(stages)]
-    clip["prompt_h3"] = compose(clip, english, stages)
-    clip["prompt_h3_of"] = digest
-    return True
+    question = [{"type": "text", "text": ASK + naming + "\n" + "\n".join(
+        f"{i}. {visual}" for i, (visual, _) in enumerate(stages, 1))}]
+    problem = ""
+    for _ in range(tries):
+        try:
+            answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(stages))
+            english = [str(s).strip() for s in (answer.get("shots") or [])]
+        except Exception as error:  # noqa: BLE001 - asked again, and reported if it keeps failing
+            problem = f"{type(error).__name__}: {str(error)[:160]}"
+            continue
+        if len(english) == len(stages) and all(english):
+            clip["prompt_h3"] = compose(clip, english, stages)
+            clip["prompt_h3_of"] = digest
+            return True
+        problem = f"{len(english)} sentence(s) back for {len(stages)} shots"
+    warn(clip, f"FAILED after {tries} tries: {problem}")
+    return False
+
+
+def episode_numbers(spec: str) -> set[int]:
+    numbers: set[int] = set()
+    for part in (p.strip() for p in spec.split(",")):
+        if "-" in part:
+            start, end = part.split("-", 1)
+            numbers.update(range(int(start), int(end) + 1))
+        elif part:
+            numbers.add(int(part))
+    return numbers
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("novel")
+    parser.add_argument("--novel-dir", type=Path, help="the novel's output directory (default outputs/<novel>)")
+    parser.add_argument("--chapters", help='only these episodes, e.g. "1597" or "1-50,60"')
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--rebuild", action="store_true")
     args = parser.parse_args()
-    novel_dir = ROOT / "outputs" / args.novel
+    novel_dir = args.novel_dir or ROOT / "outputs" / args.novel
     episodes = sorted(d for d in novel_dir.glob(f"{args.novel}_*") if (d / "clip_plan.json").is_file())
+    if args.chapters:
+        wanted = episode_numbers(args.chapters)
+        episodes = [d for d in episodes if d.name.rsplit("_", 1)[-1].isdigit() and int(d.name.rsplit("_", 1)[-1]) in wanted]
     if args.limit:
         episodes = episodes[: args.limit]
     print(f"{args.novel}: {len(episodes)} 集，{args.workers} 路并行", flush=True)
 
-    def one(episode: Path) -> tuple[int, int]:
+    def one(episode: Path) -> tuple[int, int, int]:
         path = episode / "clip_plan.json"
         try:
             plan = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return 0, 0
+            return 0, 0, 0
         video = [c for c in plan["clips"] if c.get("kind") == "video"]
         if args.rebuild:
             for clip in video:
                 clip.pop("prompt_h3_of", None)
-        changed = sum(1 for clip in video if convert(clip))
-        if changed:
-            path.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
-        return changed, len(video)
+        made = {clip["clip_id"]: clip for clip in video if convert(clip)}
+        if made:
+            # The translations take minutes: write them into the plan as it is now, and only onto clips
+            # whose Chinese prompt is still the one they were made from.
+            try:
+                current = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                current = plan
+            for clip in current.get("clips", []):
+                new = made.get(clip.get("clip_id"))
+                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or ""):
+                    clip["prompt_h3"], clip["prompt_h3_of"] = new["prompt_h3"], new["prompt_h3_of"]
+            atomic_write_json(path, current)
+            plan = current
+        video = [c for c in plan["clips"] if c.get("kind") == "video"]
+        return len(made), len(video), sum(1 for clip in video if h3_prompt_outdated(clip))
 
-    done = total = 0
+    done = total = missing = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for n, (changed, clips) in enumerate(pool.map(one, episodes), 1):
+        for n, (changed, clips, left) in enumerate(pool.map(one, episodes), 1):
             done += changed
             total += clips
+            missing += left
             if n % 100 == 0:
                 print(f"  {n}/{len(episodes)} 集，已转 {done} 段", flush=True)
-    print(f"\n转好 {done} 段（共 {total} 段视频片段）")
-    return 0
+    print(f"\n转好 {done} 段（共 {total} 段视频片段）" + (f"；{missing} 段仍没有可用的英文提示词" if missing else ""))
+    return 1 if missing else 0
 
 
 if __name__ == "__main__":

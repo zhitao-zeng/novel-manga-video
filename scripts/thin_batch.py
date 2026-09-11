@@ -40,7 +40,8 @@ MODERATION_MARKERS = (".moderation_replanned", ".moderation_replanned2")  # one 
 MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥、色情暧昧一律改为间接表现：不写具体暴力动作和伤势，不写露骨或挑逗台词，"
                    "冲突用对峙、退让、旁观者反应和事后结果来交代；避免刀、枪、毒品、赌博、自残等词；台词选原文里克制的句子。")
 sys.path.insert(0, str(SCRIPTS))
-from thin_profile import plan_fingerprint  # noqa: E402
+from thin_profile import h3_prompt_fingerprint, h3_prompt_outdated, plan_fingerprint  # noqa: E402
+from thin_runs import RENDER_RUNS_PER_PLAN, count_run, render_runs  # noqa: E402
 
 
 def log(message: str) -> None:
@@ -84,9 +85,6 @@ def pid_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
-
-
-RENDER_RUNS_PER_PLAN = 3  # render runs an episode gets per clip plan before the loop stops retrying it
 
 
 class CardFactory:
@@ -256,6 +254,14 @@ class Batch:
             return "failed"
         return "missing"
 
+    @staticmethod
+    def corrections(directory: Path) -> dict:
+        """The episode's director corrections (review_feedback.json); {} when there are none."""
+        try:
+            return json.loads((directory / "review_feedback.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
     def render_status(self, chapter: int) -> str:
         directory = self.episode_dir(chapter)
         report = directory / "thin_media_report.json"
@@ -265,9 +271,18 @@ class Batch:
         if not report.is_file():
             return "pending"
         data = json.loads(report.read_text(encoding="utf-8"))
+        plan_data = json.loads(plan.read_text(encoding="utf-8"))
         stamped = data.get("clip_plan_fingerprint")
-        if stamped and stamped != plan_fingerprint(json.loads(plan.read_text(encoding="utf-8"))):
+        if stamped and stamped != plan_fingerprint(plan_data):
             return "stale"  # reports from before the stamp are trusted; a re-plan deletes them anyway
+        # Two inputs the plan fingerprint leaves out also change what a clip is asked for: a director
+        # correction (review_feedback.json, appended to the prompts it names) and, on a local-H3 lane, the
+        # English prompt.  A correction written after the final was cut left the episode "done" and the
+        # correction never filmed.
+        if (data.get("review_feedback") or {}) != self.corrections(directory):
+            return "stale"
+        if os.environ.get("NOVEL_LOCAL_H3_URL") and data.get("prompt_h3_fingerprint") not in (None, h3_prompt_fingerprint(plan_data)):
+            return "stale"
         if data.get("failed_clips") or not data.get("assembly"):
             return "clips_failed"
         if data.get("gate_failed_clips") or not data["assembly"].get("thin_passed"):
@@ -303,6 +318,13 @@ class Batch:
         if self.chapter(chapter).text_count < self.args.min_chapter_chars:
             row["plan"] = "skipped (too short)"
             row["note"] = f"{self.chapter(chapter).text_count} chars"
+            if not self.args.dry_run:
+                # A marker, so the conductor can tell a chapter left out on purpose (an author's note) from
+                # one whose planning never finished.
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / "planning_skipped.json").write_text(json.dumps(
+                    {"reason": "too short", "chars": self.chapter(chapter).text_count,
+                     "min_chapter_chars": self.args.min_chapter_chars}), encoding="utf-8")
             return
         if self.args.dry_run:
             row["plan"] = "would plan"
@@ -392,7 +414,14 @@ class Batch:
             if packed_cap > lane_cap:
                 row["render"] = f"skipped (clip plan packed for {packed_cap:g} s, lane takes {lane_cap:g} s)"
                 return
-        if status in {"done", "done_with_warnings"} and not self.args.rerender:
+        free = bool(os.environ.get("NOVEL_LOCAL_H3_URL"))
+        # A final with clips that failed the speech gate is a preview, not a finished episode.  A paid lane
+        # leaves it to a person to decide whether to pay for more; a free one (local H3) takes it back for
+        # fresh takes of the failed clips - the runner does not count its cached failures against them -
+        # until the runs for this plan are used up.
+        retake = (status == "done_with_warnings" and free and render_runs(directory) < RENDER_RUNS_PER_PLAN
+                  and not self.args.no_render)
+        if status in {"done", "done_with_warnings"} and not retake and not self.args.rerender:
             row["render"] = status
             self.fill_result(chapter)
             if self.reviewing:
@@ -411,31 +440,9 @@ class Batch:
         if self.args.dry_run:
             row["render"] = f"would render ({status})"
             return
-        # Three runs per clip plan, then stop: a clip that fails the same gate
-        # every time (a silent generation, say) would otherwise be regenerated
-        # and paid for on every round of the lane loop.  A re-plan (new
-        # clip_plan.json) starts the count again.
-        runs_path = directory / ".render_runs"
-        plan_path = directory / "clip_plan.json"
-        # The count is per plan, and a director correction counts as new grounds to try again:
-        # without this an episode that used up its runs can never be repaired, because it is
-        # refused before the runner starts and so never reads the correction written for it.
-        feedback_path = directory / "review_feedback.json"
-        plan_mtime = [plan_path.stat().st_mtime if plan_path.is_file() else 0.0,
-                      feedback_path.stat().st_mtime if feedback_path.is_file() else 0.0]
-        try:
-            runs = json.loads(runs_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            runs = {}
-        if runs.get("plan_mtime") != plan_mtime:
-            runs = {"plan_mtime": plan_mtime, "runs": 0}
-        if runs.get("runs", 0) >= RENDER_RUNS_PER_PLAN:
-            row["render"] = f"gave up ({runs['runs']} render runs on this plan)"
-            row["note"] = "needs a look: same failure on every run; see thin_media_report.json"
-            log(f"ch{chapter}: gave up after {runs['runs']} render runs on this plan; needs a look")
+        if free and not self.h3_ready(chapter):
+            row["render"] = "skipped (H3 prompt not ready)"
             return
-        runs["runs"] = runs.get("runs", 0) + 1
-        runs_path.write_text(json.dumps(runs), encoding="utf-8")
         lock = directory / ".render.lock"
         if lock.is_file():
             try:
@@ -447,6 +454,18 @@ class Batch:
                 log(f"ch{chapter}: another render (pid {pid}) is running; skipped")
                 return
             lock.unlink(missing_ok=True)
+        # Three runs per clip plan and set of director corrections, then stop: a clip that fails the same
+        # gate every time (a silent generation, say) would otherwise be regenerated and paid for on every
+        # round of the lane loop.  A re-plan or a new correction starts the count again (thin_runs.py).
+        # Counted only once the episode really renders: a round turned away by another render's lock used
+        # to spend a run too, and three of those gave an episode up without a single generation.
+        runs = render_runs(directory)
+        if runs >= RENDER_RUNS_PER_PLAN:
+            row["render"] = f"gave up ({runs} render runs on this plan)"
+            row["note"] = "needs a look: same failure on every run; see thin_media_report.json"
+            log(f"ch{chapter}: gave up after {runs} render runs on this plan; needs a look")
+            return
+        count_run(directory)
         lock.write_text(str(os.getpid()), encoding="utf-8")
         try:
             self.prepare_cards(chapter)
@@ -530,6 +549,35 @@ class Batch:
             return False
         data = json.loads(report.read_text(encoding="utf-8"))
         return any("SensitiveContentDetected" in str(c.get("error", "")) for c in data.get("clips", []))
+
+    def h3_ready(self, chapter: int) -> bool:
+        """Whether a local-H3 lane can render this episode now: every video clip has a current English prompt.
+
+        H3 speaks what is written in Chinese, so a clip rendered from the Chinese prompt recites its stage
+        directions.  An episode planned or re-packed since the last conversion is converted here, right
+        before it renders (build_h3_prompts.py, a local Qwen call per clip); one that still cannot be
+        converted waits for the next round - it used to be decided once per lane start, and 1597 waited
+        for good while conversion was a pass run by hand."""
+        directory = self.episode_dir(chapter)
+        if not self.h3_missing(directory):
+            return True
+        log(f"ch{chapter}: writing the English (H3) prompts")
+        _, problem = self.run([sys.executable, str(SCRIPTS / "build_h3_prompts.py"), self.novel_id, "--novel-dir", str(self.novel_dir),
+                               "--chapters", str(chapter), "--workers", "1"], directory / "h3_prompts.log")
+        missing = self.h3_missing(directory)
+        if missing:
+            why = f" ({problem[:120]})" if problem else ""
+            log(f"ch{chapter}: {missing} clip(s) still without an H3 prompt{why}; waiting for a later round")
+            return False
+        return True
+
+    @staticmethod
+    def h3_missing(directory: Path) -> int:
+        try:
+            plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return 0
+        return sum(1 for clip in plan.get("clips", []) if clip.get("kind") == "video" and h3_prompt_outdated(clip))
 
     def prepare_cards(self, chapter: int) -> None:
         """Build the cards this episode references; in review mode judge just those
@@ -799,29 +847,23 @@ def main() -> int:
                     f"{' ...' if len(wrong) > 8 else ''}")
                 chapters = [ch for ch in chapters if ch not in set(wrong)]
         if os.environ.get("NOVEL_LOCAL_H3_URL"):
-            # A local-H3 lane renders from prompt_h3.  An episode not converted yet would fall back
-            # to the Chinese prompt and recite its stage directions, so it waits for a later round;
-            # one still holding thin_media_report.h3zh.json is waiting for the keep-check that
-            # decides which of its old clips stay.
-            def not_ready(chapter: int) -> bool:
-                directory = batch.episode_dir(chapter)
-                if (directory / "thin_media_report.h3zh.json").is_file():
-                    return True
-                try:
-                    plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    return False
-                return any(c.get("kind") == "video" and not c.get("prompt_h3") for c in plan.get("clips", []))
-            waiting = [ch for ch in chapters if not_ready(ch)]
+            # One still holding thin_media_report.h3zh.json is waiting for the keep-check that decides which
+            # of its old clips stay.  (One without its English prompts is converted when its turn comes,
+            # in Batch.h3_ready: deciding that here, once per lane start, left 1597 waiting for good.)
+            waiting = [ch for ch in chapters if (batch.episode_dir(ch) / "thin_media_report.h3zh.json").is_file()]
             if waiting:
-                log(f"skipping {len(waiting)} episodes not ready for the H3 prompt yet: {waiting[:8]}"
+                log(f"skipping {len(waiting)} episodes waiting for the H3 keep-check: {waiting[:8]}"
                     f"{' ...' if len(waiting) > 8 else ''}")
                 chapters = [ch for ch in chapters if ch not in set(waiting)]
+        free = bool(os.environ.get("NOVEL_LOCAL_H3_URL"))
         # Fresh chapters first: an episode that failed before, retried at the
-        # head of every round, would hold the slots while new ones wait.
+        # head of every round, would hold the slots while new ones wait - and on
+        # a free lane so would a final taken back for fresh takes of its clips.
         def tried_and_failed(chapter: int) -> int:
-            report = batch.episode_dir(chapter) / "thin_media_report.json"
-            return 1 if report.is_file() and batch.render_status(chapter) not in {"done", "done_with_warnings"} else 0
+            if not (batch.episode_dir(chapter) / "thin_media_report.json").is_file():
+                return 0
+            status = batch.render_status(chapter)
+            return 1 if status not in {"done", "done_with_warnings"} or (free and status == "done_with_warnings") else 0
         chapters = sorted(chapters, key=lambda ch: (tried_and_failed(ch), ch))
         with ThreadPoolExecutor(max_workers=max(1, args.parallel)) as pool:
             for chapter, future in [(ch, pool.submit(batch.render, ch)) for ch in chapters]:

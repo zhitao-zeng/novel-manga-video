@@ -185,11 +185,18 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
         submitted = time.monotonic()
         try:
             deadline = time.monotonic() + self.settings.poll_timeout
+            if self.pool and task_id:
+                # A resumed task still occupies its instance: hold one of that instance's slots while waiting
+                # on it, or the pool hands the instance more clips than its slots allow.
+                slot = self.pool.hold(base, timeout=max(1.0, deadline - time.monotonic()))
             while time.monotonic() < deadline:
                 if not task_id:
                     if self.pool:
                         release_slot(slot)
-                        instance, slot = self.pool.acquire()
+                        slot = None
+                        # Bounded by the clip's own time: an unbounded wait held this thread, and the lane's
+                        # in-flight slot with it, for as long as no instance had room - forever, if none came.
+                        instance, slot = self.pool.acquire(timeout=max(1.0, deadline - time.monotonic()))
                         base = instance.url
                     try:
                         task_id = self._submit(payload, base)
@@ -236,6 +243,10 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                     return output
                 if status in {"failed", "error", "cancelled", "canceled"}:
                     detail = json.dumps(state.get("error") or state, ensure_ascii=False)[:400]
+                    # A failed task is history, not one to resume: set its record aside, or every later call
+                    # reads the same failure back instead of asking again.
+                    if task_path.exists():
+                        task_path.replace(task_path.with_suffix(".failed.json"))
                     raise RuntimeError(f"local H3 task {task_id} {status}: {detail}")
                 if self.pool and self.pool.problem(base):
                     # It stopped answering, its service holds no GPU, or its GPUs sat idle with jobs

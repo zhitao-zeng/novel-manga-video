@@ -33,11 +33,16 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from thin_runs import RENDER_RUNS_PER_PLAN, render_runs
+
 REPO = Path(__file__).resolve().parent.parent
 PY = str(REPO / ".venv" / "bin" / "python")
 SCRIPTS = REPO / "scripts"
 BASE_ENV = {"PYTHONPATH": "src:scripts", "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": "short-drama-adaptive-v1", "PHANROUTER_INLINE_REFERENCE_IMAGES": "1"}
+PLAN_BLOCK_RUNS = 3  # runs a planning block gets while some of its chapters are left without a plan
+PLAN_RETRY_SECONDS = 600  # ...spaced out, so a planning-server outage does not burn them in three ticks
+REVIEW_ERROR_ROUNDS = 3  # reviews an episode gets while the judge keeps failing on some of its clips
 
 
 class Conductor:
@@ -51,6 +56,10 @@ class Conductor:
         self.tmp.mkdir(parents=True, exist_ok=True)
         self.procs: dict[str, subprocess.Popen] = {}
         self.keys = {k["name"]: k for k in config["keys"]}
+        # Every key renders on local H3: a retake costs nothing, so a final with gate-failed clips goes back
+        # to the lane (final_settled).  A paid lane leaves that decision to a person.
+        self.free = bool(self.keys) and all(k.get("base_url") for k in self.keys.values())
+        self._summaries: dict[tuple[str, str], tuple[float, object]] = {}
         self.ranges = [self._parse_range(r) for r in config["ranges"]]
         self.lanes = {name: {"range": None, "next_round_at": 0.0, "parked_until": 0.0, "limit": self._initial_limit(k),
                              "limit_changed": time.time(), "throttled_since": None} for name, k in self.keys.items()}
@@ -58,7 +67,8 @@ class Conductor:
         for r in self.ranges:
             size = config["planning"]["block_size"]
             for a in range(r["a"], r["b"] + 1, size):
-                self.blocks.append({"a": a, "b": min(r["b"], a + size - 1), "mode": r["plan_mode"], "done": False, "proc": None, "started": 0.0, "server": None})
+                self.blocks.append({"a": a, "b": min(r["b"], a + size - 1), "mode": r["plan_mode"], "done": False, "proc": None, "started": 0.0, "server": None,
+                                    "runs": 0, "retry_at": 0.0})
         self.prepassed: dict[str, int] = {}
         self.last_review = 0.0
         self.log_path = self.tmp / "conductor.log"
@@ -89,20 +99,65 @@ class Conductor:
                 state["mode"] = 15 if "-15s" in policy else 30
             except (OSError, ValueError):
                 state["mode"] = 30
-            try:
-                runs = json.loads((d / ".render_runs").read_text(encoding="utf-8"))
-                if runs.get("plan_mtime") == plan.stat().st_mtime:
-                    state["runs"] = int(runs.get("runs", 0))
-            except (OSError, ValueError):
-                pass
+            # The count thin_batch keeps, per plan and set of corrections.  Comparing the plan's mtime alone
+            # with the pair it writes read 0 runs everywhere and kept given-up episodes renderable.
+            state["runs"] = render_runs(d)
+        if state["done"] and self.free and not self.final_settled(d, state["runs"]):
+            state["done"] = False
         if state["done"]:
             review = d / "episode_review.json"
-            state["unreviewed"] = not review.is_file() or review.stat().st_mtime < mp4.stat().st_mtime
+            state["unreviewed"] = (not review.is_file() or review.stat().st_mtime < mp4.stat().st_mtime
+                                   or self.review_incomplete(review))
         return state
+
+    def settled(self, n: int) -> bool:
+        """Planned, or left out on purpose (planning_skipped.json: too short to be an episode)."""
+        d = self.episode_dir(n)
+        return (d / "clip_plan.json").is_file() or (d / "planning_skipped.json").is_file()
+
+    def summary(self, path: Path, kind: str, summarize):
+        """summarize(the file's JSON), kept until the file changes: every tick looks at every episode."""
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return None
+        hit = self._summaries.get((str(path), kind))
+        if hit and hit[0] == mtime:
+            return hit[1]
+        try:
+            value = summarize(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError, AttributeError, TypeError):
+            value = None
+        self._summaries[(str(path), kind)] = (mtime, value)
+        return value
+
+    def final_settled(self, d: Path, runs: int) -> bool:
+        """Whether a free lane is finished with an episode's final.  One cut with clips that failed the speech
+        gate, or before a director correction was written, is a preview there: the lane takes it back until
+        the runs for this plan are used up."""
+        if runs >= RENDER_RUNS_PER_PLAN:
+            return True
+        report = d / "thin_media_report.json"
+        warned = self.summary(report, "warned", lambda data: bool(
+            data.get("failed_clips") or data.get("gate_failed_clips") or not (data.get("assembly") or {}).get("thin_passed", True)))
+        if warned is None:
+            return True  # no readable report: the final is all there is to go on
+        feedback = d / "review_feedback.json"
+        corrected = feedback.is_file() and feedback.stat().st_mtime > report.stat().st_mtime
+        return not (warned or corrected)
+
+    def review_incomplete(self, review: Path) -> bool:
+        """A review in which the judge failed on some clips (severity review_error) has not reviewed them: it
+        goes back in the queue, for a few rounds.  Only the review file's age used to count, and 28 of 雾月's
+        and 3 of 诸天's episodes sat as reviewed with those clips unjudged and unflagged (2026-09-11)."""
+        errors = self.summary(review, "review_errors", lambda data: (
+            sum(1 for c in (data.get("clips") or {}).values() if c.get("severity") == "review_error"),
+            int(data.get("error_rounds", 0))))
+        return bool(errors) and errors[0] > 0 and errors[1] < REVIEW_ERROR_ROUNDS
 
     def range_stats(self, r: dict) -> dict:
         chapters = [self.chapter(n) for n in range(r["a"], r["b"] + 1)]
-        renderable = [c["n"] for c in chapters if c["planned"] and not c["done"] and c["runs"] < 3
+        renderable = [c["n"] for c in chapters if c["planned"] and not c["done"] and c["runs"] < RENDER_RUNS_PER_PLAN
                       and c["mode"] == int(r.get("plan_mode", 30))]
         return {"total": len(chapters), "planned": sum(c["planned"] for c in chapters), "done": sum(c["done"] for c in chapters),
                 "renderable": renderable, "unreviewed": [c["n"] for c in chapters if c["unreviewed"]]}
@@ -421,18 +476,31 @@ class Conductor:
 
     def tick_planning(self, congested: bool) -> None:
         plan_cfg = self.cfg["planning"]
+        now = time.time()
         for block in self.blocks:
             if block["done"]:
                 continue
+            chapters = range(block["a"], block["b"] + 1)
             if block["proc"] and not self.alive(block["proc"]):
-                block["done"] = True
                 block["proc"] = None
                 block["server"] = None
-                self.log(f"planning block {block['a']}-{block['b']} finished")
+                block["runs"] += 1
+                unplanned = [n for n in chapters if not self.settled(n)]
+                if unplanned and block["runs"] < PLAN_BLOCK_RUNS:
+                    # A block's process ending is not its chapters being planned: a crash, a kill or a chapter
+                    # that failed its checks leaves some without a plan, and taking the end for done left 29 of
+                    # 诸天's chapters unplanned for good (2026-09-11).  The next run plans the failed ones again.
+                    block["retry_at"] = now + PLAN_RETRY_SECONDS
+                    self.log(f"planning block {block['a']}-{block['b']} ended with {len(unplanned)} chapter(s) unplanned "
+                             f"{unplanned[:8]}; again in {PLAN_RETRY_SECONDS // 60} min (run {block['runs']}/{PLAN_BLOCK_RUNS})")
+                    continue
+                block["done"] = True
+                self.log(f"planning block {block['a']}-{block['b']} finished"
+                         + (f"; {len(unplanned)} chapter(s) still unplanned after {block['runs']} runs: {unplanned[:8]}" if unplanned else ""))
                 for r in self.ranges:
                     if r["a"] <= block["a"] and block["b"] <= r["b"] and all(b["done"] for b in self.blocks if r["a"] <= b["a"] <= r["b"]):
                         self.ensure_prepass(r)
-            elif not block["proc"] and all(self.chapter(n)["planned"] for n in range(block["a"], block["b"] + 1)):
+            elif not block["proc"] and all(self.settled(n) for n in chapters):
                 block["done"] = True
         active = [b for b in self.blocks if b["proc"] and self.alive(b["proc"])]
         target = plan_cfg["blocks_min"] if congested else plan_cfg["blocks_max"]
@@ -442,7 +510,7 @@ class Conductor:
                 block["proc"] = None
             return
         read_upto = self.read_upto()
-        pending = [b for b in self.blocks if not b["done"] and not b["proc"]]
+        pending = [b for b in self.blocks if not b["done"] and not b["proc"] and b["retry_at"] <= now]
         need_read = [b for b in pending if read_upto < b["a"] + plan_cfg["margin"] and read_upto < b["b"]]
         if need_read and not self.alive("story_pass"):
             a, b = read_upto + 1, max(x["b"] for x in self.blocks)

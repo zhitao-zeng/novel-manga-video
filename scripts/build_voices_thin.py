@@ -50,7 +50,12 @@ def attributed_chunks(novel_dir: Path) -> dict[str, list[tuple[float, Path, floa
             lines = (plan.get(clip["clip_id"]) or {}).get("lines") or []
             if not lines or not selected.get("video"):
                 continue
-            wav = Path(selected["video"]).parent / "native.wav"
+            video = Path(selected["video"])
+            # thin_batch --prune deletes native.wav once the episode is assembled; the clip stays, and ffmpeg
+            # cuts the same spans out of its sound track (native.wav is that track, from 0 s).
+            wav = video.parent / "native.wav"
+            if not wav.is_file():
+                wav = video
             if not wav.is_file():
                 continue
             for chunk in selected.get("chunks", []):
