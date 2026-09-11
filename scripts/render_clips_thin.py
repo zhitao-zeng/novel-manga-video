@@ -860,7 +860,8 @@ class ThinMediaRunner:
         return True
 
     # ---- one clip ----
-    def clip_prompt(self, clip: dict) -> str:
+    def clip_base(self, clip: dict) -> str:
+        """The clip's prompt before any softening: what clip_prompt sends, and what the cache compares."""
         note = str(self.feedback.get(clip["clip_id"], "")).strip()
         # H3 works out what to speak from the language it is written in, so the local lanes read
         # the English rendering of the same plan; Seedance keeps the Chinese one.  A correction
@@ -870,7 +871,10 @@ class ThinMediaRunner:
         # out: it points the request back at the one that produced the clip, so the cache holds it.
         use_h3 = self.settings.local_h3_base_url and clip.get("prompt_h3") and not clip.get("prompt_h3_skip")
         base = clip["prompt_h3"] if use_h3 else clip["prompt"]
-        prompt = base + (f"\n【导演修正】{note}" if note else "")
+        return base + (f"\n【导演修正】{note}" if note else "")
+
+    def clip_prompt(self, clip: dict) -> str:
+        prompt = self.clip_base(clip)
         return soften_prompt(prompt) if clip.get("_softened") else prompt
 
     def reference_voices(self, clip: dict) -> tuple[Path, ...]:
@@ -930,7 +934,10 @@ class ThinMediaRunner:
             # Keying on the path alone silently served a stale clip after the
             # chapter was re-planned.
             saved = json.loads((directory / "request.json").read_text(encoding="utf-8"))
-            base = clip["prompt"] + (f"\n【导演修正】{self.feedback[clip['clip_id']]}" if str(self.feedback.get(clip["clip_id"], "")).strip() else "")
+            # The wording clip_prompt chose.  Built from clip["prompt"] alone, it let a local-H3 lane keep
+            # clips H3 had rendered from the Chinese prompt, which H3 reads aloud (雾月 1732 on 2026-09-11
+            # kept 11 of its 18 that way).
+            base = self.clip_base(clip)
             acceptable = {prompt, base + (RETRY_SUFFIX if attempt > 1 else ""), soften_prompt(base) + (RETRY_SUFFIX if attempt > 1 else "")}
             # A clip generated from the softened wording (prescreen or moderation
             # retry) is the same clip: do not pay again because a later run made
