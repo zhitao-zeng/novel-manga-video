@@ -69,6 +69,15 @@ def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGI
     return clips, moved, split
 
 
+def repoint_records(clip_dir: Path) -> None:
+    """A take's asr.json names its clip id and video path: after the move both must be the new ones, or whatever reads
+    the record finds the old path - by then another clip's take, or nothing."""
+    for record in clip_dir.glob("attempt_*/*asr.json"):
+        data = json.loads(record.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and data.get("video"):
+            atomic_write_json(record, {**data, "clip_id": clip_dir.name, "video": str(record.parent / Path(data["video"]).name)})
+
+
 def rename_clip_dirs(episode_dir: Path, moved: dict, split: dict) -> None:
     """Move each rendered clip to its new id - through temporary names, since the ids shift into each other - and
     set aside the old clip of every split stage, with any clip directory the plan did not name."""
@@ -84,6 +93,7 @@ def rename_clip_dirs(episode_dir: Path, moved: dict, split: dict) -> None:
     for old, temporary in staged:
         if old in moved:
             temporary.rename(clips_dir / moved[old])
+            repoint_records(clips_dir / moved[old])
         else:
             aside.mkdir(parents=True, exist_ok=True)
             temporary.rename(aside / old)

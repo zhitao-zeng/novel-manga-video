@@ -1136,7 +1136,9 @@ class ThinMediaRunner:
             partial.replace(wav)
         reference = clip.get("spoken_text", "")
         if asr_path.is_file():
-            return json.loads(asr_path.read_text(encoding="utf-8"))
+            # The record names the take it was made from, but its clip directory can be renamed under it
+            # (split_long_stages renumbers clips): the take is the file beside the record, never the path inside it.
+            return {**json.loads(asr_path.read_text(encoding="utf-8")), "clip_id": clip["clip_id"], "video": str(video)}
         mean_db, peak_db = EpisodeProductionRuntime._audio_levels(wav)
         chunks = speech_chunks(wav) if reference else []
         rows: list[dict] = []

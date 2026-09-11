@@ -74,6 +74,19 @@ def test_rendered_clips_and_corrections_follow_their_new_ids(tmp_path):
     assert set(json.loads(overrides.read_text(encoding="utf-8"))) == {"clip_02", "clip_03", "clip_04"}
 
 
+def test_a_moved_take_s_asr_record_names_its_new_place(tmp_path):
+    episode = tmp_path / "nov" / "nov_1"
+    for name in ("clip_02", "clip_03"):
+        attempt = episode / "work" / "clips" / name / "attempt_01"
+        attempt.mkdir(parents=True)
+        (attempt / "clip.mp4").write_text(name, encoding="utf-8")
+        (attempt / "asr.json").write_text(json.dumps({"clip_id": name, "video": str(attempt / "clip.mp4"), "passed": True}), encoding="utf-8")
+    tool.rename_clip_dirs(episode, {"clip_03": "clip_05"}, {"clip_02": ["clip_02", "clip_03", "clip_04"]})
+    moved = episode / "work" / "clips" / "clip_05" / "attempt_01"
+    record = json.loads((moved / "asr.json").read_text(encoding="utf-8"))
+    assert record == {"clip_id": "clip_05", "video": str(moved / "clip.mp4"), "passed": True}
+
+
 # ---------------------------------------------------------------- the two runner changes that go with it
 def runner(tmp_path, cache_only=False) -> rc.ThinMediaRunner:
     r = object.__new__(rc.ThinMediaRunner)
@@ -95,6 +108,21 @@ def test_cache_only_leaves_a_clip_from_another_request_where_it_is(tmp_path):
     except rc.CacheMiss:
         pass
     assert (attempt / "clip.mp4").read_bytes() == b"old take" and not (attempt / "clip.stale.mp4").exists()
+
+
+def test_a_cached_asr_record_gives_the_take_beside_it_not_the_path_inside(tmp_path, monkeypatch):
+    # 2026-09-11: after the split renamed clip_03 to clip_04, clip_04's asr.json still named clip_03/attempt_01/clip.mp4
+    # - by then the split stage's first part - and 39 星海 finals were put together from neighbouring clips' takes.
+    r = runner(tmp_path)
+    attempt = r.work / "clips" / "clip_04" / "attempt_01"
+    attempt.mkdir(parents=True)
+    for name in ("clip.mp4", "native.wav"):
+        (attempt / name).write_bytes(b"x")
+    old = r.work / "clips" / "clip_03" / "attempt_01" / "clip.mp4"
+    (attempt / "asr.json").write_text(json.dumps({"clip_id": "clip_03", "video": str(old), "passed": True}), encoding="utf-8")
+    monkeypatch.setattr(rc, "media_duration", lambda path: 10.0)
+    result = r.analyse_clip({"clip_id": "clip_04", "spoken_text": "我们走吧。"}, attempt / "clip.mp4")
+    assert result == {"clip_id": "clip_04", "video": str(attempt / "clip.mp4"), "passed": True}
 
 
 def test_fresh_takes_past_the_cache_are_free_lanes_or_asked_for():
