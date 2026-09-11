@@ -445,15 +445,25 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     return references, bindings, location_binding
 
 
-# 头 counts animals, so 三头龙 means "three dragons" - and a video model reads it as "a three-headed
-# dragon" and draws one.  Two or more dragons take 条, two or more 雪铠 take 只; a count of one is left
-# alone (one head is normal), and so is anything not followed by those nouns, such as 三头犬.
+# 头 counts animals, so 三头龙 usually means "three dragons" - and a video model reads it as "a
+# three-headed dragon" and draws one.  Two or more dragons take 条, two or more 雪铠 take 只; a count of
+# one is left alone (one head is normal), and so is anything not followed by those nouns, such as 三头犬.
+# Some dragons do have several heads - in 星海, one fused from three young dragons, and 赛洛斯, written
+# 赛洛斯三头龙 - so a prompt is left as written when it counts heads (三个脑袋, 三颗头颅) or opens a
+# clause with a cast name and the count.  A name inside a list (洛恩、科特林、赛洛斯三头龙) still counts
+# dragons.
 _HEAD_COUNT = re.compile(r"(两|二|三|四|五|六|七|八|九|十|几|数|[2-9])头(?=[^，。；、{}\s]{0,4}?(龙|雪铠))")
+_COUNTED_HEADS = re.compile(r"[两二三四五六七八九几数多][颗个](头|脑袋)")
+_CLAUSE_START = r'(?:^|(?<=[，。；：“”"‘’（(【\s]))'
 
 
-def plain_counts(prompt: str) -> str:
+def plain_counts(prompt: str, cast: list[str] = ()) -> str:
     """Rewrite animal counts outside the spoken lines, which sit inside {} and stay as written."""
     parts = re.split(r"(\{[^}]*\})", prompt)
+    direction = "".join(part for part in parts if not part.startswith("{"))
+    if _COUNTED_HEADS.search(direction) or any(
+            re.search(_CLAUSE_START + re.escape(name) + _HEAD_COUNT.pattern, direction, re.M) for name in cast):
+        return prompt
     return "".join(part if part.startswith("{") else
                    _HEAD_COUNT.sub(lambda m: m.group(1) + ("条" if m.group(2) == "龙" else "只"), part)
                    for part in parts)
@@ -525,7 +535,7 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
         rejects = [r.replace("（手机屏幕上剧本指定的聊天消息除外）", "") for r in rejects]
         globals()["GENRE_REJECTS"] = [r.replace("（手机屏幕上剧本指定的聊天消息除外）", "") for r in GENRE_REJECTS]
     lines.append("【不要】" + "；".join([*avoid, *GENRE_REJECTS, *rejects, NO_SUBTITLES]) + "。")
-    return plain_counts("\n".join(lines))
+    return plain_counts("\n".join(lines), cast)
 
 
 def main() -> int:
