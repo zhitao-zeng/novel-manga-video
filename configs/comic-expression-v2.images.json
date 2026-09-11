@@ -1,0 +1,59 @@
+{
+  "tool": "image_gen__imagegen",
+  "mode": "built-in",
+  "count": 7,
+  "usage_tokens": null,
+  "cost": null,
+  "images": [
+    {
+      "id": "establish",
+      "prompt": "Use case: illustration-story. Create ONE portrait 9:16 cinematic narrative keyframe for a Chinese voiced motion comic adapted from a Victorian supernatural novel. The attached image is identity, clothes, room and 3D animation style reference, NOT the desired hand pose. Preserve both recognizable faces and clothes: emaciated pale gray-haired dying middle-aged man in dark brown pajamas on LEFT propped up in carved wooden bed under dark blanket; pale slim young man with brown tousled hair, black top hat, charcoal coat, waistcoat on RIGHT beside bed. First establishing shot, camera at bed height: show both faces, bed, and joined arms together in one coherent image, medium two-shot. The dying man is holding the YOUNG MAN'S RIGHT WRIST with a tight bony hand at mattress height, young man's palm relaxed and not gripping back. This is not a handshake or arm wrestling. Young man has just regained awareness, looks startled and uncertain at the bedridden man; dying man stares firmly at him. Warm dim gas lamp behind the joined arms and copper pipe on aged wall, cool moonlight curtain far right, dark Victorian mystery. Restrained elegant high-quality stylized 3D animation render, match reference, not live action. Frame upper faces within upper two thirds, wrists near center; bottom 18% mainly blanket and dark clothing for subtitles added later. No panels, no borders, no text, no logos, no letter/envelope, no female figure. Full single image, portrait 1080x1920 or equivalent 9:16. Save generated image and return local path if available.",
+      "reference": "outputs/comic-hybrid-v2/inspection/reference-room.jpg",
+      "project_path": "outputs/comic-hybrid-v2/images/establish.png",
+      "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-c6f350f5-5010-4f02-baf9-588cd85d11de.png"
+    },
+    {
+      "id": "listen",
+      "prompt": "Use case: illustration-story. ONE portrait 9:16 single fullscreen cinematic narrative keyframe, high quality stylized 3D animation exactly matching reference's character identities, costumes and room. This is another camera shot in SAME MOMENT and SAME bedroom. Dying gray-haired man is on screen LEFT in bed, young man with dark top hat and coat stands RIGHT. Warm gaslamp screen-left/center, cool window to right. No text, letters, panels, borders, watermarks, no extra people. Leave bottom 15% visually quiet for later subtitles. Medium closeup of young man's face and shoulders on right, eye-line down and left toward dying man outside frame. Mouth CLOSED, eyebrows worried, eyes searching hesitantly. He hears language but cannot formulate speech. Head/hat fully in frame, don't cut off top hat. A blurred edge of dying man's shoulder bottom-left anchors viewpoint. Restrained worried expression, no melodramatic scream.",
+      "reference": "outputs/comic-hybrid-v2/images/establish.png",
+      "project_path": "outputs/comic-hybrid-v2/images/listen.png",
+      "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-6223a959-783f-41c8-bc46-127948a5bc93.png"
+    },
+    {
+      "id": "pain",
+      "prompt": "Use case: illustration-story. ONE portrait 9:16 single fullscreen cinematic narrative keyframe, high quality stylized 3D animation exactly matching reference's character identities, costumes and room. This is another camera shot in SAME MOMENT and SAME bedroom. Dying gray-haired man is on screen LEFT in bed, young man with dark top hat and coat stands RIGHT. Warm gaslamp screen-left/center, cool window to right. No text, letters, panels, borders, watermarks, no extra people. Leave bottom 15% visually quiet for later subtitles. Young man closeup, his FREE LEFT HAND presses his left temple while his RIGHT ARM continues down toward dying man offscreen and remains held. Eyes squeezed shut, short painful intake of breath, one instant of knowledge flooding his mind. No light beams, text, glowing symbols or fantasy montage. Clearly same scene. Camera shows hat, face, raised left hand, chest. He is still on right looking slightly down left; keep clothes and lighting unchanged.",
+      "reference": "outputs/comic-hybrid-v2/images/establish.png",
+      "project_path": "outputs/comic-hybrid-v2/images/pain.png",
+      "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-1b1d6e6b-e598-4cf6-a717-75752ce41dfc.png"
+    },
+    {
+      "id": "old",
+      "prompt": "Use case: illustration-story. ONE portrait 9:16 single fullscreen cinematic narrative keyframe, high quality stylized 3D animation exactly matching reference's character identities, costumes and room. This is another camera shot in SAME MOMENT and SAME bedroom. Dying gray-haired man is on screen LEFT in bed, young man with dark top hat and coat stands RIGHT. Warm gaslamp screen-left/center, cool window to right. No text, letters, panels, borders, watermarks, no extra people. Leave bottom 15% visually quiet for later subtitles. Medium closeup of dying gray-haired man, face on left third of frame, propped up against the same pillow and carved headboard; his stern sunken eyes look upward-right at the young man. Dark pajamas and upper blanket visible. Young man's right forearm enters from right along lower third, dying man's bony right hand still firmly encircles young man's wrist. His expression controlled and grave as he explains an inheritance, not shouting. Mouth nearly closed between words. No handshake.",
+      "reference": "outputs/comic-hybrid-v2/images/establish.png",
+      "project_path": "outputs/comic-hybrid-v2/images/old.png",
+      "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-8cb9ec6f-5ef2-4c9d-b87e-1a74ee80b513.png"
+    },
+    {
+      "id": "grip",
+      "prompt": "Use case: illustration-story. ONE portrait 9:16 single fullscreen cinematic narrative keyframe, high quality stylized 3D animation exactly matching reference's character identities, costumes and room. This is another camera shot in SAME MOMENT and SAME bedroom. Dying gray-haired man is on screen LEFT in bed, young man with dark top hat and coat stands RIGHT. Warm gaslamp screen-left/center, cool window to right. No text, letters, panels, borders, watermarks, no extra people. Leave bottom 15% visually quiet for later subtitles. Extreme close-up insert of the exact wrist grip from reference, old man's thin bony right hand coming from left brown pajama sleeve firmly wrapped around young man's RIGHT WRIST emerging from charcoal coat on right. Young man's right palm facing downward toward the dark quilt, fingers separated and slightly tense; young man is NOT grabbing back. A taut tendon's tension tells us grip is strong. Wrists low at mattress height, plausible anatomy exactly two hands total. Gaslamp softly out of focus behind, no faces necessary.",
+      "reference": "outputs/comic-hybrid-v2/images/establish.png",
+      "project_path": "outputs/comic-hybrid-v2/images/grip.png",
+      "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-2ccbbed6-d7c5-44f7-946d-db3e7f89796f.png"
+    },
+    {
+      "id": "resolve",
+      "prompt": "Use case: illustration-story. ONE portrait 9:16 single fullscreen cinematic narrative keyframe, high quality stylized 3D animation exactly matching reference's character identities, costumes and room. This is another camera shot in SAME MOMENT and SAME bedroom. Dying gray-haired man is on screen LEFT in bed, young man with dark top hat and coat stands RIGHT. Warm gaslamp screen-left/center, cool window to right. No text, letters, panels, borders, watermarks, no extra people. Leave bottom 15% visually quiet for later subtitles. Medium closeup of young man's face and upper body, dark top hat fully visible, on right, eyeline down-left at dying man offscreen. His expression has changed from confusion to wary concentration, lips slightly parted about to cautiously answer. Posture upright but tense. Keep right arm reaching down-left toward held wrist out of frame; free left arm lowered. Blurred old man's shoulder bottom-left. Same face, room, lighting, camera side, no new objects.",
+      "reference": "outputs/comic-hybrid-v2/images/establish.png",
+      "project_path": "outputs/comic-hybrid-v2/images/resolve.png",
+      "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-13eaceb6-b7c1-4d06-993b-28d8408d4ef2.png"
+    },
+    {
+      "id": "room",
+      "prompt": "Use case: illustration-story. ONE portrait 9:16 single fullscreen cinematic narrative keyframe, high quality stylized 3D animation exactly matching reference's character identities, costumes and room. This is another camera shot in SAME MOMENT and SAME bedroom. Dying gray-haired man is on screen LEFT in bed, young man with dark top hat and coat stands RIGHT. Warm gaslamp screen-left/center, cool window to right. No text, letters, panels, borders, watermarks, no extra people. Leave bottom 15% visually quiet for later subtitles. Environmental insert in same bedroom: focus on warm gas lamp and copper gas pipe climbing weathered Victorian wall, carved bed edge far left, dark curtain far right, old framed black-and-white photo blurred in background. Lamp physically plausible, same design as reference. No people in this insert, NO LETTER OR ENVELOPE, NO modern objects. Single portrait image, quiet restrained cinematic 3D depth and light, used as young man's POV discovering unfamiliar era.",
+      "reference": "outputs/comic-hybrid-v2/images/establish.png",
+      "project_path": "outputs/comic-hybrid-v2/images/room.png",
+      "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-d345ece4-1f35-44a1-a695-5431ce5fba26.png"
+    }
+  ]
+}
+

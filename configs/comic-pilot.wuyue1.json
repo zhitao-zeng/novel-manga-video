@@ -1,0 +1,23 @@
+{
+  "source_episode": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/wuyue/wuyue_1",
+  "novel_title": "雾月秘典",
+  "episode_title": "将死之人",
+  "output": "outputs/comic-hybrid-pilot",
+  "voice_library": "/mnt/disk2/zengzhitao/models/novel-manga-video/IndexTTS-references-v1",
+  "voices": {
+    "莱恩·格雷": "young_male.wav",
+    "奥斯文·格雷": "mature_male.wav",
+    "无名女士": "composed_female.wav",
+    "旁白": "deep_male.wav"
+  },
+  "narration": {
+    "2": "一股异味扑面而来，莱恩浑身僵住。",
+    "3": "莱恩低头看向手腕，又抬头望向床上枯瘦的男人。"
+  },
+  "hybrid_shots": [2, 3, 5, 9],
+  "fps": 25,
+  "width": 1080,
+  "height": 1920,
+  "font": "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+  "seed": 20260910
+}

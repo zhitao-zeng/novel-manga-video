@@ -1,0 +1,8 @@
+{
+  "asset": "room",
+  "reason": "Initial edit added people and changed the old man's appearance; use an empty environmental insert.",
+  "reference": "outputs/comic-hybrid-landscape/inspection/room-rejected.png",
+  "prompt": "Edit ONLY this illustration into an EMPTY environmental insert for the same scene, 16:9 landscape. Remove BOTH HUMAN FIGURES completely; NO PEOPLE, NO FACES, NO HANDS, NO HUMAN SILHOUETTES anywhere. Recompose camera to show a close view of the warm brass gas lamp on its bedside table, copper gas pipe rising on the aged wallpaper, a small edge of carved wooden bed to the left, cool blue curtained window on the right. This is the young man's POV noticing that the room belongs to another era. Keep the same illustrated stylized 3D animation rendering, amber lamp/cool window light, dark Victorian materials. The bed corner may be visible but nobody in it because they are out of this camera angle. Do not show any letter, envelope, text, panels, modern object or inset picture. No portrait faces in wall art. Full landscape cinematic frame, not a collage. Bottom 15% quiet tabletop/shadows for later subtitles.",
+  "generated_path": "/home/zengzhitao/.codex/generated_images/01a07b12-cf78-78e2-bcec-c116edc21b20/exec-91c73d63-ba05-4ee2-a442-7c8ea83d174a.png",
+  "output": "outputs/comic-hybrid-landscape/images/room.png"
+}
