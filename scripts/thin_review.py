@@ -779,6 +779,15 @@ def bible_root(work_dir: Path) -> Path:
     return work_dir.parents[3]
 
 
+def take_identity(video: Path) -> list[int] | None:
+    """The file behind a path - inode, size, mtime in ns: a rename keeps them all, another take has other ones."""
+    try:
+        stat = video.stat()
+    except OSError:
+        return None
+    return [stat.st_ino, stat.st_size, stat.st_mtime_ns]
+
+
 def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     novel_dir = episode_dir.parent
     apply_genre_review_rules(novel_dir)
@@ -802,7 +811,6 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     # just the clips it failed on are judged again.  Any other review judges every clip afresh.
     earlier = (previous.get("clips") or {}) if previous.get("policy") == POLICY else {}
     resume = any(c.get("severity") == "review_error" for c in earlier.values())
-    reviewed_at = review_path.stat().st_mtime if resume else 0.0
     for clip in plan["clips"]:
         if clip["kind"] != "video":
             continue
@@ -818,17 +826,20 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
             asr = video.parent / ("stale_asr.json" if "stale" in video_name else "asr.json")
             hypothesis = json.loads(asr.read_text(encoding="utf-8")).get("hypothesis", "") if asr.is_file() else ""
         old = earlier.get(clip_id) if resume else None
+        take = take_identity(video)
         try:
+            # The very same file, not just the same path: split_long_stages renames clip directories, so after a
+            # split the path names another clip's take - with its old mtime - and that clip's verdict landed on it.
             if (old and old.get("severity") != "review_error" and old.get("video") == str(video)
-                    and video.is_file() and video.stat().st_mtime <= reviewed_at):
-                verdict = {key: value for key, value in old.items() if key != "video"}
+                    and take and old.get("take") == take):
+                verdict = {key: value for key, value in old.items() if key not in ("video", "take")}
             else:
                 verdict = judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)
         except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
             log(f"episode {episode_dir.name} {clip_id}: review error {type(error).__name__}: {str(error)[:120]}")
-            report["clips"][clip_id] = {"video": str(video), "severity": "review_error", "error": f"{type(error).__name__}: {str(error)[:300]}"}
+            report["clips"][clip_id] = {"video": str(video), "take": take, "severity": "review_error", "error": f"{type(error).__name__}: {str(error)[:300]}"}
             continue
-        report["clips"][clip_id] = {"video": str(video), **verdict}
+        report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
         if verdict.get("severity") == "fail":
             tier = fix_tier(verdict, bible)
             verdict["tier"] = tier

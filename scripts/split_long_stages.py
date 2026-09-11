@@ -70,41 +70,75 @@ def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGI
 
 
 def repoint_records(clip_dir: Path) -> None:
-    """A take's asr.json names its clip id and video path: after the move both must be the new ones, or whatever reads
-    the record finds the old path - by then another clip's take, or nothing."""
-    for record in clip_dir.glob("attempt_*/*asr.json"):
-        data = json.loads(record.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and data.get("video"):
-            atomic_write_json(record, {**data, "clip_id": clip_dir.name, "video": str(record.parent / Path(data["video"]).name)})
+    """A take's asr.json names its clip id and video path: after the move both are set to the new ones.  The renderer
+    reads a take from where it lies either way, so a record that cannot be read is only reported."""
+    for record in clip_dir.glob("attempt_*/asr.json"):
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("video"):
+                atomic_write_json(record, {**data, "clip_id": clip_dir.name, "video": str(record.parent / Path(data["video"]).name)})
+        except (OSError, ValueError) as error:
+            print(f"  {record}: record not repointed ({type(error).__name__})", file=sys.stderr, flush=True)
 
 
-def rename_clip_dirs(episode_dir: Path, moved: dict, split: dict) -> None:
+def rename_clip_dirs(episode_dir: Path, moved: dict, split: dict):
     """Move each rendered clip to its new id - through temporary names, since the ids shift into each other - and
-    set aside the old clip of every split stage, with any clip directory the plan did not name."""
+    set aside the old clip of every split stage, with any clip directory the plan did not name.
+
+    All or nothing: a failure part-way puts every directory back under its old name.  A run stopped half-way used to
+    leave takes under .moving-* names that nothing reads, next to the old plan, and a second run could not recover
+    them.  Returns a function that undoes the whole move, for a failure after it."""
     clips_dir = episode_dir / "work" / "clips"
     if not clips_dir.is_dir():
-        return
+        return lambda: None
+    leftovers = sorted(p.name for p in clips_dir.glob(".moving-*"))
+    if leftovers:
+        raise RuntimeError(f"{episode_dir.name}: {len(leftovers)} directories left from an interrupted move "
+                           f"({', '.join(leftovers[:3])}): put them back first")
     aside = episode_dir / "work" / "clips_before_split" / time.strftime("%Y%m%d-%H%M%S")
-    staged = []
-    for directory in sorted(p for p in clips_dir.iterdir() if p.is_dir() and p.name.startswith("clip_")):
-        temporary = clips_dir / f".moving-{directory.name}"
-        directory.rename(temporary)
-        staged.append((directory.name, temporary))
-    for old, temporary in staged:
+    staged: list[tuple[str, Path]] = []
+    placed: list[tuple[str, Path]] = []
+
+    def undo() -> None:
+        for old, target in reversed(placed):
+            target.rename(clips_dir / f".moving-{old}")
+        placed.clear()
+        for old, temporary in reversed(staged):
+            if temporary.exists():
+                temporary.rename(clips_dir / old)
+        staged.clear()
+
+    try:
+        for directory in sorted(p for p in clips_dir.iterdir() if p.is_dir() and p.name.startswith("clip_")):
+            temporary = clips_dir / f".moving-{directory.name}"
+            directory.rename(temporary)
+            staged.append((directory.name, temporary))
+        for old, temporary in staged:
+            if old in moved:
+                target = clips_dir / moved[old]
+            else:
+                aside.mkdir(parents=True, exist_ok=True)
+                target = aside / old
+            temporary.rename(target)
+            placed.append((old, target))
+    except BaseException:
+        undo()
+        raise
+    for old, target in placed:
         if old in moved:
-            temporary.rename(clips_dir / moved[old])
-            repoint_records(clips_dir / moved[old])
-        else:
-            aside.mkdir(parents=True, exist_ok=True)
-            temporary.rename(aside / old)
+            repoint_records(target)
+    return undo
 
 
-def remap_json(path: Path, moved: dict, split: dict, to_parts: bool) -> dict:
-    """Re-key a {clip id: value} file to the new ids.  A split clip's value goes to each of its parts when
-    `to_parts`, else it is dropped; so is a key for a clip the plan did not have.  Returns what was dropped."""
+def remapped(path: Path, moved: dict, split: dict, to_parts: bool) -> tuple[dict | None, dict]:
+    """A {clip id: value} file re-keyed to the new ids, not written: (the new content, or None with no file; what is
+    dropped).  A split clip's value goes to each of its parts when `to_parts`, else it is dropped; so is a key for a
+    clip the plan did not have.  A file that is not such a map raises ValueError."""
     if not path.is_file():
-        return {}
+        return None, {}
     data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name} is not a map of clip ids")
     kept, dropped = {}, {}
     for key, value in data.items():
         if key in moved:
@@ -114,7 +148,14 @@ def remap_json(path: Path, moved: dict, split: dict, to_parts: bool) -> dict:
                 kept[part] = value
         else:
             dropped[key] = value
-    atomic_write_json(path, kept)
+    return kept, dropped
+
+
+def remap_json(path: Path, moved: dict, split: dict, to_parts: bool) -> dict:
+    """remapped, written back.  Returns what was dropped."""
+    kept, dropped = remapped(path, moved, split, to_parts)
+    if kept is not None:
+        atomic_write_json(path, kept)
     return dropped
 
 
@@ -141,22 +182,40 @@ def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | Non
                "final": (episode_dir / f"{episode_dir.name}.mp4").is_file(), "mode": int(packer.MAX_CLIP_SECONDS)}
     if not split or not apply:
         return summary
+    feedback_path, overrides_path = episode_dir / "review_feedback.json", episode_dir / "clip_overrides.json"
+    record_path = episode_dir / "split_long_stages.json"
+    try:
+        # Read before anything moves: a file that is not a map of clip ids leaves the episode as it was.  Read after
+        # the move, it left the directories renamed next to the old plan.
+        feedback, dropped = remapped(feedback_path, moved, split, to_parts=False)
+        overrides, _ = remapped(overrides_path, moved, split, to_parts=True)
+        originals = {path: path.read_text(encoding="utf-8") for path in (feedback_path, overrides_path, plan_path, record_path) if path.is_file()}
+    except (OSError, ValueError) as error:
+        return {**summary, "skipped": f"cannot read the corrections or overrides ({type(error).__name__}: {str(error)[:80]})"}
+    pid = locked(episode_dir)
+    if pid:
+        return {**summary, "skipped": f"being rendered (pid {pid})"}
     lock = episode_dir / ".render.lock"
-    if lock.is_file():
-        try:
-            pid = int(lock.read_text(encoding="utf-8").strip() or 0)
-        except ValueError:
-            pid = 0
-        if pid and pid_alive(pid):
-            return {**summary, "skipped": f"being rendered (pid {pid})"}
     lock.write_text(str(os.getpid()), encoding="utf-8")
     try:
-        rename_clip_dirs(episode_dir, moved, split)
-        dropped = remap_json(episode_dir / "review_feedback.json", moved, split, to_parts=False)
-        remap_json(episode_dir / "clip_overrides.json", moved, split, to_parts=True)
-        record = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "packer_version": packer.PACKER_VERSION, "tier": tier, "split": split, "renamed": moved}
-        atomic_write_json(plan_path, {**plan, "clips": clips, "totals": packer.plan_totals(clips, shots, ctx), "split_long_stages": record})
-        atomic_write_json(episode_dir / "split_long_stages.json", {**record, "dropped_corrections": dropped})
+        undo = rename_clip_dirs(episode_dir, moved, split)
+        try:
+            if feedback is not None:
+                atomic_write_json(feedback_path, feedback)
+            if overrides is not None:
+                atomic_write_json(overrides_path, overrides)
+            record = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "packer_version": packer.PACKER_VERSION, "tier": tier, "split": split, "renamed": moved}
+            atomic_write_json(plan_path, {**plan, "clips": clips, "totals": packer.plan_totals(clips, shots, ctx), "split_long_stages": record})
+            atomic_write_json(record_path, {**record, "dropped_corrections": dropped})
+        except BaseException:
+            # The takes go back under their old ids and the files as they were: the old plan still names them all.
+            undo()
+            for path in (feedback_path, overrides_path, plan_path, record_path):
+                if path in originals:
+                    path.write_text(originals[path], encoding="utf-8")
+                elif path != plan_path:
+                    path.unlink(missing_ok=True)
+            raise
     finally:
         lock.unlink(missing_ok=True)
     return summary
@@ -190,15 +249,22 @@ def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | No
     by_index = {shot["index"]: shot for shot in shots}
     position = {clip["clip_id"]: n for n, clip in enumerate(plan["clips"])}
     clips = list(plan["clips"])
+    replaced = 0
     for old_id, part_ids in record["split"].items():
         parts = packer.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]))
         if len(parts) != len(part_ids):
             return {"skipped": f"{old_id} splits into {len(parts)} parts now, not {len(part_ids)}"}
         for part_id, part in zip(part_ids, parts):
             raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part), 2)}
-            clips[position[part_id]] = packer.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
-    summary = {"rebuilt": sum(len(ids) for ids in record["split"].values())}
-    if not apply:
+            entry = packer.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
+            current = clips[position[part_id]]
+            # Only a part whose pictures change - its cast or its reference cards - takes the new entry.  The others
+            # keep theirs, English prompt and repaired wording included, and with it the takes rendered for them.
+            if (entry.get("cast"), entry.get("references")) != (current.get("cast"), current.get("references")):
+                clips[position[part_id]] = entry
+                replaced += 1
+    summary = {"rebuilt": replaced}
+    if not apply or not replaced:
         return summary
     pid = locked(episode_dir)
     if pid:

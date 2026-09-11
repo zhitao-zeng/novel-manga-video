@@ -180,14 +180,14 @@ def test_parts_are_packed_again_for_the_fast_tier_with_their_ids(tmp_path, monke
     (episode / "chapter_script.json").write_text(json.dumps({"shots": []}), encoding="utf-8")
     plan = {"limits": {"max_clip_seconds": 15, "max_stages": 3}, "clips": [
         {"clip_id": "clip_01", "kind": "video", "shot_indexes": [3], "prompt": "kept"},
-        {"clip_id": "clip_02", "kind": "video", "shot_indexes": [5], "prompt": "part 1, quality"},
-        {"clip_id": "clip_03", "kind": "video", "shot_indexes": [5], "prompt": "part 2, quality"}],
+        {"clip_id": "clip_02", "kind": "video", "shot_indexes": [5], "prompt": "part 1, quality", "references": ["expressions.jpeg"]},
+        {"clip_id": "clip_03", "kind": "video", "shot_indexes": [5], "prompt": "part 2, quality", "references": ["expressions.jpeg"]}],
         "split_long_stages": {"split": {"clip_02": ["clip_02", "clip_03"]}}}
     (episode / "clip_plan.json").write_text(json.dumps(plan), encoding="utf-8")
     tiers = []
     monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None: tiers.append(tier) or {"overrides": {}})
     monkeypatch.setattr(tool.packer, "prepared_shots", lambda script, episode_dir: [long_stage(["我们走吧。" * 12] * 2)])
-    monkeypatch.setattr(tool.packer, "clip_entry", lambda raw, clip_id, ctx, override=None: {"clip_id": clip_id, "kind": "video", "prompt": f"{clip_id}, fast"})
+    monkeypatch.setattr(tool.packer, "clip_entry", lambda raw, clip_id, ctx, override=None: {"clip_id": clip_id, "kind": "video", "prompt": f"{clip_id}, fast", "references": []})
     monkeypatch.setattr(tool.packer, "plan_totals", lambda clips, shots, ctx: {})
     assert tool.rebuild_parts(episode, "fast", apply=True) == {"rebuilt": 2}
     written = json.loads((episode / "clip_plan.json").read_text(encoding="utf-8"))

@@ -41,7 +41,7 @@ MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥
                    "冲突用对峙、退让、旁观者反应和事后结果来交代；避免刀、枪、毒品、赌博、自残等词；台词选原文里克制的句子。")
 sys.path.insert(0, str(SCRIPTS))
 from thin_profile import h3_prompt_outdated  # noqa: E402
-from thin_runs import RENDER_RUNS_PER_PLAN, count_run, episode_status, gate_failures, render_runs  # noqa: E402
+from thin_runs import RENDER_RUNS_PER_PLAN, corrections, count_run, episode_status, gate_failures, render_runs  # noqa: E402
 
 
 def log(message: str) -> None:
@@ -59,6 +59,18 @@ def load_dotenv(path: Path) -> None:
         key = key.strip().removeprefix("export ").strip()
         value = value.strip().strip("'\"")
         os.environ.setdefault(key, value)
+
+
+def held_submissions(directory: Path) -> int:
+    """Clip submissions of the episode held as unconfirmed: a task record with submit_uncertain_at and no task id."""
+    count = 0
+    for record in directory.glob("work/clips/clip_*/attempt_*/clip.mp4.task.json"):
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        count += bool(data.get("submit_uncertain_at") and not data.get("task_id"))
+    return count
 
 
 def parse_chapters(spec: str) -> list[int]:
@@ -174,8 +186,9 @@ class Batch:
             "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": os.environ.get("NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"),
             "PHANROUTER_INLINE_REFERENCE_IMAGES": "1",
-            # Someone has checked the bill: submissions recorded as unconfirmed may be sent again.
-            **({"NOVEL_RESUBMIT_UNCONFIRMED": "1"} if args.resubmit_unconfirmed else {}),
+            # Someone has checked the bill: submissions recorded as unconfirmed before this run may be sent again - not
+            # one that goes unconfirmed during it (the provider compares its record with this start time).
+            **({"NOVEL_RESUBMIT_UNCONFIRMED": f"{time.time():.0f}"} if args.resubmit_unconfirmed else {}),
         }
         self.rows: dict[int, dict] = {}
         self.reviewing = bool(args.unattended or args.review_only)
@@ -444,7 +457,11 @@ class Batch:
         # Counted only once the episode really renders: a round turned away by another render's lock used
         # to spend a run too, and three of those gave an episode up without a single generation.
         runs = render_runs(directory)
-        if runs >= RENDER_RUNS_PER_PLAN and not self.args.cache_only:
+        # Held submissions get past the limit when the person rerunning with --resubmit-unconfirmed has checked the
+        # bill: the rounds before were spent on the held clip, and the limit turned away the one rerun that could
+        # release it.
+        held = getattr(self.args, "resubmit_unconfirmed", False) and held_submissions(directory)
+        if runs >= RENDER_RUNS_PER_PLAN and not self.args.cache_only and not held:
             row["render"] = f"gave up ({runs} render runs on this plan)"
             row["note"] = "needs a look: same failure on every run; see thin_media_report.json"
             log(f"ch{chapter}: gave up after {runs} render runs on this plan; needs a look")
@@ -455,10 +472,14 @@ class Batch:
         try:
             if not self.args.cache_only:  # cards are only built, judged and redrawn for clips about to be generated
                 self.prepare_cards(chapter)
-            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"]) + (["--cache-only"] if self.args.cache_only else []) + (["--retake-failed"] if self.args.retake_failed else [])
+            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"]) + (["--cache-only"] if self.args.cache_only else [])
+            # Fresh paid takes of gate-failed clips only for the final a person approved them for, and only on the
+            # first call: a second call counted the takes the first had just bought as cached failures and bought two
+            # more of each, and stale or clips_failed episodes got paid retakes nobody had asked for.
+            first = command + (["--retake-failed"] if retake and not free and self.args.retake_failed else [])
             for attempt in ((1,) if self.args.cache_only else (1, 2)):
                 log(f"ch{chapter}: rendering (attempt {attempt})")
-                code, problem = self.run(command, directory / "render.log")
+                code, problem = self.run(first if attempt == 1 else command, directory / "render.log")
                 status = self.render_status(chapter)
                 if status in {"done", "done_with_warnings"}:
                     break
@@ -563,7 +584,9 @@ class Batch:
             plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return 0
-        return sum(1 for clip in plan.get("clips", []) if clip.get("kind") == "video" and h3_prompt_outdated(clip))
+        notes = corrections(directory)  # a correction is written into the English prompt: a new one makes it due
+        return sum(1 for clip in plan.get("clips", []) if clip.get("kind") == "video"
+                   and h3_prompt_outdated(clip, str(notes.get(clip.get("clip_id"), ""))))
 
     def prepare_cards(self, chapter: int) -> None:
         """Build the cards this episode references; in review mode judge just those

@@ -81,18 +81,21 @@ def plan_fingerprint(plan: dict) -> str:
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def h3_source_digest(prompt: str) -> str:
-    """What build_h3_prompts.py stamps as prompt_h3_of: which Chinese prompt an English one was made from."""
-    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+def h3_source_digest(prompt: str, note: str = "") -> str:
+    """What build_h3_prompts.py stamps as prompt_h3_of: which Chinese prompt - and director correction, which goes into
+    the English prompt - an English one was made from.  Without a correction it is the digest of the prompt alone."""
+    note = (note or "").strip()
+    material = prompt + (f"\n【导演修正】{note}" if note else "")
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
-def h3_prompt_outdated(clip: dict) -> bool:
+def h3_prompt_outdated(clip: dict, note: str = "") -> bool:
     """A video clip a local-H3 lane cannot render yet: it has no English prompt, or one made from an
-    earlier Chinese prompt (the chapter was re-packed since)."""
+    earlier Chinese prompt (the chapter was re-packed since) or before its current correction."""
     if not clip.get("prompt_h3"):
         return True
     made_from = clip.get("prompt_h3_of")
-    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "")
+    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "", note)
 
 
 def h3_prompt_fingerprint(plan: dict) -> str:

@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 
 from novel_manga.providers import h3_pool, local_h3
-from novel_manga.providers.h3_pool import H3Pool, night_leases
+from novel_manga.providers.h3_pool import H3Pool, PoolUnavailable, night_leases
 from novel_manga.providers.local_h3 import LocalH3MediaProvider
 
 
@@ -79,11 +79,11 @@ def test_slots_spread_clips_and_a_cooling_instance_is_skipped(tmp_path, monkeypa
     first, h1 = pool.acquire(timeout=1)
     second, h2 = pool.acquire(timeout=1)
     assert {first.url, second.url} == {"http://10.0.0.1:1", "http://10.0.0.2:2"}  # one slot each
-    with pytest.raises(TimeoutError):
+    with pytest.raises(PoolUnavailable):
         pool.acquire(timeout=0.2)
     h3_pool.release(h1)
     pool.cool_down(first.url, 600, "test")
-    with pytest.raises(TimeoutError):
+    with pytest.raises(PoolUnavailable):
         pool.acquire(timeout=0.2)  # the freed instance is cooling
     h3_pool.release(h2)
     third, h3 = pool.acquire(timeout=1)
@@ -267,7 +267,7 @@ def test_a_clip_waits_for_the_pool_no_longer_than_its_own_time(tmp_path, monkeyp
     monkeypatch.setattr(provider.pool, "problem", lambda target: None)
     held = [provider.pool.acquire(timeout=1) for _ in range(2)]  # both instances busy, one slot each
     started = time.monotonic()
-    with pytest.raises(TimeoutError):
+    with pytest.raises(PoolUnavailable):  # a RuntimeError: the runner waits it out and asks again
         provider.create_video("prompt", None, tmp_path / "clip.mp4", 5.0, additional_images=(card,))
     assert time.monotonic() - started < 5
     for _, handle in held:
@@ -318,7 +318,7 @@ def test_a_resumed_task_holds_a_slot_on_its_instance(tmp_path, monkeypatch):
         calls.append(base)
         if len(calls) == 1:
             return {"status": "queued"}  # looked at first: still rendering, so it takes a slot of its instance
-        with pytest.raises(TimeoutError):  # while it is polled, a has no slot left for anyone else
+        with pytest.raises(PoolUnavailable):  # while it is polled, a has no slot left for anyone else
             provider.pool.hold(base, timeout=0.1)
         return {"status": "completed"}
 

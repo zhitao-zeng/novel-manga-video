@@ -85,7 +85,7 @@ def is_title_card(shot: dict) -> bool:
     return all(turn["delivery_mode"] == "title_card" for turn in shot["turns"])
 
 
-PACKER_VERSION = "thin-packer-2026-09-11+split-long-stages"
+PACKER_VERSION = "thin-packer-2026-09-12+split-keeps-cast"
 # "planned": every rule below cuts (today's behaviour).  "execution": only the rules the
 # video service enforces cut - location, length cap, stage ceiling - and the planner's
 # clip_hint and the source-segment boundary are recorded but not acted on.
@@ -159,6 +159,8 @@ def split_long_shot(shot: dict) -> list[dict]:
     DECISIONS.append({"kind": "split_stage", "stage": shot.get("origin_index"), "seconds": round(shot_seconds(shot), 2),
                       "parts": len(parts), "cap": MAX_CLIP_SECONDS})
     pieces = []
+    picture = "".join(str(shot.get(key, "")) for key in ("visual_prompt", "motion_prompt", "end_state"))
+    on_screen = [name for name in shot.get("characters", []) if name in picture]
     for number, part in enumerate(parts, 1):
         piece = {**shot, "turns": part, "split_part": [number, len(parts)]}
         if number > 1:
@@ -166,7 +168,17 @@ def split_long_shot(shot: dict) -> list[dict]:
             # carry on from there and only finish the lines.  Copying the action into every part had a character
             # push the same door open three times.
             end = compact(shot.get("end_state", ""))
-            piece["visual_prompt"] = f"承接上一段结束时的画面：{end}" if end else "承接上一段结束时的画面"
+            text = f"承接上一段结束时的画面：{end}" if end else "承接上一段结束时的画面"
+            # Who was in the picture stays in it.  clip_cast keeps a silent character of a crowded stage only when the
+            # stage text names them, and with the stage's own text gone they dropped to the background, card and all
+            # (星海 706: 金曜 and 伊芙 at the table in part 1, gone from parts 2 and 3).  Named only where clip_cast would
+            # drop them - more than two listed - so every other part keeps its wording, and its rendered takes.
+            speakers = [t["speaker_name"] for t in part if t.get("delivery_mode") == "visible_dialogue" and t.get("speaker_name")]
+            listed = list(dict.fromkeys([*shot.get("characters", []), *speakers]))
+            kept = [name for name in on_screen if name not in text and name not in speakers]
+            if len(listed) > 2 and kept:
+                text += "；" + "、".join(kept) + "仍在画面中"
+            piece["visual_prompt"] = text
             piece["motion_prompt"] = "人物保持上一段结束时的位置和姿态，接着把话说完，不重复上一段的动作"
         pieces.append(piece)
     return pieces

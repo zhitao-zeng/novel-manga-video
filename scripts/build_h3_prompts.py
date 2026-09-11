@@ -37,6 +37,7 @@ os.environ.setdefault("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 os.environ.setdefault("QWEN38_LOCAL_API_KEY_VAR", "H3_PROMPT_NO_KEY")
 from thin_review import ask_json  # noqa: E402
 from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
+from thin_runs import corrections  # noqa: E402
 
 from novel_manga.util import atomic_write_json  # noqa: E402
 
@@ -52,6 +53,10 @@ ASK = ("Translate each numbered Chinese shot description into ONE English senten
        "so the sentence points at the same reference picture the tag does.\n"
        "Return one sentence per input shot, in order.\n\n")
 TRIES = 3  # translations per clip before it is left without an English prompt
+NOTE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["note"], "properties": {"note": {"type": "string"}}}
+NOTE_ASK = ("Translate this director's correction for one video clip into plain English instructions about what the "
+            "picture must show. Refer to each character by the tag given below, never by name. Never quote dialogue.\n\n")
+CJK = re.compile(r"[\u4e00-\u9fff]")
 
 
 def stages_of(prompt: str) -> list[tuple[str, list[tuple[str, str, bool]]]]:
@@ -86,7 +91,7 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
     return defs, subject_of
 
 
-def compose(clip: dict, english: list[str], stages: list) -> str:
+def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str:
     defs, subject_of = subject_lines(clip)
     body = []
     for index, ((_, turns), text) in enumerate(zip(stages, english), 1):
@@ -104,6 +109,7 @@ def compose(clip: dict, english: list[str], stages: list) -> str:
               "own picture. The only spoken words in this clip are the Chinese text inside the <d> tags; "
               "everything else written here describes the picture and must not be spoken.\n\n"
               "detailed_description:\n" + "\n".join(body)
+            + (f"\n\ndirector_note:\n{note}" if note else "")
             + "\n\noverall_soundscape:\nRoom tone and the physical sounds of the action described above. "
               "No narrator, no voice-over, no speech other than the <d> lines.\n\n"
               "non_diegetic_music:\nNone.")
@@ -113,7 +119,18 @@ def warn(clip: dict, message: str) -> None:
     print(f"  {clip.get('clip_id', '?')}: H3 prompt {message}", file=sys.stderr, flush=True)
 
 
-def convert(clip: dict, tries: int = TRIES) -> bool:
+def english_note(note: str, naming: str) -> str:
+    """The clip's director correction in English, for the prompt H3 reads - in Chinese it was read out as dialogue.
+    '' when the translation fails or still carries Chinese."""
+    try:
+        answer = ask_json([{"type": "text", "text": NOTE_ASK + naming + "\n" + note}], NOTE_SCHEMA, name="h3note", max_tokens=400)
+    except Exception:  # noqa: BLE001 - convert asks again
+        return ""
+    text = str(answer.get("note") or "").strip()
+    return "" if not text or CJK.search(text) else text
+
+
+def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     """Write clip["prompt_h3"]; True when written.
 
     A translation that fails, or comes back with a different number of sentences than the clip has
@@ -121,8 +138,9 @@ def convert(clip: dict, tries: int = TRIES) -> bool:
     waits for it - instead of being padded out: that attached descriptions to the wrong shots, and
     filled the gap with the Chinese text, which H3 reads aloud."""
     prompt = clip.get("prompt") or ""
-    digest = h3_source_digest(prompt)
-    if clip.get("prompt_h3_of") == digest:
+    note = str(note or "").strip()
+    digest = h3_source_digest(prompt, note)
+    if clip.get("prompt_h3_of") == digest and clip.get("prompt_h3"):
         return False
     stages = stages_of(prompt)
     if not stages:
@@ -141,7 +159,12 @@ def convert(clip: dict, tries: int = TRIES) -> bool:
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
         if len(english) == len(stages) and all(english):
-            clip["prompt_h3"] = compose(clip, english, stages)
+            # A correction goes in with the rest, in English (director_note): an H3 lane renders nothing else of it.
+            direction = english_note(note, naming) if note else ""
+            if note and not direction:
+                problem = "the director's correction did not come back in English"
+                continue
+            clip["prompt_h3"] = compose(clip, english, stages, direction)
             clip["prompt_h3_of"] = digest
             return True
         problem = f"{len(english)} sentence(s) back for {len(stages)} shots"
@@ -185,13 +208,14 @@ def main() -> int:
         except (OSError, ValueError):
             return 0, 0, 0
         video = [c for c in plan["clips"] if c.get("kind") == "video"]
+        notes = {key: str(value) for key, value in corrections(episode).items()}  # director corrections, per clip
         # Every clip whose English prompt is due - all of them with --rebuild - and does not get one is a failure:
         # an older English prompt left in place is not a rebuild (it used to pass as one, exit code 0).
-        due = [clip for clip in video if args.rebuild or h3_prompt_outdated(clip)]
+        due = [clip for clip in video if args.rebuild or h3_prompt_outdated(clip, notes.get(clip["clip_id"], ""))]
         if args.rebuild:
             for clip in due:
                 clip.pop("prompt_h3_of", None)
-        made = {clip["clip_id"]: clip for clip in due if convert(clip)}
+        made = {clip["clip_id"]: clip for clip in due if convert(clip, note=notes.get(clip["clip_id"], ""))}
         if made:
             # The translations take minutes: write them into the plan as it is now, and only onto clips
             # whose Chinese prompt is still the one they were made from.
@@ -199,9 +223,10 @@ def main() -> int:
                 current = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 current = plan
+            now = {key: str(value) for key, value in corrections(episode).items()}
             for clip in current.get("clips", []):
                 new = made.get(clip.get("clip_id"))
-                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or ""):
+                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or "", now.get(clip.get("clip_id"), "")):
                     clip["prompt_h3"], clip["prompt_h3_of"] = new["prompt_h3"], new["prompt_h3_of"]
             atomic_write_json(path, current)
             plan = current

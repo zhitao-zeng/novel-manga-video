@@ -41,6 +41,7 @@ from novel_manga.production import SeriesAssetFactory
 from novel_manga.production_models import AssetRecord, SeriesAssetManifest
 from novel_manga.production_runtime import EpisodeProductionRuntime
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider, SubmissionUncertain
+from novel_manga.providers.h3_pool import PoolUnavailable
 from novel_manga.qc import inspect_media
 from novel_manga.render import Renderer
 from novel_manga.runtime_backends import correct_protected_lexicon, edit_distance, normalize_text
@@ -273,6 +274,7 @@ RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完�
 RETRY_SUFFIX_H3 = ("\n\nretake_note:\nThe previous take dropped or slurred some of the lines. Keep everything "
                    "above unchanged, and have every <d> line spoken clearly and completely.")
 RETRY_TAIL = re.compile("(?:" + re.escape(RETRY_SUFFIX) + "|" + re.escape(RETRY_SUFFIX_H3) + r")(?: This is take \d+\.|（第\d+次）)?\Z")
+RETRY_TAIL_H3 = re.compile(re.escape(RETRY_SUFFIX_H3) + r"(?: This is take \d+\.)?\Z")  # an English prompt's own retake note
 MAX_ATTEMPTS_FREE = 8  # a free lane retakes a failing clip past the usual two attempts, but not without end
 OUTPUT_MODERATION_MARKERS = ("OutputVideoSensitiveContentDetected", "OutputAudioSensitiveContentDetected")
 RATE_LIMIT_RE = re.compile(r"HTTP (429|502|503|504)\b|Too Many Requests|rate ?limit|concurren|QuotaExceeded|RequestLimit|ServerOverloaded", re.I)
@@ -292,6 +294,14 @@ SUBMIT_BACKOFF_SECONDS = (30, 60, 90, 120, 180, 240, 300)  # ~17 min of patience
 COMPLIANCE_SUFFIX = "\n【合规】画面健康、日常、无任何暴力、血腥、色情、赌博或违规内容；人物衣着完整；屏幕上的文字仅为剧情中的普通聊天内容；声音只有普通对白、环境音效和无歌词的哼唱，不含任何已有歌曲、歌词或背景音乐。"
 FEEDBACK_FILE = "review_feedback.json"  # {clip_id: 导演修正}, written by the automatic episode review
 SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
+
+
+def resubmittable(error: Exception) -> bool:
+    """A failed submission worth waiting out and asking again: the video service throttled, or no H3 pool instance had
+    room within the clip's time.  Never one that may already be a paid task, nor a content refusal."""
+    if isinstance(error, SubmissionUncertain) or "SensitiveContentDetected" in str(error):
+        return False
+    return isinstance(error, PoolUnavailable) or bool(RATE_LIMIT_RE.search(str(error)))
 
 
 class FramedPhanRouter(PhanRouterMediaProvider):
@@ -802,6 +812,8 @@ class ThinMediaRunner:
             except ModerationRejected:
                 raise
             except (RuntimeError, TimeoutError, OSError) as error:
+                if isinstance(error, SubmissionUncertain):
+                    raise  # held until someone checks the bill: waiting out more rounds cannot release it
                 # The hosted image service returns "图片生成失败，请稍后重试" during
                 # its own incidents.  That is transient, so back off instead of
                 # losing the whole chapter.
@@ -918,17 +930,15 @@ class ThinMediaRunner:
 
     def clip_base(self, clip: dict) -> str:
         """The clip's prompt before any softening: what clip_prompt sends, and what the cache compares."""
-        note = str(self.feedback.get(clip["clip_id"], "")).strip()
-        # H3 works out what to speak from the language it is written in, so the local lanes read
-        # the English rendering of the same plan; Seedance keeps the Chinese one.  A correction
-        # is appended in Chinese either way - it is an instruction, and both models follow it
-        # without speaking it (H3 speaks description, and this reads as direction).
+        # H3 works out what to speak from the language it is written in, so the local lanes read the English
+        # rendering of the same plan; Seedance keeps the Chinese one.  On an English prompt the correction is part of
+        # it (build_h3_prompts writes it in English): appended here in Chinese, H3 read it out as dialogue, as it did
+        # the Chinese retake note.
         if self.uses_h3_prompt(clip):
             # Its <Audio N> count the plan's voices; the request carries those within budget, most-spoken first.
-            base = renumber_audio(clip["prompt_h3"], [position for position, _ in self.chosen_voices(clip)[0]])
-        else:
-            base = clip["prompt"]
-        return base + (f"\n【导演修正】{note}" if note else "")
+            return renumber_audio(clip["prompt_h3"], [position for position, _ in self.chosen_voices(clip)[0]])
+        note = str(self.feedback.get(clip["clip_id"], "")).strip()
+        return clip["prompt"] + (f"\n【导演修正】{note}" if note else "")
 
     def retry_suffix(self, clip: dict, attempt: int) -> str:
         """The note a retake carries: in the prompt's own language, since H3 reads Chinese out; and from the
@@ -953,6 +963,44 @@ class ThinMediaRunner:
         up to 2026-09-10 stays valid instead of re-rendering wholesale."""
         saved_digests = saved.get("reference_sha256")
         return saved.get("references") == [str(p) for p in references] and (saved_digests is None or list(saved_digests) == digests)
+
+    def request_matches(self, clip: dict, saved: dict, references, digests: list[str]) -> bool:
+        """A take was made for this clip as it now stands: the same pictures and length, and a prompt that is the
+        clip's base plus only what a run adds - a retake note, the output filter's compliance line and, on Seedance,
+        the softened wording (prescreen or an input refusal).  Every mix of those is the same clip: the list of
+        accepted wordings missed softened-then-compliance, and that take was set aside and paid for again on every
+        re-entry.  An English (H3) prompt is never softened: a take made from softened wording, or carrying a
+        Chinese note H3 reads out, is not this clip."""
+        if not (self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"])):
+            return False
+        base = self.clip_base(clip)
+        english = self.uses_h3_prompt(clip)
+        forms = {base} if english else {base, soften_prompt(base)}
+        tail = RETRY_TAIL_H3 if english else RETRY_TAIL
+        prompt = str(saved.get("prompt", ""))
+        variants = [prompt] + ([prompt[: -len(COMPLIANCE_SUFFIX)]] if prompt.endswith(COMPLIANCE_SUFFIX) and not english else [])
+        return any(tail.sub("", variant, count=1) in forms for variant in variants)
+
+    def cached_take(self, clip: dict, attempt: int) -> bool:
+        """Whether take `attempt` of the clip is already in the cache, made for the clip as it now stands."""
+        directory = self.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
+        video = directory / "clip.mp4"
+        if not ((directory / "request.json").is_file() and video.is_file() and video.stat().st_size > 0):
+            return False
+        try:
+            saved = json.loads((directory / "request.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        references = tuple(self.novel_dir / ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice")
+        return self.request_matches(clip, saved, references, reference_digests(references))
+
+    def prescreens(self, clip: dict) -> bool:
+        """Whether the clip's wording is scored for content-filter risk, and softened, before its first submission.
+        Not an English (H3) prompt: the local model has no filter to get past, and the softening - Chinese
+        substitutions and a Chinese compliance paragraph - rewrote its <d> lines and was read out as dialogue (雾月,
+        2026-09-11/12: 329 clips in finals carried it, 30 of them audibly)."""
+        return (self.prescreen and not self.cache_only and not self.uses_h3_prompt(clip)
+                and not clip.get("_softened") and not clip.get("_prescreened"))
 
     def clip_prompt(self, clip: dict) -> str:
         prompt = self.clip_base(clip)
@@ -1025,17 +1073,10 @@ class ThinMediaRunner:
             # Keying on the path alone silently served a stale clip after the
             # chapter was re-planned.
             saved = json.loads((directory / "request.json").read_text(encoding="utf-8"))
-            # The wording clip_prompt chose.  Built from clip["prompt"] alone, it let a local-H3 lane keep
-            # clips H3 had rendered from the Chinese prompt, which H3 reads aloud (雾月 1732 on 2026-09-11
-            # kept 11 of its 18 that way).
-            base = self.clip_base(clip)
-            # A clip generated from the softened wording (prescreen or moderation
-            # retry) is the same clip: do not pay again because a later run made
-            # the other choice.  So is one the output filter's retry made with the
-            # compliance line added to the prompt as it was: without it here, such
-            # a clip was generated - and paid for - again on every re-entry.
-            acceptable = {prompt, base + retry, base + retry + COMPLIANCE_SUFFIX, soften_prompt(base) + retry}
-            if saved.get("prompt") in acceptable and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            # Compared with the wording clip_base chose, whatever a run added to it (request_matches).  Built from
+            # clip["prompt"] alone, it let a local-H3 lane keep clips H3 had rendered from the Chinese prompt, which
+            # H3 reads aloud (雾月 1732 on 2026-09-11 kept 11 of its 18 that way).
+            if self.request_matches(clip, saved, references, digests):
                 log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
                 return output
             if self.cache_only:
@@ -1053,7 +1094,7 @@ class ThinMediaRunner:
                         target.unlink(missing_ok=True)
                         source.rename(target)
                 log(f"{clip['clip_id']} attempt {attempt}: request changed since the cached clip, regenerating")
-        if self.prescreen and not self.cache_only and not clip.get("_softened") and not clip.get("_prescreened"):
+        if self.prescreens(clip):
             clip["_prescreened"] = True
             risk = prescreen_prompt(prompt)
             if risk >= PRESCREEN_RISK:
@@ -1070,7 +1111,7 @@ class ThinMediaRunner:
             saved = json.loads((other / "request.json").read_text(encoding="utf-8"))
             # The same wording and the same pictures.  Comparing paths alone handed back a video of the old card
             # after the card was redrawn - the very video the check above had just set aside for that reason.
-            if self.without_retry(saved.get("prompt", "").removesuffix(COMPLIANCE_SUFFIX)) == self.clip_prompt(clip) and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            if self.request_matches(clip, saved, references, digests):
                 # A retry exists to replace a clip that failed the speech gate;
                 # reusing that same clip would just fail it again.  Only a video
                 # that passed (or was never judged - a resumed run) is reused.
@@ -1103,9 +1144,9 @@ class ThinMediaRunner:
                 # Throttled at submission (higher --parallel): wait and resubmit
                 # instead of failing the clip; content errors propagate at once.
                 # An unconfirmed submission may already be a paid task: never resent from here.
-                if wait is None or isinstance(error, SubmissionUncertain) or "SensitiveContentDetected" in str(error) or not RATE_LIMIT_RE.search(str(error)):
+                if wait is None or not resubmittable(error):
                     raise
-                log(f"{clip['clip_id']} attempt {attempt}: video service throttled ({str(error)[:80]}); retrying in {wait}s")
+                log(f"{clip['clip_id']} attempt {attempt}: video service throttled or H3 pool full ({str(error)[:80]}); retrying in {wait}s")
                 time.sleep(wait)
         finally:
             release_inflight_slot(slot)
@@ -1322,13 +1363,21 @@ class ThinMediaRunner:
                 log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
                 if analysis["passed"]:
                     break
-                if self.free_retries and not clip.get("_generated", True) and limit < MAX_ATTEMPTS_FREE:
+                if not clip.get("_generated", True) and limit < MAX_ATTEMPTS_FREE and (self.free_retries or self.cached_take(clip, attempt + 1)):
                     # A failure served from the cache does not use up this run's takes on a free lane: an episode
-                    # taken back for its failed clips gets new takes of them, not the old verdicts over again.
+                    # taken back for its failed clips gets new takes of them, not the old verdicts over again.  And a
+                    # next take already in the cache is looked at on any lane, for free: a rebuild (--cache-only) or
+                    # a paid re-render stopped at take 2 and put the failed take in the final over a passing take 3.
                     limit += 1
                 attempt += 1
         except Exception as error:  # noqa: BLE001 - one clip must not sink the episode
             message = f"{type(error).__name__}: {str(error)[:600]}"
+            if attempts and not isinstance(error, CacheMiss):
+                # A further take failed (no instance free, a refusal, a held submission): the clip keeps the takes it
+                # has.  Marking the whole clip failed threw an assembled episode back to clips_failed.
+                log(f"{clip['clip_id']}: a further take failed ({message[:160]}); keeping the {len(attempts)} it has")
+                return {"clip_id": clip["clip_id"], "attempts": attempts, "retake_error": message,
+                        "selected": next((row for row in attempts if row["passed"]), attempts[-1])}
             log(f"{clip['clip_id']}: FAILED {message[:200]}")
             return {"clip_id": clip["clip_id"], "attempts": attempts, "selected": attempts[-1] if attempts else None, "error": message}
         selected = next((row for row in attempts if row["passed"]), attempts[-1])

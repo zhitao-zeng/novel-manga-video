@@ -6,6 +6,7 @@ import io
 import json
 import math
 import os
+import re
 import time
 from pathlib import Path
 
@@ -18,12 +19,30 @@ from .base import ImageResult, MediaProvider
 
 
 SUBMIT_TIMEOUT_SECONDS = 120.0  # a task submission answers in seconds; downloads keep the long request timeout
-RESUBMIT_ENV = "NOVEL_RESUBMIT_UNCONFIRMED"  # "1" (thin_batch --resubmit-unconfirmed) once someone has checked the bill
+RESUBMIT_ENV = "NOVEL_RESUBMIT_UNCONFIRMED"  # thin_batch --resubmit-unconfirmed: its start time, once someone has checked the bill
+PROCESS_STARTED = time.time()
+
+
+def resubmit_before() -> float:
+    """Submissions left unconfirmed before this moment may go out again; 0 when none may.  thin_batch passes the time
+    its run started, so what someone checked is released and a submission that goes unconfirmed during that same run
+    is held like any other - the flag used to release those too, unchecked.  "1", set by hand, means before this
+    process started."""
+    value = os.environ.get(RESUBMIT_ENV, "").strip()
+    if not value:
+        return 0.0
+    if value == "1":
+        return PROCESS_STARTED
+    try:
+        return float(value)
+    except ValueError:
+        return 0.0
 
 
 def unconfirmed(record: dict) -> bool:
     """A submission recorded as unconfirmed and not yet allowed to go out again."""
-    return bool(record.get("submit_uncertain_at")) and not record.get("task_id") and os.environ.get(RESUBMIT_ENV) != "1"
+    at = record.get("submit_uncertain_at")
+    return bool(at) and not record.get("task_id") and float(at) >= resubmit_before()
 
 
 def held_message(record: dict) -> str:
@@ -37,11 +56,30 @@ class SubmissionUncertain(RuntimeError):
     task, and billed it, so the request is not sent again automatically."""
 
 
+# A gateway error that can follow a request the service took (bad gateway, gateway timeout, an origin error behind a
+# CDN) may come back for a task that was created - and billed - so it is not sent again.  429 and 503 turn a request
+# away before anything is made: those go out again after a wait.
+UNCERTAIN_STATUSES = {500, 502, 504, 520, 521, 522, 523, 524}
+RETRYABLE_STATUSES = {429, 503}
+PURGED_STATUSES = {403, 404, 410}  # a finished task's result the service no longer has
+STATUS_IN_MESSAGE = re.compile(r"\bHTTP (\d{3})\b")
+
+
+def http_status(error: Exception) -> int | None:
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code
+    match = STATUS_IN_MESSAGE.search(str(error))
+    return int(match.group(1)) if match else None
+
+
 def submit_once(submit, attempts: int = 3, base_delay: float = 1.0) -> httpx.Response:
     """Send a task-creating request, retrying only when no task can have been created: the connection was never
-    made, or the service refused with 429.  retry() resent on any error, so a submission the service had accepted
-    but whose answer timed out was created - and paid for - twice.  A lost answer (read timeout, dropped
-    connection) or a gateway timeout raises SubmissionUncertain instead."""
+    made, or the service turned it away with 429 or 503.  retry() resent on any error, so a submission the service
+    had accepted but whose answer was lost was created - and paid for - twice.  A lost answer (read timeout, dropped
+    connection) or a gateway error that can follow an accepted request (500, 502, 504, 52x) raises
+    SubmissionUncertain instead: a 502 used to go back to the runner, whose throttle backoff sent it up to seven more
+    times.  Any other refusal is a RuntimeError, as the callers expect - an image submission's HTTPStatusError used
+    to get past every retry loop and take the whole render down."""
     last: Exception | None = None
     for attempt in range(attempts):
         try:
@@ -51,15 +89,19 @@ def submit_once(submit, attempts: int = 3, base_delay: float = 1.0) -> httpx.Res
         except httpx.TransportError as error:
             raise SubmissionUncertain(f"task submission unconfirmed ({type(error).__name__}): not sent again, the service may have accepted it") from error
         except (RuntimeError, httpx.HTTPStatusError) as error:
-            status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
-            if status == 504 or "HTTP 504" in str(error):
-                raise SubmissionUncertain("task submission unconfirmed (gateway timeout 504): not sent again, the service may have accepted it") from error
-            if status != 429 and "HTTP 429" not in str(error):
+            status = http_status(error)
+            if status in UNCERTAIN_STATUSES:
+                raise SubmissionUncertain(f"task submission unconfirmed (HTTP {status}): not sent again, the service may have accepted it") from error
+            if status not in RETRYABLE_STATUSES:
+                if isinstance(error, httpx.HTTPStatusError):
+                    raise RuntimeError(f"task submission returned HTTP {status}: {error.response.text.strip()[:300]}") from error
                 raise
             last = error
         if attempt + 1 < attempts:
             time.sleep(base_delay * (2 ** attempt))
     assert last is not None
+    if isinstance(last, httpx.HTTPStatusError):
+        raise RuntimeError(f"task submission returned HTTP {http_status(last)} after {attempts} tries: {last.response.text.strip()[:300]}") from last
     raise last
 
 
@@ -228,11 +270,16 @@ class PhanRouterMediaProvider(MediaProvider):
             url = self._poll_image_url(str(task_id))
             self._download(url, output, max_bytes=64 * 1024 * 1024)
         except (RuntimeError, httpx.HTTPStatusError) as error:
+            purged = isinstance(error, httpx.HTTPStatusError) and error.response.status_code in PURGED_STATUSES
+            if isinstance(error, httpx.HTTPStatusError) and not purged:
+                # A hiccup while polling or downloading (a 5xx, a 429): the task stands, and a later run picks it
+                # up again.  Dropping its record here had the next build pay for a second image of the same card.
+                raise
             task_path.unlink(missing_ok=True)
             # A task id remembered from an earlier run may point at a result
             # file the service has since purged (403/404 on download).  That
             # card is not coming back: submit it again, once.
-            if not cached or not isinstance(error, httpx.HTTPStatusError):
+            if not cached or not purged:
                 raise
             task_id = self._submit_recorded(submit, task_path, {"kind": "image"})
             if not task_id:

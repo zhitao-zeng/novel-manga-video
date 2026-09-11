@@ -2,14 +2,16 @@
 
 thin_batch.py counts render runs per episode and stops retrying one after RENDER_RUNS_PER_PLAN, so a
 clip that fails the same way every time is not regenerated (and paid for) on every round.  The count
-is kept per [clip_plan.json mtime, review_feedback.json mtime]: a re-plan or a new correction starts
-it again.  The conductor reads the same count to tell an episode to leave alone from one still worth
+is kept for what the plan and its corrections say: a re-plan or a new correction starts it again, a
+file written again with the same content does not (the mtimes are only the quick check).  The conductor reads the same count to tell an episode to leave alone from one still worth
 a lane.  Both go through this module: the conductor once compared the plan's mtime alone with the
 pair thin_batch writes, read 0 runs everywhere, and kept given-up episodes renderable.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from pathlib import Path
 
 from thin_profile import h3_prompt_fingerprint, plan_fingerprint
@@ -23,20 +25,39 @@ def runs_key(directory: Path) -> list[float]:
     return [plan.stat().st_mtime if plan.is_file() else 0.0, feedback.stat().st_mtime if feedback.is_file() else 0.0]
 
 
+def content_key(directory: Path) -> str:
+    """What the runs are counted for: the plan's renderable content and the corrections.  Keyed on the files' mtimes
+    alone, a rewrite that changed neither (a re-pack whose clips came out the same, a rebuild of unchanged split
+    parts, the H3 converter's write) started a given-up episode's count again, and a paid lane paid three more runs."""
+    try:
+        plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    material = json.dumps([plan_fingerprint(plan), corrections(directory)], ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
 def render_runs(directory: Path) -> int:
     """Render runs so far on the episode's current plan and corrections."""
     try:
         saved = json.loads((directory / RUNS_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return 0
-    if not isinstance(saved, dict) or saved.get("plan_mtime") != runs_key(directory):
+    if not isinstance(saved, dict):
         return 0
+    if saved.get("plan_mtime") != runs_key(directory):
+        # Written since: the count stands if what the files say did not change.
+        if not saved.get("content_key") or saved["content_key"] != content_key(directory):
+            return 0
     return int(saved.get("runs", 0))
 
 
 def count_run(directory: Path) -> int:
     runs = render_runs(directory) + 1
-    (directory / RUNS_FILE).write_text(json.dumps({"plan_mtime": runs_key(directory), "runs": runs}), encoding="utf-8")
+    record = {"plan_mtime": runs_key(directory), "content_key": content_key(directory), "runs": runs}
+    temp = directory / f"{RUNS_FILE}.{os.getpid()}.tmp"
+    temp.write_text(json.dumps(record), encoding="utf-8")
+    os.replace(temp, directory / RUNS_FILE)
     return runs
 
 

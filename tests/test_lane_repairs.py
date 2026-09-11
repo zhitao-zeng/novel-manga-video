@@ -80,6 +80,9 @@ def test_the_conductor_reads_the_render_runs_thin_batch_counts(tmp_path):
     count_run(directory)
     assert render_runs(directory) == 2
     assert conductor(tmp_path).chapter(1)["runs"] == 2
+    later(directory / "clip_plan.json", 5)  # written again with the same clips: the count stands
+    assert render_runs(directory) == 2
+    (directory / "review_feedback.json").write_text(json.dumps({"clip_01": "修正"}, ensure_ascii=False), encoding="utf-8")
     later(directory / "review_feedback.json", 5)  # a new correction is new grounds to try again
     assert render_runs(directory) == 0
 
@@ -447,7 +450,7 @@ def test_a_resumed_review_judges_again_only_the_clips_it_failed_on(tmp_path, mon
         {"clip_id": cid, "selected": {"video": str(path), "hypothesis": ""}} for cid, path in videos.items()]}), encoding="utf-8")
     review = directory / "episode_review.json"
     review.write_text(json.dumps({"policy": thin_review.POLICY, "clips": {
-        "clip_01": {"video": str(videos["clip_01"]), "severity": "pass"},
+        "clip_01": {"video": str(videos["clip_01"]), "take": thin_review.take_identity(videos["clip_01"]), "severity": "pass"},
         "clip_02": {"video": str(videos["clip_02"]), "severity": "review_error", "error": "ReadTimeout"}}}), encoding="utf-8")
     later(review, 5)
     (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")

@@ -47,6 +47,12 @@ MEMBERS_SECONDS = 10.0  # how long one process reuses its reading of the pool fi
 WAITING = {"queued", "running", "in_progress", "processing"}  # it reports the job it renders as queued
 
 
+class PoolUnavailable(RuntimeError):
+    """No pool instance had a free, healthy slot within the wait allowed.  A RuntimeError, so the runner waits it out
+    and asks again like a throttled service: as a TimeoutError it failed the clip, and a pool-wide outage spent the
+    render runs of every waiting episode without a single generation."""
+
+
 def instance_key(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     return f"{parsed.hostname}_{parsed.port or 80}"
@@ -393,7 +399,7 @@ class H3Pool:
 
     @staticmethod
     def _pause(started: float, timeout: float | None, message: str) -> None:
-        """Wait before looking again, or raise TimeoutError once `timeout` has passed.  A short wait (a test)
+        """Wait before looking again, or raise PoolUnavailable once `timeout` has passed.  A short wait (a test)
         looks often; a clip waiting out a busy pool looks every few seconds, not twenty times a second in
         every waiting runner."""
         if timeout is None:
@@ -401,5 +407,5 @@ class H3Pool:
             return
         left = timeout - (time.monotonic() - started)
         if left <= 0:
-            raise TimeoutError(message)
+            raise PoolUnavailable(message)
         time.sleep(min(left, 0.05 if timeout <= 5 else 3.0))
