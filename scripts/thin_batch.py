@@ -402,6 +402,12 @@ class Batch:
                     row["note"] = f"review failed: {type(error).__name__}: {str(error)[:120]}"
                     log(f"ch{chapter}: episode review failed ({type(error).__name__}: {str(error)[:120]})")
             return
+        if self.args.no_render:
+            # A review job: the conductor spawns it without the novel's render key, so a render here would run
+            # on whatever model its own environment names - sd2.5 for 雾月 on 2026-09-11, when one re-stitched
+            # 60 invalidated episodes from their cached clips.
+            row["render"] = f"skipped (review job, {status})"
+            return
         if self.args.dry_run:
             row["render"] = f"would render ({status})"
             return
@@ -743,6 +749,7 @@ def main() -> int:
     parser.add_argument("--rerender", action="store_true", help="re-render episodes that already have a final video")
     parser.add_argument("--unattended", action="store_true", help="automatic reviews with bounded paid fixes: cards after the assets stage (one redraw/regeneration), clips after each render (one regeneration with the reviewer's correction); then delivery_report.md")
     parser.add_argument("--review-only", action="store_true", help="run the automatic reviews and write delivery_report.md without any paid fix")
+    parser.add_argument("--no-render", action="store_true", help="with --stage render: review the episodes that are already done and render nothing (the conductor's review jobs run without the novel's render key)")
     parser.add_argument("--no-card-review", dest="card_review", action="store_false", default=True,
                         help="skip judging cards before rendering (by default every card is judged once it is built and fixed once if flagged)")
     parser.add_argument("--grow-bible", dest="grow_bible", action="store_true", default=True, help="before planning a chapter, add its new proper-named characters and locations to the bible (default)")

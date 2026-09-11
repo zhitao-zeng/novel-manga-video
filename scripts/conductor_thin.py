@@ -479,7 +479,7 @@ class Conductor:
             return
         self.last_review = time.time()
         self.spawn("review", [PY, str(SCRIPTS / "thin_batch.py"), "--novel-dir", str(self.novel_dir), "--chapters", ",".join(map(str, todo)),
-                              "--stage", "render", "--review-only", "--tier", "fast", "--merge", "1", "--parallel", str(self.cfg.get("review", {}).get("parallel", 3))])
+                              "--stage", "render", "--review-only", "--no-render", "--tier", "fast", "--merge", "1", "--parallel", str(self.cfg.get("review", {}).get("parallel", 3))])
 
     # ------------------------------------------------------------------- loop
     def tick(self) -> bool:
