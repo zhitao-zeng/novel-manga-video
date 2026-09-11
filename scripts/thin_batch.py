@@ -40,8 +40,8 @@ MODERATION_MARKERS = (".moderation_replanned", ".moderation_replanned2")  # one 
 MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥、色情暧昧一律改为间接表现：不写具体暴力动作和伤势，不写露骨或挑逗台词，"
                    "冲突用对峙、退让、旁观者反应和事后结果来交代；避免刀、枪、毒品、赌博、自残等词；台词选原文里克制的句子。")
 sys.path.insert(0, str(SCRIPTS))
-from thin_profile import h3_prompt_fingerprint, h3_prompt_outdated, plan_fingerprint  # noqa: E402
-from thin_runs import RENDER_RUNS_PER_PLAN, count_run, render_runs  # noqa: E402
+from thin_profile import h3_prompt_outdated  # noqa: E402
+from thin_runs import RENDER_RUNS_PER_PLAN, count_run, episode_status, gate_failures, render_runs  # noqa: E402
 
 
 def log(message: str) -> None:
@@ -174,6 +174,8 @@ class Batch:
             "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": os.environ.get("NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"),
             "PHANROUTER_INLINE_REFERENCE_IMAGES": "1",
+            # Someone has checked the bill: submissions recorded as unconfirmed may be sent again.
+            **({"NOVEL_RESUBMIT_UNCONFIRMED": "1"} if args.resubmit_unconfirmed else {}),
         }
         self.rows: dict[int, dict] = {}
         self.reviewing = bool(args.unattended or args.review_only)
@@ -265,40 +267,9 @@ class Batch:
             return "failed"
         return "missing"
 
-    @staticmethod
-    def corrections(directory: Path) -> dict:
-        """The episode's director corrections (review_feedback.json); {} when there are none."""
-        try:
-            return json.loads((directory / "review_feedback.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-
     def render_status(self, chapter: int) -> str:
-        directory = self.episode_dir(chapter)
-        report = directory / "thin_media_report.json"
-        plan = directory / "clip_plan.json"
-        if not plan.is_file():
-            return "no_plan"
-        if not report.is_file():
-            return "pending"
-        data = json.loads(report.read_text(encoding="utf-8"))
-        plan_data = json.loads(plan.read_text(encoding="utf-8"))
-        stamped = data.get("clip_plan_fingerprint")
-        if stamped and stamped != plan_fingerprint(plan_data):
-            return "stale"  # reports from before the stamp are trusted; a re-plan deletes them anyway
-        # Two inputs the plan fingerprint leaves out also change what a clip is asked for: a director
-        # correction (review_feedback.json, appended to the prompts it names) and, on a local-H3 lane, the
-        # English prompt.  A correction written after the final was cut left the episode "done" and the
-        # correction never filmed.
-        if (data.get("review_feedback") or {}) != self.corrections(directory):
-            return "stale"
-        if os.environ.get("NOVEL_LOCAL_H3_URL") and data.get("prompt_h3_fingerprint") not in (None, h3_prompt_fingerprint(plan_data)):
-            return "stale"
-        if data.get("failed_clips") or not data.get("assembly"):
-            return "clips_failed"
-        if data.get("gate_failed_clips") or not data["assembly"].get("thin_passed"):
-            return "done_with_warnings"
-        return "done"
+        """thin_runs.episode_status, read the way this lane renders (an H3 lane also watches its English prompts)."""
+        return episode_status(self.episode_dir(chapter), bool(os.environ.get("NOVEL_LOCAL_H3_URL")))
 
     # ---- stages ----
     def check_qwen(self) -> None:
@@ -426,12 +397,14 @@ class Batch:
                 row["render"] = f"skipped (clip plan packed for {packed_cap:g} s, lane takes {lane_cap:g} s)"
                 return
         free = bool(os.environ.get("NOVEL_LOCAL_H3_URL"))
-        # A final with clips that failed the speech gate is a preview, not a finished episode.  A paid lane
-        # leaves it to a person to decide whether to pay for more; a free one (local H3) takes it back for
-        # fresh takes of the failed clips - the runner does not count its cached failures against them -
-        # until the runs for this plan are used up.
-        retake = (status == "done_with_warnings" and free and render_runs(directory) < RENDER_RUNS_PER_PLAN
-                  and not self.args.no_render)
+        # A final with clips that failed the speech gate is a preview, not a finished episode.  A paid lane leaves
+        # it to a person to decide whether to pay for more (--retake-failed, for one approved batch); a free one
+        # (local H3) takes it back for fresh takes of the failed clips - the runner does not count its cached
+        # failures against them - until the runs for this plan are used up.  Only the speech gate's failures are
+        # taken back: a final that fails a media check on clips that all passed would only be put together again
+        # from the same clips, so it waits for a person.
+        retake = (status == "done_with_warnings" and (free or self.args.retake_failed) and bool(gate_failures(directory))
+                  and render_runs(directory) < RENDER_RUNS_PER_PLAN and not self.args.no_render)
         if status in {"done", "done_with_warnings"} and not retake and not self.args.rerender:
             row["render"] = status
             self.fill_result(chapter)
@@ -482,7 +455,7 @@ class Batch:
         try:
             if not self.args.cache_only:  # cards are only built, judged and redrawn for clips about to be generated
                 self.prepare_cards(chapter)
-            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"]) + (["--cache-only"] if self.args.cache_only else [])
+            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"]) + (["--cache-only"] if self.args.cache_only else []) + (["--retake-failed"] if self.args.retake_failed else [])
             for attempt in ((1,) if self.args.cache_only else (1, 2)):
                 log(f"ch{chapter}: rendering (attempt {attempt})")
                 code, problem = self.run(command, directory / "render.log")
@@ -811,6 +784,8 @@ def main() -> int:
     parser.add_argument("--unattended", action="store_true", help="automatic reviews with bounded paid fixes: cards after the assets stage (one redraw/regeneration), clips after each render (one regeneration with the reviewer's correction); then delivery_report.md")
     parser.add_argument("--review-only", action="store_true", help="run the automatic reviews and write delivery_report.md without any paid fix")
     parser.add_argument("--cache-only", action="store_true", help="with --stage render --rerender: rebuild finals from the clips already rendered (after an assembly fix); never generates anything, and an episode with a clip missing from the cache is left as it is")
+    parser.add_argument("--retake-failed", action="store_true", help="give the gate-failed clips of finals fresh takes (always on a local-H3 lane; on a paid lane only for a batch a person approved - every take is paid for)")
+    parser.add_argument("--resubmit-unconfirmed", action="store_true", help="send again the submissions recorded as unconfirmed (the service may have created them): only after checking the bill")
     parser.add_argument("--no-render", action="store_true", help="with --stage render: review the episodes that are already done and render nothing (the conductor's review jobs run without the novel's render key)")
     parser.add_argument("--no-card-review", dest="card_review", action="store_false", default=True,
                         help="skip judging cards before rendering (by default every card is judged once it is built and fixed once if flagged)")

@@ -118,7 +118,7 @@ def test_a_stage_too_long_for_one_clip_is_split_between_its_lines(monkeypatch):
     spoken = [turn["text"] for clip in clips for stage in clip["shots"] for turn in stage["turns"]]
     assert spoken == [turn["text"] for turn in shot["turns"]]  # every line, in order, none clamped away
     assert any(d["kind"] == "split_stage" for d in packer.DECISIONS)
-    assert clips[1]["shots"][0]["visual_prompt"].startswith("与上一段同一画面")
+    assert clips[1]["shots"][0]["visual_prompt"] == "承接上一段结束时的画面：林凡停下"
 
 
 def test_a_line_longer_than_a_clip_is_cut_at_sentence_ends(monkeypatch):
@@ -186,7 +186,7 @@ def test_thin_batch_cache_only_rebuilds_without_cards_or_a_run(tmp_path, monkeyp
     monkeypatch.delenv("NOVEL_CLIP_SECONDS_MAX", raising=False)
     batch = object.__new__(thin_batch.Batch)
     batch.args = types.SimpleNamespace(rerender=True, cache_only=True, no_render=False, dry_run=False, workers=0, inflight=4, tier=None,
-                                       prescreen=False, moderation_repair=True, prune=False)
+                                       prescreen=False, moderation_repair=True, prune=False, retake_failed=False)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
     batch.reviewing, batch.fast, batch.env, batch.notes = False, True, {}, {}
     commands, cards = [], []

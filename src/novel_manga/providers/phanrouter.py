@@ -18,7 +18,18 @@ from .base import ImageResult, MediaProvider
 
 
 SUBMIT_TIMEOUT_SECONDS = 120.0  # a task submission answers in seconds; downloads keep the long request timeout
-UNCERTAIN_HOLD_SECONDS = 1800.0  # an unconfirmed submission is not sent again for this long
+RESUBMIT_ENV = "NOVEL_RESUBMIT_UNCONFIRMED"  # "1" (thin_batch --resubmit-unconfirmed) once someone has checked the bill
+
+
+def unconfirmed(record: dict) -> bool:
+    """A submission recorded as unconfirmed and not yet allowed to go out again."""
+    return bool(record.get("submit_uncertain_at")) and not record.get("task_id") and os.environ.get(RESUBMIT_ENV) != "1"
+
+
+def held_message(record: dict) -> str:
+    return (f"this request's submission at {time.strftime('%m-%d %H:%M', time.localtime(float(record['submit_uncertain_at'])))} went "
+            "unconfirmed and may have created a paid task: not sent again until someone checks the bill and reruns with "
+            "--resubmit-unconfirmed")
 
 
 class SubmissionUncertain(RuntimeError):
@@ -125,6 +136,15 @@ class PhanRouterMediaProvider(MediaProvider):
             time.sleep(5)
         raise TimeoutError(f"image task timed out: {task_id}")
 
+    @staticmethod
+    def _submit_recorded(submit, task_path: Path, record: dict) -> str | None:
+        """submit_once; an unconfirmed submission is written beside the output, so it is not sent again unasked."""
+        try:
+            return submit_once(submit).json().get("task_id")
+        except SubmissionUncertain:
+            atomic_write_json(task_path, {**record, "submit_uncertain_at": time.time()})
+            raise
+
     def _restore_image_url(self, image: ImageResult) -> str:
         if image.public_url:
             return image.public_url
@@ -193,12 +213,13 @@ class PhanRouterMediaProvider(MediaProvider):
             return response
 
         task_path = output.with_suffix(output.suffix + ".task.json")
-        cached = task_path.exists()
-        if cached:
-            import json
-            task_id = json.loads(task_path.read_text(encoding="utf-8")).get("task_id")
-        else:
-            task_id = submit_once(submit).json().get("task_id")
+        record = json.loads(task_path.read_text(encoding="utf-8")) if task_path.exists() else {}
+        if unconfirmed(record):
+            raise SubmissionUncertain(held_message(record))
+        task_id = record.get("task_id")
+        cached = bool(task_id)
+        if not cached:
+            task_id = self._submit_recorded(submit, task_path, {"kind": "image"})
             if task_id:
                 atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
         if not task_id:
@@ -213,7 +234,7 @@ class PhanRouterMediaProvider(MediaProvider):
             # card is not coming back: submit it again, once.
             if not cached or not isinstance(error, httpx.HTTPStatusError):
                 raise
-            task_id = submit_once(submit).json().get("task_id")
+            task_id = self._submit_recorded(submit, task_path, {"kind": "image"})
             if not task_id:
                 raise ValueError("image API returned no task_id") from error
             atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
@@ -255,7 +276,17 @@ class PhanRouterMediaProvider(MediaProvider):
             response.raise_for_status()
             return response
 
-        response = submit_once(submit)
+        # A synchronous generation has no task to look up: an unconfirmed one is marked beside the output.
+        marker = output.with_suffix(output.suffix + ".unconfirmed.json")
+        record = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {}
+        if unconfirmed(record):
+            raise SubmissionUncertain(held_message(record))
+        try:
+            response = submit_once(submit)
+        except SubmissionUncertain:
+            atomic_write_json(marker, {"submit_uncertain_at": time.time(), "kind": "image"})
+            raise
+        marker.unlink(missing_ok=True)
         data = response.json().get("data")
         if not isinstance(data, list) or not data or not isinstance(data[0], dict):
             raise ValueError("Seedream image API returned no data")
@@ -383,25 +414,18 @@ class PhanRouterMediaProvider(MediaProvider):
             cached = json.loads(task_path.read_text(encoding="utf-8"))
             if cached.get("request_sha256") == request_sha256:
                 task_id = cached.get("task_id")
-                waited = time.time() - float(cached.get("submit_uncertain_at") or 0)
-                if not task_id and waited < UNCERTAIN_HOLD_SECONDS:
-                    raise SubmissionUncertain(
-                        f"this request's submission at {time.strftime('%H:%M', time.localtime(cached['submit_uncertain_at']))} went "
-                        f"unconfirmed and may have created a paid task; not sent again for {int((UNCERTAIN_HOLD_SECONDS - waited) / 60) + 1} min")
+                if unconfirmed(cached):
+                    # Waiting a while and sending it again still made a second task whenever the first had been
+                    # accepted.  With no way to ask the service, only someone who has seen the bill may resend it.
+                    raise SubmissionUncertain(held_message(cached))
             else:
                 # The request changed since that task was created (re-plan,
                 # sanitised line, send-time alias): the old task's video would
                 # not be this clip.  Keep the record aside and submit afresh.
                 task_path.replace(task_path.with_suffix(".stale.json"))
         if not task_id:
-            try:
-                task_id = submit_once(submit).json().get("task_id")
-            except SubmissionUncertain:
-                # Kept beside the clip, so a later run waits before sending the same request again and the cost
-                # ledger can find it.
-                atomic_write_json(task_path, {"request_sha256": request_sha256, "submit_uncertain_at": time.time(),
-                                              "kind": "video", "model": self.settings.video_model})
-                raise
+            task_id = self._submit_recorded(submit, task_path, {"request_sha256": request_sha256, "kind": "video",
+                                                                "model": self.settings.video_model})
             if task_id:
                 atomic_write_json(
                     task_path,

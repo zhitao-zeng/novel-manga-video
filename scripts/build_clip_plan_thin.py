@@ -20,6 +20,7 @@ import math
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 from novel_manga.models import StoryBible
@@ -161,9 +162,12 @@ def split_long_shot(shot: dict) -> list[dict]:
     for number, part in enumerate(parts, 1):
         piece = {**shot, "turns": part, "split_part": [number, len(parts)]}
         if number > 1:
-            piece["visual_prompt"] = "与上一段同一画面、同一站位继续：" + compact(shot.get("visual_prompt", ""))
-        if number < len(parts):
-            piece["end_state"] = "人物仍在原位，话还没说完"
+            # The stage's action happens once, in its first part, which ends where the stage ends; the later parts
+            # carry on from there and only finish the lines.  Copying the action into every part had a character
+            # push the same door open three times.
+            end = compact(shot.get("end_state", ""))
+            piece["visual_prompt"] = f"承接上一段结束时的画面：{end}" if end else "承接上一段结束时的画面"
+            piece["motion_prompt"] = "人物保持上一段结束时的位置和姿态，接着把话说完，不重复上一段的动作"
         pieces.append(piece)
     return pieces
 
@@ -601,34 +605,33 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     return plain_counts("\n".join(lines), cast)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--episode-dir", type=Path, required=True)
-    parser.add_argument("--bible", type=Path, required=True)
-    parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <novel dir>/visual_grammar.json when present")
-    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
-    parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
-    parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
-    args = parser.parse_args()
-    episode_dir = args.episode_dir.resolve()
-    script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
-    bible = StoryBible.model_validate_json(args.bible.read_text(encoding="utf-8"))
-    location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
-    grammar = load_grammar(args.grammar, episode_dir)
+def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None = None, style: str | None = None,
+                 frame: str | None = None, tier: str | None = None) -> dict:
+    """Everything an episode's clip entries are built from besides the shots - and the module settings the packer
+    reads (genre rejects, crowd line, anonymous voices, chat screen, voice bank, cards per character)."""
+    global GENRE_REJECTS, GENRE_CROWD, TWO_VIEW_CAST_LIMIT
+    bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
+    grammar = load_grammar(grammar_path, episode_dir)
     load_chat_screen(episode_dir.parent)
     load_voices(episode_dir.parent)
-    profile = load_profile(episode_dir.parent, style=args.style, frame=args.frame, tier=args.tier)
-    frame = frame_spec(profile)
+    profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
     genre = load_genre(profile)
-    global GENRE_REJECTS, GENRE_CROWD
     GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]
     GENRE_CROWD = genre.get("crowd_default", "")
     ANON_VOICE.update(genre.get("anon_voice") or {})  # off-screen voice descriptions for the genre's anonymous roles
     if is_fast(profile):
-        global TWO_VIEW_CAST_LIMIT
         TWO_VIEW_CAST_LIMIT = 0  # one reference card per character
     overrides_path = episode_dir / "clip_overrides.json"
-    overrides = json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {}
+    return {
+        "episode_dir": episode_dir, "bible": bible, "grammar": grammar, "profile": profile, "frame": frame_spec(profile),
+        "location_map": {full.split("：", 1)[0].strip(): full for full in bible.locations},
+        "overrides": json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {},
+    }
+
+
+def prepared_shots(script: dict, episode_dir: Path) -> list[dict]:
+    """The script's shots as the packer reads them: nicknames resolved to canonical names, "同上" camera and light
+    filled in from the last concrete value, and every shot numbered."""
     shots = script["shots"]
     aliases_path = episode_dir.parent / "bible_aliases.json"
     aliases = json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {}
@@ -650,68 +653,73 @@ def main() -> int:
                 shot[field] = last[field]
     for index, shot in enumerate(shots, start=1):
         shot.setdefault("index", index)
-    clips_raw = pack(shots)
-    clips: list[dict] = []
-    for number, clip in enumerate(clips_raw, start=1):
-        clip_id = f"clip_{number:02d}"
-        shot_indexes = [shot["index"] for shot in clip["shots"]]
-        if clip["kind"] == "title_card":
-            clips.append({
-                "clip_id": clip_id,
-                "kind": "title_card",
-                "shot_indexes": shot_indexes,
-                "seconds_estimate": clip["seconds"],
-                "request_seconds": 3,
-                "text": "\n".join(turn["text"] for turn in clip["shots"][0]["turns"]),
-            })
-            continue
-        clip["request_seconds"] = int(min(MAX_CLIP_SECONDS, max(4, math.ceil(clip["seconds"]))))
-        cast = clip_cast(clip)
-        override = overrides.get(clip_id, {})
-        if override.get("cast"):
-            # Director fix: restrict the reference set (e.g. drop a silent
-            # look-alike) so the video model cannot blend two faces.
-            cast = [name for name in override["cast"] if name in {c.name for c in bible.characters}]
-            for shot in clip["shots"]:
-                shot["characters"] = [n for n in shot["characters"] if n in cast]
-        if override.get("extra_avoid"):
-            for shot in clip["shots"]:
-                shot["avoid"] = "；".join(x for x in (shot.get("avoid", ""), override["extra_avoid"]) if x)
-        clip["identity_notes"] = override.get("identity_notes", "")
-        speakers = tuple(dict.fromkeys(
-            turn["speaker_name"] for shot in clip["shots"] for turn in shot["turns"]
-            if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
-        ))
-        references, bindings, location_binding = build_references(cast, clip["location"], bible, location_map, speakers=speakers, novel_dir=episode_dir.parent)
-        prompt = compile_prompt(clip, bible, cast, bindings, location_binding, grammar, frame)
-        lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
-        lint = {k: v for k, v in lint.items() if v}
-        lines = [
-            {"speaker_name": turn["speaker_name"], "delivery_mode": turn["delivery_mode"], "text": turn["text"]}
-            for shot in clip["shots"]
-            for turn in merged_turns(shot)
-            if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}
-        ]
-        clips.append({
+    return shots
+
+
+def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None) -> dict:
+    """The plan entry of one packed clip (a title card or a video clip); `override` defaults to the episode's
+    clip_overrides.json entry for `clip_id`."""
+    shot_indexes = [shot["index"] for shot in clip["shots"]]
+    if clip["kind"] == "title_card":
+        return {
             "clip_id": clip_id,
-            "kind": "video",
-            "location": clip["location"],
+            "kind": "title_card",
             "shot_indexes": shot_indexes,
-            "segment_ids": list(dict.fromkeys(shot["segment_id"] for shot in clip["shots"])),
-            "stage_count": len(clip["shots"]),
             "seconds_estimate": clip["seconds"],
-            "request_seconds": clip["request_seconds"],
-            "cast": cast,
-            "references": references,
-            "lines": lines,
-            "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip(), "chat_target": str(t.get("chat_target") or "").strip()} for shot in clip["shots"] for t in chat_turns(shot)],
-            "spoken_text": "".join(line["text"] for line in lines),
-            "prompt": prompt,
-            "prompt_chars": len(prompt),
-            "lint": lint,
-            "override": override or None,
-            "background_only": clip.get("background_only", []),
-        })
+            "request_seconds": 3,
+            "text": "\n".join(turn["text"] for turn in clip["shots"][0]["turns"]),
+        }
+    bible = ctx["bible"]
+    clip["request_seconds"] = int(min(MAX_CLIP_SECONDS, max(4, math.ceil(clip["seconds"]))))
+    cast = clip_cast(clip)
+    override = ctx["overrides"].get(clip_id, {}) if override is None else override
+    if override.get("cast"):
+        # Director fix: restrict the reference set (e.g. drop a silent
+        # look-alike) so the video model cannot blend two faces.
+        cast = [name for name in override["cast"] if name in {c.name for c in bible.characters}]
+        for shot in clip["shots"]:
+            shot["characters"] = [n for n in shot["characters"] if n in cast]
+    if override.get("extra_avoid"):
+        for shot in clip["shots"]:
+            shot["avoid"] = "；".join(x for x in (shot.get("avoid", ""), override["extra_avoid"]) if x)
+    clip["identity_notes"] = override.get("identity_notes", "")
+    speakers = tuple(dict.fromkeys(
+        turn["speaker_name"] for shot in clip["shots"] for turn in shot["turns"]
+        if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
+    ))
+    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent)
+    prompt = compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])
+    lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
+    lint = {k: v for k, v in lint.items() if v}
+    lines = [
+        {"speaker_name": turn["speaker_name"], "delivery_mode": turn["delivery_mode"], "text": turn["text"]}
+        for shot in clip["shots"]
+        for turn in merged_turns(shot)
+        if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}
+    ]
+    return {
+        "clip_id": clip_id,
+        "kind": "video",
+        "location": clip["location"],
+        "shot_indexes": shot_indexes,
+        "segment_ids": list(dict.fromkeys(shot["segment_id"] for shot in clip["shots"])),
+        "stage_count": len(clip["shots"]),
+        "seconds_estimate": clip["seconds"],
+        "request_seconds": clip["request_seconds"],
+        "cast": cast,
+        "references": references,
+        "lines": lines,
+        "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip(), "chat_target": str(t.get("chat_target") or "").strip()} for shot in clip["shots"] for t in chat_turns(shot)],
+        "spoken_text": "".join(line["text"] for line in lines),
+        "prompt": prompt,
+        "prompt_chars": len(prompt),
+        "lint": lint,
+        "override": override or None,
+        "background_only": clip.get("background_only", []),
+    }
+
+
+def plan_totals(clips: list[dict], shots: list[dict], ctx: dict) -> dict:
     video_clips = [clip for clip in clips if clip["kind"] == "video"]
     totals = {
         "clip_count": len(clips),
@@ -724,12 +732,66 @@ def main() -> int:
         "max_prompt_chars": max((clip["prompt_chars"] for clip in video_clips), default=0),
         "lint_stage_count": sum(len(clip.get("lint", {})) for clip in video_clips),
         "lint_by_code": {code: sum(list(v).count(code) for clip in video_clips for v in clip.get("lint", {}).values()) for code in ("no_light_source", "no_camera_position", "camera_or_light_over_60_chars", "camera_move_words", "abstract_wording", "readable_text", "start_state_over_120_chars", "no_audible_or_visible_action")},
-        "visual_grammar": (grammar or {}).get("name"),
-        "profile": profile,
+        "visual_grammar": (ctx["grammar"] or {}).get("name"),
+        "profile": ctx["profile"],
     }
-    plan = {"policy": POLICY, "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
     totals["lint_by_code"] = {k: v for k, v in totals["lint_by_code"].items() if v}
+    return totals
+
+
+def carry_corrections(old_plan: dict | None, plan: dict, feedback_path: Path) -> dict:
+    """Keep each director correction on the clip it was written for.
+
+    Corrections are keyed by clip id, and a new plan's ids can name other clips (a re-plan, a re-pack): a note about
+    乙 landed on the clip that now shows 甲.  A note stays only where the new plan has the very clip it was written
+    for - the same prompt - under that clip's id there; the others are set aside beside it.  Returns those."""
+    if not feedback_path.is_file():
+        return {}
+    try:
+        notes = json.loads(feedback_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    old_prompts = {clip.get("clip_id"): clip.get("prompt") for clip in (old_plan or {}).get("clips", [])}
+    new_ids: dict[str, str] = {}
+    for clip in plan.get("clips", []):
+        if clip.get("prompt"):
+            new_ids.setdefault(clip["prompt"], clip["clip_id"])
+    kept, dropped = {}, {}
+    for clip_id, note in notes.items():
+        target = new_ids.get(old_prompts.get(clip_id) or "")
+        if target:
+            kept[target] = note
+        else:
+            dropped[clip_id] = note
+    if dropped:
+        atomic_write_json(feedback_path.with_name(f"review_feedback.set-aside-{time.strftime('%Y%m%d-%H%M%S')}.json"),
+                          {"reason": "the clip plan was written again and these clips are not in it", "notes": dropped})
+    if kept != notes:
+        atomic_write_json(feedback_path, kept)
+    return dropped
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--episode-dir", type=Path, required=True)
+    parser.add_argument("--bible", type=Path, required=True)
+    parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <novel dir>/visual_grammar.json when present")
+    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
+    parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
+    parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
+    args = parser.parse_args()
+    episode_dir = args.episode_dir.resolve()
+    ctx = load_context(episode_dir, args.bible, args.grammar, args.style, args.frame, args.tier)
+    shots = prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
+    clips = [clip_entry(clip, f"clip_{number:02d}", ctx) for number, clip in enumerate(pack(shots), start=1)]
+    totals = plan_totals(clips, shots, ctx)
+    plan = {"policy": POLICY, "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
+    try:
+        old_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        old_plan = None
     atomic_write_json(episode_dir / "clip_plan.json", plan)
+    carry_corrections(old_plan, plan, episode_dir / "review_feedback.json")
     # Observation only: why the packer cut where it did.  clip_plan.json is unchanged by this.
     atomic_write_json(episode_dir / "pack_decisions.json", {
         "packer_version": PACKER_VERSION, "pack_mode": PACK_MODE,

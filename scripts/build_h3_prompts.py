@@ -185,10 +185,13 @@ def main() -> int:
         except (OSError, ValueError):
             return 0, 0, 0
         video = [c for c in plan["clips"] if c.get("kind") == "video"]
+        # Every clip whose English prompt is due - all of them with --rebuild - and does not get one is a failure:
+        # an older English prompt left in place is not a rebuild (it used to pass as one, exit code 0).
+        due = [clip for clip in video if args.rebuild or h3_prompt_outdated(clip)]
         if args.rebuild:
-            for clip in video:
+            for clip in due:
                 clip.pop("prompt_h3_of", None)
-        made = {clip["clip_id"]: clip for clip in video if convert(clip)}
+        made = {clip["clip_id"]: clip for clip in due if convert(clip)}
         if made:
             # The translations take minutes: write them into the plan as it is now, and only onto clips
             # whose Chinese prompt is still the one they were made from.
@@ -202,8 +205,7 @@ def main() -> int:
                     clip["prompt_h3"], clip["prompt_h3_of"] = new["prompt_h3"], new["prompt_h3_of"]
             atomic_write_json(path, current)
             plan = current
-        video = [c for c in plan["clips"] if c.get("kind") == "video"]
-        return len(made), len(video), sum(1 for clip in video if h3_prompt_outdated(clip))
+        return len(made), len(video), len(due) - len(made)
 
     done = total = missing = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -213,7 +215,7 @@ def main() -> int:
             missing += left
             if n % 100 == 0:
                 print(f"  {n}/{len(episodes)} 集，已转 {done} 段", flush=True)
-    print(f"\n转好 {done} 段（共 {total} 段视频片段）" + (f"；{missing} 段仍没有可用的英文提示词" if missing else ""))
+    print(f"\n转好 {done} 段（共 {total} 段视频片段）" + (f"；{missing} 段没转成" if missing else ""))
     return 1 if missing else 0
 
 

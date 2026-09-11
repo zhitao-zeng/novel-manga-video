@@ -239,6 +239,12 @@ class CacheMiss(RuntimeError):
     """--cache-only: the clip would have to be generated."""
 
 
+def takes_past_cache(settings, retake_failed: bool, cache_only: bool) -> bool:
+    """Whether a clip whose cached takes all failed the speech gate gets fresh takes this run.  Always on a free
+    lane (local H3); on a paid one only when a person asks (--retake-failed), since every take is paid for."""
+    return (bool(settings.local_h3_base_url) or retake_failed) and not cache_only
+
+
 class ModerationRejected(RuntimeError):
     """The image service refused a card even after the prompt was toned down."""
 
@@ -722,7 +728,7 @@ def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> li
     return waited
 
 class ThinMediaRunner:
-    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False, moderation_repair: bool = True, cache_only: bool = False):
+    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False, moderation_repair: bool = True, cache_only: bool = False, retake_failed: bool = False):
         self.cache_only = cache_only  # rebuild from clips already rendered; never generate
         self.novel_dir = novel_dir
         self.inflight = inflight  # global cap on clips in flight across every runner of this novel (0 = none)
@@ -745,7 +751,7 @@ class ThinMediaRunner:
         self.max_attempts = 2 if self.fast else max_attempts
         # On a free lane (local H3) a clip whose cached takes all failed gets fresh ones on a later run,
         # not the same verdict again (process_clip); a paid lane leaves further takes to a person.
-        self.free_retries = bool(self.settings.local_h3_base_url) and not cache_only
+        self.free_retries = takes_past_cache(self.settings, retake_failed, cache_only)
         resolution = "480p" if self.fast else "720p"
         local = self.settings.local_h3_base_url
         self.provider = (FramedLocalH3(self.settings, self.frame_spec, local, resolution=resolution)
@@ -1030,17 +1036,22 @@ class ThinMediaRunner:
             if saved.get("prompt") in acceptable and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
                 return output
-            # Move the clip AND its provider task sidecar aside together: the
-            # provider refuses to reuse a task whose request hash differs, and
-            # a leftover sidecar would make every changed clip fail at submit.
-            for name in ("clip.mp4", "clip.mp4.task.json", "clip.mp4.partial", "native.wav", "asr.json", "asr_raw.json", "chunks.json"):
-                source = directory / name
-                if source.exists():
-                    target = directory / name.replace("clip.mp4", "clip.stale.mp4").replace("native.wav", "native.stale.wav").replace("asr", "stale_asr").replace("chunks", "stale_chunks")
-                    target.unlink(missing_ok=True)
-                    source.rename(target)
-            log(f"{clip['clip_id']} attempt {attempt}: request changed since the cached clip, regenerating")
-        if self.prescreen and not clip.get("_softened") and not clip.get("_prescreened"):
+            if self.cache_only:
+                # Looking at the cache must not change it: the clip stays where it is (a --prune after this run
+                # deletes whatever was set aside).
+                log(f"{clip['clip_id']} attempt {attempt}: the cached clip was made from another request (cache-only: left in place)")
+            else:
+                # Move the clip AND its provider task sidecar aside together: the
+                # provider refuses to reuse a task whose request hash differs, and
+                # a leftover sidecar would make every changed clip fail at submit.
+                for name in ("clip.mp4", "clip.mp4.task.json", "clip.mp4.partial", "native.wav", "asr.json", "asr_raw.json", "chunks.json"):
+                    source = directory / name
+                    if source.exists():
+                        target = directory / name.replace("clip.mp4", "clip.stale.mp4").replace("native.wav", "native.stale.wav").replace("asr", "stale_asr").replace("chunks", "stale_chunks")
+                        target.unlink(missing_ok=True)
+                        source.rename(target)
+                log(f"{clip['clip_id']} attempt {attempt}: request changed since the cached clip, regenerating")
+        if self.prescreen and not self.cache_only and not clip.get("_softened") and not clip.get("_prescreened"):
             clip["_prescreened"] = True
             risk = prescreen_prompt(prompt)
             if risk >= PRESCREEN_RISK:
@@ -1771,6 +1782,7 @@ def main() -> int:
     parser.add_argument("--no-moderation-repair", dest="moderation_repair", action="store_false", default=True, help="do not bisect and rewrite a prompt the text filter keeps refusing")
     parser.add_argument("--max-attempts", type=int, default=2)
     parser.add_argument("--cache-only", action="store_true", help="rebuild the episode from clips already rendered; never generate, and write nothing when a clip is missing")
+    parser.add_argument("--retake-failed", action="store_true", help="give clips whose cached takes all failed the speech gate fresh takes this run (always so on a local-H3 lane; on a paid one every take is paid for)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--assets-only", action="store_true", help="build the cards this episode needs, write series_assets/cards_sheet.jpg for review, and stop before any video")
     parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
@@ -1782,7 +1794,7 @@ def main() -> int:
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
-    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair, cache_only=args.cache_only)
+    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair, cache_only=args.cache_only, retake_failed=args.retake_failed)
     clips = [c for c in runner.clip_plan["clips"] if c["kind"] == "video"]
     summary = {
         "profile": runner.profile, "canvas": f"{runner.settings.width}x{runner.settings.height}",

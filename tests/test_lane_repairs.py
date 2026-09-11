@@ -54,6 +54,7 @@ def write_report(directory: Path, plan: dict, **fields) -> None:
               "gate_failed_clips": [], "assembly": {"thin_passed": True}, "clips": []}
     report.update(fields)
     (directory / "thin_media_report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    (directory / f"{directory.name}.mp4").write_bytes(b"mp4")  # the final the report stands for
 
 
 def later(path: Path, seconds: float) -> None:
@@ -132,14 +133,15 @@ def warned_episode(tmp_path: Path) -> Path:
 
 def test_a_free_lane_takes_back_a_final_with_gate_failures_until_its_runs_are_used(tmp_path):
     directory = warned_episode(tmp_path)
-    (directory / f"{NOVEL}_1.mp4").write_bytes(b"mp4")
-    assert conductor(tmp_path, [PAID_KEY]).chapter(1)["done"]
+    paid = conductor(tmp_path, [PAID_KEY]).chapter(1)
+    assert paid["blocked"] and not paid["done"]  # a preview on a paid lane waits for a person
     free = conductor(tmp_path, [H3_KEY])
-    assert not free.chapter(1)["done"]
+    assert not free.chapter(1)["done"] and not free.chapter(1)["blocked"]
     assert 1 in free.range_stats(free.ranges[0])["renderable"]
     for _ in range(RENDER_RUNS_PER_PLAN):
         count_run(directory)
-    assert free.chapter(1)["done"]
+    state = free.chapter(1)
+    assert state["blocked"] and not state["done"] and 1 not in free.range_stats(free.ranges[0])["renderable"]
 
 
 def test_a_free_lane_takes_back_a_final_cut_before_a_correction(tmp_path):
@@ -156,7 +158,7 @@ def test_a_free_lane_takes_back_a_final_cut_before_a_correction(tmp_path):
 def batch_for(tmp_path: Path, monkeypatch, **overrides) -> thin_batch.Batch:
     batch = object.__new__(thin_batch.Batch)
     args = dict(rerender=False, no_render=False, dry_run=False, workers=0, inflight=4, tier=None, prescreen=False,
-                moderation_repair=True, prune=False, cache_only=False)
+                moderation_repair=True, prune=False, cache_only=False, retake_failed=False)
     args.update(overrides)
     batch.args = types.SimpleNamespace(**args)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
@@ -420,8 +422,7 @@ def test_parallel_card_builds_keep_each_others_manifest_records(tmp_path):
 # ---------------------------------------------------------------- review errors (15)
 def test_a_review_the_judge_could_not_finish_goes_back_in_the_queue(tmp_path):
     directory = episode(tmp_path)
-    write_plan(directory, [video_clip()])
-    (directory / f"{NOVEL}_1.mp4").write_bytes(b"mp4")
+    write_report(directory, write_plan(directory, [video_clip()]))
     review = directory / "episode_review.json"
     review.write_text(json.dumps({"clips": {"clip_01": {"severity": "review_error"}}}), encoding="utf-8")
     later(review, 5)

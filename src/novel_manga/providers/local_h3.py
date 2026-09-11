@@ -186,9 +186,23 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
         try:
             deadline = time.monotonic() + self.settings.poll_timeout
             if self.pool and task_id:
-                # A resumed task still occupies its instance: hold one of that instance's slots while waiting
-                # on it, or the pool hands the instance more clips than its slots allow.
-                slot = self.pool.hold(base, timeout=max(1.0, deadline - time.monotonic()))
+                # A resumed task is looked at before anything waits for a slot: one that finished while we were away
+                # (a download cut short) needs only its video, and one its instance forgot, or that went with its
+                # instance, is asked for again.  Only a task still rendering holds a slot of its instance while we
+                # wait on it - or the pool would hand the instance more clips than its slots allow.
+                try:
+                    state = self._state(task_id, base)
+                except httpx.TransportError as error:
+                    self.pool.cool_down(base, self.pool.unreachable_cooldown, f"lost while resuming: {type(error).__name__}")
+                    state = None
+                status = str((state or {}).get("status", "")).lower()
+                if state is None:
+                    task_id = None
+                elif status in {"completed", "succeeded", "success"}:
+                    self._download(f"{base}/v1/videos/{task_id}/content", output)
+                    return output
+                elif status not in {"failed", "error", "cancelled", "canceled"}:
+                    slot = self.pool.hold(base, timeout=max(1.0, deadline - time.monotonic()))
             while time.monotonic() < deadline:
                 if not task_id:
                     if self.pool:

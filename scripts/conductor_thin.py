@@ -33,7 +33,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from thin_runs import RENDER_RUNS_PER_PLAN, render_runs
+from thin_runs import RENDER_RUNS_PER_PLAN, episode_status, gate_failures, render_runs
 
 REPO = Path(__file__).resolve().parent.parent
 PY = str(REPO / ".venv" / "bin" / "python")
@@ -43,6 +43,7 @@ BASE_ENV = {"PYTHONPATH": "src:scripts", "NOVEL_PLANNER_BACKEND": "deterministic
 PLAN_BLOCK_RUNS = 3  # runs a planning block gets while some of its chapters are left without a plan
 PLAN_RETRY_SECONDS = 600  # ...spaced out, so a planning-server outage does not burn them in three ticks
 REVIEW_ERROR_ROUNDS = 3  # reviews an episode gets while the judge keeps failing on some of its clips
+REVIEW_BATCH_TRIES = 3  # review batches a final is put in before the conductor stops waiting for its review
 
 
 class Conductor:
@@ -60,6 +61,8 @@ class Conductor:
         # to the lane (final_settled).  A paid lane leaves that decision to a person.
         self.free = bool(self.keys) and all(k.get("base_url") for k in self.keys.values())
         self._summaries: dict[tuple[str, str], tuple[float, object]] = {}
+        self._readings: dict[str, tuple[tuple, tuple]] = {}
+        self.review_tries: dict[int, tuple[float, int]] = {}  # chapter -> (final's mtime, review batches it was in)
         self.ranges = [self._parse_range(r) for r in config["ranges"]]
         self.lanes = {name: {"range": None, "next_round_at": 0.0, "parked_until": 0.0, "limit": self._initial_limit(k),
                              "limit_changed": time.time(), "throttled_since": None} for name, k in self.keys.items()}
@@ -90,25 +93,60 @@ class Conductor:
 
     def chapter(self, n: int) -> dict:
         d = self.episode_dir(n)
-        plan = d / "clip_plan.json"
+        state = {"n": n, "done": False, "blocked": False, "planned": (d / "clip_plan.json").is_file(), "runs": 0, "mode": None,
+                 "unreviewed": False}
+        if not state["planned"]:
+            return state
+        state["mode"], status, retakeable = self.reading(d)
+        # The count thin_batch keeps, per plan and set of corrections.  Comparing the plan's mtime alone with the
+        # pair it writes read 0 runs everywhere and kept given-up episodes renderable.
+        state["runs"] = render_runs(d)
+        # One reading with thin_batch (thin_runs.episode_status).  An episode with a video file is not done when its
+        # plan, a correction or an English prompt changed since: counted as done, a range already rendered was never
+        # scheduled again.  A preview (done_with_warnings) is not done either: a free lane takes it back while the
+        # speech gate's failures can be retaken and runs remain; otherwise it waits for a person - "blocked", like an
+        # episode that used up its runs - and is neither done nor work for a lane.
+        if status == "done":
+            state["done"] = True
+        elif status == "done_with_warnings":
+            state["blocked"] = not (self.free and retakeable and state["runs"] < RENDER_RUNS_PER_PLAN)
+        elif state["runs"] >= RENDER_RUNS_PER_PLAN:
+            state["blocked"] = True
         mp4 = d / f"{self.novel_id}_{n}.mp4"
-        state = {"n": n, "done": mp4.is_file(), "planned": plan.is_file(), "runs": 0, "mode": None, "unreviewed": False}
-        if plan.is_file():
-            try:
-                policy = json.loads(plan.read_text(encoding="utf-8")).get("policy", "")
-                state["mode"] = 15 if "-15s" in policy else 30
-            except (OSError, ValueError):
-                state["mode"] = 30
-            # The count thin_batch keeps, per plan and set of corrections.  Comparing the plan's mtime alone
-            # with the pair it writes read 0 runs everywhere and kept given-up episodes renderable.
-            state["runs"] = render_runs(d)
-        if state["done"] and self.free and not self.final_settled(d, state["runs"]):
-            state["done"] = False
-        if state["done"]:
+        if status in {"done", "done_with_warnings"} and (state["done"] or state["blocked"]):
+            final = mp4.stat().st_mtime
             review = d / "episode_review.json"
-            state["unreviewed"] = (not review.is_file() or review.stat().st_mtime < mp4.stat().st_mtime
-                                   or self.review_incomplete(review))
+            seen, batches = self.review_tries.get(n, (final, 0))
+            state["unreviewed"] = (not (seen == final and batches >= REVIEW_BATCH_TRIES)
+                                   and (not review.is_file() or review.stat().st_mtime < final or self.review_incomplete(review)))
         return state
+
+    def reading(self, d: Path) -> tuple[int | None, str, bool]:
+        """(clip length of the plan, thin_runs.episode_status, whether the final has gate failures to retake), kept
+        until one of the files it is read from changes: every tick looks at every episode."""
+        key = tuple(self._mtime(d / name) for name in ("clip_plan.json", "thin_media_report.json", "review_feedback.json", f"{d.name}.mp4"))
+        hit = self._readings.get(str(d))
+        if hit and hit[0] == key:
+            return hit[1]
+        try:
+            policy = json.loads((d / "clip_plan.json").read_text(encoding="utf-8")).get("policy", "")
+            mode = 15 if "-15s" in policy else 30
+        except (OSError, ValueError):
+            mode = 30
+        try:
+            status = episode_status(d, self.free)
+        except (OSError, ValueError, KeyError):
+            status = "pending"
+        value = (mode, status, bool(gate_failures(d)))
+        self._readings[str(d)] = (key, value)
+        return value
+
+    @staticmethod
+    def _mtime(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
 
     def settled(self, n: int) -> bool:
         """Planned, or left out on purpose (planning_skipped.json: too short to be an episode)."""
@@ -131,21 +169,6 @@ class Conductor:
         self._summaries[(str(path), kind)] = (mtime, value)
         return value
 
-    def final_settled(self, d: Path, runs: int) -> bool:
-        """Whether a free lane is finished with an episode's final.  One cut with clips that failed the speech
-        gate, or before a director correction was written, is a preview there: the lane takes it back until
-        the runs for this plan are used up."""
-        if runs >= RENDER_RUNS_PER_PLAN:
-            return True
-        report = d / "thin_media_report.json"
-        warned = self.summary(report, "warned", lambda data: bool(
-            data.get("failed_clips") or data.get("gate_failed_clips") or not (data.get("assembly") or {}).get("thin_passed", True)))
-        if warned is None:
-            return True  # no readable report: the final is all there is to go on
-        feedback = d / "review_feedback.json"
-        corrected = feedback.is_file() and feedback.stat().st_mtime > report.stat().st_mtime
-        return not (warned or corrected)
-
     def review_incomplete(self, review: Path) -> bool:
         """A review in which the judge failed on some clips (severity review_error) has not reviewed them: it
         goes back in the queue, for a few rounds.  Only the review file's age used to count, and 28 of 雾月's
@@ -157,10 +180,11 @@ class Conductor:
 
     def range_stats(self, r: dict) -> dict:
         chapters = [self.chapter(n) for n in range(r["a"], r["b"] + 1)]
-        renderable = [c["n"] for c in chapters if c["planned"] and not c["done"] and c["runs"] < RENDER_RUNS_PER_PLAN
-                      and c["mode"] == int(r.get("plan_mode", 30))]
+        renderable = [c["n"] for c in chapters if c["planned"] and not c["done"] and not c["blocked"]
+                      and c["runs"] < RENDER_RUNS_PER_PLAN and c["mode"] == int(r.get("plan_mode", 30))]
         return {"total": len(chapters), "planned": sum(c["planned"] for c in chapters), "done": sum(c["done"] for c in chapters),
-                "renderable": renderable, "unreviewed": [c["n"] for c in chapters if c["unreviewed"]]}
+                "blocked": [c["n"] for c in chapters if c["blocked"]], "renderable": renderable,
+                "unreviewed": [c["n"] for c in chapters if c["unreviewed"]]}
 
     def held_slots(self, key: dict) -> int:
         directory = self.pool_dir(key)
@@ -546,6 +570,10 @@ class Conductor:
         if not todo or time.time() - self.last_review < 60:
             return
         self.last_review = time.time()
+        for n in todo:  # a final whose review never gets written is let go after a few batches
+            final = self._mtime(self.episode_dir(n) / f"{self.novel_id}_{n}.mp4")
+            seen, batches = self.review_tries.get(n, (final, 0))
+            self.review_tries[n] = (final, batches + 1 if seen == final else 1)
         self.spawn("review", [PY, str(SCRIPTS / "thin_batch.py"), "--novel-dir", str(self.novel_dir), "--chapters", ",".join(map(str, todo)),
                               "--stage", "render", "--review-only", "--no-render", "--tier", "fast", "--merge", "1", "--parallel", str(self.cfg.get("review", {}).get("parallel", 3))])
 
@@ -564,7 +592,7 @@ class Conductor:
             self.tick_lanes(stats)
         self.tick_planning(congested)
         self.tick_review(waiting, stats)
-        summary = " | ".join(f"{r['a']}-{r['b']}: done {s['done']}/{s['total']} planned {s['planned']} renderable {len(s['renderable'])}"
+        summary = " | ".join(f"{r['a']}-{r['b']}: done {s['done']}/{s['total']} planned {s['planned']} renderable {len(s['renderable'])} waiting {len(s['blocked'])}"
                              for r, s in ((r, stats[id(r)]) for r in self.ranges))
         pools = " ".join(f"{name}={self.held_slots(k)}/{self.lanes[name]['limit']}" for name, k in self.keys.items())
         self.log(f"tick: {summary} | inflight {pools} | qwen waiting {waiting} card waits {card_waits}{' CONGESTED' if congested else ''}")
@@ -574,6 +602,10 @@ class Conductor:
             all_done = all(b["done"] for b in self.blocks) and not any(self.alive(n) for n in self.procs if n.startswith("prepass_"))
         else:
             all_done = all(self.range_finished(r, stats[id(r)]) for r in self.ranges)
+        # Reviews are part of the work: a conductor that stopped with finals unreviewed - or a review batch still
+        # running - left them for nobody, the re-review of judge errors included.
+        if self.alive("review") or any(stats[id(r)]["unreviewed"] for r in self.ranges):
+            all_done = False
         return not all_done
 
     def run(self, once: bool) -> None:
