@@ -10,9 +10,13 @@ the rendered clips, director corrections and overrides to their new ids, so the 
 parts.  A split clip's old video goes to work/clips_before_split/, its correction (it described the clamped clip)
 to split_long_stages.json.
 
-    split_long_stages.py outputs/<novel> [--chapters 1-50,60] [--margin 5] [--apply]
+    split_long_stages.py outputs/<novel> [--chapters 1-50,60] [--margin 5] [--tier fast] [--apply]
+    split_long_stages.py outputs/<novel> --rebuild-parts [--apply]
 
-Without --apply it reports what it would change.  An episode another process is rendering is skipped.
+Without --apply it reports what it would change.  An episode another process is rendering is skipped.  The parts
+are packed for --tier (fast, as the conductor plans): the first run on 2026-09-11 took profile.json's tier, which
+for 星海 and 雾月 is quality, so their parts asked for expression cards the fast tier never builds and every render
+stopped at "reference image missing"; --rebuild-parts builds the parts of episodes split earlier again.
 """
 from __future__ import annotations
 
@@ -104,7 +108,7 @@ def remap_json(path: Path, moved: dict, split: dict, to_parts: bool) -> dict:
     return dropped
 
 
-def split_episode(episode_dir: Path, margin: float, apply: bool) -> dict | None:
+def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | None = "fast") -> dict | None:
     plan_path = episode_dir / "clip_plan.json"
     try:
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -118,7 +122,7 @@ def split_episode(episode_dir: Path, margin: float, apply: bool) -> dict | None:
     packer.MAX_CLIP_SECONDS = float(limits.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS)
     packer.SOFT_CUT_SECONDS = float(limits.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS)
     packer.MAX_STAGES = int(limits.get("max_stages") or packer.MAX_STAGES)
-    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json")
+    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier)
     shots = packer.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
     clips, moved, split = resplit(
         plan, {shot["index"]: shot for shot in shots},
@@ -140,11 +144,57 @@ def split_episode(episode_dir: Path, margin: float, apply: bool) -> dict | None:
         rename_clip_dirs(episode_dir, moved, split)
         dropped = remap_json(episode_dir / "review_feedback.json", moved, split, to_parts=False)
         remap_json(episode_dir / "clip_overrides.json", moved, split, to_parts=True)
-        record = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "packer_version": packer.PACKER_VERSION, "split": split, "renamed": moved}
+        record = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "packer_version": packer.PACKER_VERSION, "tier": tier, "split": split, "renamed": moved}
         atomic_write_json(plan_path, {**plan, "clips": clips, "totals": packer.plan_totals(clips, shots, ctx), "split_long_stages": record})
         atomic_write_json(episode_dir / "split_long_stages.json", {**record, "dropped_corrections": dropped})
     finally:
         lock.unlink(missing_ok=True)
+    return summary
+
+
+def locked(episode_dir: Path) -> int:
+    try:
+        pid = int((episode_dir / ".render.lock").read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return 0
+    return pid if pid and pid_alive(pid) else 0
+
+
+def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | None:
+    """Build again, from the script, the parts of an episode split earlier - with `tier`; ids and everything else
+    in the plan stay as they are."""
+    plan_path = episode_dir / "clip_plan.json"
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    record = plan.get("split_long_stages")
+    if not record:
+        return None
+    limits = plan.get("limits") or {}
+    packer.MAX_CLIP_SECONDS = float(limits.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS)
+    packer.SOFT_CUT_SECONDS = float(limits.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS)
+    packer.MAX_STAGES = int(limits.get("max_stages") or packer.MAX_STAGES)
+    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier)
+    shots = packer.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
+    by_index = {shot["index"]: shot for shot in shots}
+    position = {clip["clip_id"]: n for n, clip in enumerate(plan["clips"])}
+    clips = list(plan["clips"])
+    for old_id, part_ids in record["split"].items():
+        parts = packer.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]))
+        if len(parts) != len(part_ids):
+            return {"skipped": f"{old_id} splits into {len(parts)} parts now, not {len(part_ids)}"}
+        for part_id, part in zip(part_ids, parts):
+            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part), 2)}
+            clips[position[part_id]] = packer.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
+    summary = {"rebuilt": sum(len(ids) for ids in record["split"].values())}
+    if not apply:
+        return summary
+    pid = locked(episode_dir)
+    if pid:
+        return {**summary, "skipped": f"being rendered (pid {pid})"}
+    atomic_write_json(plan_path, {**plan, "clips": clips, "totals": packer.plan_totals(clips, shots, ctx),
+                                  "split_long_stages": {**record, "tier": tier, "parts_rebuilt_at": time.strftime("%Y-%m-%d %H:%M:%S")}})
     return summary
 
 
@@ -153,6 +203,8 @@ def main() -> int:
     parser.add_argument("novel_dir", type=Path)
     parser.add_argument("--chapters", help='only these episodes, e.g. "484" or "1-500,812"')
     parser.add_argument("--margin", type=float, default=MARGIN_SECONDS, help="split a single-stage clip estimated this many seconds over its request")
+    parser.add_argument("--tier", choices=("fast", "quality"), default="fast", help="the tier the plans were packed for (the conductor plans fast)")
+    parser.add_argument("--rebuild-parts", action="store_true", help="build again the parts of episodes split earlier (same ids)")
     parser.add_argument("--apply", action="store_true", help="write the plans (default: report only)")
     args = parser.parse_args()
     novel_dir = args.novel_dir.resolve()
@@ -164,11 +216,24 @@ def main() -> int:
         number = int(episode.name.rsplit("_", 1)[1])
         if wanted is not None and number not in wanted:
             continue
-        result = split_episode(episode, args.margin, args.apply)
+        if args.rebuild_parts:
+            result = rebuild_parts(episode, args.tier, args.apply)
+            if result:
+                results[number] = result
+                if result.get("skipped"):
+                    print(f"  {number}: skipped ({result['skipped']})", flush=True)
+            continue
+        result = split_episode(episode, args.margin, args.apply, args.tier)
         if result:
             results[number] = result
             if result.get("skipped"):
                 print(f"  {number}: skipped ({result['skipped']})", flush=True)
+    if args.rebuild_parts:
+        print(json.dumps({"episodes": len([r for r in results.values() if not r.get("skipped")]),
+                          "parts": sum(r["rebuilt"] for r in results.values() if not r.get("skipped")),
+                          "skipped": {n: r["skipped"] for n, r in results.items() if r.get("skipped")}, "applied": args.apply},
+                         ensure_ascii=False, indent=1))
+        return 0
     done = {n: r for n, r in results.items() if not r.get("skipped")}
     by_mode: dict[str, list[int]] = {}
     for n, r in done.items():

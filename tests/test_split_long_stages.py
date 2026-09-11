@@ -144,3 +144,24 @@ def test_a_clip_the_output_filter_passed_with_the_compliance_line_is_a_cache_hit
                                                       "reference_sha256": [], "duration": 10}, ensure_ascii=False), encoding="utf-8")
     assert rc.soften_prompt(clip["prompt"]) != clip["prompt"] + rc.COMPLIANCE_SUFFIX  # softening would have changed it
     assert r.generate_clip(clip, 1).read_bytes() == b"take that passed the filter"
+
+
+def test_parts_are_packed_again_for_the_fast_tier_with_their_ids(tmp_path, monkeypatch):
+    episode = tmp_path / "nov" / "nov_1"
+    episode.mkdir(parents=True)
+    (episode / "chapter_script.json").write_text(json.dumps({"shots": []}), encoding="utf-8")
+    plan = {"limits": {"max_clip_seconds": 15, "max_stages": 3}, "clips": [
+        {"clip_id": "clip_01", "kind": "video", "shot_indexes": [3], "prompt": "kept"},
+        {"clip_id": "clip_02", "kind": "video", "shot_indexes": [5], "prompt": "part 1, quality"},
+        {"clip_id": "clip_03", "kind": "video", "shot_indexes": [5], "prompt": "part 2, quality"}],
+        "split_long_stages": {"split": {"clip_02": ["clip_02", "clip_03"]}}}
+    (episode / "clip_plan.json").write_text(json.dumps(plan), encoding="utf-8")
+    tiers = []
+    monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None: tiers.append(tier) or {"overrides": {}})
+    monkeypatch.setattr(tool.packer, "prepared_shots", lambda script, episode_dir: [long_stage(["我们走吧。" * 12] * 2)])
+    monkeypatch.setattr(tool.packer, "clip_entry", lambda raw, clip_id, ctx, override=None: {"clip_id": clip_id, "kind": "video", "prompt": f"{clip_id}, fast"})
+    monkeypatch.setattr(tool.packer, "plan_totals", lambda clips, shots, ctx: {})
+    assert tool.rebuild_parts(episode, "fast", apply=True) == {"rebuilt": 2}
+    written = json.loads((episode / "clip_plan.json").read_text(encoding="utf-8"))
+    assert tiers == ["fast"] and [c["prompt"] for c in written["clips"]] == ["kept", "clip_02, fast", "clip_03, fast"]
+    assert written["split_long_stages"]["tier"] == "fast"
