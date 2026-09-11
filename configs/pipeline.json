@@ -176,43 +176,14 @@
    "title": "雾月秘典",
    "active": true,
    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
-   "render_keys": [
-    "h3a",
-    "h3b",
-    "h3c",
-    "h3d"
-   ],
+   "render_keys": ["h3a", "h3b"],
    "planning": {
     "local": 2
    },
    "blocks_max": 2,
    "blocks_min": 1,
-   "ranges": [
-    {
-     "chapters": "1-578",
-     "plan_mode": 15
-    },
-    {
-     "chapters": "579-1158",
-     "plan_mode": 15
-    },
-    {
-     "chapters": "1159-1620",
-     "plan_mode": 15
-    },
-    {
-     "chapters": "1621-1815",
-     "plan_mode": 15
-    },
-    {
-     "chapters": "1816-2043",
-     "plan_mode": 15
-    }
-   ],
-   "paused_keys": [
-    "sd20",
-    "sd25"
-   ]
+   "ranges": [{"chapters": "1-1226", "plan_mode": 15}, {"chapters": "1227-2043", "plan_mode": 15}],
+   "paused_keys": ["sd20", "sd25", "h3c", "h3d"]
   },
   {
    "id": "zhutian-card",
