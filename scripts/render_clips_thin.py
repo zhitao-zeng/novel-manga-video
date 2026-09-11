@@ -1029,10 +1029,12 @@ class ThinMediaRunner:
             # clips H3 had rendered from the Chinese prompt, which H3 reads aloud (雾月 1732 on 2026-09-11
             # kept 11 of its 18 that way).
             base = self.clip_base(clip)
-            acceptable = {prompt, base + retry, soften_prompt(base) + retry}
             # A clip generated from the softened wording (prescreen or moderation
             # retry) is the same clip: do not pay again because a later run made
-            # the other choice.
+            # the other choice.  So is one the output filter's retry made with the
+            # compliance line added to the prompt as it was: without it here, such
+            # a clip was generated - and paid for - again on every re-entry.
+            acceptable = {prompt, base + retry, base + retry + COMPLIANCE_SUFFIX, soften_prompt(base) + retry}
             if saved.get("prompt") in acceptable and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
                 return output
@@ -1068,7 +1070,7 @@ class ThinMediaRunner:
             saved = json.loads((other / "request.json").read_text(encoding="utf-8"))
             # The same wording and the same pictures.  Comparing paths alone handed back a video of the old card
             # after the card was redrawn - the very video the check above had just set aside for that reason.
-            if self.without_retry(saved.get("prompt", "")) == self.clip_prompt(clip) and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
+            if self.without_retry(saved.get("prompt", "").removesuffix(COMPLIANCE_SUFFIX)) == self.clip_prompt(clip) and self.references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"]):
                 # A retry exists to replace a clip that failed the speech gate;
                 # reusing that same clip would just fail it again.  Only a video
                 # that passed (or was never judged - a resumed run) is reused.

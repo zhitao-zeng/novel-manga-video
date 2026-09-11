@@ -127,3 +127,20 @@ def test_thin_batch_retake_failed_takes_a_paid_final_back(tmp_path, monkeypatch)
         return b
     assert not batch(False).commands
     assert "--retake-failed" in batch(True).commands[0]
+
+
+def test_a_clip_the_output_filter_passed_with_the_compliance_line_is_a_cache_hit(tmp_path):
+    r = runner(tmp_path)
+
+    class Provider:
+        def create_video(self, *args, **kwargs):
+            raise AssertionError("paid for a clip the cache holds")
+    r.provider = Provider()
+    clip = {"clip_id": "clip_01", "kind": "video", "prompt": "【阶段1】林凡擦去嘴角的血。", "request_seconds": 10, "references": []}
+    attempt = r.work / "clips" / "clip_01" / "attempt_01"
+    attempt.mkdir(parents=True)
+    (attempt / "clip.mp4").write_bytes(b"take that passed the filter")
+    (attempt / "request.json").write_text(json.dumps({"prompt": clip["prompt"] + rc.COMPLIANCE_SUFFIX, "references": [],
+                                                      "reference_sha256": [], "duration": 10}, ensure_ascii=False), encoding="utf-8")
+    assert rc.soften_prompt(clip["prompt"]) != clip["prompt"] + rc.COMPLIANCE_SUFFIX  # softening would have changed it
+    assert r.generate_clip(clip, 1).read_bytes() == b"take that passed the filter"
