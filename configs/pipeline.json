@@ -30,6 +30,7 @@
     },
     "parallel": 6
    },
+   "h3pool": {"model": "minimax-h3-ref2va-turbo", "key_var": "", "base_url": "pool", "clip_cap": 15, "pool": "h3pool", "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/h3pool", "inflight": {"min": 24, "max": 24, "start": 24}, "parallel": 6, "note": "本地 H3 池（configs/h3_pool.json）：常驻实例 + 夜班 active 实例，按实例空位派活"},
    "h3a": {
     "model": "minimax-h3-ref2va-turbo",
     "key_var": "",
@@ -176,14 +177,14 @@
    "title": "雾月秘典",
    "active": true,
    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
-   "render_keys": ["h3a", "h3b"],
+   "render_keys": ["h3pool"],
    "planning": {
     "local": 2
    },
    "blocks_max": 2,
    "blocks_min": 1,
-   "ranges": [{"chapters": "1-1226", "plan_mode": 15}, {"chapters": "1227-2043", "plan_mode": 15}],
-   "paused_keys": ["sd20", "sd25", "h3c", "h3d"]
+   "ranges": [{"chapters": "1-2043", "plan_mode": 15}],
+   "paused_keys": ["sd20", "sd25", "h3a", "h3b", "h3c", "h3d"]
   },
   {
    "id": "zhutian-card",
