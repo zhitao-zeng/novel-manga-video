@@ -215,3 +215,22 @@ def test_corrections_follow_their_clip_through_a_new_plan(tmp_path):
     dropped = packer.carry_corrections(old, new, feedback)
     assert json.loads(feedback.read_text(encoding="utf-8")) == {"clip_02": "甲的修正"}
     assert dropped == {"clip_02": "乙穿红衣，不要出现甲"} and list(tmp_path.glob("review_feedback.set-aside-*.json"))
+
+
+# ---------------------------------------------------------------- repair batches draw no backlog of cards
+def test_a_repair_batch_builds_only_the_cards_its_episode_references(tmp_path, monkeypatch):
+    import recurring_cards_thin
+    directory = episode(tmp_path)
+    plan_with(directory, [{**CLIP, "references": [{"role": "character", "asset_id": "character_001", "path": "x.jpeg"}]}])
+    monkeypatch.setattr(recurring_cards_thin, "recurring_without_cards", lambda novel_dir: [("甲", "character_099", 2)])
+
+    def prepared(no_recurring: bool) -> set:
+        batch = object.__new__(thin_batch.Batch)
+        batch.args = types.SimpleNamespace(no_recurring_cards=no_recurring)
+        batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
+        wanted: set = set()
+        batch.cards = types.SimpleNamespace(want=wanted.update, wait=lambda ids: [{"asset_id": i, "status": "built"} for i in ids])
+        batch.prepare_cards(1)
+        return wanted
+    assert prepared(False) == {"character_001", "character_099"}
+    assert prepared(True) == {"character_001"}

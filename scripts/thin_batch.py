@@ -575,15 +575,19 @@ class Batch:
         # Named characters who keep coming back - in the group chat or off
         # screen - without ever being on camera are never referenced by a clip,
         # so they never got a card; the chat avatar and any later appearance
-        # need one.  Second appearance is the threshold.
-        try:
-            from recurring_cards_thin import recurring_without_cards
-            recurring = {asset_id for _, asset_id, _ in recurring_without_cards(self.novel_dir)}
-            if recurring:
-                log(f"ch{chapter}: cards for recurring off-screen characters {sorted(recurring)}")
-                wanted |= recurring
-        except Exception as error:  # noqa: BLE001 - a card is a nicety, not a blocker
-            log(f"ch{chapter}: recurring-card check failed: {type(error).__name__}")
+        # need one.  Second appearance is the threshold.  A repair batch leaves
+        # them to the lanes (--no-recurring-cards): 诸天, without a lane for
+        # weeks, owed 210 of them, and three repair batches of a few episodes
+        # each set about drawing - and paying for - all of them.
+        if not self.args.no_recurring_cards:
+            try:
+                from recurring_cards_thin import recurring_without_cards
+                recurring = {asset_id for _, asset_id, _ in recurring_without_cards(self.novel_dir)}
+                if recurring:
+                    log(f"ch{chapter}: cards for recurring off-screen characters {sorted(recurring)}")
+                    wanted |= recurring
+            except Exception as error:  # noqa: BLE001 - a card is a nicety, not a blocker
+                log(f"ch{chapter}: recurring-card check failed: {type(error).__name__}")
         self.cards.want(wanted)
         rows = self.cards.wait(wanted)  # only this episode's assets, built in parallel by the factory
         row["card_flags"] = [flag for r in rows for flag in r.get("flags", [])]
@@ -786,6 +790,7 @@ def main() -> int:
     parser.add_argument("--cache-only", action="store_true", help="with --stage render --rerender: rebuild finals from the clips already rendered (after an assembly fix); never generates anything, and an episode with a clip missing from the cache is left as it is")
     parser.add_argument("--retake-failed", action="store_true", help="give the gate-failed clips of finals fresh takes (always on a local-H3 lane; on a paid lane only for a batch a person approved - every take is paid for)")
     parser.add_argument("--resubmit-unconfirmed", action="store_true", help="send again the submissions recorded as unconfirmed (the service may have created them): only after checking the bill")
+    parser.add_argument("--no-recurring-cards", action="store_true", help="build only the cards this episode references, not the whole novel's backlog of recurring off-screen characters (repair batches)")
     parser.add_argument("--no-render", action="store_true", help="with --stage render: review the episodes that are already done and render nothing (the conductor's review jobs run without the novel's render key)")
     parser.add_argument("--no-card-review", dest="card_review", action="store_false", default=True,
                         help="skip judging cards before rendering (by default every card is judged once it is built and fixed once if flagged)")
