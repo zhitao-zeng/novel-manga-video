@@ -1,18 +1,24 @@
 # Novel Manga Video
 
-把 `txt / markdown / docx / pdf` 小说改编成可批量生产的 9:16、3D 国漫短剧。系统是普通 Python
-控制器，不依赖 Codex；当前唯一可执行生产档是：
+把 `txt / markdown / docx / pdf` 小说改编成可批量生产的国漫短剧。系统是普通 Python 控制器，不依赖 Codex。
 
-- `short-drama-adaptive-v1`
-- 本地 DeepSeek 命令规划器
-- 可复用人物卡、地点卡，必要时生成剧情关键帧
-- Seedance 2.5 原生对白与环境声
-- ASR 字幕、专名纠正和原生对白硬门
-- 0.15 秒跨切、低电平 BGM、最终响度归一
+**批量出片走薄流水线**（`docs/thin-pipeline.md`）。`configs/pipeline.json` 描述每本书和共用资源，
+`scripts/pipeline.py validate|status|start|stop --novel <id>` 是唯一入口；调度器 `scripts/conductor_thin.py`
+每一轮读磁盘状态，安排读书、分块规划、建卡、出片车道和审片：
 
-旧 TTS、参考音频、MiniMax H3、ComfyUI、Qwen Image 本地生产分支已经移除；历史输出仍可读取，不能再执行。
+- 规划：本地 Qwen，一章一次调用出分镜剧本，再确定性地打包成 ≤15 秒或 ≤30 秒的多阶段片段
+- 出片：Seedance 2.5 / 2.0（PhanRouter，付费），或本地 MiniMax-H3（免费；常驻实例和夜班租到的实例组成资源池，
+  见 `configs/h3_pool.json`）
+- H3 车道用英文提示词（`prompt_h3`：画面描述英文、台词中文放在 `<d>` 里），出片前自动转换
+- 参考图（人物卡、地点卡）+ 参考音色（从已出片的集建的音色库 `series_assets/voices/`）
+- ASR 字幕、专名纠正、语音门（剧本台词没被听到的比例）；没过门的段在免费车道上自动重拍
+- 跨切、封面片尾、响度归一、媒体 QC；调度器的审片只做标记，付费修复要人批准
+  （`scripts/repair_from_review.py` 写修正，再重渲）
 
-## 当前数据流
+下面各节讲的是完整生产档 `short-drama-adaptive-v1`（`novel-manga` 命令、HTTP 服务、DeepSeek 命令规划器），
+它仍然可以运行，但批量出片不经过它。旧的 TTS、ComfyUI、Qwen Image 本地生产分支已经移除，历史输出仍可读取。
+
+## 完整生产档的数据流
 
 ```text
 小说
