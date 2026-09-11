@@ -156,7 +156,7 @@ def test_a_free_lane_takes_back_a_final_cut_before_a_correction(tmp_path):
 def batch_for(tmp_path: Path, monkeypatch, **overrides) -> thin_batch.Batch:
     batch = object.__new__(thin_batch.Batch)
     args = dict(rerender=False, no_render=False, dry_run=False, workers=0, inflight=4, tier=None, prescreen=False,
-                moderation_repair=True, prune=False)
+                moderation_repair=True, prune=False, cache_only=False)
     args.update(overrides)
     batch.args = types.SimpleNamespace(**args)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
@@ -309,7 +309,7 @@ def runner(tmp_path: Path, local: str | None = "pool") -> rc.ThinMediaRunner:
     r.settings = types.SimpleNamespace(local_h3_base_url=local)
     r.feedback, r.max_attempts, r.free_retries = {}, 2, bool(local)
     r.work = r.novel_dir / f"{NOVEL}_1" / "work"
-    r.prescreen, r.inflight, r.moderation_repair = False, 0, True
+    r.prescreen, r.inflight, r.moderation_repair, r.cache_only = False, 0, True, False
     return r
 
 

@@ -529,8 +529,8 @@ class Conductor:
                 continue  # every planning server is full; try again next tick
             command = [PY, str(SCRIPTS / "thin_batch.py"), "--novel-dir", str(self.novel_dir), "--chapters", f"{block['a']}-{block['b']}",
                        "--stage", "plan", "--tier", "fast", "--merge", "1", "--max-redo", "2", "--volume-size", "50", "--no-grow-bible"]
-            if server:
-                command += ["--plan-parallel", str(server.get("slots", 1))]
+            # A server's slots are filled by blocks, one chapter at a time each: thin_batch now honours
+            # --plan-parallel, and passing the slot count as well would have put slots x slots requests on it.
             extra = {"NOVEL_CLIP_SECONDS_MAX": "15"} if block["mode"] == 15 else {}
             if server:
                 extra = {**extra, **self.server_env(server)}

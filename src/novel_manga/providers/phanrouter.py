@@ -13,11 +13,43 @@ import httpx
 from PIL import Image, ImageOps
 
 from ..config import Settings
-from ..util import atomic_write_json, retry
+from ..util import atomic_write_json
 from .base import ImageResult, MediaProvider
 
 
 SUBMIT_TIMEOUT_SECONDS = 120.0  # a task submission answers in seconds; downloads keep the long request timeout
+UNCERTAIN_HOLD_SECONDS = 1800.0  # an unconfirmed submission is not sent again for this long
+
+
+class SubmissionUncertain(RuntimeError):
+    """A task submission whose answer was lost after the request went out.  The service may have created the
+    task, and billed it, so the request is not sent again automatically."""
+
+
+def submit_once(submit, attempts: int = 3, base_delay: float = 1.0) -> httpx.Response:
+    """Send a task-creating request, retrying only when no task can have been created: the connection was never
+    made, or the service refused with 429.  retry() resent on any error, so a submission the service had accepted
+    but whose answer timed out was created - and paid for - twice.  A lost answer (read timeout, dropped
+    connection) or a gateway timeout raises SubmissionUncertain instead."""
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return submit()
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as error:
+            last = error
+        except httpx.TransportError as error:
+            raise SubmissionUncertain(f"task submission unconfirmed ({type(error).__name__}): not sent again, the service may have accepted it") from error
+        except (RuntimeError, httpx.HTTPStatusError) as error:
+            status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+            if status == 504 or "HTTP 504" in str(error):
+                raise SubmissionUncertain("task submission unconfirmed (gateway timeout 504): not sent again, the service may have accepted it") from error
+            if status != 429 and "HTTP 429" not in str(error):
+                raise
+            last = error
+        if attempt + 1 < attempts:
+            time.sleep(base_delay * (2 ** attempt))
+    assert last is not None
+    raise last
 
 
 # Per-model limits of the tasks endpoint, applied to every request regardless of
@@ -101,9 +133,11 @@ class PhanRouterMediaProvider(MediaProvider):
                 raise FileNotFoundError(image.path)
             with Image.open(image.path) as source:
                 normalized = ImageOps.exif_transpose(source).convert("RGB")
-                normalized = ImageOps.fit(
+                # The whole card, long side 1280.  Fitting every reference to 720x1280 cut a 16:9 scene card
+                # down to its middle third - the buildings, doors and space either side went missing.
+                normalized = ImageOps.contain(
                     normalized,
-                    (720, 1280),
+                    (1280, 1280),
                     method=Image.Resampling.LANCZOS,
                 )
                 encoded = io.BytesIO()
@@ -164,7 +198,7 @@ class PhanRouterMediaProvider(MediaProvider):
             import json
             task_id = json.loads(task_path.read_text(encoding="utf-8")).get("task_id")
         else:
-            task_id = retry(submit).json().get("task_id")
+            task_id = submit_once(submit).json().get("task_id")
             if task_id:
                 atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
         if not task_id:
@@ -179,7 +213,7 @@ class PhanRouterMediaProvider(MediaProvider):
             # card is not coming back: submit it again, once.
             if not cached or not isinstance(error, httpx.HTTPStatusError):
                 raise
-            task_id = retry(submit).json().get("task_id")
+            task_id = submit_once(submit).json().get("task_id")
             if not task_id:
                 raise ValueError("image API returned no task_id") from error
             atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
@@ -221,7 +255,7 @@ class PhanRouterMediaProvider(MediaProvider):
             response.raise_for_status()
             return response
 
-        response = retry(submit)
+        response = submit_once(submit)
         data = response.json().get("data")
         if not isinstance(data, list) or not data or not isinstance(data[0], dict):
             raise ValueError("Seedream image API returned no data")
@@ -349,13 +383,25 @@ class PhanRouterMediaProvider(MediaProvider):
             cached = json.loads(task_path.read_text(encoding="utf-8"))
             if cached.get("request_sha256") == request_sha256:
                 task_id = cached.get("task_id")
+                waited = time.time() - float(cached.get("submit_uncertain_at") or 0)
+                if not task_id and waited < UNCERTAIN_HOLD_SECONDS:
+                    raise SubmissionUncertain(
+                        f"this request's submission at {time.strftime('%H:%M', time.localtime(cached['submit_uncertain_at']))} went "
+                        f"unconfirmed and may have created a paid task; not sent again for {int((UNCERTAIN_HOLD_SECONDS - waited) / 60) + 1} min")
             else:
                 # The request changed since that task was created (re-plan,
                 # sanitised line, send-time alias): the old task's video would
                 # not be this clip.  Keep the record aside and submit afresh.
                 task_path.replace(task_path.with_suffix(".stale.json"))
         if not task_id:
-            task_id = retry(submit).json().get("task_id")
+            try:
+                task_id = submit_once(submit).json().get("task_id")
+            except SubmissionUncertain:
+                # Kept beside the clip, so a later run waits before sending the same request again and the cost
+                # ledger can find it.
+                atomic_write_json(task_path, {"request_sha256": request_sha256, "submit_uncertain_at": time.time(),
+                                              "kind": "video", "model": self.settings.video_model})
+                raise
             if task_id:
                 atomic_write_json(
                     task_path,

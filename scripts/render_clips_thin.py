@@ -40,7 +40,7 @@ from novel_manga.models import StoryBible
 from novel_manga.production import SeriesAssetFactory
 from novel_manga.production_models import AssetRecord, SeriesAssetManifest
 from novel_manga.production_runtime import EpisodeProductionRuntime
-from novel_manga.providers.phanrouter import PhanRouterMediaProvider
+from novel_manga.providers.phanrouter import PhanRouterMediaProvider, SubmissionUncertain
 from novel_manga.qc import inspect_media
 from novel_manga.render import Renderer
 from novel_manga.runtime_backends import correct_protected_lexicon, edit_distance, normalize_text
@@ -233,6 +233,10 @@ REDRAW_ORIGIN = "privacy-stylized-redraw"
 MODERATION_MARKERS = ("violate", "usage policy", "content policy", "sensitive", "moderation", "safety", "违规", "敏感", "审核")
 SCRUB_WORDS = re.compile(r"妩媚|性感|曼妙|露肩|低胸|大腿|俗气|轻浮|挑逗|妖艳|夸张")
 SAFE_SUFFIX = "。整体端庄得体，衣着完整，表情自然温和，普通站姿，无任何性暗示、暴力或血腥"
+
+
+class CacheMiss(RuntimeError):
+    """--cache-only: the clip would have to be generated."""
 
 
 class ModerationRejected(RuntimeError):
@@ -718,7 +722,8 @@ def wait_for_inflight_redraws(paths, timeout: float = REDRAW_WAIT_SECONDS) -> li
     return waited
 
 class ThinMediaRunner:
-    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False, moderation_repair: bool = True):
+    def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False, moderation_repair: bool = True, cache_only: bool = False):
+        self.cache_only = cache_only  # rebuild from clips already rendered; never generate
         self.novel_dir = novel_dir
         self.inflight = inflight  # global cap on clips in flight across every runner of this novel (0 = none)
         self.prescreen = prescreen
@@ -740,7 +745,7 @@ class ThinMediaRunner:
         self.max_attempts = 2 if self.fast else max_attempts
         # On a free lane (local H3) a clip whose cached takes all failed gets fresh ones on a later run,
         # not the same verdict again (process_clip); a paid lane leaves further takes to a person.
-        self.free_retries = bool(self.settings.local_h3_base_url)
+        self.free_retries = bool(self.settings.local_h3_base_url) and not cache_only
         resolution = "480p" if self.fast else "720p"
         local = self.settings.local_h3_base_url
         self.provider = (FramedLocalH3(self.settings, self.frame_spec, local, resolution=resolution)
@@ -1064,6 +1069,8 @@ class ThinMediaRunner:
                         pass
                 log(f"{clip['clip_id']} attempt {attempt}: reusing the matching video from {other.name}")
                 return other_video
+        if self.cache_only:
+            raise CacheMiss(f"{clip['clip_id']} attempt {attempt}: not in the cache")
         wait_for_inflight_redraws(references)
         atomic_write_json(directory / "request.json", request)
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
@@ -1082,7 +1089,8 @@ class ThinMediaRunner:
             except RuntimeError as error:
                 # Throttled at submission (higher --parallel): wait and resubmit
                 # instead of failing the clip; content errors propagate at once.
-                if wait is None or "SensitiveContentDetected" in str(error) or not RATE_LIMIT_RE.search(str(error)):
+                # An unconfirmed submission may already be a paid task: never resent from here.
+                if wait is None or isinstance(error, SubmissionUncertain) or "SensitiveContentDetected" in str(error) or not RATE_LIMIT_RE.search(str(error)):
                     raise
                 log(f"{clip['clip_id']} attempt {attempt}: video service throttled ({str(error)[:80]}); retrying in {wait}s")
                 time.sleep(wait)
@@ -1570,16 +1578,80 @@ class ThinMediaRunner:
                                  "duration": seconds, "audio_source": "chat_card", "subtitle_events": []})
         return segments
 
-    def assemble(self, results: list[dict]) -> dict:
-        video_id = self.episode_dir.name
-        turn_segments = []
-        for record in results:
+    def title_card_image(self, text: str, background: Path | None, output: Path) -> Path:
+        """A time-jump caption on a darkened, softened frame of the scene it leads into."""
+        from PIL import ImageDraw, ImageFilter
+        W, H = self.settings.width, self.settings.height
+        if background is not None and Path(background).is_file():
+            with Image.open(background) as source:
+                image = _fit_cover(source.convert("RGB"), W, H).filter(ImageFilter.GaussianBlur(radius=max(6, W // 120)))
+        else:
+            image = Image.new("RGB", (W, H), (12, 14, 22))
+        image = Image.alpha_composite(image.convert("RGBA"), Image.new("RGBA", (W, H), (6, 8, 16, 170)))
+        draw = ImageDraw.Draw(image)
+        lines = [line.strip() for line in str(text).splitlines() if line.strip()] or [" "]
+        size = int(min(W, H) * 0.11)
+        while size > 24 and max(draw.textbbox((0, 0), line, font=self._font(size))[2] for line in lines) > W * 0.84:
+            size -= 4
+        font = self._font(size)
+        gap = int(size * 0.35)
+        heights = [draw.textbbox((0, 0), line, font=font)[3] for line in lines]
+        y = (H - (sum(heights) + gap * (len(lines) - 1))) / 2
+        for line, height in zip(lines, heights):
+            width = draw.textbbox((0, 0), line, font=font)[2]
+            draw.text(((W - width) / 2, y), line, font=font, fill=(255, 246, 222), stroke_width=max(2, size // 24), stroke_fill=(10, 8, 6))
+            y += height + gap
+        output.parent.mkdir(parents=True, exist_ok=True)
+        image.convert("RGB").save(output, "JPEG", quality=95, subsampling=0)
+        return output
+
+    def title_card_segment(self, clip: dict, background: Path | None) -> dict:
+        """A title card from the plan ("二十年后"), drawn here and cut in where the plan puts it.  The runner used to
+        take only the video clips, so every time jump the script announced this way was dropped (星海 817, 1146)."""
+        out_dir = self.work / "titles"
+        seconds = float(clip.get("request_seconds") or 3)
+        image = self.title_card_image(clip.get("text", ""), background, out_dir / f"{clip['clip_id']}.jpeg")
+        segment = self.renderer._silent_card_segment(image, out_dir / f"{clip['clip_id']}.mp4", seconds)
+        log(f"{clip['clip_id']}: title card 「{clip.get('text', '')}」 ({seconds:.0f}s)")
+        return {"unit_id": clip["clip_id"], "role": "title", "segment": str(segment), "duration": seconds,
+                "audio_source": "title_card", "subtitle_events": []}
+
+    def story_segments(self, results: list[dict]) -> list[dict]:
+        """The episode's segments in plan order: chat cards, each clip, and the plan's title cards."""
+        by_id = {record["clip_id"]: record for record in results}
+        order = self.clip_plan["clips"]
+        (self.work / "titles").mkdir(parents=True, exist_ok=True)
+        segments: list[dict] = []
+        for index, clip in enumerate(order):
+            if clip["kind"] == "title_card":
+                # Over the scene the jump lands in: the next rendered clip's opening frame, else the last one's end.
+                after = next((by_id[c["clip_id"]] for c in order[index + 1:] if c["clip_id"] in by_id), None)
+                before = next((by_id[c["clip_id"]] for c in reversed(order[:index]) if c["clip_id"] in by_id), None)
+                plate, backdrop = self.work / "titles" / f"{clip['clip_id']}_plate.jpeg", None
+                try:
+                    if after is not None:
+                        backdrop = self.frame(Path(after["selected"]["video"]), 0.4, plate)
+                    elif before is not None:
+                        video = Path(before["selected"]["video"])
+                        backdrop = self.frame(video, max(0.1, media_duration(video) - 0.6), plate)
+                except Exception as error:  # noqa: BLE001 - a missing plate only costs the backdrop
+                    log(f"{clip['clip_id']}: title card backdrop unavailable ({type(error).__name__})")
+                segments.append(self.title_card_segment(clip, backdrop))
+                continue
+            record = by_id.get(clip["clip_id"])
+            if record is None:
+                continue
             selected = record["selected"]
             clip_video = Path(selected["video"])
             wav = clip_video.parent / "native.wav"
             segment, duration = self.renderer.mux_visual_group(clip_video, wav, self.work / "segments" / f"{record['clip_id']}.mp4")
-            turn_segments.extend(self.chat_segments(record["clip_id"], clip_video))
-            turn_segments.append({"unit_id": record["clip_id"], "role": "dialogue", "segment": str(segment), "duration": duration, "audio_source": "native_dialogue", "subtitle_events": self.subtitle_events(record["clip_id"], selected)})
+            segments.extend(self.chat_segments(record["clip_id"], clip_video))
+            segments.append({"unit_id": record["clip_id"], "role": "dialogue", "segment": str(segment), "duration": duration, "audio_source": "native_dialogue", "subtitle_events": self.subtitle_events(record["clip_id"], selected)})
+        return segments
+
+    def assemble(self, results: list[dict]) -> dict:
+        video_id = self.episode_dir.name
+        turn_segments = self.story_segments(results)
         first_video = Path(results[0]["selected"]["video"])
         last_video = Path(results[-1]["selected"]["video"])
         cover_frame = self.frame(first_video, min(1.5, max(0.1, media_duration(first_video) - 0.2)), self.work / "cover_frame.jpeg")
@@ -1656,12 +1728,18 @@ class ThinMediaRunner:
 
     def run(self) -> dict:
         started = time.monotonic()
-        self.build_assets()
+        if not self.cache_only:  # cached clips need no cards built (and none redrawn)
+            self.build_assets()
         clips = [clip for clip in self.clip_plan["clips"] if clip["kind"] == "video"]
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             results = list(pool.map(self.process_clip, clips))
         errored = [r["clip_id"] for r in results if r.get("error") or not r.get("selected")]
         failed = [r["clip_id"] for r in results if r.get("selected") and not r["selected"]["passed"]]
+        if self.cache_only and errored:
+            # Nothing is written: the episode keeps the report and final it had.
+            log(f"cache-only: {len(errored)} clip(s) not in the cache ({', '.join(errored)}); episode left as it was")
+            return {"status": "cache_miss", "elapsed_seconds": round(time.monotonic() - started, 1), "failed_clips": errored,
+                    "gate_failed_clips": failed, "assembly": None, "clips": results}
         report = {
             "policy": POLICY, "episode": self.episode_dir.name,
             # Batch drivers compare this with the current clip_plan.json to tell
@@ -1692,6 +1770,7 @@ def main() -> int:
     parser.add_argument("--prescreen", action="store_true", help="ask the local Qwen for content-filter risk and soften risky prompts before the first submission")
     parser.add_argument("--no-moderation-repair", dest="moderation_repair", action="store_false", default=True, help="do not bisect and rewrite a prompt the text filter keeps refusing")
     parser.add_argument("--max-attempts", type=int, default=2)
+    parser.add_argument("--cache-only", action="store_true", help="rebuild the episode from clips already rendered; never generate, and write nothing when a clip is missing")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--assets-only", action="store_true", help="build the cards this episode needs, write series_assets/cards_sheet.jpg for review, and stop before any video")
     parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
@@ -1703,7 +1782,7 @@ def main() -> int:
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
-    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair)
+    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair, cache_only=args.cache_only)
     clips = [c for c in runner.clip_plan["clips"] if c["kind"] == "video"]
     summary = {
         "profile": runner.profile, "canvas": f"{runner.settings.width}x{runner.settings.height}",

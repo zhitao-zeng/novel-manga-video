@@ -458,11 +458,18 @@ def recent_names(group: dict, chapter: int, window: int) -> set[str]:
 
 
 def record_cast(novel_dir: Path, chapter: int, characters: list[str], locations: list[str]) -> None:
-    """Add this chapter to the appearance index (planners may run in parallel)."""
+    """Record who and where this chapter shows, replacing what an earlier plan of it recorded (planners may run
+    in parallel).  Adding only kept a character a re-written chapter no longer has as "seen lately" for the next
+    three chapters (星海 14 and 诸天 101 entries disagreed with the scripts on 2026-09-11)."""
     path = novel_dir / "cast_index.json"
     with open(path.with_suffix(".lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         index = cast_history(novel_dir)
+        for group in index.values():
+            for name in list(group):
+                group[name] = [c for c in group[name] if int(c) != chapter]
+                if not group[name]:
+                    del group[name]
         for key, values in (("characters", characters), ("locations", locations)):
             for name in values:
                 if not name:

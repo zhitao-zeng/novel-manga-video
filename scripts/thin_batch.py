@@ -246,6 +246,17 @@ class Batch:
         problem = next((line for line in reversed(tail) if re.search(r"Error|FAILED|planning_failed|Traceback", line)), "")
         return completed.returncode, problem[:200]
 
+    def plan_stage(self, chapters: list[int]) -> None:
+        """--stage plan: up to --plan-parallel chapters at once, as --stage all does - it used to be a plain loop
+        whatever --plan-parallel said.  The volume checkpoints still come in chapter order."""
+        def plan_one(chapter: int) -> int:
+            self.grow(chapter)
+            self.plan(chapter)
+            return chapter
+        with ThreadPoolExecutor(max_workers=max(1, self.args.plan_parallel)) as planners:
+            for future in [planners.submit(plan_one, chapter) for chapter in chapters]:
+                self.volume_checkpoint(future.result(), chapters)
+
     def plan_status(self, chapter: int) -> str:
         directory = self.episode_dir(chapter)
         if (directory / "clip_plan.json").is_file():
@@ -440,7 +451,7 @@ class Batch:
         if self.args.dry_run:
             row["render"] = f"would render ({status})"
             return
-        if free and not self.h3_ready(chapter):
+        if free and not self.args.cache_only and not self.h3_ready(chapter):
             row["render"] = "skipped (H3 prompt not ready)"
             return
         lock = directory / ".render.lock"
@@ -460,17 +471,19 @@ class Batch:
         # Counted only once the episode really renders: a round turned away by another render's lock used
         # to spend a run too, and three of those gave an episode up without a single generation.
         runs = render_runs(directory)
-        if runs >= RENDER_RUNS_PER_PLAN:
+        if runs >= RENDER_RUNS_PER_PLAN and not self.args.cache_only:
             row["render"] = f"gave up ({runs} render runs on this plan)"
             row["note"] = "needs a look: same failure on every run; see thin_media_report.json"
             log(f"ch{chapter}: gave up after {runs} render runs on this plan; needs a look")
             return
-        count_run(directory)
+        if not self.args.cache_only:  # a rebuild from cached clips generates nothing, so it spends no run
+            count_run(directory)
         lock.write_text(str(os.getpid()), encoding="utf-8")
         try:
-            self.prepare_cards(chapter)
-            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"])
-            for attempt in (1, 2):
+            if not self.args.cache_only:  # cards are only built, judged and redrawn for clips about to be generated
+                self.prepare_cards(chapter)
+            command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"]) + (["--cache-only"] if self.args.cache_only else [])
+            for attempt in ((1,) if self.args.cache_only else (1, 2)):
                 log(f"ch{chapter}: rendering (attempt {attempt})")
                 code, problem = self.run(command, directory / "render.log")
                 status = self.render_status(chapter)
@@ -481,7 +494,7 @@ class Batch:
                     continue
                 break
             replans = sum((directory / marker).exists() for marker in MODERATION_MARKERS)
-            if status == "clips_failed" and self.moderation_blocked(chapter) and replans < len(MODERATION_MARKERS):
+            if status == "clips_failed" and not self.args.cache_only and self.moderation_blocked(chapter) and replans < len(MODERATION_MARKERS):
                 # Seedance refused the text or the output twice: re-plan the chapter
                 # with a director note that keeps the sensitive beats indirect - the
                 # second time naming exactly what was refused.
@@ -797,6 +810,7 @@ def main() -> int:
     parser.add_argument("--rerender", action="store_true", help="re-render episodes that already have a final video")
     parser.add_argument("--unattended", action="store_true", help="automatic reviews with bounded paid fixes: cards after the assets stage (one redraw/regeneration), clips after each render (one regeneration with the reviewer's correction); then delivery_report.md")
     parser.add_argument("--review-only", action="store_true", help="run the automatic reviews and write delivery_report.md without any paid fix")
+    parser.add_argument("--cache-only", action="store_true", help="with --stage render --rerender: rebuild finals from the clips already rendered (after an assembly fix); never generates anything, and an episode with a clip missing from the cache is left as it is")
     parser.add_argument("--no-render", action="store_true", help="with --stage render: review the episodes that are already done and render nothing (the conductor's review jobs run without the novel's render key)")
     parser.add_argument("--no-card-review", dest="card_review", action="store_false", default=True,
                         help="skip judging cards before rendering (by default every card is judged once it is built and fixed once if flagged)")
@@ -826,10 +840,7 @@ def main() -> int:
     if args.stage == "plan":
         if not args.dry_run and any(batch.plan_status(ch) != "planned" or args.replan for ch in chapters):
             batch.check_qwen()
-        for chapter in chapters:  # serial: the local Qwen service runs one sequence at a time
-            batch.grow(chapter)
-            batch.plan(chapter)
-            batch.volume_checkpoint(chapter, chapters)
+        batch.plan_stage(chapters)
     if args.stage == "assets":
         batch.assets(chapters)
     if args.stage == "render":

@@ -84,7 +84,7 @@ def is_title_card(shot: dict) -> bool:
     return all(turn["delivery_mode"] == "title_card" for turn in shot["turns"])
 
 
-PACKER_VERSION = "thin-packer-2026-09-09+decisions"
+PACKER_VERSION = "thin-packer-2026-09-11+split-long-stages"
 # "planned": every rule below cuts (today's behaviour).  "execution": only the rules the
 # video service enforces cut - location, length cap, stage ceiling - and the planner's
 # clip_hint and the source-segment boundary are recorded but not acted on.
@@ -105,11 +105,74 @@ def _cut_checks(current: dict, last: dict, shot: dict, seconds: float) -> dict[s
     }
 
 
+SENTENCE_END = re.compile(r"(?<=[。！？!?…；;])")
+CLAUSE_END = re.compile(r"(?<=[，、,])")
+
+
+def text_chunks(text: str, limit: int) -> list[str]:
+    """`text` in consecutive pieces of at most `limit` spoken characters: cut at sentence ends, a sentence that is
+    still too long at commas, and a clause that is still too long anywhere.  Nothing is dropped or reordered."""
+    units: list[str] = []
+    for sentence in (s for s in SENTENCE_END.split(text) if s):
+        if spoken_chars(sentence) <= limit:
+            units.append(sentence)
+            continue
+        for clause in (c for c in CLAUSE_END.split(sentence) if c):
+            while spoken_chars(clause) > limit:
+                units.append(clause[:limit])
+                clause = clause[limit:]
+            if clause:
+                units.append(clause)
+    chunks: list[str] = []
+    for unit in units:
+        if chunks and spoken_chars(chunks[-1] + unit) <= limit:
+            chunks[-1] += unit
+        else:
+            chunks.append(unit)
+    return chunks
+
+
+def split_long_shot(shot: dict) -> list[dict]:
+    """A stage too long for one clip, as consecutive stages that each fit one.
+
+    The packer cuts only between stages, so a stage longer than the cap used to become a clip of its own whose
+    request was simply clamped: 星海 484's 71-second stage went out as a 15-second request and 45 % of its lines
+    were never spoken.  Its turns are dealt out in order into parts that fit - a line too long for any clip is
+    first cut at sentence ends - and every part keeps the stage's picture, the later ones carrying on from it."""
+    if is_title_card(shot) or shot_seconds(shot) <= MAX_CLIP_SECONDS:
+        return [shot]
+    limit = max(8, int((MAX_CLIP_SECONDS - 2.0) * 4))  # one line alone: 1 s for the stage + 1 s + chars / 4
+    turns = [{**turn, "text": piece} if piece != turn["text"] else turn
+             for turn in shot["turns"]
+             for piece in (text_chunks(turn["text"], limit)
+                           if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"} and spoken_chars(turn["text"]) > limit
+                           else [turn["text"]])]
+    parts: list[list[dict]] = []
+    for turn in turns:
+        if parts and shot_seconds({**shot, "turns": parts[-1] + [turn]}) <= MAX_CLIP_SECONDS:
+            parts[-1].append(turn)
+        else:
+            parts.append([turn])
+    if len(parts) == 1:
+        return [shot]  # one silent action longer than a clip: nothing to cut at
+    DECISIONS.append({"kind": "split_stage", "stage": shot.get("origin_index"), "seconds": round(shot_seconds(shot), 2),
+                      "parts": len(parts), "cap": MAX_CLIP_SECONDS})
+    pieces = []
+    for number, part in enumerate(parts, 1):
+        piece = {**shot, "turns": part, "split_part": [number, len(parts)]}
+        if number > 1:
+            piece["visual_prompt"] = "与上一段同一画面、同一站位继续：" + compact(shot.get("visual_prompt", ""))
+        if number < len(parts):
+            piece["end_state"] = "人物仍在原位，话还没说完"
+        pieces.append(piece)
+    return pieces
+
+
 def pack(shots: list[dict]) -> list[dict]:
     DECISIONS.clear()
     clips: list[dict] = []
     current: dict | None = None
-    for shot in shots:
+    for shot in [piece for shot in shots for piece in split_long_shot(shot)]:
         if is_title_card(shot):
             if current:
                 clips.append(current)
@@ -118,7 +181,7 @@ def pack(shots: list[dict]) -> list[dict]:
             continue
         seconds = shot_seconds(shot)
         if seconds > MAX_CLIP_SECONDS:
-            # Nothing below re-checks a stage that is too long on its own: recorded, not fixed.
+            # Only a single action longer than a whole clip is left like this (split_long_shot cuts at turns).
             DECISIONS.append({"kind": "single_stage_over_cap", "stage": shot.get("origin_index"),
                               "seconds": round(seconds, 2), "cap": MAX_CLIP_SECONDS})
         if current is not None:
