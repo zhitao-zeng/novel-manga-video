@@ -791,6 +791,25 @@ def main() -> int:
                 log(f"skipping {len(wrong)} episodes planned for the other clip length: {wrong[:8]}"
                     f"{' ...' if len(wrong) > 8 else ''}")
                 chapters = [ch for ch in chapters if ch not in set(wrong)]
+        if os.environ.get("NOVEL_LOCAL_H3_URL"):
+            # A local-H3 lane renders from prompt_h3.  An episode not converted yet would fall back
+            # to the Chinese prompt and recite its stage directions, so it waits for a later round;
+            # one still holding thin_media_report.h3zh.json is waiting for the keep-check that
+            # decides which of its old clips stay.
+            def not_ready(chapter: int) -> bool:
+                directory = batch.episode_dir(chapter)
+                if (directory / "thin_media_report.h3zh.json").is_file():
+                    return True
+                try:
+                    plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    return False
+                return any(c.get("kind") == "video" and not c.get("prompt_h3") for c in plan.get("clips", []))
+            waiting = [ch for ch in chapters if not_ready(ch)]
+            if waiting:
+                log(f"skipping {len(waiting)} episodes not ready for the H3 prompt yet: {waiting[:8]}"
+                    f"{' ...' if len(waiting) > 8 else ''}")
+                chapters = [ch for ch in chapters if ch not in set(waiting)]
         # Fresh chapters first: an episode that failed before, retried at the
         # head of every round, would hold the slots while new ones wait.
         def tried_and_failed(chapter: int) -> int:
