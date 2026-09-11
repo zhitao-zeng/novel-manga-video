@@ -200,7 +200,7 @@ def test_gpus_idle_for_three_samples_with_jobs_waiting_is_stuck(tmp_path, monkey
     monkeypatch.setattr(h3_pool, "MEMBERS_SECONDS", 0.0)
     pool = H3Pool(write_pool(tmp_path))
     monkeypatch.setattr(pool, "_reachable", lambda url: True)
-    monkeypatch.setattr(pool, "_waiting", lambda url: 2)
+    monkeypatch.setattr(pool, "_waiting", lambda url, older_than=0.0: 2)
     instance = resident("http://10.0.0.6:6", "zzt-h3-a100-a.service")
     start = time.time()
     seen = []
@@ -215,7 +215,7 @@ def test_busy_gpus_or_no_waiting_jobs_or_a_stale_inspection_raise_nothing(tmp_pa
     monkeypatch.setattr(h3_pool, "MEMBERS_SECONDS", 0.0)
     pool = H3Pool(write_pool(tmp_path))
     monkeypatch.setattr(pool, "_reachable", lambda url: True)
-    monkeypatch.setattr(pool, "_waiting", lambda url: 0)
+    monkeypatch.setattr(pool, "_waiting", lambda url, older_than=0.0: 0)
     idle = resident("http://10.0.0.7:7", "zzt-h3-a100-a.service")
     start = time.time()
     for step in range(3):
@@ -223,6 +223,42 @@ def test_busy_gpus_or_no_waiting_jobs_or_a_stale_inspection_raise_nothing(tmp_pa
         assert pool.problem(idle) is None  # idle with an empty queue is just idle
     os.utime(tmp_path / "tick.json", (start - 3600, start - 3600))
     assert pool.gpu_verdict(resident("http://10.0.0.8:8", "zzt-h3-a100-b.service")) is None  # stale: says nothing
+
+
+def test_only_a_job_older_than_the_idle_window_counts_as_waiting(tmp_path, monkeypatch):
+    now = time.time()
+    jobs = [{"status": "queued", "created_at": now - 20}, {"status": "queued", "created_at": now - 600},
+            {"status": "completed", "created_at": now - 900}]
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"data": jobs}).encode()
+    monkeypatch.setattr(h3_pool.urllib.request, "urlopen", lambda url, timeout: Response())
+    pool = H3Pool(write_pool(tmp_path))
+    assert pool._waiting("http://10.0.0.6:6") == 2
+    assert pool._waiting("http://10.0.0.6:6", older_than=180) == 1
+
+
+def test_idle_gpus_and_a_clip_just_handed_in_are_not_stuck(tmp_path, monkeypatch):
+    # GPU052-A, 2026-09-11 21:33: three quiet samples while the pool had nothing for it, then a clip handed in 40 s
+    # before the check - cooled for 20 minutes although it finished every clip in half a minute.
+    monkeypatch.setattr(h3_pool, "HEALTH_SECONDS", 0.0)
+    monkeypatch.setattr(h3_pool, "MEMBERS_SECONDS", 0.0)
+    pool = H3Pool(write_pool(tmp_path))
+    monkeypatch.setattr(pool, "_reachable", lambda url: True)
+    monkeypatch.setattr(pool, "_waiting", lambda url, older_than=0.0: 0 if older_than >= 180 else 1)
+    instance = resident("http://10.0.0.6:6", "zzt-h3-a100-a.service")
+    start = time.time()
+    for step in range(3):
+        write_tick_gpus(tmp_path, start + 60 * step, [gpu(0, 0.0, "zzt-h3-a100-a.service")])
+        assert pool.problem(instance) is None
+    assert not pool.cooling(instance.url)
 
 
 def test_a_clip_waits_for_the_pool_no_longer_than_its_own_time(tmp_path, monkeypatch):

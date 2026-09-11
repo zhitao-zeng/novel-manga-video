@@ -148,6 +148,10 @@ class H3Pool:
         return float(self.config().get("stuck_cooldown_minutes", 20)) * 60
 
     @property
+    def idle_samples(self) -> int:
+        return int((self.config().get("gpu_check") or {}).get("idle_samples", 3))
+
+    @property
     def unreachable_cooldown(self) -> float:
         return float(self.config().get("unreachable_cooldown_minutes", 5)) * 60
 
@@ -267,13 +271,16 @@ class H3Pool:
                 return False
         return False
 
-    def _waiting(self, url: str) -> int:
+    def _waiting(self, url: str, older_than: float = 0.0) -> int:
+        """Jobs the instance holds that were handed in at least older_than seconds ago and are not done."""
         try:
             with urllib.request.urlopen(url + "/v1/videos?limit=100&order=desc", timeout=10) as response:
                 jobs = json.loads(response.read()).get("data", [])
         except (urllib.error.URLError, OSError, ValueError):
             return 0
-        return sum(1 for job in jobs if str(job.get("status", "")).lower() in WAITING)
+        cutoff = time.time() - older_than
+        return sum(1 for job in jobs
+                   if str(job.get("status", "")).lower() in WAITING and float(job.get("created_at") or 0) <= cutoff)
 
     def gpu_verdict(self, instance: Instance, now: float | None = None) -> str | None:
         """What the night shift's last nvidia-smi pass says about the GPUs behind this instance:
@@ -332,7 +339,10 @@ class H3Pool:
             verdict = self.gpu_verdict(instance)
             if verdict == "down":
                 why, cooldown = f"nvidia-smi on {instance.host}: {instance.service} holds no GPU", self.unreachable_cooldown
-            elif verdict == "idle" and self._waiting(url):
+            # Only a job that has waited through the whole idle window says the instance is stuck: a clip handed
+            # in a few seconds before the check is simply the first one after a quiet spell (GPU052-A was cooled
+            # three times on 2026-09-11 while it finished every clip in half a minute).
+            elif verdict == "idle" and self._waiting(url, older_than=60.0 * self.idle_samples):
                 why, cooldown = f"nvidia-smi on {instance.host}: GPUs idle for three samples with jobs waiting", self.stuck_cooldown
         temp = cache.with_name(f".health.{os.getpid()}.{threading.get_ident()}")
         temp.write_text(json.dumps({"at": time.time(), "ok": why is None, "why": why}), encoding="utf-8")
