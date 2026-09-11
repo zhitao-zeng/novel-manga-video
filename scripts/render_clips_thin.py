@@ -862,7 +862,12 @@ class ThinMediaRunner:
     # ---- one clip ----
     def clip_prompt(self, clip: dict) -> str:
         note = str(self.feedback.get(clip["clip_id"], "")).strip()
-        prompt = clip["prompt"] + (f"\n【导演修正】{note}" if note else "")
+        # H3 works out what to speak from the language it is written in, so the local lanes read
+        # the English rendering of the same plan; Seedance keeps the Chinese one.  A correction
+        # is appended in Chinese either way - it is an instruction, and both models follow it
+        # without speaking it (H3 speaks description, and this reads as direction).
+        base = clip.get("prompt_h3") if (self.settings.local_h3_base_url and clip.get("prompt_h3")) else clip["prompt"]
+        prompt = base + (f"\n【导演修正】{note}" if note else "")
         return soften_prompt(prompt) if clip.get("_softened") else prompt
 
     def reference_voices(self, clip: dict) -> tuple[Path, ...]:
