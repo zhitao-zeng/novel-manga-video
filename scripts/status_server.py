@@ -482,6 +482,23 @@ def _inflight() -> list[dict]:
 _LOCAL_CACHE: dict = {"at": 0.0, "rows": []}
 
 
+def _local_targets(keys: list[dict]) -> list[tuple[str, str]]:
+    """(name, base URL) of every local H3 instance behind these keys: a key names one instance,
+    or the pool - the resident instances plus the night shift's active leases."""
+    out = []
+    for key in keys:
+        base = str(key.get("base_url") or "").rstrip("/")
+        if base == "pool" or base.startswith("pool:"):
+            try:
+                from novel_manga.providers.h3_pool import H3Pool
+                out += [(m.name, m.url) for m in H3Pool(base[5:] or None).members()]
+            except Exception:  # noqa: BLE001 - a broken pool file must not take the board down
+                continue
+        elif base:
+            out.append((key.get("name", ""), base))
+    return out
+
+
 def _local_video(ttl: float = 20.0) -> list[dict]:
     """What the local H3 instances say about themselves.
 
@@ -494,11 +511,8 @@ def _local_video(ttl: float = 20.0) -> list[dict]:
         return _LOCAL_CACHE["rows"]
     rows = []
     for novel_id, keys in _lane_keys().items():
-        for key in keys:
-            base = str(key.get("base_url") or "").rstrip("/")
-            if not base:
-                continue
-            row = {"name": key.get("name", ""), "novel": TITLES.get(novel_id, novel_id),
+        for name, base in _local_targets(keys):
+            row = {"name": name, "novel": TITLES.get(novel_id, novel_id),
                    "alive": False, "pending": 0, "done_hour": 0,
                    "seconds_hour": 0.0, "avg_take": None}
             try:

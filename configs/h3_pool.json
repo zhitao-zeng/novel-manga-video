@@ -1,0 +1,21 @@
+{
+  "_comment": "本地 H3 池：常驻实例 + H3 夜班在 tick.json 里标 active 的实例。每个实例同时接 slots 段；夜班实例在截止前 drain_minutes 分钟起不再接新活。改这个文件即时生效，不用重启。exclude_hosts 里的主机（常驻和夜班都算）不用。",
+  "slots": 2,
+  "slot_dir": "/mnt/disk1/zengzhitao/tmp/inflight/h3pool-instances",
+  "exclude_hosts": ["172.28.4.3"],
+  "stuck_minutes": 15,
+  "stuck_cooldown_minutes": 20,
+  "unreachable_cooldown_minutes": 5,
+  "resident": [
+    {"name": "GPU052-A 四卡", "url": "http://172.28.4.52:30014", "slots": 2},
+    {"name": "GPU052-B 两卡", "url": "http://172.28.4.52:30016", "slots": 2},
+    {"name": "GPU003-A 四卡", "url": "http://172.28.4.3:30020", "slots": 2, "enabled": false},
+    {"name": "GPU003-B 两卡", "url": "http://172.28.4.3:30018", "slots": 2, "enabled": false}
+  ],
+  "night_shift": {
+    "state": "/mnt/disk1/zengzhitao/h3-night-shift/.state/controller/tick.json",
+    "slots": 2,
+    "drain_minutes": 15,
+    "max_state_age_seconds": 600
+  }
+}
