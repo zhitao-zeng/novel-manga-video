@@ -237,6 +237,11 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                 if status in {"failed", "error", "cancelled", "canceled"}:
                     detail = json.dumps(state.get("error") or state, ensure_ascii=False)[:400]
                     raise RuntimeError(f"local H3 task {task_id} {status}: {detail}")
+                if self.pool and self.pool.problem(base):
+                    # It stopped answering, its service holds no GPU, or its GPUs sat idle with jobs
+                    # waiting (the pool has already cooled it down): the clip goes elsewhere now.
+                    task_id = None
+                    continue
                 if self.pool and time.monotonic() - submitted > self.pool.stuck_seconds:
                     # An instance that takes work and never finishes it (GPU003-B, 2026-09-11 14:36).
                     self.pool.cool_down(base, self.pool.stuck_cooldown,

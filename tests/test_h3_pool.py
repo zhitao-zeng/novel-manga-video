@@ -75,7 +75,7 @@ def test_the_newer_record_of_a_lease_wins():
 
 def test_slots_spread_clips_and_a_cooling_instance_is_skipped(tmp_path, monkeypatch):
     pool = H3Pool(write_pool(tmp_path))
-    monkeypatch.setattr(pool, "healthy", lambda url: True)
+    monkeypatch.setattr(pool, "problem", lambda instance: None)
     first, h1 = pool.acquire(timeout=1)
     second, h2 = pool.acquire(timeout=1)
     assert {first.url, second.url} == {"http://10.0.0.1:1", "http://10.0.0.2:2"}  # one slot each
@@ -93,7 +93,7 @@ def test_slots_spread_clips_and_a_cooling_instance_is_skipped(tmp_path, monkeypa
 
 def test_an_instance_that_does_not_answer_is_passed_over(tmp_path, monkeypatch):
     pool = H3Pool(write_pool(tmp_path))
-    monkeypatch.setattr(pool, "healthy", lambda url: url.endswith(":2"))
+    monkeypatch.setattr(pool, "problem", lambda instance: None if instance.url.endswith(":2") else "down")
     instance, handle = pool.acquire(timeout=1)
     assert instance.url == "http://10.0.0.2:2"
     h3_pool.release(handle)
@@ -128,7 +128,7 @@ def test_a_clip_moves_to_another_instance_when_its_own_disappears(tmp_path, monk
         return httpx.Response(200, json={"status": "completed"})
 
     provider, card = make_provider(tmp_path, handler)
-    monkeypatch.setattr(provider.pool, "healthy", lambda url: True)
+    monkeypatch.setattr(provider.pool, "problem", lambda target: None)
     first_listed_first(monkeypatch)
     output = tmp_path / "clip.mp4"
     provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
@@ -147,7 +147,7 @@ def test_a_clip_that_sits_too_long_is_given_to_another_instance(tmp_path, monkey
         return httpx.Response(200, json={"status": "queued" if request.url.host == "10.0.0.1" else "completed"})
 
     provider, card = make_provider(tmp_path, handler, stuck_minutes=0.0001)
-    monkeypatch.setattr(provider.pool, "healthy", lambda url: True)
+    monkeypatch.setattr(provider.pool, "problem", lambda target: None)
     monkeypatch.setattr(local_h3, "POLL_SECONDS", 0.01)
     first_listed_first(monkeypatch)
     output = tmp_path / "clip.mp4"
@@ -170,3 +170,56 @@ def test_one_named_instance_still_renders_as_before(tmp_path):
     provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
     sidecar = json.loads((tmp_path / "clip.mp4.task.json").read_text(encoding="utf-8"))
     assert sidecar["endpoint"] == "http://10.0.0.7:7/v1/videos" and "instance" not in sidecar
+
+
+def write_tick_gpus(tmp_path, tick_time, gpus, machine="gpu03"):
+    (tmp_path / "tick.json").write_text(json.dumps({"time": tick_time, "machines": [{"machine_id": machine, "inspection": {"gpus": gpus}}]}))
+
+
+def gpu(index, utilization, service=None):
+    return {"index": index, "utilization": utilization, "services": [f"systemd:{service}"] if service else []}
+
+
+def resident(url, service):
+    return h3_pool.Instance(url, url, 2, "resident", host="gpu03", service=service)
+
+
+def test_a_service_that_holds_no_gpu_is_down_even_though_it_answers(tmp_path, monkeypatch):
+    write_tick_gpus(tmp_path, time.time(), [gpu(0, 100.0, "zzt-h3-a100-a.service"), gpu(5, 0.0)])
+    pool = H3Pool(write_pool(tmp_path))
+    monkeypatch.setattr(pool, "_reachable", lambda url: True)
+    b = resident("http://10.0.0.4:4", "zzt-h3-a100-b.service")
+    assert pool.gpu_verdict(b) == "down"
+    assert "holds no GPU" in pool.problem(b)
+    assert pool.cooling(b.url)
+    assert pool.problem(resident("http://10.0.0.5:5", "zzt-h3-a100-a.service")) is None
+
+
+def test_gpus_idle_for_three_samples_with_jobs_waiting_is_stuck(tmp_path, monkeypatch):
+    monkeypatch.setattr(h3_pool, "HEALTH_SECONDS", 0.0)
+    monkeypatch.setattr(h3_pool, "MEMBERS_SECONDS", 0.0)
+    pool = H3Pool(write_pool(tmp_path))
+    monkeypatch.setattr(pool, "_reachable", lambda url: True)
+    monkeypatch.setattr(pool, "_waiting", lambda url: 2)
+    instance = resident("http://10.0.0.6:6", "zzt-h3-a100-a.service")
+    start = time.time()
+    seen = []
+    for step in range(3):
+        write_tick_gpus(tmp_path, start + 60 * step, [gpu(0, 0.0, "zzt-h3-a100-a.service")])
+        seen.append(pool.problem(instance))
+    assert seen[:2] == [None, None] and "idle" in seen[2]
+
+
+def test_busy_gpus_or_no_waiting_jobs_or_a_stale_inspection_raise_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(h3_pool, "HEALTH_SECONDS", 0.0)
+    monkeypatch.setattr(h3_pool, "MEMBERS_SECONDS", 0.0)
+    pool = H3Pool(write_pool(tmp_path))
+    monkeypatch.setattr(pool, "_reachable", lambda url: True)
+    monkeypatch.setattr(pool, "_waiting", lambda url: 0)
+    idle = resident("http://10.0.0.7:7", "zzt-h3-a100-a.service")
+    start = time.time()
+    for step in range(3):
+        write_tick_gpus(tmp_path, start + 60 * step, [gpu(0, 0.0, "zzt-h3-a100-a.service")])
+        assert pool.problem(idle) is None  # idle with an empty queue is just idle
+    os.utime(tmp_path / "tick.json", (start - 3600, start - 3600))
+    assert pool.gpu_verdict(resident("http://10.0.0.8:8", "zzt-h3-a100-b.service")) is None  # stale: says nothing
