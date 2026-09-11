@@ -866,7 +866,10 @@ class ThinMediaRunner:
         # the English rendering of the same plan; Seedance keeps the Chinese one.  A correction
         # is appended in Chinese either way - it is an instruction, and both models follow it
         # without speaking it (H3 speaks description, and this reads as direction).
-        base = clip.get("prompt_h3") if (self.settings.local_h3_base_url and clip.get("prompt_h3")) else clip["prompt"]
+        # prompt_h3_skip keeps a clip already rendered from the Chinese prompt whose dialogue checked
+        # out: it points the request back at the one that produced the clip, so the cache holds it.
+        use_h3 = self.settings.local_h3_base_url and clip.get("prompt_h3") and not clip.get("prompt_h3_skip")
+        base = clip["prompt_h3"] if use_h3 else clip["prompt"]
         prompt = base + (f"\n【导演修正】{note}" if note else "")
         return soften_prompt(prompt) if clip.get("_softened") else prompt
 
