@@ -38,6 +38,23 @@ from thin_runs import RENDER_RUNS_PER_PLAN, episode_status, gate_failures, rende
 REPO = Path(__file__).resolve().parent.parent
 PY = str(REPO / ".venv" / "bin" / "python")
 SCRIPTS = REPO / "scripts"
+
+
+def load_dotenv(path: Path) -> None:
+    """Read .env into the environment, as thin_batch.py does.  The conductor passes os.environ to every
+    worker it spawns, and build_cards_thin.py has no reader of its own: without this, a conductor started
+    from a shell that never sourced .env gives its card workers no PHANROUTER_API_KEY and they exit at
+    once (2026-09-12: 514 cards queued, 0 built)."""
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip().strip("'\"")
+        os.environ.setdefault(key, value)
 BASE_ENV = {"PYTHONPATH": "src:scripts", "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": "short-drama-adaptive-v1", "PHANROUTER_INLINE_REFERENCE_IMAGES": "1"}
 PLAN_BLOCK_RUNS = 3  # runs a planning block gets while some of its chapters are left without a plan
@@ -654,6 +671,7 @@ def config_for_novel(pipeline: dict, novel_id: str) -> dict:
 
 
 def main() -> int:
+    load_dotenv(REPO / ".env")  # before any worker inherits os.environ
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", help="one novel's conductor config (the older form)")
     parser.add_argument("--pipeline", help="the shared pipeline file; use with --novel")
