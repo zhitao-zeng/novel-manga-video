@@ -66,6 +66,7 @@ def test_plan_references_follow_the_chapter(tmp_path):
     assert "满头白发" in bindings[0] and "黑色短发" not in bindings[0]
     other = [ref for ref in later if ref["role"] == "character" and ref["name"] == "苏清月"]
     assert other and other[0]["asset_id"] == "character_002" and "phase" not in other[0]
+    assert "不得使用这两张图的相貌" in bindings[1]  # the two-view binding forbids the face on anyone else
     assert phase_labels([{"references": later}]) == ["沈玄川:白发青年"]
     # the variant has no expressions.jpeg, so it is referenced by its turnaround alone (two views for the base card)
     assert [ref["path"] for ref in lead] == ["series_assets/characters/character_001-p2/turnaround.jpeg"]
