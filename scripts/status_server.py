@@ -4,7 +4,7 @@ Everything on this page is derived from files the pipeline already writes - fini
 episode videos, clip plans, conductor logs, planning-lane logs - so it keeps working
 whether or not anyone is watching, and it never needs a session of mine to update it.
 
-Run:  .venv/bin/python tmp/status_server.py [port]
+Run:  PYTHONPATH=src:scripts .venv/bin/python scripts/status_server.py [port]
 Open: http://172.28.7.16:18900/   (or tunnel: ssh -N -L 18900:127.0.0.1:18900 gpu16)
 """
 from __future__ import annotations
@@ -21,7 +21,10 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-ROOT = Path("/mnt/disk1/zengzhitao/novel-manga-video")
+from thin_runs import RENDER_RUNS_PER_PLAN, episode_status, gate_failures, render_runs
+from review_progress_thin import viewer_progress
+
+ROOT = Path(__file__).resolve().parents[1]
 TMP = Path("/mnt/disk1/zengzhitao/tmp")
 CACHE_SECONDS = 20
 PORT = 18900
@@ -56,28 +59,99 @@ def _read_tail(path: Path, lines: int = 400) -> list[str]:
         return []
 
 
-def _episode_numbers(novel_id: str) -> tuple[list[float], int]:
-    """Modification times of finished episode videos, and how many chapters have a plan."""
-    finals: list[float] = []
-    planned = 0
+_EPISODE_CACHE: dict[tuple[str, bool], tuple[tuple, dict]] = {}
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _episode_state(directory: Path, h3_lane: bool) -> dict:
+    """Read the same completion/gate state as the production lane; cache until an input changes.
+
+    A video left by an earlier plan or a failed quality check is still watchable, but is not a completed episode.
+    Review status is separate: a model error is unjudged work, not a verdict about video quality.
+    """
+    names = ("clip_plan.json", "thin_media_report.json", "review_feedback.json", f"{directory.name}.mp4",
+             ".render_runs", "episode_review.json")
+    stamps = tuple(_mtime(directory / name) for name in names)
+    key = (str(directory), h3_lane)
+    hit = _EPISODE_CACHE.get(key)
+    if hit and hit[0] == stamps:
+        return hit[1]
+    unreadable = False
+    try:
+        status = episode_status(directory, h3_lane)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        status, unreadable = "pending", True
+    try:
+        report = json.loads((directory / "thin_media_report.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        report = {}
+    runs = render_runs(directory)
+    uncertain = status != "done" and any("SubmissionUncertain" in str(row.get("error", ""))
+                                         for row in report.get("clips", []))
+    blocked = bool(stamps[0]) and status != "done" and (
+        runs >= RENDER_RUNS_PER_PLAN or uncertain or unreadable
+        or (status == "done_with_warnings" and not (h3_lane and gate_failures(directory))))
+    review_state = "not_ready"
+    if status in {"done", "done_with_warnings"} and stamps[3]:
+        review_state = "pending"
+        if stamps[5] >= stamps[3]:
+            try:
+                reviews = json.loads((directory / "episode_review.json").read_text(encoding="utf-8")).get("clips", {})
+                plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+                expected = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
+                if any(c.get("severity") == "review_error" for c in reviews.values()):
+                    review_state = "error"
+                elif expected and all(reviews.get(cid, {}).get("severity") in {"pass", "minor", "fail"} for cid in expected):
+                    review_state = "reviewed"
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                pass
+    value = {"status": status, "planned": bool(stamps[0]), "final_mtime": stamps[3], "blocked": blocked,
+             "uncertain": uncertain, "unreadable": unreadable, "review": review_state, "runs": runs}
+    _EPISODE_CACHE[key] = (stamps, value)
+    return value
+
+
+def _episode_inventory(novel_id: str) -> dict:
+    """Counts and qualified-final mtimes, shared by the live page and analytics board."""
+    result = {"finals": [], "planned": 0, "files": 0, "states": {}, "blocked": 0, "uncertain": 0,
+              "review_pending": 0, "review_errors": 0, "attention": []}
+    keys = _lane_keys().get(novel_id, [])
+    h3_lane = bool(keys) and all(k.get("base_url") for k in keys)
     base = ROOT / "outputs" / novel_id
     try:
-        for entry in os.scandir(base):
-            if not entry.is_dir() or not entry.name.startswith(f"{novel_id}_"):
-                continue
-            index = entry.name.rsplit("_", 1)[-1]
-            if not index.isdigit():
-                continue
-            video = Path(entry.path) / f"{entry.name}.mp4"
-            try:
-                finals.append(video.stat().st_mtime)
-            except OSError:
-                pass
-            if (Path(entry.path) / "clip_plan.json").is_file():
-                planned += 1
+        entries = sorted((e for e in os.scandir(base) if e.is_dir() and e.name.startswith(f"{novel_id}_")
+                          and e.name.rsplit("_", 1)[-1].isdigit()), key=lambda e: int(e.name.rsplit("_", 1)[-1]))
     except OSError:
-        pass
-    return finals, planned
+        return result
+    for entry in entries:
+        state = _episode_state(Path(entry.path), h3_lane)
+        status = state["status"]
+        result["planned"] += state["planned"]
+        result["files"] += bool(state["final_mtime"])
+        result["states"][status] = result["states"].get(status, 0) + 1
+        if status == "done":
+            result["finals"].append(state["final_mtime"])
+        result["blocked"] += state["blocked"]
+        result["uncertain"] += state["uncertain"]
+        result["review_pending"] += state["review"] == "pending"
+        result["review_errors"] += state["review"] == "error"
+        reason = ("提交结果不明，需核账" if state["uncertain"] else "状态文件无法读取" if state["unreadable"]
+                  else "重试次数用尽，需处理" if state["blocked"] and state["runs"] >= RENDER_RUNS_PER_PLAN
+                  else "质检未通过，需处理" if state["blocked"]
+                  else "质检未通过，等待重拍" if status == "done_with_warnings"
+                  else "计划或修正已更新，等待重做" if status == "stale"
+                  else "片段生成失败" if status == "clips_failed"
+                  else "旧视频待重新验证" if state["final_mtime"] and status in {"pending", "no_plan"}
+                  else "审查失败，仍未审完" if state["review"] == "error" else "")
+        if reason:
+            result["attention"].append({"chapter": int(entry.name.rsplit("_", 1)[-1]), "reason": reason})
+    return result
 
 
 _MODE_CACHE: dict[str, tuple[float, str]] = {}
@@ -145,7 +219,8 @@ def _today(finals: list[float]) -> int:
 
 
 def _novel_status(novel: dict) -> dict:
-    finals, planned = _episode_numbers(novel["id"])
+    inventory = _episode_inventory(novel["id"])
+    finals, planned = inventory["finals"], inventory["planned"]
     chapters = _chapters(novel["id"])
     per_hour = _rate(finals, 3600)
     recent = _rate(finals, 900) * 4  # last quarter hour, extrapolated
@@ -161,10 +236,11 @@ def _novel_status(novel: dict) -> dict:
     return {
         "id": novel["id"], "title": novel["title"], "chapters": chapters, "planned": planned,
         "done": len(finals), "per_hour": per_hour, "recent_per_hour": recent, "left": left,
-        "eta_hours": round(left / speed, 1) if speed else None,
+        "eta_hours": round(left / speed, 1) if speed and not inventory["blocked"] else None,
         "last_final": max(finals) if finals else None, "tick": tick,
         "modes": _plan_modes(novel["id"]),
         "spark": _spark(finals), "today": _today(finals),
+        **{k: v for k, v in inventory.items() if k not in {"finals", "planned"}},
     }
 
 
@@ -222,6 +298,7 @@ def _range_display(spec: str) -> tuple[str, str]:
 def _lanes() -> list[dict]:
     """One row per running batch lane, described by its own command line and environment."""
     rows = []
+    novel_keys = _lane_keys()
     try:
         listing = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.SubprocessError):
@@ -259,6 +336,15 @@ def _lanes() -> list[dict]:
         for index in chapters:
             directory = base / f"{novel_id}_{index}"
             target = directory / want if want else directory / f"{novel_id}_{index}.mp4"
+            if stage in {"render", "review", "all"}:
+                keys = novel_keys.get(novel_id, [])
+                h3_lane = (bool(keys) and all(k.get("base_url") for k in keys)) if stage == "review" else bool(env.get("NOVEL_LOCAL_H3_URL"))
+                state = _episode_state(directory, h3_lane)
+                if stage == "review":
+                    if state["review"] != "reviewed":
+                        continue
+                elif state["status"] != "done":
+                    continue
             try:
                 stamp = target.stat().st_mtime
             except OSError:
@@ -314,13 +400,15 @@ def _workers() -> list[dict]:
             novel_id = Path(novel.group(1)).name
             work = ROOT / "outputs" / novel_id / episode.group(1) / "work" / "clips"
             try:
-                total = len([d for d in os.scandir(work) if d.is_dir()])
-                ready = sum(1 for d in os.scandir(work) if any(Path(d.path).glob("attempt_*/clip.mp4")))
-            except OSError:
+                plan = json.loads((work.parent.parent / "clip_plan.json").read_text(encoding="utf-8"))
+                clips = [c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"]
+                total = len(clips)
+                ready = sum(any((work / cid).glob("attempt_*/clip.mp4")) for cid in clips)
+            except (OSError, ValueError):
                 total = ready = 0
             rows.append({"kind": "渲染单集", "novel": TITLES.get(novel_id, novel_id),
                          "what": episode.group(1).rsplit("_", 1)[-1] + " 集",
-                         "detail": f"{ready}/{total} 段" if total else "", "elapsed": elapsed})
+                         "detail": f"缓存 {ready}/{total} 段（未计质检）" if total else "", "elapsed": elapsed})
         elif "plan_chapter_thin.py" in args:
             index, novel = INDEX_ARG.search(args), NOVEL_ID_ARG.search(args)
             rows.append({"kind": "规划单章", "novel": TITLES.get(novel.group(1) if novel else "", "?"),
@@ -482,24 +570,38 @@ def _inflight() -> list[dict]:
 _LOCAL_CACHE: dict = {"at": 0.0, "rows": []}
 
 
-def _local_targets(keys: list[dict]) -> list[tuple[str, str]]:
-    """(name, base URL) of every local H3 instance behind these keys: a key names one instance,
-    or the pool - the resident instances plus the night shift's active leases."""
+HOST_NAMES = {"local": "gpu16"}  # the night shift's id for this box; everyone calls it gpu16
+
+
+def where_label(host: str | None, gpus: list[int] | None) -> str:
+    """Which machine and which cards - the only identity that tells two rows apart when a resident
+    and a night lease hold the same hardware."""
+    machine = HOST_NAMES.get(str(host or ""), str(host or "?"))
+    if not gpus:
+        return machine
+    ordered = sorted(int(g) for g in gpus)
+    run = ordered == list(range(ordered[0], ordered[-1] + 1)) and len(ordered) > 2
+    return "%s 卡%s" % (machine, ("%d-%d" % (ordered[0], ordered[-1])) if run else ",".join(str(g) for g in ordered))
+
+
+def _local_targets(keys: list[dict]) -> list[tuple[str, str, str | None, list[int] | None]]:
+    """(name, base URL, host, cards) of every local H3 instance behind these keys: a key names one
+    instance, or the pool - the resident instances plus the night shift's active leases."""
     out = []
     for key in keys:
         base = str(key.get("base_url") or "").rstrip("/")
         if base == "pool" or base.startswith("pool:"):
             try:
                 from novel_manga.providers.h3_pool import H3Pool
-                out += [(m.name, m.url) for m in H3Pool(base[5:] or None).members()]
+                out += [(m.name, m.url, m.host, m.gpus) for m in H3Pool(base[5:] or None).members()]
             except Exception:  # noqa: BLE001 - a broken pool file must not take the board down
                 continue
         elif base:
-            out.append((key.get("name", ""), base))
+            out.append((key.get("name", ""), base, None, None))
     return out
 
 
-def _local_video(ttl: float = 20.0) -> list[dict]:
+def _local_video(ttl: float = 120.0) -> list[dict]:
     """What the local H3 instances say about themselves.
 
     The service knows things our own files cannot: what it is rendering right now, what is
@@ -511,8 +613,10 @@ def _local_video(ttl: float = 20.0) -> list[dict]:
         return _LOCAL_CACHE["rows"]
     rows = []
     for novel_id, keys in _lane_keys().items():
-        for name, base in _local_targets(keys):
-            row = {"name": name, "novel": TITLES.get(novel_id, novel_id),
+        for name, base, host, gpus in _local_targets(keys):
+            row = {"name": name, "where": where_label(host, gpus), "host": host or "",
+                   "gpus": sorted(int(g) for g in (gpus or [])),
+                   "novel": TITLES.get(novel_id, novel_id),
                    "alive": False, "pending": 0, "done_hour": 0,
                    "seconds_hour": 0.0, "avg_take": None}
             try:
@@ -522,7 +626,9 @@ def _local_video(ttl: float = 20.0) -> list[dict]:
                 rows.append(row)
                 continue
             try:
-                with urllib.request.urlopen(f"{base}/v1/videos?limit=100&order=desc", timeout=6) as response:
+                # No limit: the service caps it at 100 and ignores offset, so asking for the
+                # last 100 jobs capped done_hour at 100 and made a 237/hour instance report 98.
+                with urllib.request.urlopen(f"{base}/v1/videos?order=desc", timeout=20) as response:
                     jobs = json.loads(response.read()).get("data", [])
             except (urllib.error.URLError, OSError, ValueError):
                 jobs = []
@@ -544,6 +650,8 @@ def _local_video(ttl: float = 20.0) -> list[dict]:
             if took:
                 row["avg_take"] = round(sum(took) / len(took), 1)
             rows.append(row)
+    # by machine then first card, so a resident and a night lease on the same cards sit together
+    rows.sort(key=lambda r: (str(r.get("host") or ""), (r.get("gpus") or [99])[0]))
     _LOCAL_CACHE.update({"at": now, "rows": rows})
     return rows
 
@@ -665,9 +773,10 @@ def _cached(path: Path, parser):
 
 def _parse_review(path: Path):
     try:
-        clips = json.loads(path.read_text(encoding="utf-8")).get("clips", {})
+        report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    clips = report.get("clips", {})
     sev: dict[str, int] = {}
     cats: dict[str, int] = {}
     for clip in clips.values():
@@ -676,7 +785,15 @@ def _parse_review(path: Path):
         for key, bad, name in REVIEW_CATS:
             if clip.get(key) == bad:
                 cats[name] = cats.get(name, 0) + 1
-    return {"sev": sev, "cats": cats}
+    # A clip's severity answers "does this differ from the card at all", which counts a
+    # side character's sleeve.  The pipeline only reshoots what fix_tier graded must_fix,
+    # and thin_review.py records exactly those in the episode-level feedback map, so its
+    # size is the number of clips actually queued to shoot again.  Reading the map rather
+    # than the per-clip tier (only stored since 2026-09-12) makes the redo rate available
+    # for every review ever written: 雾月 610 clips, against 5529 graded non-pass.
+    feedback = report.get("feedback")
+    must_fix = len(feedback) if isinstance(feedback, dict) else 0
+    return {"sev": sev, "cats": cats, "must_fix": must_fix}
 
 
 def _parse_media(path: Path):
@@ -690,18 +807,17 @@ def _parse_media(path: Path):
 def _parse_render_model(path: Path):
     """The video model an episode was rendered with, from the settings header
     render_clips_thin.py prints into render.log."""
-    try:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            head = handle.read(262144)
-    except OSError:
-        return None
-    found = VIDEO_MODEL.search(head)
-    return found.group(1) if found else ""
+    # A repair run appends a new header. The first header could name Seedance even after the episode moved to H3.
+    found = VIDEO_MODEL.findall("\n".join(_read_tail(path, 2000)))
+    return found[-1] if found else ""
 
 
 def _board_novel(novel: dict) -> dict:
     nid = novel["id"]
-    finals, planned = _episode_numbers(nid)
+    inventory = _episode_inventory(nid)
+    finals, planned = inventory["finals"], inventory["planned"]
+    keys = _lane_keys().get(nid, [])
+    h3_lane = bool(keys) and all(k.get("base_url") for k in keys)
     chapters = _chapters(nid)
     done = len(finals)
     now = time.time()
@@ -720,7 +836,7 @@ def _board_novel(novel: dict) -> dict:
     left = max(0, planned - done)
     projected = None
     projected_ts = None
-    if left:
+    if left and not inventory["blocked"]:
         if rate7:
             projected = time.strftime("%Y-%m-%d", time.localtime(now + left / rate7 * 86400))
         if rate_h:
@@ -728,6 +844,7 @@ def _board_novel(novel: dict) -> dict:
     sev_all: dict[str, int] = {}
     cats: dict[str, int] = {}
     recent_pass = recent_total = 0
+    must_all = recent_must = 0
     lanes: dict[str, dict] = {}
     base = ROOT / "outputs" / nid
     try:
@@ -737,18 +854,24 @@ def _board_novel(novel: dict) -> dict:
         entries = []
     for entry in entries:
         directory = Path(entry.path)
+        state = _episode_state(directory, h3_lane)
         review = _cached(directory / "episode_review.json", _parse_review)
+        if state["review"] == "not_ready" or _mtime(directory / "episode_review.json") < state["final_mtime"]:
+            review = None  # verdicts on an earlier cut do not describe the current episode
         media = _cached(directory / "thin_media_report.json", _parse_media)
         model = _cached(directory / "render.log", _parse_render_model)
         if not (review or media):
             continue
-        lane = lanes.setdefault(model or "未知", {"episodes": 0, "clips": 0, "attempts": 0, "sev": {}})
+        lane = lanes.setdefault(model or "未知",
+                                {"episodes": 0, "clips": 0, "attempts": 0, "sev": {}, "must_fix": 0})
         lane["episodes"] += 1
         if media:
             lane["clips"] += media["clips"]
             lane["attempts"] += media["attempts"]
         if not review:
             continue
+        must_all += review.get("must_fix", 0)
+        lane["must_fix"] += review.get("must_fix", 0)
         for key, value in review["sev"].items():
             sev_all[key] = sev_all.get(key, 0) + value
             lane["sev"][key] = lane["sev"].get(key, 0) + value
@@ -759,28 +882,38 @@ def _board_novel(novel: dict) -> dict:
         except OSError:
             reviewed_at = 0
         if reviewed_at >= week_ago:
-            recent_total += sum(review["sev"].values())
+            recent_total += sum(review["sev"].get(k, 0) for k in ("pass", "minor", "fail"))
             recent_pass += review["sev"].get("pass", 0)
-    total = sum(sev_all.values())
+            recent_must += review.get("must_fix", 0)
+    total = sum(sev_all.get(k, 0) for k in ("pass", "minor", "fail"))
     lane_rows = []
     for name, lane in sorted(lanes.items()):
-        reviewed = sum(lane["sev"].values())
+        reviewed = sum(lane["sev"].get(k, 0) for k in ("pass", "minor", "fail"))
         lane_rows.append({
             "model": name, "episodes": lane["episodes"], "clips": lane["clips"],
             "avg_attempts": round(lane["attempts"] / lane["clips"], 2) if lane["clips"] else None,
             "pass_rate": round(100 * lane["sev"].get("pass", 0) / reviewed, 1) if reviewed else None,
+            "redo_rate": round(100 * lane["must_fix"] / reviewed, 1) if reviewed else None,
+            "must_fix": lane["must_fix"],
             "reviewed": reviewed,
+            "review_errors": lane["sev"].get("review_error", 0),
         })
     return {
         "id": nid, "title": novel["title"], "done": done, "planned": planned, "chapters": chapters,
         "daily": sorted(by_day.items()), "hourly": sorted(by_hour.items()),
         "rate7": rate7, "projected": projected, "rate_h": rate_h, "projected_ts": projected_ts,
+        **{k: v for k, v in inventory.items() if k not in {"finals", "planned"}},
         "quality": {
             "clips": total, "sev": sev_all,
+            "review_errors": sev_all.get("review_error", 0),
             "pass_rate": round(100 * sev_all.get("pass", 0) / total, 1) if total else None,
             "recent_rate": round(100 * recent_pass / recent_total, 1) if recent_total else None,
+            "must_fix": must_all,
+            "redo_rate": round(100 * must_all / total, 1) if total else None,
+            "recent_redo": round(100 * recent_must / recent_total, 1) if recent_total else None,
             "cats": sorted(cats.items(), key=lambda kv: -kv[1]),
         },
+        "viewer_review": viewer_progress(base, h3_lane),
         "lanes": lane_rows,
     }
 
@@ -979,6 +1112,26 @@ document.addEventListener("mousemove",e=>{
   tipEl.style.left=x+"px";tipEl.style.top=y+"px";
 });"""
 
+STATE_JS = """function stateSummary(n){
+  const s = n.states || {};
+  return `<div class="nmeta"><span>质检合格 <b class="num ok-t">${n.done}</b> · 视频文件 ${n.files} · 已规划 ${n.planned}</span>
+    <span>未过质检 ${s.done_with_warnings||0} · 待重做 ${s.stale||0} · 生成失败 ${s.clips_failed||0}</span></div>
+    <div class="nmeta"><span>待审查 ${n.review_pending} · 审查失败 ${n.review_errors}</span>
+    <span class="${n.blocked?'warn-t':'dim'}">需处理 ${n.blocked} 集${n.uncertain ? `（提交结果不明 ${n.uncertain} 集）` : ''}</span></div>`;
+}
+function episodeAttention(n){
+  const rows = n.attention || [];
+  if (!rows.length) return '';
+  const groups = new Map();
+  for (const r of rows){
+    if (!groups.has(r.reason)) groups.set(r.reason, []);
+    groups.get(r.reason).push(r.chapter);
+  }
+  return `<details><summary>待处理章节（${rows.length} 集）</summary>` +
+    [...groups].map(([reason, chapters])=>`<div class="dim" style="margin-top:8px;overflow-wrap:anywhere">${reason} · ${chapters.length} 集：<span class="num">${chapters.join('、')}</span></div>`).join('') + '</details>';
+}
+"""
+
 
 def _page(active: str, header_extra: str, body: str) -> str:
     nav = ""
@@ -988,7 +1141,7 @@ def _page(active: str, header_extra: str, body: str) -> str:
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<title>小说成片进度</title><style>" + STYLE + "</style></head><body>"
             "<header><h1>小说成片进度</h1><nav>" + nav + "</nav>" + header_extra + "</header>"
-            "<main>" + body + "</main>" + DEFS + "<div id=\"tip\"></div>"
+            "<script>" + STATE_JS + "</script><main>" + body + "</main>" + DEFS + "<div id=\"tip\"></div>"
             "<script>" + TIP_JS + "</script></body></html>")
 
 
@@ -1009,7 +1162,7 @@ const fmtETA = h => h == null ? "—" : (h < 1 ? Math.round(h*60)+" 分钟" : h 
 const fmtAgo = s => s == null ? "—" : (s < 90 ? s+" 秒前" : s < 5400 ? Math.round(s/60)+" 分钟前" : (s/3600).toFixed(1)+" 小时前");
 const laneHealth = l => l.age == null ? "warn" : l.age < 600 ? "ok" : l.age < 1800 ? "warn" : "bad";
 const workerHealth = w => w.elapsed < 900 ? "ok" : w.elapsed < 1800 ? "warn" : "bad";
-const HEALTH_TEXT = {ok:"全部正常", warn:"有任务停滞", bad:"有异常"};
+const HEALTH_TEXT = {ok:"运行正常", warn:"有待处理或等待中的任务", bad:"有异常"};
 const WORST = {ok:0, warn:1, bad:2};
 
 function spark(bars){
@@ -1034,7 +1187,8 @@ function novelCard(d, n){
   const lanes = d.lanes.filter(l => l.novel === n.title);
   const workers = d.workers.filter(w => w.novel === n.title);
   const pools = d.inflight.filter(i => i.novel === n.title);
-  const health = lanes.length ? lanes.map(laneHealth).reduce((a,b)=>WORST[a]>WORST[b]?a:b) : (n.done ? "ok" : "warn");
+  const health = n.blocked || n.review_errors ? "bad" : n.attention.length ? "warn"
+    : lanes.length ? lanes.map(laneHealth).reduce((a,b)=>WORST[a]>WORST[b]?a:b) : (n.done ? "ok" : "warn");
   const last = n.last_final ? new Date(n.last_final*1000).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}) : "—";
   const detailRows = (lanes.length + workers.length)
     ? `<table style="margin-top:8px"><tbody>` +
@@ -1043,27 +1197,32 @@ function novelCard(d, n){
       `</tbody></table>` : `<div class="dim" style="margin-top:8px;font-size:12.5px">这本书当前没有在跑的任务</div>`;
   return `<div class="card ncard">
     <div class="nrow">
-      <span class="nname"><i class="dot ${health}"></i>${n.title}<span class="pill ${health}">${health==="ok"?"正常":health==="warn"?"放缓":"停滞"}</span></span>
-      <span class="neta">剩 <b>${n.left}</b> 集 · 约 <b>${fmtETA(n.eta_hours)}</b> · 最近一集 ${last}</span>
+      <span class="nname"><i class="dot ${health}"></i>${n.title}<span class="pill ${health}">${health==="ok"?"正常":health==="warn"?"待关注":"需处理"}</span></span>
+      <span class="neta">待合格 <b>${n.left}</b> 集 · ${n.blocked ? "有待处理章节，暂无总完成时间" : `约 <b>${fmtETA(n.eta_hours)}</b>`} · 最近合格 ${last}</span>
     </div>
     <div class="nbody">
       <div>
-        <div class="nmeta"><span>成片 <b class="num" style="color:var(--text)">${n.done}</b> / 已规划 ${n.planned} / 全书 ${n.chapters}</span>
-          <span>今日 +${n.today} · 近一小时 ${n.per_hour} 集 · 近 15 分钟折合 ${n.recent_per_hour}/时</span></div>
+        ${stateSummary(n)}
+        <div class="nmeta"><span>全书 ${n.chapters} 章</span>
+          <span>今日合格 ${n.today} · 近一小时 ${n.per_hour} 集 · 近 15 分钟折合 ${n.recent_per_hour}/时</span></div>
         <div class="track"><div class="fill" style="width:${pct(n.done,n.chapters)}%"></div>
           <div class="fill plan" style="width:${pct(n.planned-n.done,n.chapters)}%"></div></div>
-        <div class="nmeta"><span>30 秒档 ${n.modes["30"]} 集（sd2.5） · 15 秒档 ${n.modes["15"]} 集（sd2.0）</span>
+        <div class="nmeta"><span>30 秒片段计划 ${n.modes["30"]} 集 · 15 秒片段计划 ${n.modes["15"]} 集</span>
           <span>${pools.map(p=>`${p.pool} ${p.slots}/${p.limit}`).join(" · ")||"无在途通道"}</span></div>
       </div>
       ${spark(n.spark)}
     </div>
     ${n.tick ? `<div class="tick">tick: ${n.tick}</div>` : ""}
+    ${episodeAttention(n)}
     <details><summary>这本书的运行明细（${lanes.length + workers.length} 个在跑）</summary>${detailRows}</details>
   </div>`;
 }
 
 function attention(d){
   const items = [];
+  for (const n of d.novels) if (n.attention.length)
+    items.push({level: n.blocked || n.review_errors ? "bad" : "warn", ts: null,
+      html: `${n.title} · ${n.attention.length} 集待处理，其中 ${n.blocked} 集需人工处理 · 展开小说卡片查看章节与原因`});
   for (const l of d.lanes) if (l.age != null && l.age > 1800)
     items.push({level: l.age > 3600 ? "bad" : "warn", ts: Date.now()/1000 - l.age,
       html: `${l.novel} · ${l.stage}通道 <span class="num">${l.range}</span> — ${fmtAgo(l.age)}无产出（最后在 ${l.current||"?"} 章）`});
@@ -1097,9 +1256,11 @@ function tick(){
     const totalLeft = d.novels.reduce((a,n)=>a+n.left,0);
     const speed = d.novels.reduce((a,n)=>a+(n.recent_per_hour||n.per_hour),0);
     const today = d.novels.reduce((a,n)=>a+n.today,0);
+    const blocked = d.novels.reduce((a,n)=>a+n.blocked,0);
     const nowSec = Date.now()/1000;
     const states = [
       ...d.lanes.map(laneHealth), ...d.workers.map(workerHealth),
+      ...d.novels.filter(n=>n.attention.length).map(n=>n.blocked || n.review_errors ? "bad" : "warn"),
       // only fresh warnings say something about right now; a 429 from hours ago doesn't
       ...d.warnings.filter(w=>w.ts && nowSec - w.ts < 7200).map(w=>w.level),
       ...(d.lanes.length||d.workers.length ? [] : ["warn"]),
@@ -1108,12 +1269,12 @@ function tick(){
     $("health").className = "health " + overall;
     $("health").innerHTML = `<i class="dot ${overall}"></i>${HEALTH_TEXT[overall]}`;
     $("stats").innerHTML =
-      `<div class="stat"><div class="k">今日成片</div><b>${today}</b><span class="u">集</span></div>
-       <div class="stat"><div class="k">当前速度</div><b>${speed}</b><span class="u">集/时</span></div>
+      `<div class="stat"><div class="k">今日合格成片</div><b>${today}</b><span class="u">集</span></div>
+       <div class="stat"><div class="k">近期合格成片速度</div><b>${speed}</b><span class="u">集/时</span></div>
        <div class="stat"><div class="k">在跑任务</div><b>${d.lanes.length + d.workers.length}</b><span class="u">个</span>
          <div class="sub">${d.lanes.length} 条通道 · ${d.workers.length} 个单集</div></div>
-       <div class="stat"><div class="k">全部剩余</div><b>${totalLeft}</b><span class="u">集</span>
-         <div class="sub">按当前速度约 ${fmtETA(speed ? Math.round(totalLeft/speed*10)/10 : null)}</div></div>`;
+       <div class="stat"><div class="k">已规划待合格</div><b>${totalLeft}</b><span class="u">集</span>
+         <div class="sub">${blocked ? `${blocked} 集需处理，暂无总完成时间` : `按近期速度约 ${fmtETA(speed ? Math.round(totalLeft/speed*10)/10 : null)}`}</div></div>`;
     $("novels").innerHTML = d.novels.map(n=>novelCard(d,n)).join("");
     $("attention").innerHTML = attention(d);
     $("lanes").innerHTML = `<thead><tr><th></th><th>任务</th><th>章节</th><th>档位</th><th>进度</th><th>速度</th><th>更新</th></tr></thead><tbody>` +
@@ -1133,15 +1294,16 @@ function tick(){
     $("local-card").style.display = L.length ? "" : "none";
     if (L.length) {
       const secs = L.reduce((a,l)=>a+l.seconds_hour,0), made = L.reduce((a,l)=>a+l.done_hour,0);
-      $("local").innerHTML = `<thead><tr><th>实例</th><th>小说</th><th>状态</th><th>待处理</th>` +
+      $("local").innerHTML = `<thead><tr><th>机器与显卡</th><th>实例</th><th>小说</th><th>状态</th><th>待处理</th>` +
         `<th>近一小时片段</th><th>近一小时视频秒数</th><th>平均每段耗时</th></tr></thead><tbody>` +
-        L.map(l=>`<tr><td data-l="实例">${l.name}</td><td data-l="小说">${l.novel}</td>
+        L.map(l=>`<tr><td data-l="机器与显卡"><b>${l.where || "—"}</b></td>
+          <td data-l="实例" class="dim">${l.name}</td><td data-l="小说">${l.novel}</td>
           <td data-l="状态" class="${l.alive?"ok-t":"err"}">${l.alive?"在线":"离线"}</td>
           <td data-l="待处理" class="num">${l.pending}</td>
           <td data-l="片段" class="num">${l.done_hour}</td>
           <td data-l="视频秒数" class="num">${Math.round(l.seconds_hour)}</td>
           <td data-l="耗时" class="num">${l.avg_take==null?"—":l.avg_take+" 秒"}</td></tr>`).join("") +
-        `<tr><td class="dim">合计</td><td class="dim"></td><td class="dim"></td><td class="dim"></td>` +
+        `<tr><td class="dim">合计</td><td class="dim"></td><td class="dim"></td><td class="dim"></td><td class="dim"></td>` +
         `<td class="num"><b>${made}</b></td><td class="num"><b>${Math.round(secs)}</b></td><td class="dim"></td></tr>` +
         `</tbody>`;
     }
@@ -1208,9 +1370,19 @@ function donut(sev){
   };
   return `<div class="donutwrap"><svg width="84" height="84" viewBox="0 0 84 84">
     <circle class="ring base" cx="42" cy="42" r="34"></circle>${seg(p,"p")}${seg(m,"m")}${seg(f,"f")}
-    <text class="dnum" x="42" y="40" text-anchor="middle">${(100*p/t).toFixed(1)}%</text>
+    <text class="dnum" x="42" y="40" text-anchor="middle">${p+m+f ? (100*p/t).toFixed(1)+"%" : "—"}</text>
     <text class="dlab" x="42" y="54" text-anchor="middle">通过</text></svg>
-    <div class="dleg"><span><i class="dot ok"></i>pass ${p}</span><span><i class="dot warn"></i>minor ${m}</span><span><i class="dot bad"></i>fail ${f}</span></div></div>`;
+    <div class="dleg"><span><i class="dot ok"></i>通过 ${p}</span><span><i class="dot warn"></i>轻微问题 ${m}</span><span><i class="dot bad"></i>不通过 ${f}</span><span>审查失败 ${sev.review_error||0}（未计入通过率）</span></div></div>`;
+}
+
+function redoPanel(q){
+  if (!q.clips) return `<div class="dim">还没有当前版本的审查数据</div>`;
+  const r = q.redo_rate;
+  const cls = r == null ? "dim" : r >= 15 ? "err" : r >= 8 ? "warn-t" : "ok-t";
+  const recent = q.recent_redo == null ? "" : ` · 近 7 天 ${q.recent_redo}%`;
+  return `<div style="margin:10px 0 4px"><b class="${cls}" style="font-size:30px">${r == null ? "—" : r+"%"}</b>
+    <span class="dim" style="margin-left:8px">${q.must_fix} / ${q.clips} 段${recent}</span></div>
+    <div class="dim" style="font-size:12px;margin-bottom:10px">其余 ${q.clips - q.must_fix} 段无需重拍${q.review_errors ? `；另有 ${q.review_errors} 段审查失败，未计入` : ""}。</div>`;
 }
 
 function catRow(name, v, maxV){
@@ -1218,11 +1390,32 @@ function catRow(name, v, maxV){
 }
 
 function laneTable(lanes){
-  return `<table><thead><tr><th>模型</th><th>集数</th><th>clip 数</th><th>平均尝试</th><th>审查通过率</th></tr></thead><tbody>` +
+  return `<table><thead><tr><th>最近运行模型</th><th>集数</th><th>片段数</th><th>平均尝试</th><th>需重拍比例</th></tr></thead><tbody>` +
     lanes.map(l=>`<tr><td>${l.model}</td><td class="num">${l.episodes}</td><td class="num">${l.clips}</td>
-      <td class="num">${l.avg_attempts ?? "—"}</td>
-      <td class="num">${l.pass_rate == null ? "—" : l.pass_rate+"%"} <span class="dim">(${l.reviewed} clip)</span></td></tr>`).join("") +
+      <td class="num">${l.avg_attempts == null ? "—" : l.avg_attempts}</td>
+      <td class="num">${l.redo_rate == null ? "—" : l.redo_rate+"%"} <span class="dim">(${l.must_fix} / ${l.reviewed} 段已审 · 严格比对通过 ${l.pass_rate == null ? "—" : l.pass_rate+"%"}${l.review_errors ? ` · ${l.review_errors} 段审查失败` : ""})</span></td></tr>`).join("") +
     `</tbody></table>`;
+}
+
+function viewerReview(v){
+  if (!v) return `<div class="card"><div class="label">明显画面错误 · 复审与修复验收</div><div class="dim">尚无这套独立复审记录。上面的设定一致性通过率不能当作修复后的剩余问题比例。</div></div>`;
+  const c = v.counts, r = v.repair_counts;
+  const esc = text => String(text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const status = {confirmed:'仍确认有问题', clear:'复审未发现明显错误', one_vote:'单方存疑', needs_review:'待当前版本复审'};
+  const remaining = v.rows.filter(row=>row.status!=='clear');
+  const groups = ['confirmed','one_vote','needs_review'].map(key=>{
+    const rows = remaining.filter(row=>row.status===key);
+    if (!rows.length) return '';
+    return `<details><summary>${status[key]}（${rows.length} 段）</summary>` + rows.map(row=>
+      `<div class="dim" style="margin-top:8px;white-space:normal"><b>第 ${row.chapter} 集 · ${row.clip}</b> · ${esc(row.kind)}<br>${esc(row.status==='needs_review' ? row.reason : row.observation)}</div>`).join('') + '</details>';
+  }).join('');
+  return `<div class="card" style="box-shadow:none"><div class="label">明显画面错误 · 复审与修复验收</div>
+    <div class="nmeta"><span>当前仍确认 <b class="warn-t">${c.confirmed||0}</b> 段 · 单方存疑 ${c.one_vote||0} 段 · 待复审 ${c.needs_review||0} 段</span>
+    <span>跟踪范围内复审未发现明显错误 ${c.clear||0} 段</span></div>
+    <div class="dim" style="font-size:12px;margin:8px 0">跟踪 ${v.tracked} 段历史候选和修复验收片段，不是全书错误率。当前结论核对了成片所选片段、视频更新时间和拆分编号；没有复审不算通过。</div>
+    <div class="nmeta"><span>已保存修复验收 ${v.repair_checks} 段：当前有效的 ${r.clear||0} 段未发现明显错误、${r.confirmed||0} 段仍确认、${r.one_vote||0} 段存疑；${r.needs_review||0} 段需重验</span></div>
+    <div class="dim" style="font-size:12px;margin:8px 0">历史清单 ${v.baseline_at||'—'}：双方确认 ${v.baseline_confirmed} 段、单方存疑 ${v.baseline_one_vote} 段。设定一致性与明显错误复审的标准不同，比例不能直接比较。</div>
+    ${groups}</div>`;
 }
 
 function boardCard(n){
@@ -1237,7 +1430,8 @@ function boardCard(n){
   const fmt = hourlyMode ? mdHm : mdT;
   const stepMs = hourlyMode ? 3600000 : DAY;
   const bars = src.map(([k,c]) => ({v:c, tip: fmt(Date.parse(k)) + " · " + c + " 集"}));
-  const etaTxt = n.done > 0 && n.done >= n.planned ? "已规划部分全部跑完 ✓"
+  const etaTxt = n.blocked ? `${n.blocked} 集需处理，暂无总完成时间`
+    : n.done > 0 && n.done >= n.planned ? (n.review_pending || n.review_errors ? "已规划部分质检合格，仍有审查待完成" : "已规划部分质检合格，审查已完成")
     : hourlyMode
     ? (n.projected_ts ? `按近 6 小时 <b>${n.rate_h}</b> 集/时，已规划部分预计 <b>${mdHm(Date.parse(n.projected_ts))}</b> 完成` : "暂无投影")
     : (n.projected ? `按近 7 天 <b>${n.rate7}</b> 集/天，已规划部分预计 <b>${mdT(Date.parse(n.projected+"T00:00:00"))}</b> 完成` : "暂无投影");
@@ -1248,16 +1442,24 @@ function boardCard(n){
   return `<div class="card ncard">
     <div class="nrow"><span class="nname">${n.title}</span>
       <span class="neta">${etaTxt}</span></div>
+    ${stateSummary(n)}
+    <div class="dim" style="font-size:12px">产量与速度只计当前质检合格的成片，按最近合成时间统计；重做后日期会更新。审查统计只使用当前版本的审查结果。</div>
     ${burnup(n, series, projT, stepMs, fmt)}
     ${bars.length ? barsSVG(bars, 760, 64) : ""}
+    ${viewerReview(n.viewer_review)}
     <div class="board2">
-      <div><div class="label">审查质量</div>
-        ${q.clips ? donut(q.sev) : `<div class="dim">还没有审查数据</div>`}
-        <div class="dim" style="margin:8px 0 10px;font-size:12.5px">全部通过率 ${q.pass_rate ?? "—"}%（${q.clips} clip）${recent}</div>
-        ${cats}</div>
-      <div><div class="label">车道对比</div>
+      <div><div class="label">需要重拍的片段</div>
+        <div class="dim" style="font-size:12px;margin-bottom:8px">只算观众看得出来的问题：肢体结构错误、主角画成别人、该在场的角色不见了。服装、发色、光线时段这类与设定卡的出入不计入，它们在下面的明细里。</div>
+        ${redoPanel(q)}
+        <details><summary>设定一致性明细（严格比对，多数不必重拍）</summary>
+          <div class="dim" style="font-size:12px;margin:8px 0">逐段对照人物卡、地点和时段，含服装、发型等细节差异。这里的“不通过”只表示与卡片有出入，不代表成片有明显问题。</div>
+          ${q.clips || q.review_errors ? donut(q.sev) : `<div class="dim">还没有当前版本的审查数据</div>`}
+          <div class="dim" style="margin:8px 0 10px;font-size:12.5px">严格比对通过率 ${q.pass_rate == null ? "—" : q.pass_rate+"%"}（${q.clips} 段）${recent}</div>
+          ${cats}
+        </details></div>
+      <div><div class="label">按最近运行模型汇总</div>
         ${n.lanes.length ? laneTable(n.lanes) : `<div class="dim">暂无</div>`}</div>
-    </div></div>`;
+    </div>${episodeAttention(n)}</div>`;
 }
 
 function load(){
@@ -1268,7 +1470,8 @@ function load(){
     }
     document.getElementById("board").innerHTML = d.novels.map(boardCard).join("");
     document.getElementById("stamp").textContent = `统计于 ${d.now} · 每 5 分钟重算`;
-  }).catch(e=>{ const s=document.getElementById("stamp"); s.textContent="读取失败："+e; s.className="err"; });
+    setTimeout(load, 300000);
+  }).catch(e=>{ const s=document.getElementById("stamp"); s.textContent="读取失败："+e; s.className="err"; setTimeout(load, 20000); });
 }
 load();
 </script>"""
