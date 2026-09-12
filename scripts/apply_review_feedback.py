@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Hand the automatic review's retake instructions to the lanes, without rendering anything here.
 
-    apply_review_feedback.py --novel-dir outputs/X [--episodes 12,48-60] [--pick N] [--gate] [--cards character_006,...] [--apply]
+    apply_review_feedback.py --novel-dir outputs/X (--must-fix | --gate | --cards character_006,...)... [--episodes 12,48-60] [--pick N] [--apply]
 
 thin_review writes a must_fix clip's instruction into episode_review.json `feedback`; the only thing a lane
 acts on is review_feedback.json, and thin_batch writes that file only in --unattended mode, where it also
@@ -12,7 +12,8 @@ re-renders it, and only the corrected clips regenerate - the correction changes 
 request hash, while every other clip is served from the cache.  A new correction also resets the render
 count, so an episode that used its runs gets them back for exactly this.
 
---gate adds the standing instruction for clips that failed the speech gate (thin_media_report
+Each source is a switch and at least one is required - a card swap must not drag every must_fix along:
+--must-fix takes the review's own instructions; --gate adds the standing instruction for clips that failed the speech gate (thin_media_report
 gate_failed_clips) so a lane takes them again after their runs were used up.
 --pick N chooses N episodes spread over the defect kinds (a pilot to measure the repair rate before the
 whole book goes); --episodes names them.  Nothing is written without --apply.
@@ -64,13 +65,16 @@ def main() -> int:
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--episodes", default="", help="only these episodes, e.g. 12,48-60")
     parser.add_argument("--pick", type=int, default=0, help="pilot: this many episodes spread over the defect kinds")
-    parser.add_argument("--gate", action="store_true", help="also instruct clips that failed the speech gate")
+    parser.add_argument("--must-fix", action="store_true", help="the review's must_fix instructions (episode_review.json feedback)")
+    parser.add_argument("--gate", action="store_true", help="clips that failed the speech gate")
     parser.add_argument("--cards", default="", help="asset ids whose card was replaced, e.g. character_006: every clip that references one and whose review says identity_ok=false is instructed too (the reviewer's own sentence)")
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     novel_dir = args.novel_dir.resolve()
     novel_id = novel_dir.name
+    if not (args.must_fix or args.gate or args.cards):
+        parser.error("nothing selected: pass --must-fix, --gate and/or --cards")
     only = parse_episodes(args.episodes) if args.episodes else None
     cards = {c.strip() for c in args.cards.split(",") if c.strip()}
     card_names = set()
@@ -92,7 +96,7 @@ def main() -> int:
             review = json.loads((d / "episode_review.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             review = {}
-        notes = {cid: str(text) for cid, text in (review.get("feedback") or {}).items() if text}
+        notes = {cid: str(text) for cid, text in (review.get("feedback") or {}).items() if text} if args.must_fix else {}
         if args.gate:
             for cid in gate_failures(d):
                 notes.setdefault(cid, GATE_NOTE)
