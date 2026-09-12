@@ -67,6 +67,7 @@ class Instance:
     drain_at: float | None = None  # a night instance takes no new clip after this
     host: str | None = None  # machine id in the night shift's inspection: gpu52, gpu03, gpu81, local
     service: str | None = None  # the systemd unit whose processes hold its GPUs
+    gpus: list[int] | None = None  # the cards it holds, so the board can say which hardware this is
 
     @property
     def key(self) -> str:
@@ -101,7 +102,8 @@ def night_instances(state: dict, night: dict, excluded: set, now: float, default
             if url and urllib.parse.urlparse(url).hostname not in excluded:
                 found.append(Instance(url, f"夜班 {unit or lease['id']}", int(night.get("slots", default_slots)),
                                       f"night:{lease['id']}", deadline - drain,
-                                      host=lease.get("_machine"), service=f"{unit}.service" if unit else None))
+                                      host=lease.get("_machine"), service=f"{unit}.service" if unit else None,
+                                      gpus=[int(g) for g in (item.get("gpus") or [])] or None))
     return found
 
 
@@ -204,7 +206,8 @@ class H3Pool:
             url = str(entry.get("url") or "").rstrip("/")
             if url and entry.get("enabled", True) and urllib.parse.urlparse(url).hostname not in excluded:
                 found.append(Instance(url, entry.get("name") or url, int(entry.get("slots", slots)), "resident",
-                                      host=entry.get("host"), service=entry.get("service")))
+                                      host=entry.get("host"), service=entry.get("service"),
+                                      gpus=[int(g) for g in (entry.get("gpus") or [])] or None))
         night = cfg.get("night_shift") or {}
         state = self._fresh_night(now) if night.get("state") else None
         if state is not None:

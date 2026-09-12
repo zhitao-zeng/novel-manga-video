@@ -6,13 +6,70 @@
   "stuck_minutes": 15,
   "stuck_cooldown_minutes": 20,
   "unreachable_cooldown_minutes": 5,
-  "gpu_check": {"idle_percent": 5, "idle_samples": 3},
+  "gpu_check": {
+    "idle_percent": 5,
+    "idle_samples": 3
+  },
   "resident": [
-    {"name": "GPU052-A 四卡", "url": "http://172.28.4.52:30014", "slots": 2, "host": "gpu52", "service": "zzt-h3-r2v-a.service"},
-    {"name": "GPU052-B 两卡", "url": "http://172.28.4.52:30016", "slots": 2, "host": "gpu52", "service": "zzt-h3-r2v-b.service"},
-    {"name": "GPU003-A 四卡", "url": "http://172.28.4.3:30020", "slots": 2, "host": "gpu03", "service": "zzt-h3-a100-a.service"},
-    {"name": "GPU003-B 两卡", "url": "http://172.28.4.3:30018", "slots": 2, "host": "gpu03", "service": "zzt-h3-a100-b.service"},
-    {"name": "GPU016-B 两卡", "url": "http://172.28.4.16:30022", "slots": 2, "host": "local", "service": "zzt-h3-g16-b.service"}
+    {
+      "name": "GPU052-A 四卡",
+      "url": "http://172.28.4.52:30014",
+      "slots": 2,
+      "host": "gpu52",
+      "service": "zzt-h3-r2v-a.service",
+      "gpus": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "GPU052-B 两卡",
+      "url": "http://172.28.4.52:30016",
+      "slots": 2,
+      "host": "gpu52",
+      "service": "zzt-h3-r2v-b.service",
+      "gpus": [
+        4,
+        6
+      ]
+    },
+    {
+      "name": "GPU003-A 四卡",
+      "url": "http://172.28.4.3:30020",
+      "slots": 2,
+      "host": "gpu03",
+      "service": "zzt-h3-a100-a.service",
+      "gpus": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "GPU003-B 两卡",
+      "url": "http://172.28.4.3:30018",
+      "slots": 2,
+      "host": "gpu03",
+      "service": "zzt-h3-a100-b.service",
+      "gpus": [
+        5,
+        6
+      ]
+    },
+    {
+      "name": "GPU016-B 两卡",
+      "url": "http://172.28.4.16:30022",
+      "slots": 2,
+      "host": "local",
+      "service": "zzt-h3-g16-b.service",
+      "gpus": [
+        2,
+        3
+      ]
+    }
   ],
   "night_shift": {
     "state": "/mnt/disk1/zengzhitao/h3-night-shift/.state/controller/tick.json",
