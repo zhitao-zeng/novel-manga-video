@@ -187,7 +187,9 @@ const vm = require('vm'), fs = require('fs'), assert = require('assert').strict;
     assert(!html.includes('全部跑完'),html);
     if(p.body==='board'){
       assert(html.includes('100.0%') && html.includes('未计入通过率'),html);
-      assert(html.includes('设定一致性审查') && html.includes('明显画面错误 · 复审与修复验收'),html);
+      assert(html.includes('需要重拍的片段') && html.includes('段无需重拍'),html);
+      assert(html.indexOf('需要重拍的片段') < html.indexOf('设定一致性明细'),html);
+      assert(html.includes('明显画面错误 · 复审与修复验收'),html);
       assert(html.includes('复审未发现明显错误 1 段') && html.includes('出现&lt;字幕&gt;'),html);
       assert(timers.includes(300000));
     }else{
