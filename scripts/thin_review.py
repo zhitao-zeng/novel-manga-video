@@ -280,6 +280,11 @@ def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None
     return report
 
 
+# A cast list longer than this never reaches the model: the prompt also carries up to 1600
+# characters of excerpts per missing name, the schema, and the output budget.
+EXISTING_BUDGET = 15000
+
+
 def fill_characters(bible: StoryBible, bible_path: Path, missing: dict, text: str) -> tuple[StoryBible, list[str], dict, dict]:
     """Ask for casting entries for the missing names; add the confident proper
     names, keep appellations and vague entries as suggestions for a human."""
@@ -288,7 +293,22 @@ def fill_characters(bible: StoryBible, bible_path: Path, missing: dict, text: st
     needs_human: dict[str, str] = {}
     suggestions: dict[str, dict] = {}
     if True:
-        existing = "\n".join(f"- {c.name}：{c.gender}，{c.age}，{c.appearance[:60]}" for c in bible.characters)
+        # The whole cast used to go in here.  诸天 grew to 1310 characters = 81,575 characters of
+        # prompt against a 65,536 context, so every fill request 400ed and bible growth stopped
+        # for good.  Only plausible same_as candidates are worth showing: the ones this chapter
+        # names, then the earliest entries (ids are positions, appended only, so the opening cast
+        # is the recurring one), inside EXISTING_BUDGET.  role cannot rank them - in 诸天 only 8 of
+        # 1310 entries say 配角 and many hold a whole appearance paragraph instead.
+        lines = [(c.name, f"- {c.name}：{c.gender}，{c.age}，{c.appearance[:60]}") for c in bible.characters]
+        ordered = [line for name, line in lines if len(name) >= 2 and name in text]
+        ordered += [line for name, line in lines if not (len(name) >= 2 and name in text)]
+        kept, used = [], 0
+        for line in ordered:
+            if used + len(line) + 1 > EXISTING_BUDGET:
+                break
+            kept.append(line)
+            used += len(line) + 1
+        existing = "\n".join(kept)
         prompt = (
             "圣经里已有这些角色：\n" + existing + "\n\n下面是原文里反复出现但圣经缺失的人物及其原文摘录。为每个人物判断：same_as 填写它其实是哪个已有角色（或本列表中另一个人物）的另一种叫法，不是则填空字符串；"
             "confidence 是你对“这是一个需要单独定妆的独立人物”的把握（0到1）。然后写一条可跨集复用的选角条目（性别、年龄段、外貌、服装、发型、配色、基础服装、识别物），"
