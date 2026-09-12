@@ -363,6 +363,35 @@ def test_the_run_count_follows_what_the_plan_says_not_when_it_was_written(tmp_pa
     assert render_runs(directory) == 0
 
 
+# ---------------------------------------------------------------- what the review asks to redo is written down
+def review_with(tmp_path, monkeypatch, verdict) -> dict:
+    directory = episode(tmp_path)
+    clip = {"clip_id": "clip_01", "kind": "video", "prompt": "【阶段1】林凡推门。", "request_seconds": 10, "references": [], "lines": []}
+    (directory / "clip_plan.json").write_text(json.dumps({"policy": "thin-clip-plan-v9-15s", "clips": [clip]}, ensure_ascii=False), encoding="utf-8")
+    video = directory / "work" / "clips" / "clip_01" / "attempt_01" / "clip.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"mp4")
+    (directory / "thin_media_report.json").write_text(json.dumps({"clips": [
+        {"clip_id": "clip_01", "selected": {"video": str(video), "hypothesis": ""}}]}), encoding="utf-8")
+    (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(thin_review, "apply_genre_review_rules", lambda novel_dir: None)
+    monkeypatch.setattr(thin_review, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
+    monkeypatch.setattr(thin_review, "judge_clip", lambda *args: dict(verdict))
+    monkeypatch.setattr(thin_review, "compose_feedback", lambda *args, **kwargs: "修正")
+    thin_review.review_episode(directory)
+    return json.loads((directory / "episode_review.json").read_text(encoding="utf-8"))
+
+
+def test_the_review_writes_down_whether_a_failed_clip_must_be_redone(tmp_path, monkeypatch):
+    broken = review_with(tmp_path, monkeypatch, {"severity": "fail", "visual_defects": True, "defect_issue": "手指粘连", "identity_ok": True})
+    assert broken["clips"]["clip_01"]["tier"] == "must_fix" and broken["feedback"] == {"clip_01": "修正"}
+    setting = review_with(tmp_path / "b", monkeypatch, {"severity": "fail", "visual_defects": False, "identity_ok": True,
+                                                        "location_ok": False, "defect_issue": "背景是街道，设定是湖面"})
+    assert setting["clips"]["clip_01"]["tier"] == "optional" and setting["feedback"] == {}  # differs from the setting, not a redo
+    fine = review_with(tmp_path / "c", monkeypatch, {"severity": "pass", "identity_ok": True})
+    assert "tier" not in fine["clips"]["clip_01"]
+
+
 # ---------------------------------------------------------------- a verdict belongs to one take (7)
 def test_a_verdict_is_reused_only_for_the_very_same_take(tmp_path, monkeypatch):
     directory = episode(tmp_path)

@@ -842,7 +842,9 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
         if verdict.get("severity") == "fail":
             tier = fix_tier(verdict, bible)
-            verdict["tier"] = tier
+            # Into the file as well as this run's copy: without it the review said only how many clips differ from the
+            # setting, never how many it actually asks to redo (雾月: 3501 fails, 600 of them must_fix).
+            verdict["tier"] = report["clips"][clip_id]["tier"] = tier
             if tier != "ignore":
                 prefix = "" if tier == "must_fix" else "[可选] "
                 report["flags"].append(f"{clip_id}: {prefix}{verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}")
