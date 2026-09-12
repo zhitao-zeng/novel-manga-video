@@ -72,6 +72,16 @@ def chapter_of(episode_dir: Path) -> int | None:
     return int(tail) if tail.isdigit() else None
 
 
+def phase_card(novel_dir: Path, phases: dict[str, list[dict]], name: str, chapter: int | None) -> Path | None:
+    """The phase's turnaround, relative to the novel dir, when this chapter has a phase and its card is drawn -
+    what the clip review shows the judge instead of the base card the plan referenced."""
+    phase = phase_for(phases, name, chapter)
+    if not phase or not phase.get("asset_id"):
+        return None
+    relative = Path("series_assets") / "characters" / str(phase["asset_id"]) / "turnaround.jpeg"
+    return relative if (novel_dir / relative).is_file() else None
+
+
 def phase_labels(clips: list[dict]) -> list[str]:
     """'name:label' for every phase a plan's references use - the plan file says so, so a relaunch can tell
     plans made before phases.json existed from plans made after."""

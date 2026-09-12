@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build_clip_plan_thin as planner  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
-from thin_phases import chapter_of, load_phases, phase_for, phase_labels, phased  # noqa: E402
+from thin_phases import chapter_of, load_phases, phase_card, phase_for, phase_labels, phased  # noqa: E402
 
 PHASES = {"policy": "phase-cards-v1", "characters": {"沈玄川": [
     {"from": 1406, "to": 3504, "asset_id": "character_001-p2", "label": "白发青年", "hair": "满头白发，短发略显凌乱", "age": "青年"},
@@ -79,6 +79,18 @@ def test_plan_references_follow_the_chapter(tmp_path):
 
     none, bindings, _ = planner.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=None, chapter=2000)
     assert none[0]["asset_id"] == "character_001" and "修长挺拔" in bindings[0]  # no novel dir: no phases, as before
+
+
+def test_the_judge_gets_the_phase_card_once_it_is_drawn(tmp_path):
+    novel_dir = novel(tmp_path)
+    phases = load_phases(novel_dir)
+    assert phase_card(novel_dir, phases, "沈玄川", 2000) is None  # phase known, card not drawn yet
+    card = novel_dir / "series_assets" / "characters" / "character_001-p2" / "turnaround.jpeg"
+    card.parent.mkdir(parents=True)
+    card.write_bytes(b"jpeg")
+    assert phase_card(novel_dir, phases, "沈玄川", 2000) == Path("series_assets/characters/character_001-p2/turnaround.jpeg")
+    assert phase_card(novel_dir, phases, "沈玄川", 100) is None  # no phase for the chapter: the plan's card stands
+    assert phase_card(novel_dir, phases, "苏清月", 2000) is None
 
 
 def test_chapter_of_reads_the_episode_directory():

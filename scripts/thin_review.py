@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, load_genre, load_profile  # noqa: E402
 
 from novel_manga.models import Character, StoryBible  # noqa: E402
-from thin_phases import chapter_of, load_phases, phase_for, phased  # noqa: E402
+from thin_phases import chapter_of, load_phases, phase_card, phase_for, phased  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
 POLICY = "thin-review-v1.16-volume"
@@ -697,6 +697,9 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     cards = []
     for name in cast[:MAX_IMAGES - 3]:
         path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and ref["path"].endswith("turnaround.jpeg")), None)
+        # The plan may predate the character's phases: the judge sees the phase's card when it is drawn, so an
+        # adult dragon is not marked down against the hatchling card (星海 洛恩, 254 clips on 2026-09-13).
+        path = phase_card(bible_root(work_dir), phases, name, chapter) or path
         if path is not None and (bible_root(work_dir) / path).is_file():  # a card being rebuilt is simply not shown
             cards.append((name, path))
     # Clips with on-screen chat get more frames: stray text tends to flash briefly.
