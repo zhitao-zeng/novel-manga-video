@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, load_genre, load_profile  # noqa: E402
 
 from novel_manga.models import Character, StoryBible  # noqa: E402
+from thin_phases import chapter_of, load_phases, phase_for, phased  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
 POLICY = "thin-review-v1.16-volume"
@@ -687,7 +688,11 @@ def clip_frames(video: Path, output_dir: Path, count: int) -> list[Path]:
 
 
 def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
-    by_name = {c.name: c for c in bible.characters}
+    # work_dir = <novel>/<episode>/work/review/<clip>: the episode decides which phase of a character the card
+    # shows (the plan already picked it) and which look the judge is told to expect.
+    phases = load_phases(bible_root(work_dir))
+    chapter = chapter_of(work_dir.parents[2])
+    by_name = {c.name: phased(c, phase_for(phases, c.name, chapter)) for c in bible.characters}
     cast = [name for name in clip.get("cast", []) if name in by_name]
     cards = []
     for name in cast[:MAX_IMAGES - 3]:

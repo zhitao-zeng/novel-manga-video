@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from novel_manga.models import StoryBible
+from thin_phases import chapter_of, load_phases, phase_for, phase_labels, phased  # noqa: E402
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -456,9 +457,10 @@ def clip_cast(clip: dict) -> list[str]:
     return kept or listed
 
 
-def anchor_of(name: str, bible: StoryBible, limit: int = 34) -> str:
-    """A few words that tell this character apart, for the prompt to say out loud."""
-    character = next((c for c in bible.characters if c.name == name), None)
+def anchor_of(name: str, bible: StoryBible, limit: int = 34, character=None) -> str:
+    """A few words that tell this character apart, for the prompt to say out loud.  `character` stands in for
+    the bible entry: the phase's look, when this chapter has one (thin_phases)."""
+    character = character or next((c for c in bible.characters if c.name == name), None)
     if character is None:
         return ""
     for field in ("silhouette", "hair", "palette", "appearance"):
@@ -473,7 +475,7 @@ def anchor_of(name: str, bible: StoryBible, limit: int = 34) -> str:
     return ""
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None) -> tuple[list[dict], list[str], str]:
+def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None) -> tuple[list[dict], list[str], str]:
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
     # The leads carry the story and were the most often face- or costume-swapped
@@ -487,23 +489,30 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     # ten reference images and the model starts blending faces.  Past two named
     # actors, give each one its turnaround only.
     two_views = len(cast) <= TWO_VIEW_CAST_LIMIT
+    # A character with phases (series_assets/phases.json) references the card of the phase this chapter is in,
+    # and the anchor describes that look - 沈玄川 is white-haired from ch1406, his base card is not.
+    phases = load_phases(novel_dir) if novel_dir is not None else {}
+    by_name = {character.name: character for character in bible.characters}
     for name in cast:
-        asset = f"character_{character_index[name]:03d}"
+        phase = phase_for(phases, name, chapter)
+        asset = str(phase["asset_id"]) if phase else f"character_{character_index[name]:03d}"
+        look = phased(by_name[name], phase)
         count += 1
         first = count
-        references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg"})
+        references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg",
+                           **({"phase": str(phase.get("label", ""))} if phase else {})})
         lead_sheet = novel_dir is not None and name in leads and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
         if two_views or lead_sheet:
             count += 1
             second = count
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
-            anchor = anchor_of(name, bible)
+            anchor = anchor_of(name, bible, character=look)
             bindings.append(
                 f"<{name}>对应@图片{first}和@图片{second}：@图片{first}定五官、发型、年龄感和肤色，"
                 f"@图片{second}定身体比例、服装版型、主色和配饰；两张都不采用背景、姿势和构图"
                 + (f"。{name}的辨识特征：{anchor}" if anchor else ""))
         else:
-            anchor = anchor_of(name, bible)
+            anchor = anchor_of(name, bible, character=look)
             bindings.append(
                 f"<{name}>只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；"
                 "不得把该角色的长相用在其他人身上"
@@ -699,7 +708,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         turn["speaker_name"] for shot in clip["shots"] for turn in shot["turns"]
         if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
     ))
-    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent)
+    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]))
     prompt = compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])
     lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
     lint = {k: v for k, v in lint.items() if v}
@@ -797,7 +806,7 @@ def main() -> int:
     shots = prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
     clips = [clip_entry(clip, f"clip_{number:02d}", ctx) for number, clip in enumerate(pack(shots), start=1)]
     totals = plan_totals(clips, shots, ctx)
-    plan = {"policy": POLICY, "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
+    plan = {"policy": POLICY, "phases": phase_labels(clips), "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
     try:
         old_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
