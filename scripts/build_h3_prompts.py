@@ -55,7 +55,8 @@ ASK = ("Translate each numbered Chinese shot description into ONE English senten
 TRIES = 3  # translations per clip before it is left without an English prompt
 NOTE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["note"], "properties": {"note": {"type": "string"}}}
 NOTE_ASK = ("Translate this director's correction for one video clip into plain English instructions about what the "
-            "picture must show. Refer to each character by the tag given below, never by name. Never quote dialogue.\n\n")
+            "picture must show. Refer to each character by the tag given below, never by name. Never quote dialogue. "
+            "Reply with the instruction only - no commentary and no remarks about the tag list; a character without a tag is left out.\n\n")
 CJK = re.compile(r"[\u4e00-\u9fff]")
 
 
@@ -119,15 +120,43 @@ def warn(clip: dict, message: str) -> None:
     print(f"  {clip.get('clip_id', '?')}: H3 prompt {message}", file=sys.stderr, flush=True)
 
 
+def tag_names(text: str, naming: str) -> str:
+    """Every tagged character's name - full, and the part before the dot - replaced by its tag."""
+    for line in naming.splitlines():
+        if " = " not in line:
+            continue
+        name, tag = (part.strip() for part in line.split(" = ", 1))
+        if name:
+            text = text.replace(name, tag)
+            short = name.split("·")[0]
+            if len(short) >= 2:
+                text = text.replace(short, tag)
+    return text
+
+
+META = re.compile(r"tag list|translat|original text|system prompt|the user|please verify|contradiction|instruction says", re.I)
+
+
+def clean_note(text: str, naming: str) -> str:
+    """The instruction without the model's asides.  Asked to map names to tags itself, the model answered with
+    commentary - "a character name (莱恩·格雷) that is not in the provided tag list, I have translated it as
+    <Subject 1>", "the user's request contains a contradiction" - and the CJK check threw the whole answer away
+    three tries in a row (雾月 pilot, 2026-09-13: six episodes looping).  Names become tags, a sentence that
+    talks about the task or still carries Chinese is dropped, the rest must be non-empty."""
+    text = tag_names(text, naming)
+    kept = [part for part in re.split(r"(?<=[.;!?])\s+", text) if part.strip() and not CJK.search(part) and not META.search(part)]
+    return " ".join(kept).strip()
+
+
 def english_note(note: str, naming: str) -> str:
     """The clip's director correction in English, for the prompt H3 reads - in Chinese it was read out as dialogue.
-    '' when the translation fails or still carries Chinese."""
+    '' when the translation fails or still carries Chinese.  The names are swapped for their tags before the ask,
+    so the model has nothing left to map and nothing to remark on."""
     try:
-        answer = ask_json([{"type": "text", "text": NOTE_ASK + naming + "\n" + note}], NOTE_SCHEMA, name="h3note", max_tokens=400)
+        answer = ask_json([{"type": "text", "text": NOTE_ASK + naming + "\n" + tag_names(note, naming)}], NOTE_SCHEMA, name="h3note", max_tokens=400)
     except Exception:  # noqa: BLE001 - convert asks again
         return ""
-    text = str(answer.get("note") or "").strip()
-    return "" if not text or CJK.search(text) else text
+    return clean_note(str(answer.get("note") or "").strip(), naming)
 
 
 def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
@@ -148,26 +177,31 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         return False
     _, subject_of = subject_lines(clip)
     naming = "".join(f"{name} = <Subject {n}>\n" for name, n in subject_of.items())
-    question = [{"type": "text", "text": ASK + naming + "\n" + "\n".join(
-        f"{i}. {visual}" for i, (visual, _) in enumerate(stages, 1))}]
+    lines = [visual for visual, _ in stages]
+    if note:
+        # The correction rides along as one more numbered line.  Asked on its own (english_note) this model
+        # commented on the tag list instead of translating, three tries in a row, and six 雾月 pilot episodes
+        # looped on it (2026-09-13); the numbered shot translation never did that.
+        lines.append(tag_names(note, naming))
+    question = [{"type": "text", "text": ASK + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
     problem = ""
     for _ in range(tries):
         try:
-            answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(stages))
+            answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines))
             english = [str(s).strip() for s in (answer.get("shots") or [])]
         except Exception as error:  # noqa: BLE001 - asked again, and reported if it keeps failing
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
-        if len(english) == len(stages) and all(english):
+        if len(english) == len(lines) and all(english):
             # A correction goes in with the rest, in English (director_note): an H3 lane renders nothing else of it.
-            direction = english_note(note, naming) if note else ""
+            direction = clean_note(english[-1], naming) if note else ""
             if note and not direction:
                 problem = "the director's correction did not come back in English"
                 continue
-            clip["prompt_h3"] = compose(clip, english, stages, direction)
+            clip["prompt_h3"] = compose(clip, english[:len(stages)], stages, direction)
             clip["prompt_h3_of"] = digest
             return True
-        problem = f"{len(english)} sentence(s) back for {len(stages)} shots"
+        problem = f"{len(english)} sentence(s) back for {len(lines)} lines"
     warn(clip, f"FAILED after {tries} tries: {problem}")
     return False
 
