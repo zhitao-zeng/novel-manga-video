@@ -739,9 +739,15 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     return ask_json(parts, CLIP_SCHEMA, name="clip_review", max_tokens=600)
 
 
-BREAKDOWN = re.compile(r"尾巴|尖耳|崩坏|畸形|穿模|六指|多余(的)?(手|臂|腿|肢)|赤膊巨人|肌肉极其夸张|非人")
-SWAP = re.compile(r"错误地(渲染|绘制|画)成|被(渲染|绘制|画)成|完全一致|几乎一模一样|穿了.{0,6}的(衣服|服饰)|换脸|张冠李戴")
-MISSING = re.compile(r"缺失|未出现|完全未出现|没有出现|未出场")
+# 非人 as a body defect, not the bible's "非人类形态" quoted back in an issue (琥珀·高德 is a cat by design).
+BREAKDOWN = re.compile(r"尾巴|尖耳|崩坏|畸形|穿模|六指|多余(的)?(手|臂|腿|肢)|赤膊巨人|肌肉极其夸张|非人(?!类|形态)")
+# A lead drawn as someone else, or twice: the reviewer also writes 高度相似 / 角色重复 / 分身 / 同一张脸 for a
+# doppelganger (雾月 1542: two 莱恩 in one frame), which only the MISSING leak used to catch.
+SWAP = re.compile(r"错误地(渲染|绘制|画)成|被(渲染|绘制|画)成|完全一致|几乎一模一样|穿了.{0,6}的(衣服|服饰)|换脸|张冠李戴"
+                  r"|高度相似|长相相似|长得一样|长相.{0,4}(一致|相同|一样)|同一张脸|角色重复|重复出现|分身|克隆")
+# A character who is absent - not a prop ("拐杖缺失"), and not an extra "设定中未出现" (extras are ignore).
+MISSING = re.compile(r"(?<!特征)(?<!道具)缺失|(?<!设定中)(?<!设定里)(?<!名单中)(?<!名单里)(?<!列表中)(?<!列表里)未出现"
+                     r"|(?<!设定中)(?<!设定里)没有出现|未出场")
 LEAD_ROLES = {"主角", "女主角", "男主角"}
 
 
