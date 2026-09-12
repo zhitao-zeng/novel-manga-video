@@ -20,7 +20,7 @@ PHASES = {"policy": "phase-cards-v1", "characters": {"沈玄川": [
 def bible() -> StoryBible:
     return StoryBible(
         novel_title="诸天", genre="仙侠", visual_style="2d", palette="p", style_fingerprint="f",
-        characters=[Character(name="沈玄川", role="主角", appearance="清秀但略显疲惫的大学生", wardrobe="白色圆领T恤", hair="黑色短发，略显凌乱"),
+        characters=[Character(name="沈玄川", role="主角", appearance="清秀但略显疲惫的大学生", wardrobe="白色圆领T恤", hair="黑色短发，略显凌乱", silhouette="修长挺拔，站姿随意"),
                     Character(name="苏清月", appearance="身材高挑", wardrobe="蓝色连衣裙", hair="长发")],
         locations=["宿舍：床铺和书桌"],
     )
@@ -74,10 +74,10 @@ def test_plan_references_follow_the_chapter(tmp_path):
 
     early, bindings, _ = planner.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=novel_dir, chapter=100)
     assert early[0]["asset_id"] == "character_001" and "phase" not in early[0]
-    assert "黑色短发" in bindings[0]
+    assert "修长挺拔" in bindings[0] and "黑色短发" not in bindings[0]
 
     none, bindings, _ = planner.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=None, chapter=2000)
-    assert none[0]["asset_id"] == "character_001" and "黑色短发" in bindings[0]  # no novel dir: no phases, as before
+    assert none[0]["asset_id"] == "character_001" and "修长挺拔" in bindings[0]  # no novel dir: no phases, as before
 
 
 def test_chapter_of_reads_the_episode_directory():

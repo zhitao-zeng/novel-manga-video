@@ -457,13 +457,13 @@ def clip_cast(clip: dict) -> list[str]:
     return kept or listed
 
 
-def anchor_of(name: str, bible: StoryBible, limit: int = 34, character=None) -> str:
+def anchor_of(name: str, bible: StoryBible, limit: int = 34, character=None, prefer: tuple[str, ...] = ()) -> str:
     """A few words that tell this character apart, for the prompt to say out loud.  `character` stands in for
     the bible entry: the phase's look, when this chapter has one (thin_phases)."""
     character = character or next((c for c in bible.characters if c.name == name), None)
     if character is None:
         return ""
-    for field in ("silhouette", "hair", "palette", "appearance"):
+    for field in (*prefer, "silhouette", "hair", "palette", "appearance"):  # a phase names its changed field first
         value = str(getattr(character, field, "") or "").strip()
         if value in {"无", "none", "-", "无特殊", "暂无"} or len(value) < 6:
             continue  # a placeholder is worse than saying nothing
@@ -497,6 +497,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         phase = phase_for(phases, name, chapter)
         asset = str(phase["asset_id"]) if phase else f"character_{character_index[name]:03d}"
         look = phased(by_name[name], phase)
+        changed = tuple(f for f in ("hair", "appearance", "silhouette", "palette") if phase and phase.get(f))
         count += 1
         first = count
         references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg",
@@ -509,13 +510,13 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
             count += 1
             second = count
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
-            anchor = anchor_of(name, bible, character=look)
+            anchor = anchor_of(name, bible, character=look, prefer=changed)
             bindings.append(
                 f"<{name}>对应@图片{first}和@图片{second}：@图片{first}定五官、发型、年龄感和肤色，"
                 f"@图片{second}定身体比例、服装版型、主色和配饰；两张都不采用背景、姿势和构图"
                 + (f"。{name}的辨识特征：{anchor}" if anchor else ""))
         else:
-            anchor = anchor_of(name, bible, character=look)
+            anchor = anchor_of(name, bible, character=look, prefer=changed)
             bindings.append(
                 f"<{name}>只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；"
                 "不得把该角色的长相用在其他人身上"
