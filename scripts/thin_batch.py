@@ -752,6 +752,9 @@ class Batch:
         log(f"{len(done)}/{len(chapters)} episodes have a final video")
         if self.reviewing:
             self.delivery_report(chapters)
+            # The novel-level verdict the board shows (delivery.json): a review batch is what changes it.
+            self.run([sys.executable, str(SCRIPTS / "delivery_gate_thin.py"), "--novel-dir", str(self.novel_dir), "--quiet"],
+                     self.novel_dir / "delivery_gate.log")
         return 0 if len(done) == len(chapters) or self.args.stage != "all" else 2
 
 

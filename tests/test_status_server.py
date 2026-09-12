@@ -159,6 +159,9 @@ def test_live_and_board_javascript_render_the_status_payload(workspace):
     good, _ = episode(workspace, 1, clips=2)
     review(good, ["pass", "review_error"])
     episode(workspace, 2, passed=False)
+    write(workspace / "delivery.json", {"deliverable": 1, "total": 2, "generated_at": "2026-09-12 23:00:00",
+                                        "gates": {"tech": {"blocked": 1}, "review": {"blocked": 0, "must_fix_clips": 0},
+                                                  "script": {"flagged": 0, "would_block": 0}}})
     live = {"now": time.strftime("%Y-%m-%d %H:%M:%S"), "novels": [monitor._novel_status(NOVEL)],
             "lanes": [], "workers": [], "inflight": [], "warnings": [], "processes": {}, "local": []}
     board = {"now": live["now"], "novels": [monitor._board_novel(NOVEL)]}
@@ -183,6 +186,7 @@ const vm = require('vm'), fs = require('fs'), assert = require('assert').strict;
     assert(!elements.stamp.textContent.includes('读取失败'), elements.stamp.textContent);
     const html = elements[p.body].innerHTML;
     assert(html.includes('质检合格') && html.includes('未过质检 1') && html.includes('审查失败 1'),html);
+    assert(html.includes('可交付') && html.includes('</b> / 2 · 技术挡 1'),html);
     assert(html.includes('暂无总完成时间'),html);
     assert(!html.includes('全部跑完'),html);
     if(p.body==='board'){

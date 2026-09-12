@@ -218,6 +218,38 @@ def _today(finals: list[float]) -> int:
     return sum(1 for t in finals if t >= midnight)
 
 
+_DELIVERY_CACHE: dict[str, tuple[float, dict | None]] = {}
+
+
+def _delivery(novel_id: str) -> dict | None:
+    """The novel-level verdict scripts/delivery_gate_thin.py writes: how many episodes pass the technical and
+    review gates, and what stops the rest.  Read from disk, not recomputed here: the script needs the chapter
+    text for its shadow gate, and a review batch is what changes the answer (thin_batch runs it after one)."""
+    path = ROOT / "outputs" / novel_id / "delivery.json"
+    stamp = _mtime(path)
+    if not stamp:
+        return None
+    hit = _DELIVERY_CACHE.get(str(path))
+    if hit and hit[0] == stamp:
+        return hit[1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        gates = data.get("gates", {})
+        value = {
+            "deliverable": data.get("deliverable", 0), "total": data.get("total", 0),
+            "generated_at": data.get("generated_at", ""),
+            "tech_blocked": gates.get("tech", {}).get("blocked", 0),
+            "review_blocked": gates.get("review", {}).get("blocked", 0),
+            "must_fix_clips": gates.get("review", {}).get("must_fix_clips", 0),
+            "script_flagged": gates.get("script", {}).get("flagged", 0),
+            "script_would_block": gates.get("script", {}).get("would_block", 0),
+        }
+    except (OSError, ValueError, AttributeError, TypeError):
+        value = None
+    _DELIVERY_CACHE[str(path)] = (stamp, value)
+    return value
+
+
 def _novel_status(novel: dict) -> dict:
     inventory = _episode_inventory(novel["id"])
     finals, planned = inventory["finals"], inventory["planned"]
@@ -240,6 +272,7 @@ def _novel_status(novel: dict) -> dict:
         "last_final": max(finals) if finals else None, "tick": tick,
         "modes": _plan_modes(novel["id"]),
         "spark": _spark(finals), "today": _today(finals),
+        "delivery": _delivery(novel["id"]),
         **{k: v for k, v in inventory.items() if k not in {"finals", "planned"}},
     }
 
@@ -902,6 +935,7 @@ def _board_novel(novel: dict) -> dict:
         "id": nid, "title": novel["title"], "done": done, "planned": planned, "chapters": chapters,
         "daily": sorted(by_day.items()), "hourly": sorted(by_hour.items()),
         "rate7": rate7, "projected": projected, "rate_h": rate_h, "projected_ts": projected_ts,
+        "delivery": _delivery(nid),
         **{k: v for k, v in inventory.items() if k not in {"finals", "planned"}},
         "quality": {
             "clips": total, "sev": sev_all,
@@ -1112,9 +1146,15 @@ document.addEventListener("mousemove",e=>{
   tipEl.style.left=x+"px";tipEl.style.top=y+"px";
 });"""
 
-STATE_JS = """function stateSummary(n){
+STATE_JS = """function deliverySummary(n){
+  const d = n.delivery;
+  if (!d) return `<div class="nmeta"><span class="dim">交付门槛未计算（审查批次后由 delivery_gate_thin.py 写 delivery.json）</span></div>`;
+  return `<div class="nmeta"><span>可交付 <b class="num ${d.deliverable===d.total?'ok-t':'warn-t'}">${d.deliverable}</b> / ${d.total} · 技术挡 ${d.tech_blocked} · 审查挡 ${d.review_blocked}（${d.must_fix_clips} 段须重拍）</span>
+    <span class="dim">剧本影子门 ${d.script_flagged} 集（不阻断）· 算于 ${d.generated_at}</span></div>`;
+}
+function stateSummary(n){
   const s = n.states || {};
-  return `<div class="nmeta"><span>质检合格 <b class="num ok-t">${n.done}</b> · 视频文件 ${n.files} · 已规划 ${n.planned}</span>
+  return deliverySummary(n) + `<div class="nmeta"><span>质检合格 <b class="num ok-t">${n.done}</b> · 视频文件 ${n.files} · 已规划 ${n.planned}</span>
     <span>未过质检 ${s.done_with_warnings||0} · 待重做 ${s.stale||0} · 生成失败 ${s.clips_failed||0}</span></div>
     <div class="nmeta"><span>待审查 ${n.review_pending} · 审查失败 ${n.review_errors}</span>
     <span class="${n.blocked?'warn-t':'dim'}">需处理 ${n.blocked} 集${n.uncertain ? `（提交结果不明 ${n.uncertain} 集）` : ''}</span></div>`;
