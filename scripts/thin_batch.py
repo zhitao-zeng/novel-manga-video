@@ -35,6 +35,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
+# How often the fast tier grows the bible.  Was 5, which saved model calls (28% of growth calls
+# add nothing) but cost debuts: on 雾月 half the characters entered the bible after they first
+# appeared, 5.7 chapters late on average, leaving 67 delivered episodes without a recurring
+# character in their own first scene (塞西娅, on screen in 393 episodes, absent from 278).  1 =
+# never skip.
+GROW_STRIDE = 1
+
 PLAN_STAGES = ("plan", "assets", "render")
 MODERATION_MARKERS = (".moderation_replanned", ".moderation_replanned2")  # one generic re-plan, then one naming the refused lines
 MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥、色情暧昧一律改为间接表现：不写具体暴力动作和伤势，不写露骨或挑逗台词，"
@@ -231,8 +238,8 @@ class Batch:
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             return
         from thin_review import grow_bible
-        if self.fast and chapter % 5 != 1:
-            return  # fast tier: grow every fifth episode
+        if self.fast and GROW_STRIDE > 1 and chapter % GROW_STRIDE != 1:
+            return  # fast tier: sample chapters for growth (GROW_STRIDE = 1 grows every one)
         try:
             with self.grow_lock:  # parallel planners must not append to the bible at once
                 before = json.loads(self.bible.read_text(encoding="utf-8"))
