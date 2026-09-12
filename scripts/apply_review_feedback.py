@@ -73,6 +73,12 @@ def main() -> int:
     novel_id = novel_dir.name
     only = parse_episodes(args.episodes) if args.episodes else None
     cards = {c.strip() for c in args.cards.split(",") if c.strip()}
+    card_names = set()
+    for asset_id in cards:  # the replaced card's character: only an identity issue that names them counts
+        try:
+            card_names.add(str(json.loads((novel_dir / "series_assets" / "characters" / asset_id / "spec.json").read_text(encoding="utf-8")).get("name", "")))
+        except (OSError, ValueError):
+            pass
 
     candidates = []  # (episode number, directory, {clip: note}, kinds)
     for d in sorted(novel_dir.glob(f"{novel_id}_*"), key=lambda p: int(p.name.rsplit("_", 1)[-1]) if p.name.rsplit("_", 1)[-1].isdigit() else 0):
@@ -98,8 +104,9 @@ def main() -> int:
             for clip in plan.get("clips") or []:
                 used = {ref.get("asset_id") for ref in clip.get("references") or [] if ref.get("role") == "character"}
                 verdict = (review.get("clips") or {}).get(clip.get("clip_id"), {})
-                if used & cards and verdict.get("identity_ok") is False:
-                    notes.setdefault(clip["clip_id"], str(verdict.get("feedback") or verdict.get("identity_issue") or "每个角色必须与其角色卡一致"))
+                issue = str(verdict.get("identity_issue") or "")
+                if used & cards and verdict.get("identity_ok") is False and any(name in issue for name in card_names):
+                    notes.setdefault(clip["clip_id"], str(verdict.get("feedback") or issue or "每个角色必须与其角色卡一致"))
         try:
             existing = json.loads((d / "review_feedback.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
