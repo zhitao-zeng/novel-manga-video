@@ -51,6 +51,7 @@ def main() -> int:
     parser.add_argument("--only", default="", help="comma-separated character names; default every character in phases.json")
     parser.add_argument("--force", action="store_true", help="redraw a variant that already has an image (the old one is moved aside)")
     parser.add_argument("--dry-run", action="store_true", help="write spec.json and print the prompt, draw nothing")
+    parser.add_argument("--expressions", action="store_true", help="also draw expressions.jpeg for variants that have a turnaround (a lead's second view)")
     parser.add_argument("--style", choices=("2d", "3d"))
     parser.add_argument("--frame", choices=("9:16", "16:9"))
     parser.add_argument("--tier", choices=("quality", "fast"))
@@ -141,6 +142,27 @@ def main() -> int:
                 failures += 1
             print(json.dumps({"name": name, "asset_id": asset_id, "phase": phase.get("label", ""), "status": status,
                               "seconds": round(time.monotonic() - started, 1)}, ensure_ascii=False), flush=True)
+    if args.expressions and not args.dry_run:
+        # The second view build_selected() draws for a base card: the renderer references it for leads.
+        for name, phase_list in phases.items():
+            if (only and name not in only) or name not in index:
+                continue
+            character = bible.characters[index[name] - 1]
+            for phase in phase_list:
+                directory = root / "characters" / str(phase.get("asset_id") or "")
+                primary, sheet = directory / "turnaround.jpeg", directory / "expressions.jpeg"
+                if not primary.is_file() or sheet.is_file():
+                    continue
+                look = phased(character, phase)
+                started = time.monotonic()
+                try:
+                    factory.ensure_card(factory._expression_prompt(bible, look.name, look.expression_profile), sheet, reference=primary)
+                    status = "expressions built"
+                except Exception as error:  # noqa: BLE001
+                    status = f"expressions error: {type(error).__name__}: {str(error)[:120]}"
+                    failures += 1
+                print(json.dumps({"name": name, "asset_id": directory.name, "status": status,
+                                  "seconds": round(time.monotonic() - started, 1)}, ensure_ascii=False), flush=True)
     return 2 if failures else 0
 
 

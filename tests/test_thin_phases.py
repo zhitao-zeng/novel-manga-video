@@ -67,6 +67,10 @@ def test_plan_references_follow_the_chapter(tmp_path):
     other = [ref for ref in later if ref["role"] == "character" and ref["name"] == "苏清月"]
     assert other and other[0]["asset_id"] == "character_002" and "phase" not in other[0]
     assert phase_labels([{"references": later}]) == ["沈玄川:白发青年"]
+    # the variant has no expressions.jpeg, so it is referenced by its turnaround alone (two views for the base card)
+    assert [ref["path"] for ref in lead] == ["series_assets/characters/character_001-p2/turnaround.jpeg"]
+    assert "只对应@图片1" in bindings[0]
+    assert len(other) == 2 and other[1]["path"].endswith("character_002/expressions.jpeg")
 
     early, bindings, _ = planner.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=novel_dir, chapter=100)
     assert early[0]["asset_id"] == "character_001" and "phase" not in early[0]

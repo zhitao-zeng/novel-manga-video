@@ -501,8 +501,11 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         first = count
         references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg",
                            **({"phase": str(phase.get("label", ""))} if phase else {})})
-        lead_sheet = novel_dir is not None and name in leads and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
-        if two_views or lead_sheet:
+        sheet = novel_dir is not None and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
+        lead_sheet = sheet and name in leads
+        # A base card's sheet is drawn on demand by the renderer; a phase card's only by build_phase_cards.py
+        # --expressions, so a variant is referenced by its turnaround alone until the sheet exists.
+        if (two_views and (phase is None or sheet)) or lead_sheet:
             count += 1
             second = count
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
