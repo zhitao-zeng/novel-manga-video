@@ -1784,11 +1784,14 @@ class ThinMediaRunner:
 
         self.renderer.write_ass_pages = write_ass_pages
         final, ass, joined, events = self.renderer.assemble_production(cover, ending, turn_segments, final_video, self.work)
-        qc = inspect_media(final, cover, ending, ass, self.settings, self.episode_dir / "media_qc_report.json")
+        # The actual end card rendered for this final, not a guess from the settings on a later recheck.
+        silent_outro = media_duration(self.work / "outro.mp4") if self.settings.outro_seconds > 0 else 0.0
+        qc = inspect_media(final, cover, ending, ass, self.settings, self.episode_dir / "media_qc_report.json",
+                           silent_outro_seconds=silent_outro)
         freeze = float(qc.get("checks", {}).get("long_freeze", {}).get("detail", {}).get("max_freeze_seconds", 0.0))
         other_checks = [v.get("passed") for k, v in qc.get("checks", {}).items() if k != "long_freeze"]
         thin_passed = all(other_checks) and freeze <= MAX_HOLD_SECONDS
-        return {"final_video": str(final), "cover": str(cover), "ending": str(ending), "ass": str(ass), "duration": round(media_duration(final), 3), "subtitle_events": len(events), "media_qc_passed": bool(qc.get("passed")), "max_hold_seconds": freeze, "thin_passed": thin_passed, "media_qc": qc}
+        return {"final_video": str(final), "cover": str(cover), "ending": str(ending), "ass": str(ass), "duration": round(media_duration(final), 3), "subtitle_events": len(events), "media_qc_passed": bool(qc.get("passed")), "max_hold_seconds": freeze, "thin_passed": thin_passed, "media_qc": qc, "silent_outro_seconds": silent_outro}
 
     def run(self) -> dict:
         started = time.monotonic()

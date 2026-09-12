@@ -16,7 +16,36 @@ def _rate(value: str) -> float:
     return float(numerator) / max(1.0, float(denominator))
 
 
-def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: Settings, report: Path) -> dict:
+def inspect_silence(video: Path, duration: float, *, silent_outro_seconds: float = 0.0) -> dict:
+    """Check story audio with the existing thresholds, excluding only a known rendered silent outro.
+
+    The thin renderer appends a four-second silent end card. Measuring it together with the last shot's
+    trailing pause made otherwise valid finals fail the 4.5-second limit. The same story-only duration is
+    used for the silence ratio; a pause inside the story, including its tail before the card, still counts.
+    """
+    if not 0 <= silent_outro_seconds < duration:
+        raise ValueError("silent outro must be shorter than the video")
+    story_seconds = duration - silent_outro_seconds
+    filters = f"atrim=end={story_seconds:.6f},asetpts=PTS-STARTPTS," if silent_outro_seconds else ""
+    silence = subprocess.run([
+        "ffmpeg", "-v", "info", "-i", str(video), "-af", filters + "silencedetect=n=-45dB:d=0.2",
+        "-vn", "-f", "null", "-",
+    ], capture_output=True, text=True, check=True)
+    durations = [float(item) for item in re.findall(r"silence_duration:\s*([0-9.]+)", silence.stderr)]
+    maximum = max(durations, default=0.0)
+    seconds = sum(durations)
+    scope = {"scope": "story" if silent_outro_seconds else "full_video",
+             "end_seconds": round(story_seconds, 6), "excluded_outro_seconds": round(silent_outro_seconds, 6)}
+    return {
+        "long_silence": {"passed": maximum <= 4.5, "detail": {"max_silence_seconds": round(maximum, 6), **scope}},
+        "silence_ratio": {"passed": seconds / story_seconds <= 0.35,
+                          "detail": {"silence_seconds": round(seconds, 6), "duration_seconds": round(story_seconds, 6),
+                                     "ratio": round(seconds / story_seconds, 6), "threshold_db": -45, **scope}},
+    }
+
+
+def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: Settings, report: Path,
+                  *, silent_outro_seconds: float = 0.0) -> dict:
     checks: dict[str, dict] = {}
     probe = subprocess.run([
         "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(video),
@@ -80,26 +109,7 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
         "detail": {"active_voice_mean_db": mean_db, "max_db": max_db, "silence_removed_below_db": -45},
     }
 
-    silence = subprocess.run([
-        "ffmpeg", "-v", "info", "-i", str(video), "-af", "silencedetect=n=-45dB:d=0.2", "-vn", "-f", "null", "-",
-    ], capture_output=True, text=True)
-    silence_durations = [float(item) for item in re.findall(r"silence_duration:\s*([0-9.]+)", silence.stderr)]
-    max_silence = max(silence_durations, default=0.0)
-    silence_seconds = sum(silence_durations)
-    silence_ratio = silence_seconds / duration if duration > 0 else 1.0
-    checks["long_silence"] = {
-        "passed": max_silence <= 4.5,
-        "detail": {"max_silence_seconds": round(max_silence, 6)},
-    }
-    checks["silence_ratio"] = {
-        "passed": silence_ratio <= 0.35,
-        "detail": {
-            "silence_seconds": round(silence_seconds, 6),
-            "duration_seconds": round(duration, 6),
-            "ratio": round(silence_ratio, 6),
-            "threshold_db": -45,
-        },
-    }
+    checks.update(inspect_silence(video, duration, silent_outro_seconds=silent_outro_seconds))
 
     freeze = subprocess.run([
         "ffmpeg", "-v", "info", "-i", str(video), "-vf", "freezedetect=n=-50dB:d=2", "-an", "-f", "null", "-",
