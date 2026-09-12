@@ -16,3 +16,6 @@ vendor/
 .env.local
 inputs/
 .runtime/
+
+# local rollback copies made while patching
+*.bak-*
