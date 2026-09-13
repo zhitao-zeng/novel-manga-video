@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 from novel_manga.models import StoryBible
-from plan_chapter_thin import ALIASES as PLAN_ALIASES, mentioned_characters  # noqa: E402
+from plan_chapter_thin import ALIASES as PLAN_ALIASES, load_entity_index, mentioned_characters  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_for, phase_labels, phased  # noqa: E402
 from novel_manga.util import atomic_write_json
 
@@ -648,6 +648,7 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     load_voices(episode_dir.parent)
     aliases_path = episode_dir.parent / "bible_aliases.json"
     PLAN_ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
+    load_entity_index(episode_dir.parent)
     profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
     genre = load_genre(profile)
     GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]

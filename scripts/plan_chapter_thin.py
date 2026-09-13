@@ -789,8 +789,33 @@ def short_forms(name: str) -> set[str]:
     return forms
 
 
+ENTITY_FORMS: dict[str, list[str]] = {}  # name -> forms that occur in the book (entity_index.json), when built
+ENTITY_TIERS: dict[str, str] = {}
+
+
+def load_entity_index(novel_dir: Path) -> bool:
+    """entity_index.json (build_entity_index.py): the forms each character is actually called by in this
+    book, already unique.  When it is there, name lookups use it instead of guessing."""
+    path = Path(novel_dir) / "entity_index.json"
+    ENTITY_FORMS.clear()
+    ENTITY_TIERS.clear()
+    try:
+        index = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    for row in index.get("characters", []):
+        forms = [f for f in (row.get("forms") or {}) if len(f) >= 2 or f == row.get("name")]
+        ENTITY_FORMS[row["name"]] = sorted({row["name"], *forms}, key=len, reverse=True)
+        ENTITY_TIERS[row["name"]] = str(row.get("tier") or "")
+    _FORMS_INDEX.clear()
+    return bool(ENTITY_FORMS)
+
+
 def name_forms(name: str) -> set[str]:
-    """Every string that names this character: the name, its aliases from bible_aliases.json, its short forms."""
+    """Every string that names this character: from the entity index when the book has one, else the name,
+    its aliases from bible_aliases.json and its derived short forms."""
+    if name in ENTITY_FORMS:
+        return set(ENTITY_FORMS[name])
     return {name, *(alias for alias, target in ALIASES.items() if target == name), *short_forms(name)}
 
 
@@ -802,7 +827,7 @@ def _usable_forms(everyone: tuple[str, ...]) -> dict[str, list[str]]:
     (约翰 for 约翰·华生 and 约翰·邓恩教授) or that sits inside another character's name (赫尔 in 赫尔曼)
     would make the prose add the wrong person, so it is dropped; the full name always stays.  Indexed
     once per cast list and alias table."""
-    key = (everyone, len(ALIASES))
+    key = (everyone, len(ALIASES), len(ENTITY_FORMS))
     if key in _FORMS_INDEX:
         return _FORMS_INDEX[key]
     forms = {name: {f for f in name_forms(name) if len(f) >= 2} for name in everyone}
@@ -812,12 +837,21 @@ def _usable_forms(everyone: tuple[str, ...]) -> dict[str, list[str]]:
             owners.setdefault(form, set()).add(name)
     usable: dict[str, list[str]] = {}
     for name, own in forms.items():
-        others = [other for other in everyone if other != name]
-        keep = [form for form in own
-                if form == name or (owners[form] == {name} and not any(form in other for other in others))]
+        keep = [form for form in own if form == name or owners[form] == {name}]
         usable[name] = sorted(keep, key=len, reverse=True)
     _FORMS_INDEX[key] = usable
     return usable
+
+
+def scan_mentions(text: str, forms_by_name: dict[str, list[str]]) -> list[tuple[int, str, str]]:
+    """(position, name, form) for every mention in the text, longest form first at each position and
+    never overlapping: 赫尔曼 is 赫尔曼, not 赫尔男爵's 赫尔; 莱恩·诺克斯·格雷 is one mention, not three."""
+    forms = sorted(((form, name) for name, own in forms_by_name.items() for form in own if form), key=lambda fn: -len(fn[0]))
+    if not forms:
+        return []
+    pattern = re.compile("|".join(re.escape(form) for form, _ in forms))
+    owner = {form: name for form, name in forms}
+    return [(m.start(), owner[m.group(0)], m.group(0)) for m in pattern.finditer(text)]
 
 
 def mentioned_characters(text: str, everyone: list[str]) -> list[str]:
@@ -825,14 +859,12 @@ def mentioned_characters(text: str, everyone: list[str]) -> list[str]:
     neither surname nor title (灵魂, 秘女, 船长, 天使) is a common noun as often as a person and is left
     to the model - 761's cat was the price of trusting the model alone with everyone else."""
     usable = _usable_forms(tuple(everyone))
-    found: list[tuple[int, str]] = []
-    for name in everyone:
-        if len(name) < 3 and "·" not in name:
-            continue
-        positions = [text.find(form) for form in usable.get(name, ()) if form in text]
-        if positions:
-            found.append((min(positions), name))
-    return [name for _, name in sorted(found)]
+    eligible = {name: usable.get(name, []) for name in everyone if len(name) >= 3 or "·" in name}
+    seen: list[str] = []
+    for _, name, _ in scan_mentions(text, eligible):
+        if name not in seen:
+            seen.append(name)
+    return seen
 
 
 def complete_characters(characters: list[str], shot: dict, everyone: list[str], cap: int = 6) -> tuple[list[str], list[str]]:
@@ -1379,6 +1411,7 @@ def main() -> int:
         CHAT_CARD_MODE = str(json.loads(chat_screen_path.read_text(encoding="utf-8")).get("render", "card")) == "card"
     aliases_path = novel_dir / "bible_aliases.json"
     ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
+    load_entity_index(novel_dir)
 
     # Which characters and locations the planner may name.  The whole bible is
     # never sent: at a few thousand chapters it would be hundreds of people the
@@ -1393,8 +1426,7 @@ def main() -> int:
         aliases_of.setdefault(target, []).append(alias)
 
     def named_here(name: str) -> bool:
-        return bool(name) and (name in chapter_text or any(alias in chapter_text for alias in aliases_of.get(name, []))
-                               or any(form in chapter_text for form in short_forms(name)))
+        return bool(name) and any(form in chapter_text for form in name_forms(name))
 
     recent_characters = recent_names(cast.get("characters", {}), episode.index, CAST_RECENT_CHAPTERS)
     recent_locations = recent_names(cast.get("locations", {}), episode.index, CAST_RECENT_CHAPTERS)

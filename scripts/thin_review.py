@@ -775,12 +775,23 @@ SWAP = re.compile(r"错误地(渲染|绘制|画)成|被(渲染|绘制|画)成|�
 MISSING = re.compile(r"(?<!特征)(?<!道具)缺失|(?<!设定中)(?<!设定里)(?<!名单中)(?<!名单里)(?<!列表中)(?<!列表里)未出现"
                      r"|(?<!设定中)(?<!设定里)没有出现|未出场")
 LEAD_ROLES = {"主角", "女主角", "男主角"}
+ENTITY_TIERS: dict[str, str] = {}  # name -> lead/major/minor/extra from entity_index.json, when the novel has one
+
+
+def load_entity_tiers(novel_dir: Path) -> None:
+    ENTITY_TIERS.clear()
+    try:
+        index = json.loads((Path(novel_dir) / "entity_index.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    ENTITY_TIERS.update({row["name"]: str(row.get("tier") or "") for row in index.get("characters", []) if row.get("name")})
 
 
 def apply_genre_review_rules(novel_dir: Path) -> None:
     """Per-novel review rules from the genre preset: a fantasy cast has tails
     and horns by design, so the breakdown pattern drops those words."""
     global BREAKDOWN
+    load_entity_tiers(novel_dir)
     pattern = load_genre(load_profile(novel_dir)).get("breakdown_pattern")
     if pattern:
         BREAKDOWN = re.compile(pattern)
@@ -797,7 +808,10 @@ def fix_tier(verdict: dict, bible: StoryBible) -> str:
     issue = str(verdict.get("identity_issue") or "") + " " + str(verdict.get("defect_issue") or "")
     if verdict.get("visual_defects") or BREAKDOWN.search(issue):
         return "must_fix"
-    leads = [c.name for c in bible.characters if str(c.role or "") in LEAD_ROLES]
+    # Whose swapped face is a retake: the bible's leads, or - when the book has an entity index, whose role field
+    # is prose - its leads and majors (雾月: 莱恩 plus the twelve most-mentioned).
+    leads = ([name for name, tier in ENTITY_TIERS.items() if tier in {"lead", "major"}]
+             or [c.name for c in bible.characters if str(c.role or "") in LEAD_ROLES])
     if any(name in issue for name in leads) and SWAP.search(issue):
         return "must_fix"
     if MISSING.search(issue) and any(name in issue for name in (c.name for c in bible.characters)):

@@ -37,11 +37,12 @@ def test_complete_characters_adds_the_described_and_keeps_the_cap():
 
 
 def test_shared_or_nested_short_forms_never_add_the_wrong_person():
-    people = ["约翰·华生", "约翰·邓恩教授", "赫尔曼", "赫尔男爵", "莱恩·格雷"]
+    people = ["约翰·华生", "约翰·邓恩教授", "赫尔曼", "赫尔男爵", "莱恩·格雷", "莱恩·诺克斯"]
     assert plan_chapter_thin.mentioned_characters("约翰走进来", people) == []
     assert plan_chapter_thin.mentioned_characters("约翰·华生走进来", people) == ["约翰·华生"]
-    assert plan_chapter_thin.mentioned_characters("赫尔曼走进来", people) == ["赫尔曼"]
-    assert plan_chapter_thin.mentioned_characters("赫尔男爵和莱恩说话", people) == ["赫尔男爵", "莱恩·格雷"]
+    assert plan_chapter_thin.mentioned_characters("赫尔曼走进来", people) == ["赫尔曼"]          # longest match: not 赫尔男爵's 赫尔
+    assert plan_chapter_thin.mentioned_characters("赫尔男爵和莱恩·诺克斯说话", people) == ["赫尔男爵", "莱恩·诺克斯"]
+    assert plan_chapter_thin.mentioned_characters("莱恩·格雷来了", people) == ["莱恩·格雷"]     # 莱恩 alone is shared, the full name is not
 
 
 def test_clip_cast_keeps_people_the_picture_names_by_a_short_form():

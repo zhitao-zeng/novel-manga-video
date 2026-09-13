@@ -138,6 +138,7 @@ def main() -> int:
     everyone = [c.name for c in StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8")).characters]
     aliases = novel_dir / "bible_aliases.json"
     plan_chapter_thin.ALIASES.update(json.loads(aliases.read_text(encoding="utf-8")) if aliases.is_file() else {})
+    plan_chapter_thin.load_entity_index(novel_dir)
     wanted = set(parse_chapters(args.chapters)) if args.chapters else None
 
     # In-place rebuilding needs build_clip_plan_thin imported under the plan's clip length: one worker per length.
