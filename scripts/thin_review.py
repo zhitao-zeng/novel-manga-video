@@ -810,7 +810,7 @@ def fix_tier(verdict: dict, bible: StoryBible) -> str:
         return "must_fix"
     # Whose swapped face is a retake: the bible's leads, or - when the book has an entity index, whose role field
     # is prose - its leads and majors (雾月: 莱恩 plus the twelve most-mentioned).
-    leads = ([name for name, tier in ENTITY_TIERS.items() if tier in {"lead", "major"}]
+    leads = ([name for name, tier in ENTITY_TIERS.items() if tier in {"lead", "major"} and len(name) >= 2]
              or [c.name for c in bible.characters if str(c.role or "") in LEAD_ROLES])
     if any(name in issue for name in leads) and SWAP.search(issue):
         return "must_fix"

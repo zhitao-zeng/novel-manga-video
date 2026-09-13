@@ -99,7 +99,7 @@ def build(novel_dir: Path) -> dict:
         characters.append({
             "name": name, "asset_id": cards.get(name), "role": roles.get(name, ""),
             "has_card": bool(cards.get(name)) and (novel_dir / "series_assets" / "characters" / cards[name] / "turnaround.jpeg").is_file(),
-            "generic": bool(GENERIC.match(name)),
+            "generic": bool(GENERIC.match(name)) or len(name) < 2,  # a one-character "name" (我, 天, 什) is a word, not a person
             "forms": dict(sorted(usable.items(), key=lambda kv: -kv[1])),
             "mentions": mentions,
             "first_chapter": min(present) if present else None, "last_chapter": max(present) if present else None,
@@ -107,7 +107,7 @@ def build(novel_dir: Path) -> dict:
     by_mentions = sorted((c for c in characters if "主角" not in c["role"] and not c["generic"]), key=lambda c: -c["mentions"])
     major = {c["name"] for c in by_mentions[:MAJOR_TOP]}
     for c in characters:
-        c["tier"] = ("lead" if "主角" in c["role"] else "major" if c["name"] in major
+        c["tier"] = ("extra" if len(c["name"]) < 2 else "lead" if "主角" in c["role"] else "major" if c["name"] in major
                      else "minor" if c["mentions"] >= MINOR_MENTIONS else "extra")
     return {"policy": INDEX_POLICY, "built_at": time.strftime("%Y-%m-%d %H:%M:%S"), "chapters": len(chapters),
             "characters": characters, "ambiguous_forms": ambiguous}
