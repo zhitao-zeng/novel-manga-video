@@ -767,6 +767,8 @@ def fix_tier(verdict: dict, bible: StoryBible) -> str:
     """must_fix / optional / ignore for a failed clip verdict.  A viewer notices a
     broken body, a lead with the wrong face, or a speaking character who is not
     there; a side character's shirt colour or a garbled phone screen they do not."""
+    if verdict.get("scripted"):
+        return "optional"  # the book itself asked for the oddity - see script_check()
     issue = str(verdict.get("identity_issue") or "") + " " + str(verdict.get("defect_issue") or "")
     if verdict.get("visual_defects") or BREAKDOWN.search(issue):
         return "must_fix"
@@ -778,6 +780,69 @@ def fix_tier(verdict: dict, bible: StoryBible) -> str:
     if not verdict.get("identity_ok", True) or not verdict.get("location_ok", True) or not verdict.get("time_of_day_ok", True):
         return "optional"
     return "ignore"  # phone text, on-screen text, people count only
+
+
+# ---- script check: is the flagged oddity what the book wrote? ----
+SCRIPT_CHECK_SCHEMA = {
+    "type": "object", "required": ["scripted", "evidence", "note"],
+    "properties": {"scripted": {"type": "boolean"}, "evidence": {"type": "string"}, "note": {"type": "string"}},
+}
+SCRIPT_CHECK_RULES = (
+    "下面是一段 AI 短剧画面对应的剧本事件和原文段落，以及审查员看了生成画面后指出的问题。\n"
+    "判断：审查员指出的异常，是不是剧本事件或原文明确写到的画面？例如原文写“掌心裂开一张嘴”，"
+    "审查员说“手掌中心出现嘴巴属于崩坏”，那就是剧本要求的（scripted=true），evidence 抄原文里对应的那句。\n"
+    "只有原文或剧本事件确实写到了同一件事才算剧本要求。以下都不算：发型、服装、年龄、性别与设定不符；"
+    "多出了原文没有写的人；同一个人在画面里出现两次而原文没有写两个人；地点或昼夜不对；画面上有文字。"
+    "拿不准就填 false。note 用一句话说明。只输出 JSON。"
+)
+EVENT_LINE = re.compile(r"主要事件是(.+?)。\n")
+
+
+def scripted_event(clip: dict) -> str:
+    """The planner's one-line summary of what the clip shows, read back out of its request prompt."""
+    match = EVENT_LINE.search(str(clip.get("prompt") or ""))
+    return match.group(1) if match else ""
+
+
+def segment_texts(episode_dir: Path) -> dict[str, str]:
+    """segment_id -> the book's own words for that stretch (segments.json), empty when the file is not there."""
+    path = episode_dir / "segments.json"
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else []
+    except (OSError, ValueError):
+        return {}
+    return {str(row.get("segment_id")): str(row.get("text") or "") for row in rows if isinstance(row, dict)}
+
+
+def script_check(clip: dict, verdict: dict, segments: dict[str, str]) -> dict | None:
+    """Ask, in text only, whether the oddity the judge flagged is what the script asked for.
+
+    The judge compares frames with the cards and is never shown the event, so in a horror story it calls
+    a scripted mouth in a palm a breakdown - and its correction then tells the renderer to remove it
+    (雾月 2026-09-13: 59 of 345 must_fix clips were the book's own images: "掌心的皮肤蠕动着裂开",
+    "数百张面目狰狞的面庞", "化作了数十只黑色的小手").  Returns None when there is nothing to check
+    against or the model failed; the caller keeps the tier it had.
+    """
+    event = scripted_event(clip)
+    source = "\n".join(segments.get(str(s), "") for s in clip.get("segment_ids") or []).strip()
+    complaint = "\n".join(str(verdict.get(k)) for k in ("identity_issue", "defect_issue") if verdict.get(k))
+    if not (event or source) or not complaint:
+        return None
+    text = (SCRIPT_CHECK_RULES + f"\n\n剧本事件：{event or '（无）'}\n原文：{source[:1500] or '（无）'}\n"
+            f"审查员指出的问题：\n{complaint[:900]}")
+    try:
+        answer = ask_json([{"type": "text", "text": text}], SCRIPT_CHECK_SCHEMA, name="script_check", max_tokens=300)
+    except Exception as error:  # noqa: BLE001 - advisory: a failed check changes nothing
+        log(f"script check failed: {type(error).__name__}: {str(error)[:120]}")
+        return None
+    return {"scripted": bool(answer.get("scripted")), "evidence": str(answer.get("evidence") or "")[:200],
+            "note": str(answer.get("note") or "")[:160]}
+
+
+def flag_line(clip_id: str, verdict: dict, tier: str) -> str:
+    """One line of the episode's flags: bare for must_fix, [剧本] for an oddity the book wrote, [可选] otherwise."""
+    prefix = "" if tier == "must_fix" else ("[剧本] " if verdict.get("scripted") else "[可选] ")
+    return f"{clip_id}: {prefix}{verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}"
 
 
 def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | None = None) -> str:
@@ -834,6 +899,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     report_path = episode_dir / "thin_media_report.json"
     media = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
     selected = {row["clip_id"]: row.get("selected") or {} for row in media.get("clips", [])}
+    segments = segment_texts(episode_dir)
     report = {"policy": POLICY, "episode": episode_dir.name, "video_name": video_name, "clips": {}, "flags": [], "feedback": {}}
     suffix = "" if video_name == "clip.mp4" else "." + video_name.replace(".mp4", "")
     review_path = episode_dir / f"episode_review{suffix}.json"
@@ -876,12 +942,17 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
         if verdict.get("severity") == "fail":
             tier = fix_tier(verdict, bible)
+            if tier == "must_fix" and "scripted" not in verdict:
+                check = script_check(clip, verdict, segments)
+                if check is not None:
+                    verdict["scripted"] = report["clips"][clip_id]["scripted"] = (
+                        {"evidence": check["evidence"], "note": check["note"]} if check["scripted"] else False)
+                    tier = fix_tier(verdict, bible)
             # Into the file as well as this run's copy: without it the review said only how many clips differ from the
             # setting, never how many it actually asks to redo (雾月: 3501 fails, 600 of them must_fix).
             verdict["tier"] = report["clips"][clip_id]["tier"] = tier
             if tier != "ignore":
-                prefix = "" if tier == "must_fix" else "[可选] "
-                report["flags"].append(f"{clip_id}: {prefix}{verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}")
+                report["flags"].append(flag_line(clip_id, verdict, tier))
             if tier == "must_fix":
                 report["feedback"][clip_id] = compose_feedback(verdict, clip, card_manifest)
         log(f"episode {episode_dir.name} {clip_id}: {verdict.get('severity')} people={verdict.get('visible_people')} identity={verdict.get('identity_ok')} loc={verdict.get('location_ok')}/{verdict.get('time_of_day_ok')} text={verdict.get('text_or_watermark')} defects={verdict.get('visual_defects')}" + (f" | {verdict.get('identity_issue') or verdict.get('defect_issue')}" if verdict.get("severity") != "pass" else ""))
