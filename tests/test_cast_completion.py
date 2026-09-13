@@ -36,6 +36,14 @@ def test_complete_characters_adds_the_described_and_keeps_the_cap():
     assert cast == full and added == []
 
 
+def test_shared_or_nested_short_forms_never_add_the_wrong_person():
+    people = ["约翰·华生", "约翰·邓恩教授", "赫尔曼", "赫尔男爵", "莱恩·格雷"]
+    assert plan_chapter_thin.mentioned_characters("约翰走进来", people) == []
+    assert plan_chapter_thin.mentioned_characters("约翰·华生走进来", people) == ["约翰·华生"]
+    assert plan_chapter_thin.mentioned_characters("赫尔曼走进来", people) == ["赫尔曼"]
+    assert plan_chapter_thin.mentioned_characters("赫尔男爵和莱恩说话", people) == ["赫尔男爵", "莱恩·格雷"]
+
+
 def test_aliases_from_the_novel_count_too(monkeypatch):
     monkeypatch.setitem(plan_chapter_thin.ALIASES, "作家小姐", "艾琳娜")
     assert plan_chapter_thin.mentioned_characters("作家小姐有些不满", EVERYONE) == ["艾琳娜"]

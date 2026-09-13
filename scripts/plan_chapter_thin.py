@@ -794,15 +794,42 @@ def name_forms(name: str) -> set[str]:
     return {name, *(alias for alias, target in ALIASES.items() if target == name), *short_forms(name)}
 
 
+_FORMS_INDEX: dict[tuple, dict[str, list[str]]] = {}
+
+
+def _usable_forms(everyone: tuple[str, ...]) -> dict[str, list[str]]:
+    """name -> the strings that point at that character and nobody else.  A form two characters share
+    (约翰 for 约翰·华生 and 约翰·邓恩教授) or that sits inside another character's name (赫尔 in 赫尔曼)
+    would make the prose add the wrong person, so it is dropped; the full name always stays.  Indexed
+    once per cast list and alias table."""
+    key = (everyone, len(ALIASES))
+    if key in _FORMS_INDEX:
+        return _FORMS_INDEX[key]
+    forms = {name: {f for f in name_forms(name) if len(f) >= 2} for name in everyone}
+    owners: dict[str, set[str]] = {}
+    for name, own in forms.items():
+        for form in own:
+            owners.setdefault(form, set()).add(name)
+    usable: dict[str, list[str]] = {}
+    for name, own in forms.items():
+        others = [other for other in everyone if other != name]
+        keep = [form for form in own
+                if form == name or (owners[form] == {name} and not any(form in other for other in others))]
+        usable[name] = sorted(keep, key=len, reverse=True)
+    _FORMS_INDEX[key] = usable
+    return usable
+
+
 def mentioned_characters(text: str, everyone: list[str]) -> list[str]:
     """Bible characters a piece of prose names, in order of first mention.  A two-character name with
     neither surname nor title (灵魂, 秘女, 船长, 天使) is a common noun as often as a person and is left
     to the model - 761's cat was the price of trusting the model alone with everyone else."""
+    usable = _usable_forms(tuple(everyone))
     found: list[tuple[int, str]] = []
     for name in everyone:
         if len(name) < 3 and "·" not in name:
             continue
-        positions = [text.find(form) for form in name_forms(name) if len(form) >= 2 and form in text]
+        positions = [text.find(form) for form in usable.get(name, ()) if form in text]
         if positions:
             found.append((min(positions), name))
     return [name for _, name in sorted(found)]
