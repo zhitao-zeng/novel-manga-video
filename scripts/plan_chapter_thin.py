@@ -764,10 +764,65 @@ def canonical(name: str) -> str:
     return ALIASES.get(str(name).strip(), str(name).strip())
 
 
-def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, location_map: dict[str, str], chapter_text: str) -> tuple[list[str], list[str], list[dict]]:
+TITLE_SUFFIXES = ("公主", "殿下", "女士", "先生", "小姐", "夫人", "伯爵", "侯爵", "公爵", "男爵", "爵士", "王子", "国王", "王后",
+                  "陛下", "大人", "修女", "神父", "主教", "婆婆", "船长", "医生", "教授", "老师", "队长", "警长", "侦探", "管家")
+
+
+def short_forms(name: str) -> set[str]:
+    """How the prose refers to a bible character besides the full name: the given name before a
+    ·surname (琥珀·高德 → 琥珀), the name without its title (薇奥拉公主 → 薇奥拉), and 小 plus either
+    (小琥珀).  Nothing shorter than two characters, so 船长 or 神 never gain a form.  Two characters
+    sharing a form are both offered; the model picks."""
+    base = str(name).strip()
+    forms: set[str] = set()
+    if "·" in base:
+        given = base.split("·", 1)[0].strip()
+        if len(given) >= 2:
+            forms.add(given)
+    for suffix in TITLE_SUFFIXES:
+        if base.endswith(suffix) and len(base) - len(suffix) >= 2:
+            forms.add(base[: -len(suffix)])
+    for form in list(forms):
+        if not form.startswith("小"):
+            forms.add("小" + form)
+    forms.discard(base)
+    return forms
+
+
+def name_forms(name: str) -> set[str]:
+    """Every string that names this character: the name, its aliases from bible_aliases.json, its short forms."""
+    return {name, *(alias for alias, target in ALIASES.items() if target == name), *short_forms(name)}
+
+
+def mentioned_characters(text: str, everyone: list[str]) -> list[str]:
+    """Bible characters a piece of prose names, in order of first mention.  A two-character name with
+    neither surname nor title (灵魂, 秘女, 船长, 天使) is a common noun as often as a person and is left
+    to the model - 761's cat was the price of trusting the model alone with everyone else."""
+    found: list[tuple[int, str]] = []
+    for name in everyone:
+        if len(name) < 3 and "·" not in name:
+            continue
+        positions = [text.find(form) for form in name_forms(name) if len(form) >= 2 and form in text]
+        if positions:
+            found.append((min(positions), name))
+    return [name for _, name in sorted(found)]
+
+
+def complete_characters(characters: list[str], shot: dict, everyone: list[str], cap: int = 6) -> tuple[list[str], list[str]]:
+    """The shot's cast plus every character its own description puts on camera.  2026-09-13, 雾月 761:
+    the description said 薇奥拉 kissed 莱恩, the enum had no 薇奥拉, the cast was [莱恩, 琥珀] - and the
+    cat did the kissing.  Returns the cast and what was added."""
+    described = mentioned_characters(f"{shot.get('visual_prompt') or ''}\n{shot.get('motion_prompt') or ''}", everyone)
+    added = [name for name in described if name not in characters][: max(0, cap - len(characters))]
+    return list(characters) + added, added
+
+
+def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, location_map: dict[str, str], chapter_text: str,
+                           everyone: list[str] | None = None) -> tuple[list[str], list[str], list[dict]]:
     errors: list[str] = []
     warnings: list[str] = []
     names = [character.name for character in bible.characters]
+    everyone = list(everyone) if everyone else names  # the whole bible: a description may name someone the slice left out
     segment_keys = {segment["segment_id"]: quote_key(segment["text"]) for segment in segments}
     chapter_key = quote_key(chapter_text)
     shots = flatten_clips(raw)
@@ -831,6 +886,9 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         unknown = [str(name) for name in shot.get("characters", []) if canonical(name) not in names]
         if unknown:
             errors.append(f"{position}: characters not in StoryBible: {unknown}")
+        characters, added = complete_characters(characters, shot, everyone)
+        if added:
+            warnings.append(f"{position}: characters 补上镜头描述里出现的 {added}")
         location = str(shot.get("location", ""))
         if location not in location_map:
             errors.append(f"{position}: unknown location {location!r}; allowed: {list(location_map)}")
@@ -1308,7 +1366,8 @@ def main() -> int:
         aliases_of.setdefault(target, []).append(alias)
 
     def named_here(name: str) -> bool:
-        return bool(name) and (name in chapter_text or any(alias in chapter_text for alias in aliases_of.get(name, [])))
+        return bool(name) and (name in chapter_text or any(alias in chapter_text for alias in aliases_of.get(name, []))
+                               or any(form in chapter_text for form in short_forms(name)))
 
     recent_characters = recent_names(cast.get("characters", {}), episode.index, CAST_RECENT_CHAPTERS)
     recent_locations = recent_names(cast.get("locations", {}), episode.index, CAST_RECENT_CHAPTERS)
@@ -1343,6 +1402,7 @@ def main() -> int:
     bible = full_bible.model_copy(update={"characters": sliced_characters, "locations": sliced_locations})
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     names = [character.name for character in bible.characters]
+    everyone = [character.name for character in full_bible.characters]
     grammar_path = args.grammar or (novel_dir / "visual_grammar.json")
     grammar = json.loads(grammar_path.read_text(encoding="utf-8")) if grammar_path.is_file() else None
     episode_dir.mkdir(parents=True, exist_ok=True)
@@ -1454,7 +1514,7 @@ def main() -> int:
                 repair["instruction"] = ("上一稿超过输出长度上限被截断。本次压缩篇幅：每个字段只写必要内容，camera 和 light 在机位或光源不变时写"
                                          "\"同上\"，avoid 每段不超过 3 项，台词句子不加长；不得减少区段覆盖。")
             continue
-        errors, warnings, shots = validate_and_normalize(raw, segments, bible, location_map, episode.source_text)
+        errors, warnings, shots = validate_and_normalize(raw, segments, bible, location_map, episode.source_text, everyone)
         fingerprint = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         resent = attempts and attempts[-1].get("fingerprint") == fingerprint
         attempts.append({"attempt": attempt, **meta, "errors": errors, "warnings": warnings, "fingerprint": fingerprint, "resent_previous": bool(resent)})
@@ -1487,7 +1547,7 @@ def main() -> int:
                 break
             finally:
                 patch_seconds_left = max(0.0, patch_seconds_left - (time.monotonic() - patch_started))
-            errors, warnings, shots = validate_and_normalize(patched, segments, bible, location_map, episode.source_text)
+            errors, warnings, shots = validate_and_normalize(patched, segments, bible, location_map, episode.source_text, everyone)
             attempts[-1].setdefault("patches", []).append({**summary, "errors_after": len(errors), "errors": errors[:6]})
             print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False), flush=True)
             raw = patched  # the next round, or the full redo, starts from the improved draft
