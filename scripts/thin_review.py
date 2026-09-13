@@ -970,12 +970,21 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
     card is touched at most once: a parked backup or a marker file means the
     fix was already tried and the flag stays for the delivery report."""
     from novel_manga.config import Settings
-    from render_clips_thin import FramedPhanRouter, stylize_card
+    from render_clips_thin import FramedPhanRouter, load_privacy_ok, stylize_card
     from thin_profile import frame_spec, load_profile
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     provider = FramedPhanRouter(settings, frame_spec(load_profile(novel_dir)))
     assets = novel_dir / "series_assets"
-    done = {"stylized": [], "deleted": [], "already_tried": []}
+    done = {"stylized": [], "deleted": [], "already_tried": [], "in_use": []}
+    # Cards that clips have already rendered with (render_clips_thin records them) are never
+    # touched: redrawing one changes a face the audience has seen for hundreds of episodes.
+    in_use = load_privacy_ok(novel_dir)
+
+    def used(path: Path) -> bool:
+        try:
+            return str(path.relative_to(novel_dir)) in in_use
+        except ValueError:
+            return False
 
     def marker_for(path: Path) -> Path:
         # Not *.jpeg: the runner's purge of unreadable images deleted the old
@@ -991,6 +1000,9 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
 
     def delete_for_regeneration(path: Path, label: str) -> None:
         marker = marker_for(path)
+        if used(path):
+            done["in_use"].append(label)
+            return
         if tried_before(path):
             done["already_tried"].append(label)
             return
@@ -1011,6 +1023,9 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
             if not path.is_file():
                 continue
             if "redraw_stylized" in row["actions"]:
+                if used(path):
+                    done["in_use"].append(label)
+                    continue
                 if tried_before(path):
                     done["already_tried"].append(label)
                     continue
@@ -1022,7 +1037,8 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
     for asset_id, row in report.get("locations", {}).items():
         if "regenerate" in row.get("actions", []):
             delete_for_regeneration(assets / "locations" / asset_id / "establishing.jpeg", f"{asset_id}/establishing.jpeg")
-    log(f"cards: stylized {done['stylized'] or 'none'}, deleted for regeneration {done['deleted'] or 'none'}, already tried {done['already_tried'] or 'none'}")
+    log(f"cards: stylized {done['stylized'] or 'none'}, deleted for regeneration {done['deleted'] or 'none'}, "
+        f"already tried {done['already_tried'] or 'none'}, left alone because clips use them {done['in_use'] or 'none'}")
     return done
 
 

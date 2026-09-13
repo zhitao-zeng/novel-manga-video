@@ -1229,6 +1229,9 @@ class ThinMediaRunner:
             return []  # a refused reference voice has no card to repair
         path = self.novel_dir / ref["path"]
         label = f"{ref['asset_id']}/{path.name}"
+        if ref["path"] in (set(getattr(self, "_ok_assets", set())) | load_privacy_ok(self.novel_dir)):
+            log(f"privacy repair: {label} has rendered fine before; not redrawn, the rejection stands")
+            return []
         with REPAIR_LOCK:
             if ref["role"] != "character":
                 marker = path.parent / ".emptied.txt"
@@ -1274,14 +1277,20 @@ class ThinMediaRunner:
 
         Seedance's privacy detector treats a near-photoreal CG face as a real
         person.  Cards (individual views) already used by a clip that generated
-        fine are exempt; when every card of the clip is exempt the rejection
-        must come from their combination, so all of them are candidates.  A
-        card is redrawn at most once: one already stylized (by this run, a
-        parallel thread or another process) just earns the clip its retry.
+        fine are exempt, and when every card of the clip is exempt nothing is
+        redrawn: the rejection stands and the clip fails.  The old fallback
+        ("then it must be their combination, so all of them are candidates")
+        restyled 雾月's protagonist on 2026-09-13 after 1,700 episodes had used
+        his card - a changed face is worse than a failed clip.  A card is
+        redrawn at most once: one already stylized (by this run, a parallel
+        thread or another process) just earns the clip its retry.
         """
         exempt = set(getattr(self, "_ok_assets", set())) | load_privacy_ok(self.novel_dir)
         cards = [ref for ref in clip.get("references", []) if ref["role"] == "character"]
-        candidates = [ref for ref in cards if ref["path"] not in exempt] or cards
+        candidates = [ref for ref in cards if ref["path"] not in exempt]
+        if cards and not candidates:
+            log(f"privacy repair: every card of {clip.get('clip_id')} has rendered fine before; none is redrawn, the rejection stands")
+            return []
         repaired: list[str] = []
         with REPAIR_LOCK:
             for ref in candidates:
@@ -1358,7 +1367,7 @@ class ThinMediaRunner:
                 if not hasattr(self, "_ok_assets"):
                     self._ok_assets = set()
                 self._ok_assets.update(ref["path"] for ref in clip.get("references", []))
-                record_privacy_ok(self.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref["role"] == "character"))
+                record_privacy_ok(self.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice"))
                 attempts.append(analysis)
                 log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
                 if analysis["passed"]:
