@@ -190,24 +190,32 @@ class PhanRouterMediaProvider(MediaProvider):
 
     def _restore_image_url(self, image: ImageResult) -> str:
         """The reference as the video request carries it: asset://id when the asset library is on, else the hosted URL."""
-        url = self._hosted_image_url(image)
-        if self.settings.reference_images_via_assets and not url.startswith("data:"):
-            return self._asset_reference(image, url)
-        return url
+        if self.settings.reference_images_via_assets and not self.settings.inline_reference_images:
+            return self._asset_reference(image)
+        return self._hosted_image_url(image)
+
+    def public_card_url(self, path: Path, digest: str) -> str:
+        """Where publish_cards.sh puts a copy of this card: <base>/<novel>/<asset>/<view>-<sha12><ext>."""
+        base = self.settings.phanrouter_asset_public_base or ""
+        novel = path.parents[3].name if len(path.parents) > 3 else "novel"
+        return f"{base}/{novel}/{path.parent.name}/{path.stem}-{digest[:12]}{path.suffix}"
 
     def _asset_base_url(self) -> str:
         # The library lives beside the API root: https://host/phanrouter/open/CreateAsset, the tasks under /api/v3.
         base = self.settings.phanrouter_base_url.rstrip("/")
         return base[: -len("/api")] if base.endswith("/api") else base
 
-    def _asset_reference(self, image: ImageResult, hosted_url: str) -> str:
-        """asset://<id> for this image: created once in the asset library from its hosted URL and remembered
-        in a sidecar keyed by the file's content, so a redrawn card gets a new asset and an unchanged one
-        never a second."""
+    def _asset_reference(self, image: ImageResult, hosted_url: str | None = None) -> str:
+        """asset://<id> for this image: created once in the asset library and remembered in a sidecar keyed
+        by the file's content, so a redrawn card gets a new asset and an unchanged one never a second.
+        The library fetches the image itself, so the source is the published copy under the public base
+        when one is configured (checked with a HEAD first), else the hosted URL handed in or looked up."""
         group = self.settings.phanrouter_asset_group_id
         if not group:
             raise ValueError("PHANROUTER_REFERENCE_ASSETS is on but PHANROUTER_ASSET_GROUP_ID is not set")
         path = image.path
+        if not path.is_file():
+            raise FileNotFoundError(path)
         sidecar = path.with_suffix(path.suffix + ASSET_SIDECAR)
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         try:
@@ -216,6 +224,15 @@ class PhanRouterMediaProvider(MediaProvider):
             record = {}
         if record.get("asset_id") and record.get("sha256") == digest and record.get("group_id") == group:
             return f"asset://{record['asset_id']}"
+        if self.settings.phanrouter_asset_public_base:
+            hosted_url = self.public_card_url(path, digest)
+            probe = self.client.head(hosted_url, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
+                                     headers={"ngrok-skip-browser-warning": "1"}, follow_redirects=True)
+            if probe.status_code != 200:
+                raise RuntimeError(f"{path.parent.name}/{path.name} is not published at {hosted_url} (HTTP {probe.status_code}); "
+                                   "run publish_cards.sh for this novel first")
+        elif hosted_url is None:
+            hosted_url = self._hosted_image_url(image)
         # Names are unique per user: novel, card, view and a piece of the content hash; a clash gets a suffix.
         novel = path.parents[3].name if len(path.parents) > 3 else "novel"
         stem = f"{novel}-{path.parent.name}-{path.stem}-{digest[:10]}"

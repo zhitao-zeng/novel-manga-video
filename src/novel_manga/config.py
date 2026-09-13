@@ -61,6 +61,10 @@ class Settings:
     # 雾月's protagonist); avatar-video found library assets go through.  Needs the group id.
     reference_images_via_assets: bool = False
     phanrouter_asset_group_id: str | None = None
+    # Where published card copies are reachable without a token (the library downloads from the URL it is
+    # given; the card's own hosted URL needs a bearer).  publish_cards.sh lays them out under this base as
+    # <novel>/<asset>/<view>-<sha12>.jpeg.  Unset: the hosted URL is tried.
+    phanrouter_asset_public_base: str | None = None
     reuse_existing_assets: bool = False
     reuse_existing_keyframes: bool = False
     llm_base_url: str | None = None
@@ -159,6 +163,7 @@ class Settings:
             video_command=os.getenv("NOVEL_VIDEO_COMMAND"),
             reference_images_via_assets=os.getenv("PHANROUTER_REFERENCE_ASSETS", "0").strip().lower() in {"1", "true", "yes"},
             phanrouter_asset_group_id=os.getenv("PHANROUTER_ASSET_GROUP_ID") or None,
+            phanrouter_asset_public_base=(os.getenv("PHANROUTER_ASSET_PUBLIC_BASE") or "").strip().rstrip("/") or None,
             inline_reference_images=os.getenv(
                 "PHANROUTER_INLINE_REFERENCE_IMAGES", "0"
             ).strip().lower()

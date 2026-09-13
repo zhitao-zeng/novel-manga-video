@@ -13,10 +13,16 @@ from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 
 
 class Client:
-    def __init__(self, conflicts: int = 0):
+    def __init__(self, conflicts: int = 0, head_status: int = 200):
         self.calls: list[dict] = []
+        self.heads: list[str] = []
         self.conflicts = conflicts
+        self.head_status = head_status
         self.n = 0
+
+    def head(self, url, timeout=None, headers=None, follow_redirects=False):
+        self.heads.append(url)
+        return SimpleNamespace(status_code=self.head_status)
 
     def post(self, url, headers=None, json=None, timeout=None):
         self.calls.append({"url": url, "headers": headers, "json": json})
@@ -77,6 +83,32 @@ def test_off_by_default_and_inline_stays_inline(tmp_path):
     PIL.Image.new("RGB", (8, 8), "white").save(card2, format="JPEG")  # inline needs a real image
     assert p2._restore_image_url(ImageResult(path=card2)).startswith("data:image/jpeg;base64,")
     assert client2.calls == []
+
+
+def test_public_base_uses_the_published_copy_after_a_head_check(tmp_path):
+    import hashlib
+    p, client, card = provider(tmp_path, phanrouter_asset_public_base="https://pub.example/novel")
+    digest = hashlib.sha256(card.read_bytes()).hexdigest()
+    expected = f"https://pub.example/novel/wuyue/character_001/turnaround-{digest[:12]}.jpeg"
+    assert p._restore_image_url(ImageResult(path=card)) == "asset://asset-1"
+    assert client.heads == [expected]
+    assert client.calls[0]["json"]["URL"] == expected
+    # registered: the sidecar answers, no network at all
+    client.heads.clear(); client.calls.clear()
+    assert p._restore_image_url(ImageResult(path=card)) == "asset://asset-1"
+    assert client.heads == [] and client.calls == []
+
+
+def test_unpublished_card_is_an_error_not_a_silent_fallback(tmp_path):
+    p, _, card = provider(tmp_path, phanrouter_asset_public_base="https://pub.example/novel")
+    p.client = Client(head_status=404)
+    try:
+        p._restore_image_url(ImageResult(path=card))
+    except RuntimeError as error:
+        assert "publish_cards.sh" in str(error) and "404" in str(error)
+    else:
+        raise AssertionError("an unpublished card must not be registered from a dead URL")
+    assert p.client.calls == []
 
 
 def test_group_id_is_required(tmp_path):
