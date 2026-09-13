@@ -56,6 +56,11 @@ class Settings:
     creative_profile: str = "short-drama-adaptive-v1"
     video_command: str | None = None
     inline_reference_images: bool = False
+    # Reference images through the PhanRouter asset library (asset://id in the video request) instead of
+    # the card's hosted URL.  Seedance's privacy detector rejected hosted cards as real people (2026-09-13,
+    # 雾月's protagonist); avatar-video found library assets go through.  Needs the group id.
+    reference_images_via_assets: bool = False
+    phanrouter_asset_group_id: str | None = None
     reuse_existing_assets: bool = False
     reuse_existing_keyframes: bool = False
     llm_base_url: str | None = None
@@ -152,6 +157,8 @@ class Settings:
                 "NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"
             ),
             video_command=os.getenv("NOVEL_VIDEO_COMMAND"),
+            reference_images_via_assets=os.getenv("PHANROUTER_REFERENCE_ASSETS", "0").strip().lower() in {"1", "true", "yes"},
+            phanrouter_asset_group_id=os.getenv("PHANROUTER_ASSET_GROUP_ID") or None,
             inline_reference_images=os.getenv(
                 "PHANROUTER_INLINE_REFERENCE_IMAGES", "0"
             ).strip().lower()

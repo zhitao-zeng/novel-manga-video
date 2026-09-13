@@ -19,6 +19,7 @@ from .base import ImageResult, MediaProvider
 
 
 SUBMIT_TIMEOUT_SECONDS = 120.0  # a task submission answers in seconds; downloads keep the long request timeout
+ASSET_SIDECAR = ".asset.json"  # beside a card: the asset-library id its current bytes were registered under
 RESUBMIT_ENV = "NOVEL_RESUBMIT_UNCONFIRMED"  # thin_batch --resubmit-unconfirmed: its start time, once someone has checked the bill
 PROCESS_STARTED = time.time()
 
@@ -188,6 +189,60 @@ class PhanRouterMediaProvider(MediaProvider):
             raise
 
     def _restore_image_url(self, image: ImageResult) -> str:
+        """The reference as the video request carries it: asset://id when the asset library is on, else the hosted URL."""
+        url = self._hosted_image_url(image)
+        if self.settings.reference_images_via_assets and not url.startswith("data:"):
+            return self._asset_reference(image, url)
+        return url
+
+    def _asset_base_url(self) -> str:
+        # The library lives beside the API root: https://host/phanrouter/open/CreateAsset, the tasks under /api/v3.
+        base = self.settings.phanrouter_base_url.rstrip("/")
+        return base[: -len("/api")] if base.endswith("/api") else base
+
+    def _asset_reference(self, image: ImageResult, hosted_url: str) -> str:
+        """asset://<id> for this image: created once in the asset library from its hosted URL and remembered
+        in a sidecar keyed by the file's content, so a redrawn card gets a new asset and an unchanged one
+        never a second."""
+        group = self.settings.phanrouter_asset_group_id
+        if not group:
+            raise ValueError("PHANROUTER_REFERENCE_ASSETS is on but PHANROUTER_ASSET_GROUP_ID is not set")
+        path = image.path
+        sidecar = path.with_suffix(path.suffix + ASSET_SIDECAR)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        try:
+            record = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        if record.get("asset_id") and record.get("sha256") == digest and record.get("group_id") == group:
+            return f"asset://{record['asset_id']}"
+        # Names are unique per user: novel, card, view and a piece of the content hash; a clash gets a suffix.
+        novel = path.parents[3].name if len(path.parents) > 3 else "novel"
+        stem = f"{novel}-{path.parent.name}-{path.stem}-{digest[:10]}"
+        asset_id = None
+        for attempt in range(3):
+            name = stem if attempt == 0 else f"{stem}-{attempt + 1}"
+            response = self.client.post(
+                f"{self._asset_base_url()}/open/CreateAsset", headers=self.video_headers,
+                json={"GroupId": group, "Name": name, "URL": hosted_url, "AssetType": "Image"},
+                timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
+            )
+            if response.status_code == 400 and "already exists" in response.text:
+                continue
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as error:
+                detail = response.text.strip().replace("\n", " ")[:600]
+                raise RuntimeError(f"asset library refused {path.parent.name}/{path.name}: HTTP {response.status_code}: {detail}") from error
+            asset_id = self._task_data(response.json()).get("Id")
+            break
+        if not asset_id:
+            raise RuntimeError(f"asset library returned no asset id for {path.parent.name}/{path.name}")
+        atomic_write_json(sidecar, {"asset_id": asset_id, "sha256": digest, "group_id": group, "name": name,
+                                    "source_url": hosted_url, "created_at": time.time()})
+        return f"asset://{asset_id}"
+
+    def _hosted_image_url(self, image: ImageResult) -> str:
         if image.public_url:
             return image.public_url
         if self.settings.inline_reference_images:
