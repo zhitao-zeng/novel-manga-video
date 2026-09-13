@@ -439,9 +439,15 @@ def _workers() -> list[dict]:
                 ready = sum(any((work / cid).glob("attempt_*/clip.mp4")) for cid in clips)
             except (OSError, ValueError):
                 total = ready = 0
+            # Silence, not age, is the signal: on a shared H3 pool an episode waits an hour for slots and
+            # is still fine; a runner whose log stopped moving is the one to look at.
+            try:
+                idle = int(time.time() - (work.parent.parent / "render.log").stat().st_mtime)
+            except OSError:
+                idle = elapsed
             rows.append({"kind": "渲染单集", "novel": TITLES.get(novel_id, novel_id),
                          "what": episode.group(1).rsplit("_", 1)[-1] + " 集",
-                         "detail": f"缓存 {ready}/{total} 段（未计质检）" if total else "", "elapsed": elapsed})
+                         "detail": f"缓存 {ready}/{total} 段（未计质检）" if total else "", "elapsed": elapsed, "idle": idle})
         elif "plan_chapter_thin.py" in args:
             index, novel = INDEX_ARG.search(args), NOVEL_ID_ARG.search(args)
             rows.append({"kind": "规划单章", "novel": TITLES.get(novel.group(1) if novel else "", "?"),
@@ -597,6 +603,42 @@ def _inflight() -> list[dict]:
             rows.append({"novel": TITLES[novel_id], "pool": label, "local": bool(key.get("base_url")),
                          "limit": info["limit"], "slots": info["held"].get(novel_id, 0),
                          "shared": info["total"]})
+    known = {(r["novel"], r["pool"]) for r in rows}
+    rows.extend(r for r in _lane_pools() if (r["novel"], r["pool"]) not in known)
+    return rows
+
+
+def _lane_pools() -> list[dict]:
+    """The pools running render lanes draw on, read from each lane's environment: a lane started by
+    hand (2026-09-13: every 雾月 and 星海 lane) has no conductor to be found through."""
+    rows: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    try:
+        listing = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return rows
+    for line in listing.splitlines():
+        if "thin_batch.py" not in line or "--stage render" not in line or "--review-only" in line or " grep " in line:
+            continue
+        pid, _, args = line.strip().partition(" ")
+        novel_match = NOVEL_ARG.search(args)
+        env = _proc_env(pid)
+        directory = env.get("NOVEL_INFLIGHT_DIR", "").strip()
+        if not (novel_match and directory):
+            continue
+        novel_id = Path(novel_match.group(1)).name
+        if novel_id not in TITLES or (novel_id, directory) in seen:
+            continue
+        seen.add((novel_id, directory))
+        pool = Path(directory)
+        try:
+            limit = int((pool / "limit").read_text(encoding="utf-8").strip() or 0)
+        except (OSError, ValueError):
+            limit = 0
+        local = bool(env.get("NOVEL_LOCAL_H3_URL"))
+        label = f"本地H3 · {env.get('NOVEL_INFLIGHT_POOL') or pool.name}" if local else (env.get("NOVEL_VIDEO_MODEL") or pool.name)
+        rows.append({"novel": TITLES[novel_id], "pool": label, "local": local, "limit": limit,
+                     "slots": _held_by_novel(pool).get(novel_id, 0), "shared": _held_slots(pool)})
     return rows
 
 
@@ -1200,8 +1242,8 @@ const $ = id => document.getElementById(id);
 const pct = (a,b) => b ? Math.min(100, a*100/b) : 0;
 const fmtETA = h => h == null ? "—" : (h < 1 ? Math.round(h*60)+" 分钟" : h < 48 ? h+" 小时" : (h/24).toFixed(1)+" 天");
 const fmtAgo = s => s == null ? "—" : (s < 90 ? s+" 秒前" : s < 5400 ? Math.round(s/60)+" 分钟前" : (s/3600).toFixed(1)+" 小时前");
-const laneHealth = l => l.age == null ? "warn" : l.age < 600 ? "ok" : l.age < 1800 ? "warn" : "bad";
-const workerHealth = w => w.elapsed < 900 ? "ok" : w.elapsed < 1800 ? "warn" : "bad";
+const laneHealth = l => l.age == null ? "warn" : l.age < 1200 ? "ok" : l.age < 3600 ? "warn" : "bad";
+const workerHealth = w => { const s = w.idle != null ? w.idle : w.elapsed; return s < 1200 ? "ok" : s < 2400 ? "warn" : "bad"; };
 const HEALTH_TEXT = {ok:"运行正常", warn:"有待处理或等待中的任务", bad:"有异常"};
 const WORST = {ok:0, warn:1, bad:2};
 
@@ -1227,7 +1269,7 @@ function novelCard(d, n){
   const lanes = d.lanes.filter(l => l.novel === n.title);
   const workers = d.workers.filter(w => w.novel === n.title);
   const pools = d.inflight.filter(i => i.novel === n.title);
-  const health = n.blocked || n.review_errors ? "bad" : n.attention.length ? "warn"
+  const health = n.review_errors ? "bad" : (n.blocked || n.attention.length) ? "warn"
     : lanes.length ? lanes.map(laneHealth).reduce((a,b)=>WORST[a]>WORST[b]?a:b) : (n.done ? "ok" : "warn");
   const last = n.last_final ? new Date(n.last_final*1000).toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"}) : "—";
   const detailRows = (lanes.length + workers.length)
@@ -1261,13 +1303,14 @@ function novelCard(d, n){
 function attention(d){
   const items = [];
   for (const n of d.novels) if (n.attention.length)
-    items.push({level: n.blocked || n.review_errors ? "bad" : "warn", ts: null,
+    items.push({level: n.review_errors ? "bad" : "warn", ts: null,
       html: `${n.title} · ${n.attention.length} 集待处理，其中 ${n.blocked} 集需人工处理 · 展开小说卡片查看章节与原因`});
-  for (const l of d.lanes) if (l.age != null && l.age > 1800)
-    items.push({level: l.age > 3600 ? "bad" : "warn", ts: Date.now()/1000 - l.age,
+  for (const l of d.lanes) if (l.age != null && l.age > 3600)
+    items.push({level: l.age > 7200 ? "bad" : "warn", ts: Date.now()/1000 - l.age,
       html: `${l.novel} · ${l.stage}通道 <span class="num">${l.range}</span> — ${fmtAgo(l.age)}无产出（最后在 ${l.current||"?"} 章）`});
-  for (const w of d.workers) if (w.elapsed > 1800)
-    items.push({level: "warn", ts: null, html: `${w.novel} · ${w.kind} ${w.what} 已运行 ${fmtAgo(w.elapsed).replace("前","")}`});
+  for (const w of d.workers) if ((w.idle != null ? w.idle : w.elapsed) > 1800)
+    items.push({level: (w.idle != null ? w.idle : w.elapsed) > 3600 ? "bad" : "warn", ts: null,
+      html: `${w.novel} · ${w.kind} ${w.what} 已 ${fmtAgo(w.idle != null ? w.idle : w.elapsed).replace("前","")}无产出（开跑 ${fmtAgo(w.elapsed).replace("前","")}）`});
   for (const w of d.warnings)
     items.push({level: w.level, ts: w.ts, html: `${w.novel} · ${w.kind}`, raw: w.text});
   if (!items.length) return `<div class="all-clear">✓ 没有需要关注的情况</div>`;
@@ -1300,7 +1343,7 @@ function tick(){
     const nowSec = Date.now()/1000;
     const states = [
       ...d.lanes.map(laneHealth), ...d.workers.map(workerHealth),
-      ...d.novels.filter(n=>n.attention.length).map(n=>n.blocked || n.review_errors ? "bad" : "warn"),
+      ...d.novels.filter(n=>n.attention.length).map(n=>n.review_errors ? "bad" : "warn"),
       // only fresh warnings say something about right now; a 429 from hours ago doesn't
       ...d.warnings.filter(w=>w.ts && nowSec - w.ts < 7200).map(w=>w.level),
       ...(d.lanes.length||d.workers.length ? [] : ["warn"]),
