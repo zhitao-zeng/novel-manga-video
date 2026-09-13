@@ -190,13 +190,13 @@ class PhanRouterMediaProvider(MediaProvider):
 
     def _restore_image_url(self, image: ImageResult) -> str:
         """The reference as the video request carries it: asset://id when the asset library is on, else the hosted URL."""
-        if self.settings.reference_images_via_assets and not self.settings.inline_reference_images:
+        if getattr(self.settings, "reference_images_via_assets", False) and not self.settings.inline_reference_images:
             return self._asset_reference(image)
         return self._hosted_image_url(image)
 
     def public_card_url(self, path: Path, digest: str) -> str:
         """Where publish_cards.sh puts a copy of this card: <base>/<novel>/<asset>/<view>-<sha12><ext>."""
-        base = self.settings.phanrouter_asset_public_base or ""
+        base = getattr(self.settings, "phanrouter_asset_public_base", None) or ""
         novel = path.parents[3].name if len(path.parents) > 3 else "novel"
         return f"{base}/{novel}/{path.parent.name}/{path.stem}-{digest[:12]}{path.suffix}"
 
@@ -210,7 +210,7 @@ class PhanRouterMediaProvider(MediaProvider):
         by the file's content, so a redrawn card gets a new asset and an unchanged one never a second.
         The library fetches the image itself, so the source is the published copy under the public base
         when one is configured (checked with a HEAD first), else the hosted URL handed in or looked up."""
-        group = self.settings.phanrouter_asset_group_id
+        group = getattr(self.settings, "phanrouter_asset_group_id", None)
         if not group:
             raise ValueError("PHANROUTER_REFERENCE_ASSETS is on but PHANROUTER_ASSET_GROUP_ID is not set")
         path = image.path
@@ -224,7 +224,7 @@ class PhanRouterMediaProvider(MediaProvider):
             record = {}
         if record.get("asset_id") and record.get("sha256") == digest and record.get("group_id") == group:
             return f"asset://{record['asset_id']}"
-        if self.settings.phanrouter_asset_public_base:
+        if getattr(self.settings, "phanrouter_asset_public_base", None):
             hosted_url = self.public_card_url(path, digest)
             probe = self.client.head(hosted_url, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
                                      headers={"ngrok-skip-browser-warning": "1"}, follow_redirects=True)
