@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from novel_manga.models import StoryBible
+from plan_chapter_thin import ALIASES as PLAN_ALIASES, mentioned_characters  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_for, phase_labels, phased  # noqa: E402
 from novel_manga.util import atomic_write_json
 
@@ -442,8 +443,11 @@ def clip_cast(clip: dict) -> list[str]:
             if name not in listed:
                 listed.append(name)
         picture = "".join(str(shot.get(k, "")) for k in ("visual_prompt", "motion_prompt", "end_state"))
+        # By full name, alias or short form: the prose says 薇奥拉 for 薇奥拉公主 and 琥珀猫 for 琥珀·高德, and a
+        # substring test on the full name sent both to the background (雾月 761, 2026-09-13).
+        named = set(mentioned_characters(picture, shot["characters"]))
         for name in shot["characters"]:
-            if name in picture:
+            if name in named or name in picture:
                 active.add(name)
         for turn in shot["turns"]:
             if turn["delivery_mode"] == "visible_dialogue" and turn["speaker_name"]:
@@ -642,6 +646,8 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     grammar = load_grammar(grammar_path, episode_dir)
     load_chat_screen(episode_dir.parent)
     load_voices(episode_dir.parent)
+    aliases_path = episode_dir.parent / "bible_aliases.json"
+    PLAN_ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
     profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
     genre = load_genre(profile)
     GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]

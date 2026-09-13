@@ -44,6 +44,29 @@ def test_shared_or_nested_short_forms_never_add_the_wrong_person():
     assert plan_chapter_thin.mentioned_characters("赫尔男爵和莱恩说话", people) == ["赫尔男爵", "莱恩·格雷"]
 
 
+def test_clip_cast_keeps_people_the_picture_names_by_a_short_form():
+    import build_clip_plan_thin
+    shot = {"characters": ["莱恩·格雷", "琥珀·高德", "薇奥拉公主"], "visual_prompt": "薇奥拉环着莱恩的脖子，琥珀猫卧在窗台上",
+            "motion_prompt": "", "end_state": "", "turns": []}
+    clip = {"shots": [shot]}
+    assert build_clip_plan_thin.clip_cast(clip) == ["莱恩·格雷", "琥珀·高德", "薇奥拉公主"]
+    assert clip.get("background_only", []) == []
+
+
+def test_splice_keeps_untouched_clips_and_their_lane_prompts():
+    old = {"policy": "p", "clips": [
+        {"clip_id": "clip_01", "cast": ["a·b"], "prompt": "old1", "prompt_h3": "en1"},
+        {"clip_id": "clip_02", "cast": ["a·b"], "prompt": "old2", "prompt_h3": "en2"}]}
+    new = {"policy": "p", "clips": [
+        {"clip_id": "clip_01", "cast": ["a·b"], "prompt": "new1-template"},
+        {"clip_id": "clip_02", "cast": ["a·b", "c·d"], "prompt": "new2", "prompt_h3": "stale"}]}
+    merged, changed = complete_cast_thin.splice_plans(old, new)
+    assert changed == ["clip_02"]
+    assert merged["clips"][0] == old["clips"][0]
+    assert merged["clips"][1] == {"clip_id": "clip_02", "cast": ["a·b", "c·d"], "prompt": "new2"}
+    assert complete_cast_thin.splice_plans(old, {"clips": [{"clip_id": "clip_01"}]}) == (None, [])
+
+
 def test_aliases_from_the_novel_count_too(monkeypatch):
     monkeypatch.setitem(plan_chapter_thin.ALIASES, "作家小姐", "艾琳娜")
     assert plan_chapter_thin.mentioned_characters("作家小姐有些不满", EVERYONE) == ["艾琳娜"]

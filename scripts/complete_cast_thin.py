@@ -25,8 +25,32 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import plan_chapter_thin  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
+from novel_manga.util import atomic_write_json  # noqa: E402
 
 SCRIPTS = Path(__file__).resolve().parent
+LANE_FIELDS = ("prompt_h3", "prompt_h3_of")  # written by the render lane, not the packer
+
+
+def splice_plans(old: dict, new: dict) -> tuple[dict | None, list[str]]:
+    """The old plan with just the clips whose cast changed taken from the new one.
+
+    A full re-pack rewrites every prompt with today's template and drops the lane's English prompts, which
+    would send the whole episode back to the renderer and the translator; only a changed cast needs a new
+    request.  None when the clips no longer line up (different boundaries): then the new plan stands."""
+    old_clips = list(old.get("clips") or [])
+    new_clips = list(new.get("clips") or [])
+    if [c.get("clip_id") for c in old_clips] != [c.get("clip_id") for c in new_clips]:
+        return None, []
+    changed: list[str] = []
+    merged_clips = []
+    for before, after in zip(old_clips, new_clips):
+        if (before.get("cast") or []) == (after.get("cast") or []) and (before.get("background_only") or []) == (after.get("background_only") or []):
+            merged_clips.append(before)
+            continue
+        entry = {k: v for k, v in after.items() if k not in LANE_FIELDS}
+        merged_clips.append(entry)
+        changed.append(str(after.get("clip_id")))
+    return {**old, "clips": merged_clips}, changed
 
 
 def parse_chapters(spec: str) -> set[int]:
@@ -104,13 +128,13 @@ def main() -> int:
             continue
         packed += 1
         new = json.loads(plan_path.read_text(encoding="utf-8"))
-        old_clips = {c["clip_id"]: c for c in old.get("clips", [])}
-        new_clips = {c["clip_id"]: c for c in new.get("clips", [])}
-        if list(old_clips) != list(new_clips):
-            print(f"  {script_path.parent.name}: 分段变了（{len(old_clips)} → {len(new_clips)} 段），整集会重渲")
-            clips_changed += len(new_clips)
+        merged, changed = splice_plans(old, new)
+        if merged is None:
+            print(f"  {script_path.parent.name}: 分段变了（{len(old.get('clips', []))} → {len(new.get('clips', []))} 段），整集按新计划重渲")
+            clips_changed += len(new.get("clips", []))
         else:
-            clips_changed += sum(1 for cid, c in new_clips.items() if (c.get("cast") or []) != (old_clips[cid].get("cast") or []))
+            atomic_write_json(plan_path, merged)
+            clips_changed += len(changed)
 
     print(f"{novel_id}: {episodes} 集 / {shots_changed} 镜头的演员表缺人" + (f"；已改分镜 {episodes} 集，重算 {packed} 集，演员表变了的段 {clips_changed}"
           if args.apply else "（预演，加 --apply 才写）"))
