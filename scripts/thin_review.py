@@ -43,7 +43,7 @@ from novel_manga.models import Character, StoryBible  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_card, phase_for, phased  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 
-POLICY = "thin-review-v1.16-volume"
+POLICY = "thin-review-v1.17-story"  # the judge reads the source passage
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -187,6 +187,22 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
                     raise ValueError(f"{name}: JSON truncated at {payload['max_tokens']} output tokens") from error
                 match = re.search(r"\{.*\}", content, re.S)
                 return json.loads(match.group(0)) if match else {}
+
+
+# What the judge may say about the picture against the book.  The first two are retakes: a person the text
+# puts in motion is not there, or their action is done by someone (something) else - 雾月 761, 2026-09-13:
+# 薇奥拉 kissed 莱恩 in the text, the cast said 莱恩 and the cat, the cat kissed him, and every judge that
+# compares the picture with the plan passed it.
+STORY_KINDS = ("无问题", "原文中有动作的人物缺席", "动作落在错误的人物身上", "画面事件与原文不符", "无法判断")
+STORY_FATAL = {"原文中有动作的人物缺席", "动作落在错误的人物身上"}
+_SEGMENTS_CACHE: dict = {}
+
+
+def story_block(clip: dict, segments: dict) -> str:
+    """The passage this clip adapts and the planner's event line, for the judge to check the picture against."""
+    source = "\n".join(str(segments.get(str(s), "")) for s in clip.get("segment_ids") or []).strip()[:1500]
+    event = scripted_event(clip)
+    return (f"\n本段原文（剧情依据）：{source or '（无）'}" + (f"\n本段剧本事件：{event}" if event else "") + "\n")
 
 
 def obj(properties: dict, required: list[str] | None = None) -> dict:
@@ -670,6 +686,9 @@ CLIP_SCHEMA = obj({
     "chat_text_issue": {"type": "string"},
     "visual_defects": {"type": "boolean"},
     "defect_issue": {"type": "string"},
+    "story_ok": {"type": "boolean"},
+    "story_kind": {"type": "string", "enum": list(STORY_KINDS)},
+    "story_issue": {"type": "string"},
     "severity": {"type": "string", "enum": ["pass", "minor", "fail"]},
     "feedback": {"type": "string"},
 })
@@ -731,12 +750,16 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
         f"本段设定：地点 {location}" + (f"（{expected_time}）" if expected_time else "") + f"；出场人物 {'、'.join(cast) or '无具名角色'}"
         + "".join(f"\n- {describe(by_name[n])}" for n in cast)
         + (f"\n允许出现在远处背景、不入近景不说话的角色：{'、'.join(background)}（他们出现在背景里是正常的，不算多出）" if background else "")
+        + story_block(clip, _SEGMENTS_CACHE.setdefault(work_dir.parents[2], segment_texts(work_dir.parents[2])))
         + f"\n预期台词：{lines or '无'}\n语音识别出的台词：{hypothesis or '无'}\n"
         + (f"手机屏幕上应显示的群消息（这些文字允许出现）：{chats}\n" if chats else "")
         + "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色是否与其角色卡一致、没有两个角色长成同一人、没有角色被画成另一个角色的服装发型、近景里没有多出的具名角色（远处模糊背景里的人不算），不一致时在 identity_issue 写清是谁、哪一帧；"
+        "story_ok：对照本段原文——原文里在这一段有动作或对白的人物是否都出现在画面里？画面里的动作是否由原文说的那个人完成"
+        "（例如原文是薇奥拉环住莱恩的脖子吻他，画面却是猫或别的人在做，就是动作落在错误的人物身上；出场人物名单漏了原文里的人，"
+        "也按原文判）？只看原文写到的事，不苛求细节；story_kind 选最主要的一类（story_ok 为 true 时填无问题）；story_issue 用一句话写清谁缺席、或谁的动作被谁做了；"
         "location_ok 与 time_of_day_ok 是否符合地点和时间设定；text_or_watermark 画面是否出现手机屏幕聊天消息以外的文字、字幕、水印、Logo；"
         "chat_text_ok：若本段有应显示的群消息，帧里手机屏幕上的文字是否是清晰的简体中文且内容与预期一致（允许只显示部分或截断，不允许乱码、错字连篇或无关文字），没有预期消息时填 true，不一致时在 chat_text_issue 写清；visual_defects 是否有明显崩坏（多手、面部扭曲、肢体错位、人物穿模）；"
-        "severity：identity 不一致、屏幕消息乱码或不符、文字水印或严重崩坏为 fail；仅地点时间存疑或轻微瑕疵为 minor；否则 pass。feedback 为一句给视频模型的修正指令（fail 时必填，指明谁应该长什么样、避免什么）。只输出JSON。"
+        "severity：identity 不一致、原文有动作的人物缺席或动作落在错误的人物身上、屏幕消息乱码或不符、文字水印或严重崩坏为 fail；仅地点时间存疑或轻微瑕疵为 minor；否则 pass。feedback 为一句给视频模型的修正指令（fail 时必填，指明谁应该长什么样、避免什么）。只输出JSON。"
     )
     parts.append({"type": "text", "text": text})
     return ask_json(parts, CLIP_SCHEMA, name="clip_review", max_tokens=600)
@@ -769,6 +792,8 @@ def fix_tier(verdict: dict, bible: StoryBible) -> str:
     there; a side character's shirt colour or a garbled phone screen they do not."""
     if verdict.get("scripted"):
         return "optional"  # the book itself asked for the oddity - see script_check()
+    if verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL:
+        return "must_fix"  # the picture tells the wrong story, however clean it is
     issue = str(verdict.get("identity_issue") or "") + " " + str(verdict.get("defect_issue") or "")
     if verdict.get("visual_defects") or BREAKDOWN.search(issue):
         return "must_fix"
@@ -825,7 +850,7 @@ def script_check(clip: dict, verdict: dict, segments: dict[str, str]) -> dict | 
     """
     event = scripted_event(clip)
     source = "\n".join(segments.get(str(s), "") for s in clip.get("segment_ids") or []).strip()
-    complaint = "\n".join(str(verdict.get(k)) for k in ("identity_issue", "defect_issue") if verdict.get(k))
+    complaint = "\n".join(str(verdict.get(k)) for k in ("identity_issue", "defect_issue", "story_issue") if verdict.get(k))
     if not (event or source) or not complaint:
         return None
     text = (SCRIPT_CHECK_RULES + f"\n\n剧本事件：{event or '（无）'}\n原文：{source[:1500] or '（无）'}\n"
@@ -842,7 +867,7 @@ def script_check(clip: dict, verdict: dict, segments: dict[str, str]) -> dict | 
 def flag_line(clip_id: str, verdict: dict, tier: str) -> str:
     """One line of the episode's flags: bare for must_fix, [剧本] for an oddity the book wrote, [可选] otherwise."""
     prefix = "" if tier == "must_fix" else ("[剧本] " if verdict.get("scripted") else "[可选] ")
-    return f"{clip_id}: {prefix}{verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}"
+    return f"{clip_id}: {prefix}{verdict.get('story_issue') or verdict.get('identity_issue') or verdict.get('defect_issue') or verdict.get('feedback')}"
 
 
 def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | None = None) -> str:
@@ -858,6 +883,9 @@ def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | N
     clip and manifest are accepted so a caller can pass them; they are unused on purpose.
     """
     parts = []
+    if verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL and verdict.get("story_issue"):
+        # The judge's own sentence names who is missing or whose action went to whom; the renderer needs exactly that.
+        parts.append("按原文修正剧情：" + str(verdict["story_issue"]).strip())
     if verdict.get("text_or_watermark"):
         parts.append("除手机屏幕上指定的聊天消息外，画面中不得出现任何文字、字幕、弹幕或水印，台词只以语音出现")
     if verdict.get("chat_text_ok") is False:
