@@ -159,13 +159,23 @@ def english_note(note: str, naming: str) -> str:
     return clean_note(str(answer.get("note") or "").strip(), naming)
 
 
+NOTE_LINE_ASK = ("The last numbered line is the director's correction for this clip, not a shot: translate it as its own "
+                 "sentence too, so the answer has exactly as many sentences as there are numbered lines.\n")
+
+
 def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     """Write clip["prompt_h3"]; True when written.
 
     A translation that fails, or comes back with a different number of sentences than the clip has
     shots, is asked again.  After `tries` the clip is left without an English prompt - an H3 lane then
     waits for it - instead of being padded out: that attached descriptions to the wrong shots, and
-    filled the gap with the Chinese text, which H3 reads aloud."""
+    filled the gap with the Chinese text, which H3 reads aloud.
+
+    A director's correction rides along as one more numbered line (asked on its own, this model commented on
+    the tag list instead of translating).  A single-stage clip often comes back with the correction folded into
+    the shot - one sentence for two lines - so after that the correction is merged into every shot's text and
+    translated as part of it: the count always matches and the instruction still reaches the picture
+    (雾月 2026-09-13: 190 episodes looped on the folded answer)."""
     prompt = clip.get("prompt") or ""
     note = str(note or "").strip()
     digest = h3_source_digest(prompt, note)
@@ -177,31 +187,41 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         return False
     _, subject_of = subject_lines(clip)
     naming = "".join(f"{name} = <Subject {n}>\n" for name, n in subject_of.items())
-    lines = [visual for visual, _ in stages]
-    if note:
-        # The correction rides along as one more numbered line.  Asked on its own (english_note) this model
-        # commented on the tag list instead of translating, three tries in a row, and six 雾月 pilot episodes
-        # looped on it (2026-09-13); the numbered shot translation never did that.
-        lines.append(tag_names(note, naming))
-    question = [{"type": "text", "text": ASK + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
+    visuals = [visual for visual, _ in stages]
+    tagged = tag_names(note, naming) if note else ""
+
+    def ask_lines(lines: list[str], extra: str) -> list[str]:
+        question = [{"type": "text", "text": ASK + extra + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
+        answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines))
+        return [str(s).strip() for s in (answer.get("shots") or [])]
+
     problem = ""
+    folded = False
     for _ in range(tries):
         try:
-            answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines))
-            english = [str(s).strip() for s in (answer.get("shots") or [])]
+            if note and not folded:
+                english = ask_lines(visuals + [tagged], NOTE_LINE_ASK)
+                if len(english) == len(visuals) + 1 and all(english):
+                    direction = clean_note(english[-1], naming)
+                    if direction:
+                        clip["prompt_h3"] = compose(clip, english[:-1], stages, direction)
+                        clip["prompt_h3_of"] = digest
+                        return True
+                    problem = "the director's correction did not come back in English"
+                else:
+                    problem = f"{len(english)} sentence(s) back for {len(visuals) + 1} lines"
+                folded = len(english) == len(visuals) or problem.startswith("the director")
+                continue
+            lines = [f"{visual}（导演修正：{tagged}）" for visual in visuals] if note else visuals
+            english = ask_lines(lines, "")
         except Exception as error:  # noqa: BLE001 - asked again, and reported if it keeps failing
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
-        if len(english) == len(lines) and all(english):
-            # A correction goes in with the rest, in English (director_note): an H3 lane renders nothing else of it.
-            direction = clean_note(english[-1], naming) if note else ""
-            if note and not direction:
-                problem = "the director's correction did not come back in English"
-                continue
-            clip["prompt_h3"] = compose(clip, english[:len(stages)], stages, direction)
+        if len(english) == len(visuals) and all(english):
+            clip["prompt_h3"] = compose(clip, english, stages, "")
             clip["prompt_h3_of"] = digest
             return True
-        problem = f"{len(english)} sentence(s) back for {len(lines)} lines"
+        problem = f"{len(english)} sentence(s) back for {len(visuals)} lines"
     warn(clip, f"FAILED after {tries} tries: {problem}")
     return False
 

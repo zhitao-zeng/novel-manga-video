@@ -36,3 +36,22 @@ def test_names_are_tagged_before_the_ask():
 def test_meta_commentary_is_dropped():
     text = "The user's request contains a contradiction. <Subject 2> must be an orange tabby cat, not a man in a suit."
     assert clean_note(text, NAMING) == "<Subject 2> must be an orange tabby cat, not a man in a suit."
+
+
+def test_a_folded_correction_is_merged_into_the_shots(monkeypatch):
+    import build_h3_prompts as h3
+    from build_h3_prompts import h3_source_digest
+    prompt = "【阶段1】林凡推门走进大殿。"
+    note = "林凡必须是一只橘色的猫"
+    clip = {"clip_id": "clip_01", "kind": "video", "prompt": prompt, "request_seconds": 10, "references": [],
+            "cast": ["林凡"], "shots": []}
+    asked = []
+    answers = iter([{"shots": ["A cat pushes the door open."]},                     # folded: one sentence for two lines
+                    {"shots": ["A cat pushes the door open, an orange cat."]}])     # merged ask: one sentence per shot
+    def fake(question, schema, **kwargs):
+        asked.append(question[0]["text"]); return next(answers)
+    monkeypatch.setattr(h3, "ask_json", fake)
+    assert h3.convert(clip, note=note)
+    assert len(asked) == 2 and "导演修正" in asked[1] and "导演修正" not in asked[0]
+    assert "director_note" not in clip["prompt_h3"] and "orange cat" in clip["prompt_h3"]
+    assert clip["prompt_h3_of"] == h3_source_digest(prompt, note)
