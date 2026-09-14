@@ -377,3 +377,18 @@ def test_merge_keeps_the_numerically_earlier_record(tmp_path, monkeypatch):
         ledger._add_entity(f"路人{k}", "person", False, "", 1)
     ledger.resolve_chapter(7, CH7, {**RAW7, "mentions": RAW7["mentions"][:2]}, workers=1)
     assert ledger.by_id["e1001"]["merged_into"] == "e002" and ledger.by_id["e002"]["status"] == "active"
+
+
+def test_settling_closes_what_it_cannot_ask_about(tmp_path, monkeypatch):
+    root = novel(tmp_path)
+    (root / "story_bible.json").write_text(json.dumps({"characters": [{"name": "莱恩·格雷", "role": "主角"}, {"name": "黛芙妮", "role": ""}]}, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(el, "judge_claim", lambda claim, s, o: {"verdict": "insufficient", "why": ""})
+    monkeypatch.setattr(el, "judge_settle", lambda pack, rules: {"verdict": "supports", "why": ""})
+    ledger = el.Ledger(root)
+    ledger.claims.append({"id": "c-1", "chapter": 3, "type": "death", "subject": "e001", "object": "", "scope": "reality", "hidden_from_reader": False,
+                          "evidence": "他死了", "status": "pending"})
+    ledger.claims.append({"id": "c-2", "chapter": 3, "type": "same_as", "subject": "e002", "object": "e002", "scope": "reality", "hidden_from_reader": False,
+                          "evidence": "同一人", "status": "pending"})
+    rows = {r["id"]: r for r in el.settle_pending(ledger, workers=1)}
+    assert rows["c-1"]["status"] == "closed" and rows["c-2"]["status"] == "accepted"
+    assert not [c for c in ledger.claims if c.get("status") == "pending"]

@@ -1076,8 +1076,30 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
                 ledger._merge(c["subject"], c["object"], c["id"], c["chapter"])
             settled.append({"id": c["id"], "type": c["type"], "subject": ledger.name_of(c["subject"]), "object": ledger.name_of(c["object"]),
                             "status": status, "votes": vote, "why": note})
+    settled.extend(close_leftovers(ledger))
     ledger.save()
     return settled
+
+
+def close_leftovers(ledger: "Ledger") -> list[dict]:
+    """Pending claims settling cannot ask about, closed without a person: a pair already merged (the judgment holds by
+    itself) and one-sided event claims (death / transformation / reveal with no second record), which change no picture.
+    Nothing stays pending after a settle - the ledger has no human queue (2026-09-14)."""
+    closed = []
+    with ledger.lock:
+        for c in ledger.claims:
+            if c.get("status") != "pending":
+                continue
+            s, o = c.get("subject"), c.get("object")
+            if s in ledger.by_id and o in ledger.by_id and ledger.canonical(s) == ledger.canonical(o):
+                c["status"], c["settled"] = "accepted", "两条记录已经合并，判断自然成立；自动结案"
+            elif s not in ledger.by_id or o not in ledger.by_id:
+                c["status"], c["settled"] = "closed", "单边事件判断（缺一方记录），不影响画面；自动结案"
+            else:
+                continue
+            closed.append({"id": c.get("id"), "type": c["type"], "subject": ledger.name_of(s) if s in ledger.by_id else s,
+                           "object": ledger.name_of(o) if o in ledger.by_id else o, "status": c["status"], "votes": None, "why": c["settled"]})
+    return closed
 
 
 # ----------------------------------------------------------------------------------------------- views
