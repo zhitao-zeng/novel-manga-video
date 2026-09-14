@@ -138,3 +138,17 @@ def test_references_follow_the_body_the_ledger_names(monkeypatch, tmp_path):
     assert references[0]["asset_id"] == "character_002"
     assert "在薇奥拉公主的身体里" in bindings[0]
     assert "金" in bindings[0] or "薇奥拉公主的样子" in bindings[0]
+
+
+def test_every_stage_with_two_or_more_people_says_where_they_stand():
+    import build_clip_plan_thin as bcp
+    b = bible()
+    shot = {"segment_id": "seg_1", "shot_scale": "中近景", "visual_prompt": "两人在桌边", "motion_prompt": "薇奥拉公主吻住莱恩·格雷", "end_state": "莱恩避开",
+            "camera": "桌边", "light": "灯", "sfx": "无", "characters": ["薇奥拉公主", "莱恩·格雷", "塞西娅"],
+            "actions": [{"actor": "薇奥拉公主", "action": "吻住", "target": "莱恩·格雷"}], "turns": [], "listeners": [], "extras": []}
+    prompt = bcp.compile_prompt({"request_seconds": 10, "shots": [shot]}, b, ["薇奥拉公主", "莱恩·格雷", "塞西娅"], [], "夜莺广场：河边的小广场")
+    assert "构图：薇奥拉公主在画面左侧前景，莱恩·格雷在右侧前景，两人侧面相对、各占一侧；塞西娅只在后景侧身或背对镜头，不开口、不做主要动作。" in prompt
+    solo = {**shot, "characters": ["莱恩·格雷"], "actions": []}
+    assert "构图" not in bcp.compile_prompt({"request_seconds": 10, "shots": [solo]}, b, ["莱恩·格雷"], [], "夜莺广场：河边的小广场")
+    alone_among = {**shot, "characters": ["莱恩·格雷", "塞西娅"], "actions": [{"actor": "莱恩·格雷", "action": "推开门", "target": ""}]}
+    assert "构图：莱恩·格雷在前景居中；塞西娅只在后景侧身或背对镜头" in bcp.compile_prompt({"request_seconds": 10, "shots": [alone_among]}, b, ["莱恩·格雷", "塞西娅"], [], "夜莺广场：河边的小广场")

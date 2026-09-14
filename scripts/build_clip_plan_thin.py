@@ -608,6 +608,28 @@ def plain_counts(prompt: str, cast: list[str] = ()) -> str:
                    for part in parts)
 
 
+
+def blocking_note(shot: dict) -> str:
+    """Where each person in frame stands.  MiniMax's own guide asks for every subject's position in every shot, and
+    the community's two-person staging - profile view, each on their own side - keeps two faces from blending into
+    one.  From the stage's actions: the first actor at frame left, the person acted on at frame right facing them,
+    everyone else behind them turned away and silent; a lone actor stands centre front.  Nothing for one person."""
+    people = list(shot.get("characters") or [])
+    if len(people) < 2:
+        return ""
+    actions = [a for a in (shot.get("actions") or []) if a.get("actor") in people]
+    actor = actions[0]["actor"] if actions else people[0]
+    target = next((a.get("target") for a in actions if a.get("target") in people and a.get("target") != actor), None)
+    if target is None and not actions:
+        target = people[1]
+    rest = [n for n in people if n not in (actor, target)]
+    parts = ([f"{actor}在画面左侧前景，{target}在右侧前景，两人侧面相对、各占一侧"] if target
+             else [f"{actor}在前景居中"])
+    if rest:
+        parts.append(f"{'、'.join(rest)}只在后景侧身或背对镜头，不开口、不做主要动作")
+    return "构图：" + "；".join(parts) + "。"
+
+
 def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: list[str], location_binding: str, grammar: dict | None = None, frame: dict | None = None) -> str:
     frame = frame or frame_spec({"frame": "9:16"})
     shots = clip["shots"]
@@ -660,7 +682,7 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
                        if shot.get("listeners") else "")
         lines.append(
             f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{compact(shot['motion_prompt'])}。"
-            f"{extras_note}{listen_note}"
+            f"{blocking_note(shot)}{extras_note}{listen_note}"
             f"{screen_clause(shot)}声音：{sound_clause(shot)}。结束时：{compact(shot['end_state'])}。"
         )
     scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))
