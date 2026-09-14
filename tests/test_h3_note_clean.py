@@ -55,3 +55,19 @@ def test_a_folded_correction_is_merged_into_the_shots(monkeypatch):
     assert len(asked) == 2 and "导演修正" in asked[1] and "导演修正" not in asked[0]
     assert "director_note" not in clip["prompt_h3"] and "orange cat" in clip["prompt_h3"]
     assert clip["prompt_h3_of"] == h3_source_digest(prompt, note)
+
+
+def test_compose_follows_the_official_six_sections():
+    import build_h3_prompts as bh
+    clip = {"request_seconds": 10, "references": [
+        {"role": "character", "name": "莱恩·格雷", "path": "a"}, {"role": "character", "name": "比尔·维克托", "path": "b"},
+        {"role": "location", "name": "书房", "path": "c"}, {"role": "voice", "name": "莱恩·格雷", "path": "v"}]}
+    stages = [(None, [("莱恩·格雷", "你来了", False), ("比尔·维克托", "我在门外", True), ("", "旁白句", True)])]
+    text = bh.compose(clip, ["<Subject 1> stands by the door."], stages, note="<Subject 1> stands alone by the door.")
+    assert "director_note" not in text and "Direction for this take: <Subject 1> stands alone" in text
+    assert "Exactly one <Subject 1> appears" in text and "<Subject 1>: fully_preserved" in text
+    assert "<Subject 1> (S1) says <d>[Chinese] 你来了</d>" in text
+    assert "<Subject 2> (S2) says in an off-screen voiceover <d>[Chinese] 我在门外</d> The on-screen characters' lips remain closed." in text
+    assert "An off-screen voice (S3) says in an off-screen voiceover" in text
+    order = [text.index(k) for k in ("subject_definitions:", "summary:", "retention_analysis:", "detailed_description:", "overall_soundscape:", "non_diegetic_music:")]
+    assert order == sorted(order)

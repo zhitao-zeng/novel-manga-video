@@ -79,8 +79,11 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
         if ref.get("role") == "character":
             picture += 1
             subject_of[ref["name"]] = picture
+            # One instance, and nobody else wears this face: 雾月's most common defect (321 clips on 2026-09-14) was
+            # the lead's face or coat on a second person, and the Chinese binding's "只出现一次" never reached H3.
             defs.append(f"<Subject {picture}> is the character {ref['name']}, shown in <Picture {picture}>. "
-                        f"Take only the face, hair, build and clothing from <Picture {picture}>.")
+                        f"Take only the face, hair, build and clothing from <Picture {picture}>. Exactly one "
+                        f"<Subject {picture}> appears in the video; no other person has <Subject {picture}>'s face, hair or clothes.")
         elif ref.get("role") == "location":
             picture += 1
             defs.append(f"<Picture {picture}> is the setting {ref['name']}: take its architecture, ground, "
@@ -95,24 +98,44 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
 
 
 def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str:
+    """The six sections MiniMax's own guide prescribes (skills/h3-prompt-writing/references/ref-en.txt), and only
+    those: a `director_note` section is not in the format, so a correction goes into the summary.  Speakers carry
+    stable (Sx) ids next to their subject tag; an off-screen line uses the guide's exact phrase and is followed by
+    the statement that the on-screen characters' lips stay closed (the "wrong mouth moves" defect)."""
     defs, subject_of = subject_lines(clip)
+    speaker_ids: dict = {}
+
+    def sid(key: str) -> str:
+        if key not in speaker_ids:
+            speaker_ids[key] = f"(S{len(speaker_ids) + 1})"
+        return speaker_ids[key]
+
     body = []
     for index, ((_, turns), text) in enumerate(zip(stages, english), 1):
         body.append(f"[Shot {index}] {text}")
         for who, line, offscreen in turns:
-            if offscreen or who not in subject_of:
-                body.append(f"An off-screen voice says <d>[Chinese] {line}</d>")
+            if who in subject_of and not offscreen:
+                body.append(f"<Subject {subject_of[who]}> {sid(who)} says <d>[Chinese] {line}</d>")
+            elif who in subject_of:
+                body.append(f"<Subject {subject_of[who]}> {sid(who)} says in an off-screen voiceover <d>[Chinese] {line}</d> "
+                            "The on-screen characters' lips remain closed.")
             else:
-                body.append(f"<Subject {subject_of[who]}> says <d>[Chinese] {line}</d>")
+                body.append(f"An off-screen voice {sid(who or 'off-screen')} says in an off-screen voiceover <d>[Chinese] {line}</d> "
+                            "The on-screen characters' lips remain closed.")
     seconds = clip.get("request_seconds")
+    retention = []
+    for ref in (clip.get("references") or []):
+        if ref.get("role") == "character" and ref["name"] in subject_of:
+            n = subject_of[ref["name"]]
+            retention.append(f"<Subject {n}>: fully_preserved - the identity, face, hair and clothing of <Picture {n}>; one instance in every shot it appears in.")
     return ("subject_definitions:\n" + "\n".join(defs)
             + f"\n\nsummary:\n[reference generation + audio reference] A continuous {seconds}-second Chinese "
-              f"animated short-drama shot in {len(stages)} stages.\n\n"
-              "retention_analysis:\nKeep each character's identity from its own picture and the setting from its "
-              "own picture. The only spoken words in this clip are the Chinese text inside the <d> tags; "
-              "everything else written here describes the picture and must not be spoken.\n\n"
+              f"animated short-drama shot in {len(stages)} stages."
+            + (f" Direction for this take: {note}" if note else "") + "\n\n"
+              "retention_analysis:\n" + "\n".join(retention) + ("\n" if retention else "")
+            + "The setting comes from its own picture, none of the people in it. The only spoken words in this clip are "
+              "the Chinese text inside the <d> tags; everything else written here describes the picture and must not be spoken.\n\n"
               "detailed_description:\n" + "\n".join(body)
-            + (f"\n\ndirector_note:\n{note}" if note else "")
             + "\n\noverall_soundscape:\nRoom tone and the physical sounds of the action described above. "
               "No narrator, no voice-over, no speech other than the <d> lines.\n\n"
               "non_diegetic_music:\nNone.")
