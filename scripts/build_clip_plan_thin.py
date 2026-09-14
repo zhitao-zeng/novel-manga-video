@@ -14,6 +14,7 @@ Writes clip_plan.json and clip_plan.md.  No model call, no remote call.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -21,6 +22,7 @@ import os
 import re
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 
 from novel_manga.models import StoryBible
@@ -479,6 +481,31 @@ def anchor_of(name: str, bible: StoryBible, limit: int = 34, character=None, pre
     return ""
 
 
+_BODIES_CACHE: dict = {}
+
+
+def bodies_for(novel_dir, chapter) -> dict[str, tuple[str, str]]:
+    """name -> (body's name, body's card) for cast members the entity ledger says act through someone else's body in
+    this chapter (occupies_body / impersonates accepted for the book): the picture shows that body, so the clip
+    references that card and describes that look.  Empty without a ledger or a card for the body."""
+    key = (str(novel_dir), int(chapter or 0))
+    if key in _BODIES_CACHE:
+        return _BODIES_CACHE[key]
+    out: dict[str, tuple[str, str]] = {}
+    try:
+        from entity_ledger_thin import snapshot
+        sheet = snapshot(Path(novel_dir), int(chapter))
+        raw = json.loads((Path(novel_dir) / "entity" / "entities.json").read_text(encoding="utf-8"))
+        entities = raw if isinstance(raw, dict) else {e["id"]: e for e in raw}
+        for row in sheet.get("cast", []):
+            if row.get("acts_through_other_body") and row.get("card"):
+                out[row["name"]] = (str(entities.get(row["body"], {}).get("canonical") or row["body"]), str(row["card"]))
+    except Exception:  # noqa: BLE001 - no ledger, chapter not read, or an old ledger layout: nothing changes
+        out = {}
+    _BODIES_CACHE[key] = out
+    return out
+
+
 def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None) -> tuple[list[dict], list[str], str]:
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
@@ -492,31 +519,44 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     # Two views per actor sharpen identity, but a crowded shot would then carry
     # ten reference images and the model starts blending faces.  Past two named
     # actors, give each one its turnaround only.
-    two_views = len(cast) <= TWO_VIEW_CAST_LIMIT
+    # Off unless asked for: the second view never proved itself and doubled the reference count; the fast
+    # tier renders from the turnaround alone (NOVEL_TWO_VIEWS=1 restores the old behaviour for new plans).
+    two_views = len(cast) <= TWO_VIEW_CAST_LIMIT and os.environ.get("NOVEL_TWO_VIEWS", "").strip() == "1"
     # A character with phases (series_assets/phases.json) references the card of the phase this chapter is in,
     # and the anchor describes that look - 沈玄川 is white-haired from ch1406, his base card is not.
     phases = load_phases(novel_dir) if novel_dir is not None else {}
     by_name = {character.name: character for character in bible.characters}
+    bodies = bodies_for(novel_dir, chapter) if novel_dir is not None and chapter else {}
     for name in cast:
         phase = phase_for(phases, name, chapter)
         asset = str(phase["asset_id"]) if phase else f"character_{character_index[name]:03d}"
         look = phased(by_name[name], phase)
+        host = bodies.get(name)
+        body_note = ""
+        if host:
+            # 艾琳娜 in 薇奥拉's body is drawn as 薇奥拉: her card, her look, and the prompt says so
+            asset = host[1]
+            if host[0] in by_name:
+                look = phased(by_name[host[0]], phase_for(phases, host[0], chapter))
+            body_note = f"（此时在{host[0]}的身体里，外形完全是{host[0]}的样子）"
         changed = tuple(f for f in ("hair", "appearance", "silhouette", "palette") if phase and phase.get(f))
         count += 1
         first = count
         references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg",
                            **({"phase": str(phase.get("label", ""))} if phase else {})})
         sheet = novel_dir is not None and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
-        lead_sheet = sheet and name in leads
-        # A base card's sheet is drawn on demand by the renderer; a phase card's only by build_phase_cards.py
-        # --expressions, so a variant is referenced by its turnaround alone until the sheet exists.
-        if (two_views and (phase is None or sheet)) or lead_sheet:
+        lead_sheet = sheet and name in leads and os.environ.get("NOVEL_TWO_VIEWS", "").strip() == "1"
+        # Only a sheet that exists is referenced: the fast tier never draws one at render time (the full tier
+        # did, which is what the old "phase is None" clause assumed), and a plan that promises a missing file
+        # fails the pre-render check for the whole episode.  Without a novel_dir to look at, keep the old rule.
+        wants_sheet = sheet if novel_dir is not None else phase is None
+        if (two_views and wants_sheet) or lead_sheet:
             count += 1
             second = count
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
             anchor = anchor_of(name, bible, character=look, prefer=changed)
             bindings.append(
-                f"<{name}>对应@图片{first}和@图片{second}：@图片{first}定五官、发型、年龄感和肤色，"
+                f"<{name}>{body_note}对应@图片{first}和@图片{second}：@图片{first}定五官、发型、年龄感和肤色，"
                 f"@图片{second}定身体比例、服装版型、主色和配饰；两张都不采用背景、姿势和构图；"
                 # The single-view binding always said this; the two-view one - every lead - did not, and 408 of
                 # 雾月's 574 doppelganger clips show an extra person wearing the lead's face.
@@ -525,7 +565,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         else:
             anchor = anchor_of(name, bible, character=look, prefer=changed)
             bindings.append(
-                f"<{name}>只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；"
+                f"<{name}>{body_note}只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；"
                 "不得把该角色的长相用在其他人身上"
                 + (f"。{name}的辨识特征：{anchor}" if anchor else ""))
     full = location_map[location_short]
@@ -582,7 +622,12 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
     if cast:
         # 133 of 613 flagged clips in review had people who were never cast.
         others = "；远处模糊背景里只允许" + "、".join(clip["background_only"]) if clip.get("background_only") else ""
-        lines.append(f"【人数】画面中始终只有这{len(cast)}位人物：{cast_text}；无名角色只在画外发声、不入镜；不出现任何未列出的人（老者、路人、随从、背景人物都不要）{others}。")
+        extras = list(dict.fromkeys(e for shot in shots for e in (shot.get("extras") or [])))
+        if extras:
+            lines.append(f"【人数】画面中始终只有这{len(cast)}位具名人物：{cast_text}，另加{len(extras)}位无参考图的配角（按描述画，不得画成具名人物的样子）：{'、'.join(extras)}；"
+                         f"除此之外不出现任何人（老者、路人、随从、背景人物都不要）{others}。")
+        else:
+            lines.append(f"【人数】画面中始终只有这{len(cast)}位人物：{cast_text}；无名角色只在画外发声、不入镜；不出现任何未列出的人（老者、路人、随从、背景人物都不要）{others}。")
     if clip.get("identity_notes"):
         lines.append("【身份区分】" + compact(clip["identity_notes"]) + "。")
     if clip.get("background_only"):
@@ -610,8 +655,12 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
             return f"{label}：{value}。"
         witness = carried("camera", "机位")
         source_light = carried("light", "光源")
+        extras_note = f"本阶段无参考图的配角：{'、'.join(shot['extras'])}（按描述画）。" if shot.get("extras") else ""
+        listen_note = (f"本阶段只有{'、'.join(shot['characters'])}正脸入镜；{'、'.join(shot['listeners'])}只露背影或在画外，不入近景、嘴不动。"
+                       if shot.get("listeners") else "")
         lines.append(
             f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{compact(shot['motion_prompt'])}。"
+            f"{extras_note}{listen_note}"
             f"{screen_clause(shot)}声音：{sound_clause(shot)}。结束时：{compact(shot['end_state'])}。"
         )
     scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))
@@ -654,8 +703,7 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]
     GENRE_CROWD = genre.get("crowd_default", "")
     ANON_VOICE.update(genre.get("anon_voice") or {})  # off-screen voice descriptions for the genre's anonymous roles
-    if is_fast(profile):
-        TWO_VIEW_CAST_LIMIT = 0  # one reference card per character
+    TWO_VIEW_CAST_LIMIT = 0 if is_fast(profile) else 2
     overrides_path = episode_dir / "clip_overrides.json"
     return {
         "episode_dir": episode_dir, "bible": bible, "grammar": grammar, "profile": profile, "frame": frame_spec(profile),
@@ -689,6 +737,68 @@ def prepared_shots(script: dict, episode_dir: Path) -> list[dict]:
     for index, shot in enumerate(shots, start=1):
         shot.setdefault("index", index)
     return shots
+
+
+def context_for_plan(episode_dir: Path, bible_path: Path, plan: dict) -> dict:
+    """Rebuild with the plan's recorded frame, style, tier and clip limits, not today's profile defaults."""
+    global MAX_CLIP_SECONDS, MAX_STAGES, SOFT_CUT_SECONDS
+    profile = (plan.get("totals") or {}).get("profile") or {}
+    limits = plan.get("limits") or {}
+    MAX_CLIP_SECONDS = float(limits.get("max_clip_seconds") or (15 if "-15s" in plan.get("policy", "") else 30))
+    MAX_STAGES = int(limits.get("max_stages") or (3 if MAX_CLIP_SECONDS <= 15 else 6))
+    SOFT_CUT_SECONDS = float(limits.get("soft_cut_seconds") or (MAX_CLIP_SECONDS * 0.6))
+    return load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"), tier=profile.get("tier"))
+
+
+def shots_for_plan(plan: dict, shots: list[dict]) -> dict[str, list[dict]]:
+    """Recover each clip's own stage parts without moving cuts or repeating a whole split stage.
+
+    New entries record shot_parts. Older plans identify standalone split parts in split_long_stages; other
+    old packer splits are recovered by their ordered occurrences. A range that cannot be recovered is an
+    error, so callers leave that episode untouched instead of guessing a new cut.
+    """
+    by_index = {s["index"]: s for s in shots}
+    legacy_parts = {cid: (part, len(ids)) for ids in (plan.get("split_long_stages") or {}).get("split", {}).values()
+                    for part, cid in enumerate(ids, 1)}
+    spans = {}
+    for clip in plan.get("clips", []):
+        if clip.get("kind") != "video" or not clip.get("shot_indexes"):
+            continue
+        indexes = clip["shot_indexes"]
+        if clip.get("shot_parts"):
+            spans[clip["clip_id"]] = clip["shot_parts"]
+        elif clip["clip_id"] in legacy_parts:
+            if len(set(indexes)) != 1:
+                raise ValueError(f"{clip['clip_id']}: split part has multiple source stages")
+            spans[clip["clip_id"]] = [{"index": indexes[0], "part": list(legacy_parts[clip["clip_id"]])}]
+        else:
+            # The buggy rebuild wrote every part's repeated source index into each sibling clip.
+            # A greedy stage split cannot put two of its parts back in one bounded clip, so these
+            # legacy repeats name one occurrence; explicit shot_parts, above, remain authoritative.
+            spans[clip["clip_id"]] = [{"index": i} for i in dict.fromkeys(indexes)]
+    occurrences = Counter(s["index"] for own in spans.values() for s in own)
+    parts = {i: split_long_shot(copy.deepcopy(by_index[i])) for i in occurrences if i in by_index}
+    used: Counter = Counter()
+    recovered = {}
+    for cid, own in spans.items():
+        selected = []
+        for span in own:
+            index = span["index"]
+            if index not in parts:
+                raise ValueError(f"{cid}: source stage {index} is missing")
+            pieces = parts[index]
+            used[index] += 1
+            part, total = span.get("part") or (used[index], occurrences[index])
+            if part == total == 1:
+                # An old uncut stage stays one stage. Completing its cast must not alter its cuts
+                # merely because today's packer would split it; actual split siblings use total > 1.
+                selected.append(copy.deepcopy(by_index[index]))
+                continue
+            if len(pieces) != total or not 1 <= part <= len(pieces):
+                raise ValueError(f"{cid}: stage {index} has {len(pieces)} parts, plan requires part {part}/{total}")
+            selected.append(copy.deepcopy(pieces[part - 1]))
+        recovered[cid] = selected
+    return recovered
 
 
 def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None) -> dict:
@@ -738,6 +848,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "location": clip["location"],
         "shot_indexes": shot_indexes,
         "segment_ids": list(dict.fromkeys(shot["segment_id"] for shot in clip["shots"])),
+        "shot_parts": [{"index": shot["index"], "part": list(shot.get("split_part") or (1, 1))} for shot in clip["shots"]],
         "stage_count": len(clip["shots"]),
         "seconds_estimate": clip["seconds"],
         "request_seconds": clip["request_seconds"],
@@ -751,6 +862,10 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "lint": lint,
         "override": override or None,
         "background_only": clip.get("background_only", []),
+        # what the stages said about who is a listener (back to camera / off frame) and which unnamed extras are in
+        # frame: the entry keeps no shots, and the judge reads these from here
+        "listeners": list(dict.fromkeys(l for shot in clip["shots"] for l in (shot.get("listeners") or []))),
+        "extras": list(dict.fromkeys(e for shot in clip["shots"] for e in (shot.get("extras") or []))),
     }
 
 

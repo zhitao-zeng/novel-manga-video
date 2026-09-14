@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -45,7 +46,7 @@ def inspect_silence(video: Path, duration: float, *, silent_outro_seconds: float
 
 
 def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: Settings, report: Path,
-                  *, silent_outro_seconds: float = 0.0) -> dict:
+                  *, silent_outro_seconds: float = 0.0, ignore_checks: tuple[str, ...] = ()) -> dict:
     checks: dict[str, dict] = {}
     probe = subprocess.run([
         "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(video),
@@ -121,6 +122,12 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
         "detail": {"max_freeze_seconds": round(max_freeze, 6)},
     }
 
+    # Checks the novel waives (profile qc_ignore, or NOVEL_QC_IGNORE=a,b): kept in the report with their numbers,
+    # marked waived and counted as passed - 雾月 2026-09-14: silence is not a delivery criterion.
+    waived = set(ignore_checks) | {item.strip() for item in os.environ.get("NOVEL_QC_IGNORE", "").split(",") if item.strip()}
+    for key in waived & set(checks):
+        checks[key]["waived"] = True
+        checks[key]["passed"] = True
     result = {"passed": all(item["passed"] for item in checks.values()), "checks": checks}
     atomic_write_json(report, result)
     return result

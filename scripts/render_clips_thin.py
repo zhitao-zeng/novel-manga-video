@@ -1796,7 +1796,7 @@ class ThinMediaRunner:
         # The actual end card rendered for this final, not a guess from the settings on a later recheck.
         silent_outro = media_duration(self.work / "outro.mp4") if self.settings.outro_seconds > 0 else 0.0
         qc = inspect_media(final, cover, ending, ass, self.settings, self.episode_dir / "media_qc_report.json",
-                           silent_outro_seconds=silent_outro)
+                           silent_outro_seconds=silent_outro, ignore_checks=tuple(self.profile.get("qc_ignore") or ()))
         freeze = float(qc.get("checks", {}).get("long_freeze", {}).get("detail", {}).get("max_freeze_seconds", 0.0))
         other_checks = [v.get("passed") for k, v in qc.get("checks", {}).items() if k != "long_freeze"]
         thin_passed = all(other_checks) and freeze <= MAX_HOLD_SECONDS

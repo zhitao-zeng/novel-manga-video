@@ -149,6 +149,8 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
    每段clip写avoid：本段具体不要出现的东西，用名词，例如"灵碑上不要出现可读文字""大厅不要出现现代家具""不要给楚焱红色发光的眼睛"；不写"低质量"这类空泛负面词。clip_id只写clip_1这样的短编号。
 7. 画面描述不得出现血液、伤口、破皮、流血。灵碑、石碑、牌匾、纸张上不得出现可读文字或数字，一律写成"无字的发光纹路"；唯一允许的可读文字是手机或电脑屏幕上的聊天消息（用 chat_message 给出内容）。
 8. clip.characters只填该段画面中出现的StoryBible具名角色；location只填给定地点名。speaker_name是具名角色，或"无名测验员""无名族人"这类无名画外角色；无名角色只能用offscreen_dialogue。silent_action和title_card的speaker_name留空字符串。
+8b. 每个阶段的in_frame只填这一阶段画面里真正出现的人，是clip.characters的子集；原文里只被提起、在别处、或只有声音的人不进in_frame，他们的话用offscreen_dialogue。actions写这一阶段谁对谁做了什么：actor和target是in_frame里的名字，action是谓语短语（如"环住脖子吻住"、"向后仰头避开"），不含人名；没有动作就留空数组。原文里在这一段有动作或台词、但不在人物名单里的无名人物（邻居老妇人、递传单的传教士），写进extras，用不超过12字的外貌描述（如"戴眼镜的灰发老妇人"），他们按描述画、没有参考图；有名字的角色不能写进extras，人群不写。有可见说话者的阶段，in_frame只放说话的人和这一阶段与他有动作往来的人，听的人不进in_frame（相邻阶段轮流给两人正脸，像正反打）；两张脸同框时视频模型常把口型安错人。
+8c. 如果给了ledger_snapshot：它是原著逐段的出场记录，chapter_cast是本章在场/只有声音/只被提及的人，segments里是每个区段原文点到名的人。只让原文这一段在场的人进in_frame；segments里没点到、chapter_cast里又不在场的人不要出现；must_not_reveal里的关系此时读者还不知道，台词和画面都不得点破。
 9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。"""
 
 
@@ -332,7 +334,7 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
     stage = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["segment_id", "source_quote", "start_state", "event", "end_state", "camera", "light", "sfx", "shot_scale", "turns"],
+        "required": ["segment_id", "source_quote", "start_state", "event", "end_state", "camera", "light", "sfx", "shot_scale", "turns", "in_frame", "actions", "extras"],
         "properties": {
             "segment_id": {"type": "string", "enum": segment_ids},
             "source_quote": {"type": "string"},
@@ -344,6 +346,17 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "sfx": {"type": "string"},
             "shot_scale": {"type": "string", "enum": SHOT_SCALES},
             "turns": {"type": "array", "minItems": 1, "maxItems": 8, "items": turn},
+            # who is actually in the picture of this stage (a subset of clip.characters), and the actions as
+            # actor / verb phrase / target - the renderer was given four "core subjects" and one sentence, and
+            # picked two of them to kiss (雾月 761)
+            "in_frame": {"type": "array", "maxItems": 6, "items": {"type": "string", "enum": character_names}},
+            # unnamed people the passage puts in the picture, by a short description; they have no card
+            "extras": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+            "actions": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": False,
+                                                                "required": ["actor", "action", "target"],
+                                                                "properties": {"actor": {"type": "string", "enum": [*character_names, ""]},
+                                                                               "action": {"type": "string"},
+                                                                               "target": {"type": "string", "enum": [*character_names, ""]}}}},
         },
     }
     clip = {
@@ -403,7 +416,10 @@ def flatten_clips(raw: dict) -> list[dict]:
                     "clip_hint": clip_id,
                     "label": f"{clip_id} stage {stage_number}",
                     "location": clip.get("location", ""),
-                    "characters": list(clip.get("characters") or []),
+                    "characters": list(stage.get("in_frame") or clip.get("characters") or []),
+                    "in_frame_given": bool(stage.get("in_frame")),
+                    "actions": [a for a in (stage.get("actions") or []) if isinstance(a, dict)],
+                    "extras": [str(e).strip() for e in (stage.get("extras") or []) if str(e).strip()],
                     "segment_id": stage.get("segment_id", ""),
                     "source_quote": stage.get("source_quote", ""),
                     "visual_prompt": stage.get("start_state", ""),
@@ -418,6 +434,76 @@ def flatten_clips(raw: dict) -> list[dict]:
                 }
             )
     return shots
+
+
+def _ledger_files(novel_dir: Path, chapter: int) -> tuple[dict, list[dict], list[dict]] | None:
+    """entities, this chapter's mentions and the claims of the entity ledger (entity_ledger_thin), read directly."""
+    base = Path(novel_dir) / "entity"
+    mentions_path = base / "mentions" / f"ch_{chapter:04d}.json"
+    if not mentions_path.is_file():
+        return None
+    try:
+        entities = {e["id"]: e for e in json.loads((base / "entities.json").read_text(encoding="utf-8"))}
+        mentions = json.loads(mentions_path.read_text(encoding="utf-8"))
+        claims_path = base / "claims.json"
+        claims = json.loads(claims_path.read_text(encoding="utf-8")) if claims_path.is_file() else []
+    except (OSError, ValueError):
+        return None
+    return entities, mentions, claims
+
+
+def _ledger_canonical(entities: dict, eid: str) -> str:
+    seen = set()
+    while entities.get(eid, {}).get("merged_into") and eid not in seen:
+        seen.add(eid)
+        eid = entities[eid]["merged_into"]
+    return eid
+
+
+def ledger_cast(novel_dir: Path, chapter: int) -> dict[str, str]:
+    """Who the entity ledger puts in this chapter: name -> on_stage / voice / mentioned.  Empty when the ledger has
+    not read the chapter (then the old name-form scan decides the candidates)."""
+    files = _ledger_files(novel_dir, chapter)
+    if files is None:
+        return {}
+    entities, mentions, _ = files
+    rank = {"on_stage": 2, "voice": 1, "mentioned": 0}
+    cast: dict[str, str] = {}
+    for m in mentions:
+        if not str(m.get("entity", "")).startswith("e"):
+            continue
+        name = entities.get(_ledger_canonical(entities, m["entity"]), {}).get("canonical")
+        presence = str(m.get("presence") or "on_stage")
+        if name and rank.get(presence, 0) >= rank.get(cast.get(name, "mentioned"), -1):
+            cast[name] = presence
+    return cast
+
+
+def ledger_snapshot_for(novel_dir: Path, chapter: int, segments: list[dict], cast: dict[str, str], names: list[str]) -> dict:
+    """The passage-level casting sheet handed to the planner: per segment, the offered characters whose written
+    forms occur in it; the chapter cast with presence; the relations the reader must not learn yet."""
+    files = _ledger_files(novel_dir, chapter)
+    if files is None:
+        return {}
+    entities, mentions, claims = files
+    forms: dict[str, set[str]] = {}
+    for m in mentions:
+        if str(m.get("entity", "")).startswith("e"):
+            name = entities.get(_ledger_canonical(entities, m["entity"]), {}).get("canonical")
+            if name in names:
+                forms.setdefault(name, set()).add(str(m.get("form") or ""))
+    per_segment = {}
+    for segment in segments:
+        text = str(segment.get("text") or "")
+        named = [name for name, fs in forms.items() if any(f and f in text for f in fs)]
+        per_segment[segment["segment_id"]] = {"named_here": named}
+    secrets = [f"{entities.get(c.get('subject'), {}).get('canonical', c.get('subject'))} {c.get('type')} "
+               f"{entities.get(c.get('object'), {}).get('canonical', c.get('object'))}"
+               for c in claims if c.get("hidden_from_reader") and int(c.get("chapter", 0)) > chapter]
+    return {"usage": "原著逐段出场记录：只让 named_here 的人进该区段阶段的 in_frame；chapter_cast 里 voice 的人只发声、mentioned 的人不出现；"
+                     "must_not_reveal 的关系不得在台词或画面里点破",
+            "chapter_cast": [{"name": n, "presence": p} for n, p in cast.items() if n in names],
+            "segments": per_segment, "must_not_reveal": secrets[:8]}
 
 
 CAST_RECENT_CHAPTERS = 3  # a character on screen this recently stays offered even when this chapter does not name them
@@ -791,6 +877,7 @@ def short_forms(name: str) -> set[str]:
 
 ENTITY_FORMS: dict[str, list[str]] = {}  # name -> forms that occur in the book (entity_index.json), when built
 ENTITY_TIERS: dict[str, str] = {}
+ENTITY_GENERIC: dict[str, bool] = {}
 
 
 def load_entity_index(novel_dir: Path) -> bool:
@@ -799,6 +886,8 @@ def load_entity_index(novel_dir: Path) -> bool:
     path = Path(novel_dir) / "entity_index.json"
     ENTITY_FORMS.clear()
     ENTITY_TIERS.clear()
+    ENTITY_GENERIC.clear()
+    _FORMS_INDEX.clear()
     try:
         index = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -807,6 +896,7 @@ def load_entity_index(novel_dir: Path) -> bool:
         forms = [f for f in (row.get("forms") or {}) if len(f) >= 2 or f == row.get("name")]
         ENTITY_FORMS[row["name"]] = sorted({row["name"], *forms}, key=len, reverse=True)
         ENTITY_TIERS[row["name"]] = str(row.get("tier") or "")
+        ENTITY_GENERIC[row["name"]] = bool(row.get("generic", len(row["name"]) < 3))
     _FORMS_INDEX.clear()
     return bool(ENTITY_FORMS)
 
@@ -859,7 +949,9 @@ def mentioned_characters(text: str, everyone: list[str]) -> list[str]:
     neither surname nor title (灵魂, 秘女, 船长, 天使) is a common noun as often as a person and is left
     to the model - 761's cat was the price of trusting the model alone with everyone else."""
     usable = _usable_forms(tuple(everyone))
-    eligible = {name: usable.get(name, []) for name in everyone if len(name) >= 3 or "·" in name}
+    eligible = {name: usable.get(name, []) for name in everyone if len(name) >= 2
+                and (not ENTITY_GENERIC[name] if name in ENTITY_FORMS and name in ENTITY_GENERIC
+                     else len(name) >= 3 or "·" in name)}
     seen: list[str] = []
     for _, name, _ in scan_mentions(text, eligible):
         if name not in seen:
@@ -945,9 +1037,35 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         unknown = [str(name) for name in shot.get("characters", []) if canonical(name) not in names]
         if unknown:
             errors.append(f"{position}: characters not in StoryBible: {unknown}")
-        characters, added = complete_characters(characters, shot, everyone)
+        if shot.get("in_frame_given"):
+            added = []  # the stage said who is in the picture; a name in the event line (塞西娅在楼上) is not a presence
+        else:
+            characters, added = complete_characters(characters, shot, everyone)
         if added:
             warnings.append(f"{position}: characters 补上镜头描述里出现的 {added}")
+        actions: list[dict] = []
+        for action in shot.get("actions") or []:
+            actor, verb, target = canonical(action.get("actor", "")), str(action.get("action") or "").strip(), canonical(action.get("target", ""))
+            if not verb or actor not in names:
+                continue
+            for who in (actor, target):
+                if who in names and who not in characters:
+                    characters.append(who)
+                    warnings.append(f"{position}: actions 里的 {who} 补进 characters")
+            actions.append({"actor": actor, "action": verb[:40], "target": target if target in names else ""})
+        extras: list[str] = []
+        for extra in shot.get("extras") or []:
+            extra = str(extra).strip()[:24]
+            if not extra or canonical(extra) in names or mentioned_characters(extra, everyone):
+                continue  # a named character is cast, never an extra
+            extras.append(extra)
+        extras = extras[:3]
+        motion_text = str(shot.get("motion_prompt") or "").strip()
+        if actions:
+            # the event line names who does what to whom before anything else: that sentence is what the
+            # renderer and the reviewer read as 主要事件
+            line = "；".join(f"{a['actor']}{a['action']}{a['target']}" for a in actions)
+            motion_text = f"{line}。{motion_text}" if motion_text and line not in motion_text else (motion_text or line)
         location = str(shot.get("location", ""))
         if location not in location_map:
             errors.append(f"{position}: unknown location {location!r}; allowed: {list(location_map)}")
@@ -1049,7 +1167,10 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "location": location,
             "characters": characters,
             "visual_prompt": str(shot.get("visual_prompt") or "").strip(),
-            "motion_prompt": str(shot.get("motion_prompt") or "").strip(),
+            "motion_prompt": motion_text,
+            "actions": actions,
+            "extras": extras,
+            "listeners": [],
             "end_state": end_state,
             "camera": str(shot.get("camera") or "").strip(),
             "light": str(shot.get("light") or "").strip(),
@@ -1058,9 +1179,20 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "shot_scale": str(shot.get("shot_scale") or "中近景"),
             "origin_index": len(normalized) + 1,
         }
+        def framed(shot_base: dict, speaker: str) -> dict:
+            """One visible speaker: only the speaker and the people the stage's actions involve stay in frame; the
+            rest are listeners (back to camera or off frame).  Two faces in one frame is where the renderer animates
+            the wrong mouth."""
+            acting = {a["actor"] for a in shot_base["actions"]} | {a["target"] for a in shot_base["actions"] if a["target"]}
+            keep = [c for c in shot_base["characters"] if c == speaker or c in acting]
+            listeners = [c for c in shot_base["characters"] if c not in keep]
+            if listeners:
+                warnings.append(f"{position}: {speaker} 说话，{listeners} 转为听者（背影或画外）")
+            return {**shot_base, "characters": keep or shot_base["characters"], "listeners": listeners if keep else []}
+
         distinct_visible = list(dict.fromkeys(visible))
         if len(distinct_visible) <= 1:
-            normalized.append({**base, "turns": turns_out})
+            normalized.append({**(framed(base, distinct_visible[0]) if distinct_visible else base), "turns": turns_out})
             continue
         warnings.append(f"{position}: {len(distinct_visible)} visible speakers; split into consecutive shots")
         groups: list[list[dict]] = []
@@ -1079,7 +1211,8 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             groups[-1].append(turn)
         for group in groups:
             if group:
-                normalized.append({**base, "turns": group})
+                speaker = next((t["speaker_name"] for t in group if t["delivery_mode"] == "visible_dialogue" and t["speaker_name"]), "")
+                normalized.append({**(framed(base, speaker) if speaker else base), "turns": group})
 
     clip_seconds: dict[str, float] = {}
     for shot in normalized:
@@ -1182,6 +1315,8 @@ def to_episode_plan(raw: dict, shots: list[dict], location_map: dict[str, str], 
                 visual_prompt=shot["visual_prompt"] or narration,
                 motion_prompt=shot["motion_prompt"] or narration,
                 characters=shot["characters"],
+                extras=list(shot.get("extras") or []),
+                listeners=list(shot.get("listeners") or []),
                 location=location_map[shot["location"]],
                 source_quote=shot["source_quote"][:500],
                 scene_job="推进",
@@ -1431,8 +1566,16 @@ def main() -> int:
     recent_characters = recent_names(cast.get("characters", {}), episode.index, CAST_RECENT_CHAPTERS)
     recent_locations = recent_names(cast.get("locations", {}), episode.index, CAST_RECENT_CHAPTERS)
     main_cast = [c for c in full_bible.characters if "主角" in c.role]
-    present = [c for c in full_bible.characters if named_here(c.name)]
-    carried = [c for c in full_bible.characters if c.name in recent_characters]
+    ledger_cast_here = ledger_cast(novel_dir, episode.index)
+    if ledger_cast_here:
+        # the ledger read this chapter: offer exactly the people the book puts in it (on stage or a voice),
+        # not everyone whose name-form happens to occur and not whoever was on screen three chapters ago
+        present = [c for c in full_bible.characters if ledger_cast_here.get(c.name) in ("on_stage", "voice")]
+        carried = []
+        print(f"ledger cast for chapter {episode.index}: {[c.name for c in present]}", file=sys.stderr)
+    else:
+        present = [c for c in full_bible.characters if named_here(c.name)]
+        carried = [c for c in full_bible.characters if c.name in recent_characters]
     sliced_characters = list({c.name: c for c in [*main_cast, *present, *carried]}.values()) or full_bible.characters[:8]
     # A location is known from the chapter that added it (bible_growth.json);
     # the base bible's locations count as known from the start.  Never offer a
@@ -1474,6 +1617,7 @@ def main() -> int:
         print(f"keeping apart: {'、'.join(f'{a}+{b}' for a, b in SEPARATE_PAIRS)}", file=sys.stderr)
     segments = split_segments(episode.source_text, episode.source_title, SEGMENT_COUNT)
     atomic_write_json(episode_dir / "segments.json", segments)
+    ledger_snapshot = ledger_snapshot_for(novel_dir, episode.index, segments, ledger_cast_here, names) if ledger_cast_here else None
     # Rolling recap: the summaries the planner itself wrote for the previous
     # chapters, for continuity only (who is where, what just happened).
     recap_path = novel_dir / "recap.json"
@@ -1517,6 +1661,7 @@ def main() -> int:
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
         **({"previous_episode_ending": previous_ending, "previous_episode_ending_usage": "这是上一集最后一个画面的状态（地点、在场的人、结束时的动作）。本集开场如果是同一场景可以直接接上，不必重新交代；换了场景就忽略。"} if previous_ending else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
+        **({"ledger_snapshot": ledger_snapshot} if ledger_snapshot else {}),
         "quoted_lines_that_must_be_kept": chapter_quotes(episode.source_text),
         "requirements": {
             "clip_count": f"{CLIP_RANGE[0]}-{CLIP_RANGE[1]}",

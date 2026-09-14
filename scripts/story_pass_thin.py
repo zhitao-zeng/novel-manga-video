@@ -18,6 +18,9 @@ bible run ahead in pools:
   * scan: the chapter's proper names and locations (thin_review.scan_chapter),
     several chapters at once
   * summary + hook per chapter into recap.json, order-free
+  * ledger: the entity ledger's reading of the chapter (entity_ledger_thin),
+    ahead in the same pool; resolved in chapter order before the commit, so
+    the bible grows from the ledger's records instead of a second name scan
   * commit, in chapter order under the novel-wide lock: new names checked
     against the bible as it is *now*, descriptions written for the genuinely
     new ones (thin_review.grow_bible with the scan handed in)
@@ -37,6 +40,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from entity_ledger_thin import Ledger, build_index  # noqa: E402
 from thin_review import ask_json, grow_bible, scan_chapter, summarize_volume  # noqa: E402
 
 from novel_manga.ingest import read_novel  # noqa: E402
@@ -106,6 +110,8 @@ def main() -> int:
     parser.add_argument("--volume-size", type=int, default=50)
     parser.add_argument("--min-chapter-chars", type=int, default=300)
     parser.add_argument("--no-grow", dest="grow", action="store_false", default=True)
+    parser.add_argument("--no-ledger", dest="ledger", action="store_false", default=True, help="skip the entity ledger stage")
+    parser.add_argument("--write-index", action="store_true", help="also refresh <novel>/entity_index.json from the ledger at the end")
     args = parser.parse_args()
 
     novel_dir = args.novel_dir.resolve()
@@ -119,7 +125,11 @@ def main() -> int:
     have_summary = recap_rows(novel_dir)
     to_grow = [c for c in chapters if args.grow and str(c) not in grown]
     to_summarise = [c for c in chapters if c not in have_summary]
-    log(f"{novel_dir.name}: {len(chapters)} chapters ({chapters[0]}-{chapters[-1]}); to grow {len(to_grow)}, to summarise {len(to_summarise)}")
+    ledger = Ledger(novel_dir) if args.ledger else None
+    to_ledger = [c for c in chapters if ledger is not None and not ledger.has_chapter(c)]
+    to_commit = sorted(set(to_grow) | set(to_ledger))
+    grow_set, ledger_set = set(to_grow), set(to_ledger)
+    log(f"{novel_dir.name}: {len(chapters)} chapters ({chapters[0]}-{chapters[-1]}); to grow {len(to_grow)}, to read into the ledger {len(to_ledger)}, to summarise {len(to_summarise)}")
 
     started = time.monotonic()
     summaries_done = 0
@@ -146,20 +156,51 @@ def main() -> int:
         scans: dict[int, Future] = {}
         window = max(1, args.scan_workers) * 2
 
-        def scan_ahead(position: int) -> None:
-            for index in to_grow[position:position + window]:
-                if index not in scans:
-                    scans[index] = scan_pool.submit(scan_chapter, novel.episodes[index - 1].source_text, known_locations(novel_dir))
+        def read_ahead(index: int) -> dict:
+            """The model calls that need no ordering: the location scan (and the name scan when there is no
+            ledger) and the ledger's reading of the chapter."""
+            text = novel.episodes[index - 1].source_text
+            out = {"scan": None, "raw": None}
+            if index in ledger_set:
+                out["raw"] = ledger.extract(index, text)
+            if index in grow_set:
+                out["scan"] = scan_chapter(text, known_locations(novel_dir), names=ledger is None)
+            return out
 
-        for position, index in enumerate(to_grow):
+        def scan_ahead(position: int) -> None:
+            for index in to_commit[position:position + window]:
+                if index not in scans:
+                    scans[index] = scan_pool.submit(read_ahead, index)
+
+        for position, index in enumerate(to_commit):
             scan_ahead(position)
             try:
-                scan = scans.pop(index).result()
+                ahead = scans.pop(index).result()
             except Exception as error:  # noqa: BLE001 - fall back to the in-lock scan
-                log(f"ch{index}: scan failed ({type(error).__name__}), growing without it")
-                scan = None
+                log(f"ch{index}: read-ahead failed ({type(error).__name__}), growing without it")
+                ahead = {"scan": None, "raw": None}
+            scan = ahead["scan"]
+            if index in ledger_set:
+                try:
+                    summary = ledger.resolve_chapter(index, novel.episodes[index - 1].source_text, ahead["raw"], workers=args.scan_workers)
+                except Exception as error:  # noqa: BLE001
+                    summary, ahead["raw"] = None, None
+                    log(f"ch{index}: ledger failed: {type(error).__name__}: {str(error)[:120]}")
+                if summary is None:
+                    log(f"ch{index}: ledger has no reading" + (f" ({ahead['raw']['error']})" if ahead["raw"] and ahead["raw"].get("error") else ""))
+                elif summary["new"] or summary["claims"]:
+                    log(f"ch{index}: ledger +{len(summary['new'])} {summary['new'][:5]} claims {dict(summary['claims'])}")
+            if index not in grow_set:
+                continue
+            if ledger is not None and scan is not None:
+                if ledger.has_chapter(index):
+                    scan["names"] = ledger.scan_rows(index)
+                else:
+                    scan = None  # no reading for this chapter: grow_bible falls back to its own scan
             try:
                 result = grow_bible(novel_dir, novel.episodes[index - 1].source_text, index, scan=scan)
+                if ledger is not None:
+                    ledger.link_cards()
                 added = (result.get("characters") or []) + [str(x).split("：", 1)[0] for x in (result.get("locations") or [])]
                 if added:
                     log(f"ch{index}: bible +{len(added)} {added[:6]}")
@@ -176,7 +217,7 @@ def main() -> int:
                     log(f"volume {first}-{index} failed: {type(error).__name__}: {str(error)[:120]}")
             if position % 20 == 19:
                 elapsed = time.monotonic() - started
-                log(f"progress {position + 1}/{len(to_grow)} (ch{index}), {(position + 1) / elapsed * 3600:.0f} chapters/h, {summaries_done} summaries written")
+                log(f"progress {position + 1}/{len(to_commit)} (ch{index}), {(position + 1) / elapsed * 3600:.0f} chapters/h, {summaries_done} summaries written")
         drain_summaries(block_upto=10 ** 9)
         # volumes whose chapters were all summarised earlier (resumed run) but never condensed
         volumes_path = novel_dir / "volumes.json"
@@ -191,6 +232,13 @@ def main() -> int:
                 log(f"volume {first}-{end} written")
             except Exception as error:  # noqa: BLE001
                 log(f"volume {first}-{end} failed: {type(error).__name__}: {str(error)[:120]}")
+    if ledger is not None:
+        ledger.save()
+        index = build_index(novel_dir)
+        atomic_write_json(novel_dir / "entity" / "index.json", index)
+        if args.write_index:
+            atomic_write_json(novel_dir / "entity_index.json", index)
+        log(f"ledger: {sum(1 for e in ledger.entities if e['status'] == 'active')} records, {sum(1 for c in ledger.claims if c.get('status') == 'pending')} claims for a person, index {'written' if args.write_index else 'kept aside'}")
     log(f"story pass done: {len(chapters)} chapters in {(time.monotonic() - started) / 60:.0f} min")
     return 0
 

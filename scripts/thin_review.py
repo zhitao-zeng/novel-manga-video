@@ -42,8 +42,9 @@ from thin_profile import endpoint_order, load_genre, load_profile  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_card, phase_for, phased  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
+from thin_runs import REVIEW_POLICY  # noqa: E402
 
-POLICY = "thin-review-v1.17-story"  # the judge reads the source passage
+POLICY = REVIEW_POLICY  # shared with scheduling and delivery: the judge reads the source passage
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
 MODEL = os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 PHOTOREAL_LIMIT = 0.6
@@ -196,6 +197,50 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
 STORY_KINDS = ("无问题", "原文中有动作的人物缺席", "动作落在错误的人物身上", "画面事件与原文不符", "无法判断")
 STORY_FATAL = {"原文中有动作的人物缺席", "动作落在错误的人物身上"}
 _SEGMENTS_CACHE: dict = {}
+
+
+_LEDGER_CACHE: dict = {}
+_NOVEL_TEXT_CACHE: dict = {}
+
+
+def snapshot_block(clip: dict, episode_dir: Path) -> str:
+    """The entity ledger's casting sheet for this clip's passage - who is on stage, through whose body, under
+    which names, who is only a voice or only spoken of, how they stand to each other, what the audience must
+    not learn yet.  Empty when the novel has no ledger or it has not read this chapter (nothing changes)."""
+    novel_dir = Path(episode_dir).parent
+    chapter = str(episode_dir.name).rsplit("_", 1)[-1]
+    if not chapter.isdigit() or not (novel_dir / "entity" / "mentions" / f"ch_{int(chapter):04d}.json").is_file():
+        return ""
+    try:
+        from entity_ledger_thin import Ledger, novel_texts, snapshot
+        ledger = _LEDGER_CACHE.get(novel_dir) or _LEDGER_CACHE.setdefault(novel_dir, Ledger(novel_dir))
+        texts = _NOVEL_TEXT_CACHE.get(novel_dir) or _NOVEL_TEXT_CACHE.setdefault(novel_dir, novel_texts(novel_dir))
+        shot = snapshot(novel_dir, int(chapter), clip.get("segment_ids") or None, ledger=ledger, text=texts.get(int(chapter), ""))
+    except Exception as error:  # noqa: BLE001 - the snapshot is an aid, never a reason to fail the review
+        log(f"snapshot unavailable for {episode_dir.name}: {type(error).__name__}: {str(error)[:80]}")
+        return ""
+    if not shot.get("cast"):
+        return ""
+
+    def who(row: dict) -> str:
+        text = row["name"]
+        if row.get("acts_through_other_body"):
+            text += f"（此时在{ledger.name_of(row['body'])}的身体里，画面应是那具身体的样子）"
+        spoken = [n for n in row.get("names_spoken", []) if n != row["name"]]
+        if spoken:
+            text += f"（原文里也叫 {'/'.join(spoken[:4])}）"
+        return text
+
+    on = [who(r) for r in shot["cast"] if r["presence"] == "on_stage"]
+    voice = [r["name"] for r in shot["cast"] if r["presence"] == "voice"]
+    mentioned = [r["name"] for r in shot["cast"] if r["presence"] == "mentioned"]
+    relations = [f"{r['from']}→{r['to']}：{'/'.join(r['bases']) or r['stance']}" + (f"（称呼 {'/'.join(r['address'])}）" if r["address"] else "")
+                 for r in shot.get("relations", [])]
+    secrets = [f"{s['subject']} {s['type']} {s['object']}" for s in shot.get("must_not_reveal", [])]
+    return ("\n原著账本出场快照（这一段原文里）：在场 " + ("、".join(on) or "无")
+            + (f"；只有声音 {'、'.join(voice)}" if voice else "") + (f"；只被提及、不在场 {'、'.join(mentioned)}" if mentioned else "")
+            + (f"\n人物关系：{'；'.join(relations)}" if relations else "")
+            + (f"\n本集观众尚不能知道：{'；'.join(secrets)}" if secrets else "") + "\n")
 
 
 def story_block(clip: dict, segments: dict) -> str:
@@ -392,11 +437,12 @@ def load_aliases(novel_dir: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
-def scan_chapter(chapter_text: str, known_locations: list[str]) -> dict:
+def scan_chapter(chapter_text: str, known_locations: list[str], names: bool = True) -> dict:
     """The model calls of bible growth that do not depend on the bible's state:
     the chapter's proper names and its locations.  Safe to run for several
-    chapters at once; grow_bible() then commits them in order under the lock."""
-    return {"names": extract_names(chapter_text), "locations": extract_locations(chapter_text, known_locations)}
+    chapters at once; grow_bible() then commits them in order under the lock.
+    With names=False the caller supplies the names (the entity ledger does)."""
+    return {"names": extract_names(chapter_text) if names else [], "locations": extract_locations(chapter_text, known_locations)}
 
 
 def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int, scan: dict | None = None) -> dict:
@@ -707,12 +753,17 @@ def clip_frames(video: Path, output_dir: Path, count: int) -> list[Path]:
 
 
 def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
+    if review_mode(work_dir) == "verify":
+        return judge_clip_verify(clip, video, bible, location_time, hypothesis, work_dir)
     # work_dir = <novel>/<episode>/work/review/<clip>: the episode decides which phase of a character the card
     # shows (the plan already picked it) and which look the judge is told to expect.
     phases = load_phases(bible_root(work_dir))
     chapter = chapter_of(work_dir.parents[2])
     by_name = {c.name: phased(c, phase_for(phases, c.name, chapter)) for c in bible.characters}
     cast = [name for name in clip.get("cast", []) if name in by_name]
+    extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for shot in clip.get("shots", []) for e in (shot.get("extras") or []))]))
+    listeners = list(dict.fromkeys(l for l in [*(clip.get("listeners") or []), *(l for shot in clip.get("shots", []) for l in (shot.get("listeners") or []))] if l in by_name))
+    offscreen = list(dict.fromkeys(str(row.get("speaker_name") or "") for row in clip.get("lines", []) if row.get("delivery_mode") == "offscreen_dialogue" and row.get("speaker_name")))
     cards = []
     for name in cast[:MAX_IMAGES - 3]:
         path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and ref["path"].endswith("turnaround.jpeg")), None)
@@ -748,12 +799,17 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
     text = (
         "这是一段动画短剧视频的抽帧，前面几张是本段人物的角色卡（身份依据）。\n" + "，".join(legend) + "。\n"
         f"本段设定：地点 {location}" + (f"（{expected_time}）" if expected_time else "") + f"；出场人物 {'、'.join(cast) or '无具名角色'}"
+        + (f"；无参考图的配角（按描述画，他们在画面里不算多出的人）：{'、'.join(extras)}" if extras else "")
+        + (f"；按分镜设计只露背影或不入镜的听者：{'、'.join(listeners)}（不在画面里不算缺席）" if listeners else "")
+        + (f"；画外说话的人：{'、'.join(offscreen)}（本来就不该出现在画面里，不算缺席）" if offscreen else "")
         + "".join(f"\n- {describe(by_name[n])}" for n in cast)
         + (f"\n允许出现在远处背景、不入近景不说话的角色：{'、'.join(background)}（他们出现在背景里是正常的，不算多出）" if background else "")
         + story_block(clip, _SEGMENTS_CACHE.setdefault(work_dir.parents[2], segment_texts(work_dir.parents[2])))
+        + snapshot_block(clip, work_dir.parents[2])
         + f"\n预期台词：{lines or '无'}\n语音识别出的台词：{hypothesis or '无'}\n"
         + (f"手机屏幕上应显示的群消息（这些文字允许出现）：{chats}\n" if chats else "")
         + "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色是否与其角色卡一致、没有两个角色长成同一人、没有角色被画成另一个角色的服装发型、近景里没有多出的具名角色（远处模糊背景里的人不算），不一致时在 identity_issue 写清是谁、哪一帧；"
+        "若给出了原著账本出场快照，以快照为准判断谁该在场、谁该做动作、谁只是声音或只被提及；快照说某人在别人的身体里，画面就该是那具身体。"
         "story_ok：对照本段原文——原文里在这一段有动作或对白的人物是否都出现在画面里？画面里的动作是否由原文说的那个人完成"
         "（例如原文是薇奥拉环住莱恩的脖子吻他，画面却是猫或别的人在做，就是动作落在错误的人物身上；出场人物名单漏了原文里的人，"
         "也按原文判）？只看原文写到的事，不苛求细节；story_kind 选最主要的一类（story_ok 为 true 时填无问题）；story_issue 用一句话写清谁缺席、或谁的动作被谁做了；"
@@ -801,10 +857,10 @@ def fix_tier(verdict: dict, bible: StoryBible) -> str:
     """must_fix / optional / ignore for a failed clip verdict.  A viewer notices a
     broken body, a lead with the wrong face, or a speaking character who is not
     there; a side character's shirt colour or a garbled phone screen they do not."""
-    if verdict.get("scripted"):
-        return "optional"  # the book itself asked for the oddity - see script_check()
     if verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL:
         return "must_fix"  # the picture tells the wrong story, however clean it is
+    if verdict.get("scripted"):
+        return "optional"  # a scripted oddity never excuses assigning an action to the wrong person
     issue = str(verdict.get("identity_issue") or "") + " " + str(verdict.get("defect_issue") or "")
     if verdict.get("visual_defects") or BREAKDOWN.search(issue):
         return "must_fix"
@@ -984,7 +1040,8 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
         if verdict.get("severity") == "fail":
             tier = fix_tier(verdict, bible)
-            if tier == "must_fix" and "scripted" not in verdict:
+            if (tier == "must_fix" and "scripted" not in verdict
+                    and not (verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL)):
                 check = script_check(clip, verdict, segments)
                 if check is not None:
                     verdict["scripted"] = report["clips"][clip_id]["scripted"] = (
@@ -1157,3 +1214,104 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ---- verify mode: the frame-level "would a viewer notice" judge as the first review (2026-09-14) ----
+# 雾月's story judge confirmed on only half of its must_fix flags and missed 4% of what it passed.  This judge asks
+# the model to describe every person in the frames first, then answers five yes/no questions a viewer who never
+# saw the cards would notice; NOVEL_REVIEW_MODE=verify or profile.json review_mode="verify" selects it.
+VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
+                 "required": ["people", "same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing",
+                              "lead_face_swapped", "ghost_text", "verdict", "evidence"],
+                 "properties": {
+                     "people": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["who", "gender", "is_animal", "doing", "frames"],
+                                                           "properties": {"who": {"type": "string"}, "gender": {"type": "string", "enum": ["男", "女", "不明"]},
+                                                                          "is_animal": {"type": "boolean"}, "doing": {"type": "string"}, "frames": {"type": "string"}}}},
+                     "same_person_twice": {"type": "boolean"}, "species_or_gender_wrong": {"type": "boolean"}, "action_by_wrong_person": {"type": "boolean"},
+                     "actor_missing": {"type": "boolean"}, "lead_face_swapped": {"type": "boolean"}, "ghost_text": {"type": "boolean"},
+                     "verdict": {"type": "string", "enum": ["obvious", "subtle", "fine"]}, "evidence": {"type": "string"}}}
+VERIFY_QUESTIONS = (
+    "\n先逐个描述视频帧里看到的每个人（people：who 是谁或长相，gender，is_animal，doing 在做什么，frames 出现在哪几帧），再回答：\n"
+    "same_person_twice：同一帧里是否有两个或更多长得一样（同脸同装）的人；\n"
+    "species_or_gender_wrong：人被画成动物、动物被画成人或别的动物、动物直立拟人化，或原文里的女人由男人演（反之）、成人画成小孩；\n"
+    "action_by_wrong_person：原文里甲做的动作或说的话，画面里由乙做或对错的对象做（例如原文薇奥拉吻莱恩，画面是猫或别人在亲）；\n"
+    "actor_missing：原文这一段里有动作或对白的人不在画面里，而且没有别人替他做（只露背影的听者、画外说话的人不算缺席）；\n"
+    "lead_face_swapped：主角或其他给了角色卡的主要人物，脸型发型明显不是角色卡上那个人（追剧的观众认得主角，这也算一眼看出）；\n"
+    "ghost_text：画面出现字幕、文字、水印、Logo（手机屏幕上的消息除外）；这一项单独记录，不影响 verdict；\n"
+    "verdict：obvious＝观众会觉得荒谬或前后不一致（same_person_twice、species_or_gender_wrong、action_by_wrong_person、actor_missing、"
+    "lead_face_swapped 任一成立就是 obvious）；subtle＝只有对照角色卡才看得出的配角差别（发色、服装、帽子、徽章）；fine＝没问题；\n"
+    "evidence：一句话，写清哪几帧、谁、看到了什么。只输出JSON。"
+)
+
+
+def review_mode(work_dir: Path) -> str:
+    mode = os.environ.get("NOVEL_REVIEW_MODE", "").strip()
+    if mode:
+        return mode
+    try:
+        return str(load_profile(bible_root(work_dir)).get("review_mode") or "")
+    except Exception:  # noqa: BLE001 - no profile, or one the loader rejects: the classic judge
+        return ""
+
+
+def verify_to_verdict(answer: dict) -> dict:
+    """The verifier's answer in the shape the review file, fix_tier and the board already read."""
+    flags = {k: bool(answer.get(k)) for k in ("same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing", "lead_face_swapped")}
+    obvious = answer.get("verdict") == "obvious" or any(flags.values())
+    subtle = answer.get("verdict") == "subtle" and not obvious
+    evidence = str(answer.get("evidence") or "")[:300]
+    people = answer.get("people") or []
+    return {
+        "visible_people": len(people) if isinstance(people, list) else 0,
+        "identity_ok": not (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle),
+        "identity_issue": evidence if (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle) else "",
+        "location_ok": True, "time_of_day_ok": True, "location_issue": "",
+        "text_or_watermark": bool(answer.get("ghost_text")),
+        "chat_text_ok": True, "chat_text_issue": "",
+        "visual_defects": False, "defect_issue": "",
+        "story_ok": not obvious,
+        "story_kind": "无问题" if not obvious else ("原文中有动作的人物缺席" if flags["actor_missing"] and not flags["action_by_wrong_person"] else "动作落在错误的人物身上"),
+        "story_issue": evidence if obvious else "",
+        "severity": "fail" if obvious else ("minor" if subtle else "pass"),
+        "feedback": ("按原文修正剧情：" + evidence) if obvious else "",
+        "verify": {"verdict": answer.get("verdict"), **flags, "ghost_text": bool(answer.get("ghost_text")),
+                   "people": [f"{p.get('who')}({p.get('gender')}{'/动物' if p.get('is_animal') else ''}) {p.get('doing')} [{p.get('frames')}]" for p in people][:8] if isinstance(people, list) else []},
+    }
+
+
+def judge_clip_verify(clip: dict, video: Path, bible: StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
+    phases = load_phases(bible_root(work_dir))
+    chapter = chapter_of(work_dir.parents[2])
+    by_name = {c.name: phased(c, phase_for(phases, c.name, chapter)) for c in bible.characters}
+    cast = [name for name in clip.get("cast", []) if name in by_name]
+    extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for shot in clip.get("shots", []) for e in (shot.get("extras") or []))]))
+    listeners = list(dict.fromkeys(l for l in [*(clip.get("listeners") or []), *(l for shot in clip.get("shots", []) for l in (shot.get("listeners") or []))] if l in by_name))
+    offscreen = list(dict.fromkeys(str(row.get("speaker_name") or "") for row in clip.get("lines", []) if row.get("delivery_mode") == "offscreen_dialogue" and row.get("speaker_name")))
+    background = [name for name in clip.get("background_only", []) if name in by_name]
+    cards = []
+    for name in cast[:3 if len(cast) <= 3 else 2]:
+        path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and str(ref["path"]).endswith("turnaround.jpeg")), None)
+        path = phase_card(bible_root(work_dir), phases, name, chapter) or path
+        if path is not None and (bible_root(work_dir) / path).is_file():
+            cards.append((name, path))
+    frames = clip_frames(video, work_dir, MAX_IMAGES - len(cards))
+    parts, legend = [], []
+    for number, (name, path) in enumerate(cards, start=1):
+        parts.append(image_part(bible_root(work_dir) / path, CARD_SIDE)); legend.append(f"图{number}=角色卡：{name}")
+    for number, frame in enumerate(frames, start=len(cards) + 1):
+        parts.append(image_part(frame, FRAME_WIDTH)); legend.append(f"图{number}=视频第{number - len(cards)}帧")
+    location = clip.get("location", ""); expected_time = location_time.get(location, "")
+    lines = "；".join(f"{row.get('speaker_name') or '旁白'}：{row['text']}" for row in clip.get("lines", []))
+    text = ("这是一段动画短剧视频的抽帧。你是终审：判断一个没看过角色设定卡、顺着看剧的观众，看这一段会不会觉得画面不对劲。\n" + "，".join(legend) + "。\n"
+            f"本段设定：地点 {location}" + (f"（{expected_time}）" if expected_time else "") + f"；出场人物 {'、'.join(cast) or '无具名角色'}"
+            + (f"；无参考图的配角（按描述画，不算多出的人）：{'、'.join(extras)}" if extras else "")
+            + (f"；按分镜只露背影或不入镜的听者：{'、'.join(listeners)}（不在画面里不算缺席）" if listeners else "")
+            + (f"；画外说话的人：{'、'.join(offscreen)}（本来就不在画面里，不算缺席）" if offscreen else "")
+            + "".join(f"\n- {describe(by_name[n])}" for n in cast)
+            + (f"\n允许在远处背景出现的角色：{'、'.join(background)}" if background else "")
+            + story_block(clip, _SEGMENTS_CACHE.setdefault(work_dir.parents[2], segment_texts(work_dir.parents[2])))
+            + snapshot_block(clip, work_dir.parents[2])
+            + f"\n预期台词：{lines or '无'}\n" + VERIFY_QUESTIONS)
+    parts.append({"type": "text", "text": text})
+    answer = ask_json(parts, VERIFY_SCHEMA, name="clip_verify", max_tokens=900)
+    return verify_to_verdict(answer)

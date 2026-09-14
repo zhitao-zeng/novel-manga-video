@@ -841,6 +841,8 @@ class Shot(BaseModel):
     visual_prompt: str
     motion_prompt: str
     characters: list[str] = Field(default_factory=list)
+    extras: list[str] = Field(default_factory=list)  # unnamed people in frame, drawn from a short description, no card
+    listeners: list[str] = Field(default_factory=list)  # present but back to camera / out of frame while someone else speaks
     location: str = ""
     source_quote: str = Field(min_length=1, max_length=500)
     scene_job: str = "推进"
