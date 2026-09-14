@@ -96,3 +96,16 @@ def test_unchanged_takes_keep_their_verdict_across_reviews(monkeypatch, tmp_path
     judged.clear()
     tr.review_episode(ep)
     assert sorted(judged) == ["clip_01", "clip_02"]
+
+
+def test_story_feedback_is_the_judges_instruction_not_the_description():
+    import thin_review as tr
+    verdict = {"story_ok": False, "story_kind": "动作落在错误的人物身上", "story_issue": "画面里两个一模一样的艾琳娜坐在左右两侧",
+               "feedback": "艾琳娜只出现一次，坐在桌子左侧读信；莱恩·格雷站在她对面", "identity_ok": True}
+    note = tr.compose_feedback(verdict)
+    assert note.startswith("艾琳娜只出现一次") and "一模一样" not in note
+    verdict["feedback"] = ""
+    assert tr.compose_feedback(verdict).startswith("按原文修正剧情：")
+    answer = {"people": [], "same_person_twice": True, "species_or_gender_wrong": False, "action_by_wrong_person": False, "actor_missing": False,
+              "lead_face_swapped": False, "ghost_text": False, "verdict": "obvious", "evidence": "两个艾琳娜", "instruction": "艾琳娜只出现一次"}
+    assert tr.verify_to_verdict(answer)["feedback"] == "艾琳娜只出现一次"

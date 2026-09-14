@@ -54,8 +54,10 @@ ASK = ("Translate each numbered Chinese shot description into ONE English senten
        "Return one sentence per input shot, in order.\n\n")
 TRIES = 3  # translations per clip before it is left without an English prompt
 NOTE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["note"], "properties": {"note": {"type": "string"}}}
-NOTE_ASK = ("Translate this director's correction for one video clip into plain English instructions about what the "
-            "picture must show. Refer to each character by the tag given below, never by name. Never quote dialogue. "
+NOTE_ASK = ("Rewrite this director's correction for one video clip as a direct instruction to the video generator: "
+            "imperative mood, present tense, describing only what the correct picture shows - who is in frame, who does what "
+            "to whom, who appears exactly once, who is absent. Never describe the mistake, the previous take or what "
+            "'the director notes'. Refer to each character by the tag given below, never by name. Never quote dialogue. "
             "Reply with the instruction only - no commentary and no remarks about the tag list; a character without a tag is left out.\n\n")
 CJK = re.compile(r"[\u4e00-\u9fff]")
 

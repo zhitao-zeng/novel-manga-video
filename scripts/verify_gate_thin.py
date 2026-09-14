@@ -25,6 +25,18 @@ from verify_clips_thin import Verifier, parse_episodes  # noqa: E402
 import thin_review as tr  # noqa: E402
 
 
+def instruction_for_clip(ep_dir, cid, rec):
+    """The retake note for a clip the verifier confirmed: its own instruction, else one composed from the evidence."""
+    note = str(rec.get("instruction") or "").strip()
+    if note:
+        return note
+    plan = v.load(ep_dir / "clip_plan.json") or {}
+    clip = next((c for c in plan.get("clips", []) if c.get("clip_id") == cid), None) or {}
+    segments = tr.segment_texts(ep_dir)
+    passage = "\n".join(str(segments.get(str(x), "")) for x in (clip.get("segment_ids") or []))
+    return tr.instruction_for(str(rec.get("evidence") or ""), tr.scripted_event(clip) if clip else "", passage)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
@@ -86,6 +98,11 @@ def main() -> int:
                 if c.get("verified") != note:
                     c["verified"] = note
                     changed = True
+                instr = instruction_for_clip(ep_dir, cid, rec)
+                if instr and c.get("feedback") != instr:
+                    c["feedback"] = instr
+                    review.setdefault("feedback", {})[cid] = instr
+                    changed = True
             elif must:
                 cleared += 1
                 for field in ("tier", "fix_tier"):
@@ -104,7 +121,7 @@ def main() -> int:
                 c["story_issue"] = str(rec.get("evidence", ""))[:300]
                 c["severity"] = "fail"
                 c["verified"] = {**note, "promoted": True}
-                c["feedback"] = c.get("feedback") or ("按原文修正剧情：" + str(rec.get("evidence", ""))[:200])
+                c["feedback"] = instruction_for_clip(ep_dir, cid, rec) or ("按原文修正剧情：" + str(rec.get("evidence", ""))[:200])
                 review.setdefault("feedback", {})[cid] = c["feedback"]
                 changed = True
         if changed and args.apply:

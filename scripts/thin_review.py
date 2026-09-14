@@ -954,8 +954,11 @@ def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | N
     """
     parts = []
     if verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL and verdict.get("story_issue"):
-        # The judge's own sentence names who is missing or whose action went to whom; the renderer needs exactly that.
-        parts.append("按原文修正剧情：" + str(verdict["story_issue"]).strip())
+        # What to draw, not what was wrong: the judge's feedback is written as an instruction (who must be in frame,
+        # who does what to whom); story_issue describes the mistake, and H3 rendered that description back as the
+        # scene (雾月 2026-09-14: "two identical white-haired women seated left and right" came back as such).
+        note = str(verdict.get("feedback") or "").strip()
+        parts.append(note if note and not re.search(r"字幕|文字", note) else "按原文修正剧情：" + str(verdict["story_issue"]).strip())
     if verdict.get("text_or_watermark"):
         parts.append("除手机屏幕上指定的聊天消息外，画面中不得出现任何文字、字幕、弹幕或水印，台词只以语音出现")
     if verdict.get("chat_text_ok") is False:
@@ -967,7 +970,7 @@ def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | N
     if verdict.get("visual_defects"):
         parts.append("人物肢体、面部和道具必须结构正常：不得多出或缺少肢体、手指，不得穿模、重影或出现多余物体；"
                      "动作幅度放小，保持角色形体稳定")
-    joined = "；".join(part.rstrip("。；;，, ") for part in parts if part)
+    joined = "；".join(dict.fromkeys(part.rstrip("。；;，, ") for part in parts if part))  # the same instruction once
     return joined or str(verdict.get("feedback") or "").strip()
 
 
@@ -1224,14 +1227,15 @@ if __name__ == "__main__":
 # saw the cards would notice; NOVEL_REVIEW_MODE=verify or profile.json review_mode="verify" selects it.
 VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
                  "required": ["people", "same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing",
-                              "lead_face_swapped", "ghost_text", "verdict", "evidence"],
+                              "lead_face_swapped", "ghost_text", "verdict", "evidence", "instruction"],
                  "properties": {
                      "people": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["who", "gender", "is_animal", "doing", "frames"],
                                                            "properties": {"who": {"type": "string"}, "gender": {"type": "string", "enum": ["男", "女", "不明"]},
                                                                           "is_animal": {"type": "boolean"}, "doing": {"type": "string"}, "frames": {"type": "string"}}}},
                      "same_person_twice": {"type": "boolean"}, "species_or_gender_wrong": {"type": "boolean"}, "action_by_wrong_person": {"type": "boolean"},
                      "actor_missing": {"type": "boolean"}, "lead_face_swapped": {"type": "boolean"}, "ghost_text": {"type": "boolean"},
-                     "verdict": {"type": "string", "enum": ["obvious", "subtle", "fine"]}, "evidence": {"type": "string"}}}
+                     "verdict": {"type": "string", "enum": ["obvious", "subtle", "fine"]}, "evidence": {"type": "string"},
+                     "instruction": {"type": "string"}}}
 VERIFY_QUESTIONS = (
     "\n先逐个描述视频帧里看到的每个人（people：who 是谁或长相，gender，is_animal，doing 在做什么，frames 出现在哪几帧），再回答：\n"
     "same_person_twice：同一帧里是否有两个或更多长得一样（同脸同装）的人；\n"
@@ -1242,8 +1246,24 @@ VERIFY_QUESTIONS = (
     "ghost_text：画面出现字幕、文字、水印、Logo（手机屏幕上的消息除外）；这一项单独记录，不影响 verdict；\n"
     "verdict：obvious＝观众会觉得荒谬或前后不一致（same_person_twice、species_or_gender_wrong、action_by_wrong_person、actor_missing、"
     "lead_face_swapped 任一成立就是 obvious）；subtle＝只有对照角色卡才看得出的配角差别（发色、服装、帽子、徽章）；fine＝没问题；\n"
-    "evidence：一句话，写清哪几帧、谁、看到了什么。只输出JSON。"
+    "evidence：一句话，写清哪几帧、谁、看到了什么；\n"
+    "instruction：给视频生成模型的一句修正指令，只说画面里该有谁、谁对谁做什么、谁只能出现一次或不该出现，点名到人，不复述错误、不提上一次；verdict 为 fine 时留空。只输出JSON。"
 )
+
+
+INSTRUCTION_SCHEMA = obj({"instruction": {"type": "string"}})
+
+
+def instruction_for(evidence: str, event: str = "", passage: str = "") -> str:
+    """One imperative sentence for the video model - who is in frame, who does what to whom, who appears exactly once -
+    composed from what the verifier saw.  Never a description of the mistake: the renderer draws what it reads."""
+    prompt = ("下面是一段短剧视频被判错的原因、这一段的剧本事件和原文。写一句给视频生成模型的修正指令：只说画面里该有谁、谁对谁做什么、"
+              "谁只能出现一次或不该出现，点名到人；不要复述错误，不要用“不是”“错误”“上一次”这类描述过去的话，不超过 80 字。只输出 JSON。\n"
+              f"判错原因：{evidence}\n剧本事件：{event or '（无）'}\n原文：{passage[:600] or '（无）'}")
+    try:
+        return str(ask_json([{"type": "text", "text": prompt}], INSTRUCTION_SCHEMA, name="instruction", max_tokens=200).get("instruction") or "").strip()
+    except Exception:  # noqa: BLE001 - the caller keeps its old note
+        return ""
 
 
 def review_mode(work_dir: Path) -> str:
@@ -1275,7 +1295,7 @@ def verify_to_verdict(answer: dict) -> dict:
         "story_kind": "无问题" if not obvious else ("原文中有动作的人物缺席" if flags["actor_missing"] and not flags["action_by_wrong_person"] else "动作落在错误的人物身上"),
         "story_issue": evidence if obvious else "",
         "severity": "fail" if obvious else ("minor" if subtle else "pass"),
-        "feedback": ("按原文修正剧情：" + evidence) if obvious else "",
+        "feedback": (str(answer.get("instruction") or "").strip() or ("按原文修正剧情：" + evidence)) if obvious else "",
         "verify": {"verdict": answer.get("verdict"), **flags, "ghost_text": bool(answer.get("ghost_text")),
                    "people": [f"{p.get('who')}({p.get('gender')}{'/动物' if p.get('is_animal') else ''}) {p.get('doing')} [{p.get('frames')}]" for p in people][:8] if isinstance(people, list) else []},
     }
