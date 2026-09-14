@@ -31,6 +31,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
+# The judge endpoints: QWEN38_LOCAL_BASE_URL from the environment, else the repo .env (a caller that never sourced it
+# would otherwise send every request to the single default port - 雾月 2026-09-14 afternoon).
+if "QWEN38_LOCAL_BASE_URL" not in os.environ:
+    for _line in (ROOT / ".env").read_text(encoding="utf-8").splitlines() if (ROOT / ".env").is_file() else []:
+        if _line.startswith("QWEN38_LOCAL_BASE_URL="):
+            os.environ["QWEN38_LOCAL_BASE_URL"] = _line.split("=", 1)[1].strip().strip('"').strip("\'")
+            break
 import thin_review as tr  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
 
