@@ -1039,7 +1039,10 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
 
         body_check = [i for i in range(len(pairs)) if pairs[i]["type"] in BODY_TYPES
                       and (votes[i] == ("supports", "supports") or third.get(i, {}).get("verdict") == "supports") and not owner_named(i)]
-        fourth = dict(zip(body_check, pool.map(lambda i: judge_settle(packs[i], SETTLE_RULES_BODY), body_check)))
+        # A body claim whose quotations never name the body's owner is rejected outright - no judge decides it from
+        # context: 2026-09-14 the targeted question accepted 莱恩 occupies_body 奥斯文 from "占据了新身体" (a new body,
+        # not 奥斯文's), and for five hours every rebuilt clip drew the lead with the old man's card.
+        fourth = {i: {"verdict": "contradicts", "why": "证据句没点到身体主人的名字，按不成立处理"} for i in body_check}
     settled = []
     with ledger.lock:
         for i, (c, x, y) in enumerate(zip(pairs, first, second)):
