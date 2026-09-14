@@ -152,3 +152,6 @@ def test_every_stage_with_two_or_more_people_says_where_they_stand():
     assert "构图：莱恩" not in bcp.compile_prompt({"request_seconds": 10, "shots": [solo]}, b, ["莱恩·格雷"], [], "夜莺广场：河边的小广场")
     alone_among = {**shot, "characters": ["莱恩·格雷", "塞西娅"], "actions": [{"actor": "莱恩·格雷", "action": "推开门", "target": ""}]}
     assert "构图：莱恩·格雷在前景居中；塞西娅只在后景侧身或背对镜头" in bcp.compile_prompt({"request_seconds": 10, "shots": [alone_among]}, b, ["莱恩·格雷", "塞西娅"], [], "夜莺广场：河边的小广场")
+    reached = {**shot, "actions": [{"actor": "薇奥拉公主", "action": "吻住", "target": "莱恩·格雷"}, {"actor": "莱恩·格雷", "action": "推开", "target": "塞西娅"}]}
+    later = bcp.compile_prompt({"request_seconds": 10, "shots": [reached]}, b, ["薇奥拉公主", "莱恩·格雷", "塞西娅"], [], "夜莺广场：河边的小广场")
+    assert "构图：薇奥拉公主在画面左侧前景，莱恩·格雷在右侧前景，两人侧面相对、各占一侧。" in later and "塞西娅只在后景" not in later

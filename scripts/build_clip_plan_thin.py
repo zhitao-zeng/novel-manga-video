@@ -622,7 +622,10 @@ def blocking_note(shot: dict) -> str:
     target = next((a.get("target") for a in actions if a.get("target") in people and a.get("target") != actor), None)
     if target is None and not actions:
         target = people[1]
-    rest = [n for n in people if n not in (actor, target)]
+    # only a pure bystander goes to the back: someone a later action reaches (the light that strikes <Subject 3>)
+    # stays available for it
+    involved = {actor, target} | {a.get("actor") for a in actions} | {a.get("target") for a in actions}
+    rest = [n for n in people if n not in involved]
     parts = ([f"{actor}在画面左侧前景，{target}在右侧前景，两人侧面相对、各占一侧"] if target
              else [f"{actor}在前景居中"])
     if rest:
