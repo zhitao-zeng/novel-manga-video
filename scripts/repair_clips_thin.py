@@ -120,13 +120,19 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
     with REBUILD_LOCK:
         ctx = bcp.context_for_plan(episode_dir, bible_path, plan)
         shots = bcp.prepared_shots(copy.deepcopy(script), episode_dir)
-        clip_shots = bcp.shots_for_plan(plan, shots)
-        merged, changed = [], []
+        # Each clip recovers its own stage parts: a rewritten stage that no longer splits the way the plan
+        # recorded (雾月 batch 2: "stage 13 has 1 parts, plan requires part 1/2") leaves that clip as it was
+        # instead of failing the episode - and, before this, the whole batch.
+        merged, changed, skipped = [], [], []
         for before in plan.get("clips") or []:
             if before["clip_id"] not in clip_ids or before.get("kind") != "video":
                 merged.append(before)
                 continue
-            pieces = clip_shots.get(before["clip_id"], [])
+            try:
+                pieces = bcp.shots_for_plan({**plan, "clips": [before]}, shots).get(before["clip_id"], [])
+            except ValueError as error:
+                skipped.append(f"{before['clip_id']}: {str(error)[:80]}")
+                pieces = []
             if not pieces:
                 merged.append(before)
                 continue
@@ -135,6 +141,8 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
             after = bcp.clip_entry(clip, before["clip_id"], ctx)
             merged.append({k: v for k, v in after.items() if k not in LANE_FIELDS})
             changed.append(before["clip_id"])
+        if skipped:
+            print("  left as is (stage parts no longer match the plan): " + "; ".join(skipped), flush=True)
         return {**plan, "clips": merged}, changed
 
 
@@ -183,7 +191,10 @@ def repair_episode(novel_dir: Path, index: int, apply: bool) -> dict:
         repaired.append(cid)
     if not repaired:
         return {"episode": index, "clips": 0, "why": "; ".join(notes)[:160]}
-    new_plan, changed = rebuild_clips(episode_dir, novel_dir / "story_bible.json", script, plan, set(repaired))
+    try:
+        new_plan, changed = rebuild_clips(episode_dir, novel_dir / "story_bible.json", script, plan, set(repaired))
+    except Exception as error:  # noqa: BLE001 - one episode's rebuild must not take the batch down
+        return {"episode": index, "clips": 0, "failing": len(failing), "why": f"rebuild failed: {type(error).__name__}: {str(error)[:100]}"}
     if apply and changed:
         for name in ("chapter_script.json", "clip_plan.json"):
             backup = episode_dir / f"{name}.bak-repair-0914"
@@ -215,7 +226,12 @@ def main() -> int:
     started = time.time()
     print(f"{novel_dir.name}: {len(wanted)} 集有剧情类必修段，{args.workers} 路修段{'' if args.apply else '（不写入）'}", flush=True)
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
-        results = list(pool.map(lambda n: repair_episode(novel_dir, n, args.apply), wanted))
+        def one(n: int) -> dict:
+            try:
+                return repair_episode(novel_dir, n, args.apply)
+            except Exception as error:  # noqa: BLE001 - reported per episode, never the whole batch
+                return {"episode": n, "clips": 0, "why": f"{type(error).__name__}: {str(error)[:120]}"}
+        results = list(pool.map(one, wanted))
     clips = sum(r.get("clips", 0) for r in results)
     failing = sum(r.get("failing", 0) for r in results)
     for r in results:
