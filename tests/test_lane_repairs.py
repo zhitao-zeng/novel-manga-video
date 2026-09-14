@@ -427,11 +427,11 @@ def test_a_review_the_judge_could_not_finish_goes_back_in_the_queue(tmp_path):
     directory = episode(tmp_path)
     write_report(directory, write_plan(directory, [video_clip()]))
     review = directory / "episode_review.json"
-    review.write_text(json.dumps({"clips": {"clip_01": {"severity": "review_error"}}}), encoding="utf-8")
+    review.write_text(json.dumps({"policy": conductor_thin.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}}), encoding="utf-8")
     later(review, 5)
     c = conductor(tmp_path)
     assert c.chapter(1)["unreviewed"]
-    review.write_text(json.dumps({"clips": {"clip_01": {"severity": "review_error"}}, "error_rounds": 3}), encoding="utf-8")
+    review.write_text(json.dumps({"policy": conductor_thin.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}, "error_rounds": 3}), encoding="utf-8")
     later(review, 10)
     assert not c.chapter(1)["unreviewed"]
 
@@ -464,7 +464,10 @@ def test_a_resumed_review_judges_again_only_the_clips_it_failed_on(tmp_path, mon
     monkeypatch.setattr(thin_review, "judge_clip", judge)
     report = thin_review.review_episode(directory)
     assert judged == ["clip_02"] and report["clips"]["clip_01"]["severity"] == "pass" and report["error_rounds"] == 0
-    thin_review.review_episode(directory)  # nothing left unjudged: a plain review judges every clip
+    thin_review.review_episode(directory)  # the same takes: every verdict stands, nothing is judged again
+    assert judged == ["clip_02"]
+    monkeypatch.setenv("NOVEL_REVIEW_FRESH", "1")
+    thin_review.review_episode(directory)  # asked for a fresh review: every clip again
     assert judged == ["clip_02", "clip_01", "clip_02"]
 
 
