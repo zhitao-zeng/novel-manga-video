@@ -1005,10 +1005,12 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
         previous = json.loads(review_path.read_text(encoding="utf-8")) if review_path.is_file() else {}
     except (OSError, ValueError):
         previous = {}
-    # Only a review the judge could not finish is resumed: its verdicts on the very same videos stand, and
-    # just the clips it failed on are judged again.  Any other review judges every clip afresh.
+    # A verdict on the very same file stands: under the same policy, a clip whose take has not changed since the
+    # last review keeps its verdict (with whatever the verification gate wrote on it), and only new takes are judged.
+    # 雾月 2026-09-14: each repair round re-judged all 633 clips of a 60-episode batch for ~40 changed takes.
+    # NOVEL_REVIEW_FRESH=1 judges every clip again (a card or prompt change the policy string does not carry).
     earlier = (previous.get("clips") or {}) if previous.get("policy") == POLICY else {}
-    resume = any(c.get("severity") == "review_error" for c in earlier.values())
+    resume = os.environ.get("NOVEL_REVIEW_FRESH", "").strip() != "1"
     for clip in plan["clips"]:
         if clip["kind"] != "video":
             continue

@@ -64,3 +64,35 @@ def test_review_mode_comes_from_env_or_profile(monkeypatch, tmp_path):
     assert tr.review_mode(work) == "verify"
     monkeypatch.setenv("NOVEL_REVIEW_MODE", "classic")
     assert tr.review_mode(work) == "classic"
+
+
+def test_unchanged_takes_keep_their_verdict_across_reviews(monkeypatch, tmp_path):
+    """Two reviews of the same episode: the second judges only the clip whose file changed."""
+    import json
+    import thin_review as tr
+    novel = tmp_path / "n"; ep = novel / "n_1"; (ep / "work" / "clips" / "clip_01" / "attempt_01").mkdir(parents=True)
+    (ep / "work" / "clips" / "clip_02" / "attempt_01").mkdir(parents=True)
+    (novel / "story_bible.json").write_text(json.dumps({"novel_title": "n", "genre": "g", "visual_style": "v", "palette": "p", "style_fingerprint": "f", "characters": [], "locations": []}), encoding="utf-8")
+    (ep / "clip_plan.json").write_text(json.dumps({"clips": [{"clip_id": "clip_01", "kind": "video"}, {"clip_id": "clip_02", "kind": "video"}]}), encoding="utf-8")
+    for cid in ("clip_01", "clip_02"):
+        (ep / "work" / "clips" / cid / "attempt_01" / "clip.mp4").write_bytes(b"take one " + cid.encode())
+    judged = []
+
+    def fake_judge(clip, video, bible, location_time, hypothesis, work_dir):
+        judged.append(clip["clip_id"])
+        return {"visible_people": 1, "identity_ok": True, "identity_issue": "", "location_ok": True, "time_of_day_ok": True, "location_issue": "",
+                "text_or_watermark": False, "chat_text_ok": True, "chat_text_issue": "", "visual_defects": False, "defect_issue": "",
+                "story_ok": True, "story_kind": "无问题", "story_issue": "", "severity": "pass", "feedback": ""}
+    monkeypatch.setattr(tr, "judge_clip", fake_judge)
+    monkeypatch.setattr(tr, "script_check", lambda *a, **k: None, raising=False)
+    monkeypatch.delenv("NOVEL_REVIEW_FRESH", raising=False)
+    tr.review_episode(ep)
+    assert sorted(judged) == ["clip_01", "clip_02"]
+    (ep / "work" / "clips" / "clip_02" / "attempt_01" / "clip.mp4").write_bytes(b"take two, longer bytes")
+    judged.clear()
+    tr.review_episode(ep)
+    assert judged == ["clip_02"]
+    monkeypatch.setenv("NOVEL_REVIEW_FRESH", "1")
+    judged.clear()
+    tr.review_episode(ep)
+    assert sorted(judged) == ["clip_01", "clip_02"]
