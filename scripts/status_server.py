@@ -21,13 +21,15 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from thin_runs import RENDER_RUNS_PER_PLAN, episode_status, gate_failures, render_runs
+from thin_runs import REVIEW_POLICY, RENDER_RUNS_PER_PLAN, episode_status, gate_failures, render_runs
 from review_progress_thin import viewer_progress
+from pipeline_dashboard import pipeline_metrics, start_monitor
 
 ROOT = Path(__file__).resolve().parents[1]
 TMP = Path("/mnt/disk1/zengzhitao/tmp")
 CACHE_SECONDS = 20
 PORT = 18900
+UI_VERSION = str(time.time())
 
 NOVELS = [
     {"id": "zhutian-card", "title": "诸天万象录", "conductor": TMP / "conductor" / "conductor.log"},
@@ -102,7 +104,8 @@ def _episode_state(directory: Path, h3_lane: bool) -> dict:
         review_state = "pending"
         if stamps[5] >= stamps[3]:
             try:
-                reviews = json.loads((directory / "episode_review.json").read_text(encoding="utf-8")).get("clips", {})
+                review = json.loads((directory / "episode_review.json").read_text(encoding="utf-8"))
+                reviews = review.get("clips", {}) if review.get("policy") == REVIEW_POLICY else {}
                 plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
                 expected = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
                 if any(c.get("severity") == "review_error" for c in reviews.values()):
@@ -234,6 +237,8 @@ def _delivery(novel_id: str) -> dict | None:
         return hit[1]
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("review_policy") != REVIEW_POLICY:
+            return None  # recalculate aggregates made before the current review gate
         gates = data.get("gates", {})
         value = {
             "deliverable": data.get("deliverable", 0), "total": data.get("total", 0),
@@ -273,6 +278,7 @@ def _novel_status(novel: dict) -> dict:
         "modes": _plan_modes(novel["id"]),
         "spark": _spark(finals), "today": _today(finals),
         "delivery": _delivery(novel["id"]),
+        "pipeline": pipeline_metrics(ROOT / 'outputs' / novel['id']),
         **{k: v for k, v in inventory.items() if k not in {"finals", "planned"}},
     }
 
@@ -851,6 +857,8 @@ def _parse_review(path: Path):
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    if report.get("policy") != REVIEW_POLICY:
+        return None
     clips = report.get("clips", {})
     sev: dict[str, int] = {}
     cats: dict[str, int] = {}
@@ -978,6 +986,8 @@ def _board_novel(novel: dict) -> dict:
         "daily": sorted(by_day.items()), "hourly": sorted(by_hour.items()),
         "rate7": rate7, "projected": projected, "rate_h": rate_h, "projected_ts": projected_ts,
         "delivery": _delivery(nid),
+        "pipeline": pipeline_metrics(base),
+        'per_hour':_rate(finals,3600), 'recent_per_hour':_rate(finals,900)*4,
         **{k: v for k, v in inventory.items() if k not in {"finals", "planned"}},
         "quality": {
             "clips": total, "sev": sev_all,
@@ -998,6 +1008,9 @@ def _build_board() -> None:
     try:
         data = {"now": time.strftime("%Y-%m-%d %H:%M:%S"), "novels": [_board_novel(n) for n in NOVELS]}
         _board_cache.update(at=time.time(), data=data)
+        _board_cache.pop('error',None)
+    except Exception as error:
+        _board_cache['error']=type(error).__name__
     finally:
         _board_cache["building"] = False
 
@@ -1011,8 +1024,16 @@ def board_snapshot() -> dict:
         _board_cache["building"] = True
         threading.Thread(target=_build_board, daemon=True).start()
     if _board_cache["data"] is None:
-        return {"building": True}
-    return _board_cache["data"]
+        return live_metrics({'building':True,'now':None,'novels':[{'id':n['id'],'title':n['title'],'history_loading':True} for n in NOVELS]})
+    return live_metrics({**_board_cache['data'],'history_error':_board_cache.get('error')})
+
+
+def live_metrics(data: dict) -> dict:
+    """Production counters stay live while expensive historical charts are cached."""
+    rows=[{**n,'pipeline':pipeline_metrics(ROOT/'outputs'/n['id']),'history_at':data.get('now')} for n in data.get('novels',[])]
+    rows.sort(key=lambda n:0 if (n.get('pipeline') or {}).get('mode','repair')=='repair' and n.get('pipeline')
+              else 1 if n.get('pipeline') else 2)
+    return {**data,'novels':rows,'live_at':time.strftime('%F %T'),'ui_version':UI_VERSION}
 
 
 _cache: dict = {"at": 0.0, "data": None}
@@ -1022,7 +1043,7 @@ def cached_snapshot() -> dict:
     if time.time() - _cache["at"] > CACHE_SECONDS or _cache["data"] is None:
         _cache["data"] = snapshot()
         _cache["at"] = time.time()
-    return _cache["data"]
+    return live_metrics(_cache['data'])
 
 
 STYLE = """
@@ -1195,10 +1216,11 @@ STATE_JS = """function deliverySummary(n){
     <span class="dim">剧本影子门 ${d.script_flagged} 集（不阻断）· 算于 ${d.generated_at}</span></div>`;
 }
 function stateSummary(n){
+  if(n.pipeline) return pipelineSummary(n);
   const s = n.states || {};
   return deliverySummary(n) + `<div class="nmeta"><span>质检合格 <b class="num ok-t">${n.done}</b> · 视频文件 ${n.files} · 已规划 ${n.planned}</span>
     <span>未过质检 ${s.done_with_warnings||0} · 待重做 ${s.stale||0} · 生成失败 ${s.clips_failed||0}</span></div>
-    <div class="nmeta"><span>待审查 ${n.review_pending} · 审查失败 ${n.review_errors}</span>
+    <div class="nmeta"><span>待审查 ${n.review_pending} · 审查执行异常 ${n.review_errors}</span>
     <span class="${n.blocked?'warn-t':'dim'}">需处理 ${n.blocked} 集${n.uncertain ? `（提交结果不明 ${n.uncertain} 集）` : ''}</span></div>`;
 }
 function episodeAttention(n){
@@ -1213,6 +1235,10 @@ function episodeAttention(n){
     [...groups].map(([reason, chapters])=>`<div class="dim" style="margin-top:8px;overflow-wrap:anywhere">${reason} · ${chapters.length} 集：<span class="num">${chapters.join('、')}</span></div>`).join('') + '</details>';
 }
 """
+
+STATE_JS = 'const DASHBOARD_VERSION='+json.dumps(UI_VERSION)+';\n'+STATE_JS
+STATE_JS += (Path(__file__).with_name('pipeline_dashboard.js')).read_text(encoding='utf-8')
+STYLE += (Path(__file__).with_name('pipeline_dashboard.css')).read_text(encoding='utf-8')
 
 
 def _page(active: str, header_extra: str, body: str) -> str:
@@ -1233,7 +1259,7 @@ LIVE_BODY = """
 <div class="card" id="attention-card"><div class="label">需要关注</div><div id="attention"></div></div>
 <div class="card"><div class="label">运行明细 · 通道</div><div class="twrap"><table class="resp" id="lanes"></table></div></div>
 <div class="card"><div class="label">运行明细 · 单集任务</div><div class="twrap"><table class="resp" id="workers"></table></div></div>
-<div class="card" id="local-card" style="display:none"><div class="label">本地 H3 · 不花钱的算力</div>
+<div class="card" id="local-card" style="display:none"><div class="label">本地 H3 生成资源</div>
   <div class="twrap"><table class="resp" id="local"></table></div></div>
 <div class="card"><div class="label">进程与在途</div><div class="pills" id="procs"></div>
   <div class="twrap" style="margin-top:12px"><table class="resp" id="inflight"></table></div></div>
@@ -1244,7 +1270,7 @@ const fmtETA = h => h == null ? "—" : (h < 1 ? Math.round(h*60)+" 分钟" : h 
 const fmtAgo = s => s == null ? "—" : (s < 90 ? s+" 秒前" : s < 5400 ? Math.round(s/60)+" 分钟前" : (s/3600).toFixed(1)+" 小时前");
 const laneHealth = l => l.age == null ? "warn" : l.age < 1200 ? "ok" : l.age < 3600 ? "warn" : "bad";
 const workerHealth = w => { const s = w.idle != null ? w.idle : w.elapsed; return s < 1200 ? "ok" : s < 2400 ? "warn" : "bad"; };
-const HEALTH_TEXT = {ok:"运行正常", warn:"有待处理或等待中的任务", bad:"有异常"};
+const HEALTH_TEXT = {ok:"运行正常", warn:"有待处理任务", bad:"有执行异常"};
 const WORST = {ok:0, warn:1, bad:2};
 
 function spark(bars){
@@ -1266,6 +1292,7 @@ function spark(bars){
 }
 
 function novelCard(d, n){
+  if(n.pipeline)return pipelineCurrentCard(n);
   const lanes = d.lanes.filter(l => l.novel === n.title);
   const workers = d.workers.filter(w => w.novel === n.title);
   const pools = d.inflight.filter(i => i.novel === n.title);
@@ -1277,18 +1304,19 @@ function novelCard(d, n){
       lanes.map(l=>`<tr><td class="dim">${l.stage}通道</td><td class="num rng" data-tip="${l.range_full}">${l.range}</td><td>${l.mode}</td><td class="dim">${l.model||"—"}</td><td class="num">本轮 ${l.done} · 剩 ${l.total-l.covered}</td><td class="${l.age>1800?"warn-t":"dim"}">${fmtAgo(l.age)}</td></tr>`).join("") +
       workers.map(w=>`<tr><td class="dim">${w.kind}</td><td class="num">${w.what}</td><td colspan="2" class="dim">${w.detail}</td><td></td><td class="${w.elapsed>1800?"warn-t":"dim"}">已跑 ${fmtAgo(w.elapsed).replace("前","")}</td></tr>`).join("") +
       `</tbody></table>` : `<div class="dim" style="margin-top:8px;font-size:12.5px">这本书当前没有在跑的任务</div>`;
-  return `<div class="card ncard">
+  return `<details class="card ncard pipeline-legacy" data-panel="${pipelineEscape(n.id)}-legacy"><summary>${pipelineEscape(n.title)} · 历史制作记录</summary><div class="pipeline-note">尚未接入当前产线或本轮精判，以下旧统计不参与当前交付汇总。</div><div>
     <div class="nrow">
       <span class="nname"><i class="dot ${health}"></i>${n.title}<span class="pill ${health}">${health==="ok"?"正常":health==="warn"?"待关注":"需处理"}</span></span>
-      <span class="neta">待合格 <b>${n.left}</b> 集 · ${n.blocked ? "有待处理章节，暂无总完成时间" : `约 <b>${fmtETA(n.eta_hours)}</b>`} · 最近合格 ${last}</span>
+      <span class="neta">${n.pipeline ? `待交付 <b>${n.pipeline.remaining}</b> 集 · 按下方当前成片结果统计` : `待技术合格 <b>${n.left}</b> 集 · ${n.blocked ? "有待处理章节，暂无总完成时间" : `约 <b>${fmtETA(n.eta_hours)}</b>`} · 最近技术合格 ${last}`}</span>
     </div>
+    ${n.pipeline ? stateSummary(n) : ''}
     <div class="nbody">
       <div>
-        ${stateSummary(n)}
+        ${n.pipeline ? '' : stateSummary(n)}
         <div class="nmeta"><span>全书 ${n.chapters} 章</span>
-          <span>今日合格 ${n.today} · 近一小时 ${n.per_hour} 集 · 近 15 分钟折合 ${n.recent_per_hour}/时</span></div>
-        <div class="track"><div class="fill" style="width:${pct(n.done,n.chapters)}%"></div>
-          <div class="fill plan" style="width:${pct(n.planned-n.done,n.chapters)}%"></div></div>
+          <span>今日技术合格合成 ${n.today} · 近一小时 ${n.per_hour} 集 · 含重合成</span></div>
+        <div class="track"><div class="fill" style="width:${pct(n.pipeline?n.pipeline.deliverable:n.done,n.chapters)}%"></div>
+          <div class="fill plan" style="width:${pct(n.planned-(n.pipeline?n.pipeline.deliverable:n.done),n.chapters)}%"></div></div>
         <div class="nmeta"><span>30 秒片段计划 ${n.modes["30"]} 集 · 15 秒片段计划 ${n.modes["15"]} 集</span>
           <span>${pools.map(p=>`${p.pool} ${p.slots}/${p.limit}`).join(" · ")||"无在途通道"}</span></div>
       </div>
@@ -1297,7 +1325,7 @@ function novelCard(d, n){
     ${n.tick ? `<div class="tick">tick: ${n.tick}</div>` : ""}
     ${episodeAttention(n)}
     <details><summary>这本书的运行明细（${lanes.length + workers.length} 个在跑）</summary>${detailRows}</details>
-  </div>`;
+    </div></details>`;
 }
 
 function attention(d){
@@ -1336,10 +1364,8 @@ function laneRow(l){
 
 function tick(){
   fetch("status.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{
-    const totalLeft = d.novels.reduce((a,n)=>a+n.left,0);
-    const speed = d.novels.reduce((a,n)=>a+(n.recent_per_hour||n.per_hour),0);
-    const today = d.novels.reduce((a,n)=>a+n.today,0);
-    const blocked = d.novels.reduce((a,n)=>a+n.blocked,0);
+    if(d.ui_version&&d.ui_version!==DASHBOARD_VERSION){window.location.reload();return;}
+    const current=d.novels.filter(n=>n.pipeline);
     const nowSec = Date.now()/1000;
     const states = [
       ...d.lanes.map(laneHealth), ...d.workers.map(workerHealth),
@@ -1348,18 +1374,12 @@ function tick(){
       ...d.warnings.filter(w=>w.ts && nowSec - w.ts < 7200).map(w=>w.level),
       ...(d.lanes.length||d.workers.length ? [] : ["warn"]),
     ];
-    const overall = states.reduce((a,b)=>WORST[a]>WORST[b]?a:b, "ok");
+    const overall = (current.length?current.map(pipelineHealth):states).reduce((a,b)=>WORST[a]>WORST[b]?a:b, "ok");
     $("health").className = "health " + overall;
     $("health").innerHTML = `<i class="dot ${overall}"></i>${HEALTH_TEXT[overall]}`;
-    $("stats").innerHTML =
-      `<div class="stat"><div class="k">今日合格成片</div><b>${today}</b><span class="u">集</span></div>
-       <div class="stat"><div class="k">近期合格成片速度</div><b>${speed}</b><span class="u">集/时</span></div>
-       <div class="stat"><div class="k">在跑任务</div><b>${d.lanes.length + d.workers.length}</b><span class="u">个</span>
-         <div class="sub">${d.lanes.length} 条通道 · ${d.workers.length} 个单集</div></div>
-       <div class="stat"><div class="k">已规划待合格</div><b>${totalLeft}</b><span class="u">集</span>
-         <div class="sub">${blocked ? `${blocked} 集需处理，暂无总完成时间` : `按近期速度约 ${fmtETA(speed ? Math.round(totalLeft/speed*10)/10 : null)}`}</div></div>`;
-    $("novels").innerHTML = d.novels.map(n=>novelCard(d,n)).join("");
-    $("attention").innerHTML = attention(d);
+    $("stats").innerHTML = pipelineOverview(d.novels);
+    pipelineRender('novels',d.novels.map(n=>novelCard(d,n)).join(''));
+    $("attention").innerHTML = current.length?pipelineAlerts(d.novels):attention(d);
     $("lanes").innerHTML = `<thead><tr><th></th><th>任务</th><th>章节</th><th>档位</th><th>进度</th><th>速度</th><th>更新</th></tr></thead><tbody>` +
       (d.lanes.length ? d.lanes.map(laneRow).join("") : `<tr><td class="dim">没有在跑的通道</td></tr>`) + `</tbody>`;
     $("workers").innerHTML = `<thead><tr><th>类型</th><th>小说</th><th>对象</th><th>进度</th><th>已跑</th></tr></thead><tbody>` +
@@ -1392,10 +1412,10 @@ function tick(){
     }
     const ageSec = Math.max(0, Math.round((Date.now() - new Date(d.now.replace(" ","T")))/1000));
     $("stamp").className = "";
-    $("stamp").textContent = `数据 ${ageSec} 秒前 · 每 20 秒刷新`;
+    $("stamp").textContent = `当前指标 ${d.live_at||d.now} · 每 15 秒同步`;
   }).catch(e=>{ $("stamp").textContent = "读取失败：" + e; $("stamp").className = "err"; });
 }
-tick(); setInterval(tick, 20000);
+tick(); setInterval(tick, 15000);
 </script>"""
 
 BOARD_BODY = """
@@ -1501,7 +1521,7 @@ function viewerReview(v){
     ${groups}</div>`;
 }
 
-function boardCard(n){
+function legacyBoardCard(n){
   const q = n.quality;
   // a book's whole run is a day or two, so short runs switch to hourly granularity
   const hourlyMode = n.daily.length <= 3;
@@ -1524,9 +1544,9 @@ function boardCard(n){
     : `<div class="dim">没有被判失败的类别</div>`;
   return `<div class="card ncard">
     <div class="nrow"><span class="nname">${n.title}</span>
-      <span class="neta">${etaTxt}</span></div>
+      <span class="neta">${n.pipeline?`待交付 ${n.pipeline.remaining} 集 · 净增长见下方`:etaTxt}</span></div>
     ${stateSummary(n)}
-    <div class="dim" style="font-size:12px">产量与速度只计当前质检合格的成片，按最近合成时间统计；重做后日期会更新。审查统计只使用当前版本的审查结果。</div>
+    <div class="dim" style="font-size:12px">下面曲线为技术合格合成记录（含重合成）；净交付增长见上方独立指标。审查统计只使用当前版本的审查结果。</div>
     ${burnup(n, series, projT, stepMs, fmt)}
     ${bars.length ? barsSVG(bars, 760, 64) : ""}
     ${viewerReview(n.viewer_review)}
@@ -1545,15 +1565,32 @@ function boardCard(n){
     </div>${episodeAttention(n)}</div>`;
 }
 
+function historicalProduction(n){
+  if(n.history_loading)return '<div class="pipeline-note">历史制作曲线正在后台读取，当前产线指标已经可用。</div>';
+  const hourlyMode=(n.daily||[]).length<=3,src=(hourlyMode?n.hourly:n.daily)||[];
+  let cum=0;const series=src.map(([k,c])=>{cum+=c;return [Date.parse(k),cum];});
+  const fmt=hourlyMode?mdHm:mdT,step=hourlyMode?3600000:DAY;
+  const bars=src.map(([k,c])=>({v:c,tip:fmt(Date.parse(k))+' · '+c+' 集'}));
+  return `<div class="pipeline-note">按现有技术合格成片的合成时间统计，包含重合成，不是净交付增长。历史数据计算于 ${pipelineEscape(n.history_at||'—')}。</div>`+
+    burnup(n,series,null,step,fmt)+(bars.length?barsSVG(bars,760,64):'');
+}
+
+function boardCard(n){
+  if(n.pipeline)return pipelineCurrentCard(n)+`<details class="card pipeline-history" data-panel="${pipelineEscape(n.id)}-history"><summary>${pipelineEscape(n.title)} · 历史制作曲线</summary>${historicalProduction(n)}</details>`;
+  const body=n.history_loading?'<div class="pipeline-note">历史制作记录正在读取。</div>':legacyBoardCard(n);
+  return `<details class="card pipeline-legacy" data-panel="${pipelineEscape(n.id)}-legacy"><summary>${pipelineEscape(n.title)} · 历史制作和旧审核参考</summary><div class="pipeline-note">尚未接入当前产线或本轮精判，以下旧统计不参与当前交付汇总。</div>${body}</details>`;
+}
+
 function load(){
   fetch("board.json", {cache:"no-store"}).then(r=>r.json()).then(d=>{
-    if (d.building){
+    if(d.ui_version&&d.ui_version!==DASHBOARD_VERSION){window.location.reload();return;}
+    if (d.building&&!(d.novels||[]).some(n=>n.pipeline)){
       document.getElementById("board").innerHTML = `<div class="card dim">首次统计要扫一遍每集的审查和渲染报告，十几秒到一分钟，好了会自动出来…</div>`;
       setTimeout(load, 3000); return;
     }
-    document.getElementById("board").innerHTML = d.novels.map(boardCard).join("");
-    document.getElementById("stamp").textContent = `统计于 ${d.now} · 每 5 分钟重算`;
-    setTimeout(load, 300000);
+    pipelineRender('board',d.novels.map(boardCard).join(''));
+    document.getElementById("stamp").textContent = `当前指标 ${d.live_at||d.now} · 每 15 秒同步`;
+    setTimeout(load, 15000);
   }).catch(e=>{ const s=document.getElementById("stamp"); s.textContent="读取失败："+e; s.className="err"; setTimeout(load, 20000); });
 }
 load();
@@ -1596,6 +1633,8 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
+    server=ThreadingHTTPServer(("0.0.0.0",port),Handler)
+    start_monitor(ROOT,[n['id'] for n in NOVELS])
     _board_cache["building"] = True
     threading.Thread(target=_build_board, daemon=True).start()  # warm the board cache
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    server.serve_forever()

@@ -44,8 +44,8 @@ def test_wrong_actor_or_missing_actor_is_a_retake():
     assert thin_review.fix_tier(verdict(story_kind="原文中有动作的人物缺席"), bible()) == "must_fix"
     assert thin_review.fix_tier(verdict(story_kind="画面事件与原文不符"), bible()) == "ignore"
     assert thin_review.fix_tier(verdict(story_ok=True, story_kind="无问题", story_issue=""), bible()) == "ignore"
-    # the book asked for it: the script check still wins
-    assert thin_review.fix_tier(verdict(scripted={"evidence": "x", "note": ""}), bible()) == "optional"
+    # A scripted image does not excuse assigning its action to the wrong person.
+    assert thin_review.fix_tier(verdict(scripted={"evidence": "x", "note": ""}), bible()) == "must_fix"
 
 
 def test_the_correction_repeats_the_judge_in_the_books_terms():

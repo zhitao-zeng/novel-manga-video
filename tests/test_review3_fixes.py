@@ -84,7 +84,7 @@ def test_the_conductor_does_not_stop_while_a_final_waits_for_its_review(tmp_path
     c = conductor(tmp_path)
     assert c.tick()  # rendered, not reviewed: a review batch goes out and the conductor carries on
     review = directory / "episode_review.json"
-    review.write_text(json.dumps({"clips": {}}), encoding="utf-8")
+    review.write_text(json.dumps({"policy": conductor_thin.REVIEW_POLICY, "clips": {}}), encoding="utf-8")
     later = (directory / f"{NOVEL}_1.mp4").stat().st_mtime + 5
     os.utime(review, (later, later))
     assert not c.tick()

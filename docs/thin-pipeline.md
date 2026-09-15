@@ -226,6 +226,10 @@ Seedance 只按参考音频克隆音色，没有参考时每段自己编，同�
 
 看板把两套审查分开展示：`episode_review.json` 是对照人物卡、地点等的**设定一致性审查**，严格通过率并不是需要重做的比例；`second_review_final.json` 与 `second_review/verify99/repaired/{look,read}` 是**明显画面错误复审及修复验收**。`review_progress_thin.py` 只跟踪已有候选/验收片段，合并同一描述的看图和复读判定，并核对成片所选片段、视频更新时间、拆分编号；视频变过、选了其他 take 或尚未完成复审的均列为待复审，不算通过。早期更换过判定口径的 `repair_check.json` 不用于这项验收统计。部署状态页由 `scripts/status_serve.sh` 常驻管理；修改后重启它的 Python 子进程，由守护脚本接续，避免另开进程抢占 18900 端口。
 
+9 月 14 日修复：补演员表和单段修复共用原分段恢复逻辑；新计划以 `shot_parts` 记录每个阶段的切片，旧计划沿用拆分记录或原有顺序，无法恢复的集返回错误并保留原文件。重建从原计划继承 tier、画幅、风格与时长上限。已经补过演员表的存量计划可以先用 `complete_cast_thin.py --novel-dir outputs/X --rebuild-existing --dry-rebuild` 预检，再使用 `--apply --rebuild-existing` 写回；这会使改变的片段待重渲，不能当作纯质检操作。
+
+剧情审查中的“错人做动作”和“人物缺席”优先于 `scripted` 豁免，且不再送去做怪异造型的豁免核对；已有报告可用 `retier_reviews.py --novel-dir outputs/X --apply` 重新判级，不加 `--script-check` 时不会调用模型。调度器、交付门、看板和试点统计共用 `thin_runs.REVIEW_POLICY`，旧版审查需补审，旧交付汇总需重算。实体索引明确标为非泛称的两字人名可补入演员表；资产库显式开启时，批处理与调度器不再用默认内联图片覆盖它；`--pick` 超过候选集数时选完候选即结束。
+
 ## 题材预设
 
 会随题材变的规则不写在代码里，放在 `configs/genres/<key>.json`（现有 `generic` 通用、`xianxia` 古风玄幻、`urban` 现代都市），`profile.json` 的 `genre` 指定用哪份；起书时 `build_bible_thin.py` 按圣经里模型给出的类型和开头几章的关键词自动选，`--genre` 可强制。每份预设的字段：

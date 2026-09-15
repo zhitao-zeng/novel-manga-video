@@ -172,6 +172,22 @@ def test_one_named_instance_still_renders_as_before(tmp_path):
     assert sidecar["endpoint"] == "http://10.0.0.7:7/v1/videos" and "instance" not in sidecar
 
 
+def test_retries_change_only_seed_without_narrating_retry_instructions(tmp_path):
+    payloads = []
+    def handler(request):
+        if request.method == 'POST':
+            payloads.append(json.loads(request.content))
+            return httpx.Response(200, json={'id': f't{len(payloads)}'})
+        if request.url.path.endswith('/content'):
+            return httpx.Response(200, content=b'mp4')
+        return httpx.Response(200, json={'status': 'completed'})
+    provider, card = make_provider(tmp_path, handler, base_url='http://10.0.0.7:7')
+    for i in range(3):
+        provider.create_video('same scene and dialogue', None, tmp_path / f'clip{i}.mp4', 5, additional_images=(card,), seed_variant=i)
+    assert len({p['seed'] for p in payloads}) == 3
+    assert all({k:v for k,v in p.items() if k != 'seed'} == {k:v for k,v in payloads[0].items() if k != 'seed'} for p in payloads)
+
+
 def write_tick_gpus(tmp_path, tick_time, gpus, machine="gpu03"):
     (tmp_path / "tick.json").write_text(json.dumps({"time": tick_time, "machines": [{"machine_id": machine, "inspection": {"gpus": gpus}}]}))
 

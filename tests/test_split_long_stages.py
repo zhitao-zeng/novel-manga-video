@@ -91,6 +91,7 @@ def test_a_moved_take_s_asr_record_names_its_new_place(tmp_path):
 def runner(tmp_path, cache_only=False) -> rc.ThinMediaRunner:
     r = object.__new__(rc.ThinMediaRunner)
     r.novel_dir, r.work = tmp_path / "nov", tmp_path / "nov" / "nov_1" / "work"
+    r.episode_dir = r.work.parent
     r.settings = types.SimpleNamespace(local_h3_base_url=None)
     r.feedback, r.prescreen, r.cache_only = {}, False, cache_only
     return r
@@ -134,7 +135,7 @@ def test_fresh_takes_past_the_cache_are_free_lanes_or_asked_for():
 def test_thin_batch_retake_failed_takes_a_paid_final_back(tmp_path, monkeypatch):
     directory = tmp_path / "nov" / "nov_1"
     directory.mkdir(parents=True)
-    plan = {"policy": "thin-clip-plan-v9-15s", "clips": [{"clip_id": "clip_01", "kind": "video", "prompt": "p", "references": []}]}
+    plan = {"policy": "thin-clip-plan-v9-15s", "clips": [{"clip_id": "clip_01", "kind": "video", "prompt": "p", "references": [], "request_seconds": 15}]}
     (directory / "clip_plan.json").write_text(json.dumps(plan), encoding="utf-8")
     (directory / "thin_media_report.json").write_text(json.dumps({"clip_plan_fingerprint": plan_fingerprint(plan), "review_feedback": {},
                                                                   "failed_clips": [], "gate_failed_clips": ["clip_01"], "assembly": {"thin_passed": True}}), encoding="utf-8")

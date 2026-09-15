@@ -152,6 +152,7 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
         duration: float,
         additional_images: tuple[Path, ...] = (),
         reference_audios: tuple[Path, ...] = (),
+        seed_variant: int = 0,
     ) -> Path:
         images = ([Path(image.path)] if image is not None else []) + [Path(p) for p in additional_images]
         for path in (*images, *reference_audios):
@@ -159,7 +160,7 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                 raise FileNotFoundError(path)
         payload = self._payload(prompt, images, tuple(reference_audios), duration)
         request_sha256 = hashlib.sha256(
-            json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            json.dumps({**payload, **({'seed_variant': seed_variant} if seed_variant else {})}, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()
         # A seed drawn from the request keeps a resubmission of the same clip identical, while
         # a repaired clip - whose prompt changed - gets a different draw of the dice.

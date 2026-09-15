@@ -30,7 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
-from thin_runs import episode_status, gate_failures, render_runs  # noqa: E402
+from thin_runs import REVIEW_POLICY, episode_status, gate_failures, render_runs  # noqa: E402
 
 POLICY = "delivery-gate-v1"
 
@@ -149,7 +149,7 @@ def main() -> int:
         review_state = "not_ready"
         if status in {"done", "done_with_warnings"} and final.is_file():
             review_state = "pending"
-            if mtime(d / "episode_review.json") >= mtime(final):
+            if review.get("policy") == REVIEW_POLICY and mtime(d / "episode_review.json") >= mtime(final):
                 if any(c.get("severity") == "review_error" for c in clips.values() if isinstance(c, dict)):
                     review_state = "error"
                 elif expected and all(clips.get(cid, {}).get("severity") in {"pass", "minor", "fail"} for cid in expected):
@@ -159,7 +159,8 @@ def main() -> int:
         ghosts = sorted(name for name in cast & measurable if body and not any(f in body for f in forms[name]))
 
         tech = status == "done"
-        reviewed_clean = review_state == "reviewed" and not feedback
+        from repair_history import publication_pending
+        reviewed_clean = review_state == "reviewed" and not feedback and not publication_pending(d)
         script_ok = not ghosts
         why = [w for w, bad in (("技术", not tech), ("审查", not reviewed_clean)) if bad]
         rows.append({
@@ -176,7 +177,7 @@ def main() -> int:
     for r in rows:
         ghost_names.update(r["ghosts"])
     summary = {
-        "policy": POLICY, "novel": novel_id, "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "policy": POLICY, "review_policy": REVIEW_POLICY, "novel": novel_id, "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "h3_lane": h3_lane, "total": total, "deliverable": deliverable,
         "gates": {
             "tech": {"blocked": sum(not r["tech"] for r in rows),

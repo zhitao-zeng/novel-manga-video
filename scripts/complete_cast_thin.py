@@ -10,12 +10,13 @@ Storyboards planned before that carry the gap.  This adds the missing names to c
 
 The clip boundaries stay where they are: the packer cuts on cast changes, so re-packing the completed
 storyboard would move the cuts in a quarter of the episodes (星海: 115 of 448), and a moved cut means the
-whole episode renders again and every review of it is void.  So the old storyboard is packed again (the
-same cuts, deterministically), the completed casts are put into those clips' shots, and each clip's entry
-is rebuilt in place.  Only clips whose cast changed carry a new request; the others keep their prompt and
+whole episode renders again and every review of it is void. Recorded stage parts recover each clip's own
+dialogue range, and each clip's entry is rebuilt in place with the plan's original tier. Only changed
+casts, dialogue ranges or references carry a new request; the others keep their prompt and
 the lane's English prompt.  An episode whose old cuts cannot be reproduced (a plan from another packer
 version) is left alone and counted.  --repack asks for a full re-pack instead (new cuts, whole episode).
 Without --apply it only counts; --no-pack rewrites the storyboard but leaves the clip plan alone.
+--rebuild-existing also checks plans whose storyboard was already completed by an earlier run.
 """
 from __future__ import annotations
 
@@ -66,7 +67,8 @@ def splice_plans(old: dict, new: dict) -> tuple[dict | None, list[str]]:
     changed: list[str] = []
     merged_clips = []
     for before, after in zip(old_clips, new_clips):
-        if (before.get("cast") or []) == (after.get("cast") or []) and (before.get("background_only") or []) == (after.get("background_only") or []):
+        if all((before.get(k) or []) == (after.get(k) or [])
+               for k in ("cast", "background_only", "lines", "chat_lines", "references")):
             merged_clips.append(before)
             continue
         entry = {k: v for k, v in after.items() if k not in LANE_FIELDS}
@@ -82,21 +84,23 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
     import).  Returns (merged plan, changed clip ids, "") or (None, [], why) when the old cuts could
     not be reproduced."""
     import build_clip_plan_thin as bcp
-    ctx = bcp.load_context(episode_dir, bible_path)
+    ctx = bcp.context_for_plan(episode_dir, bible_path, old_plan)
     shots = bcp.prepared_shots(copy.deepcopy(new_script), episode_dir)
     if len(shots) != len(old_script.get("shots") or []):
         return None, [], "shot count differs"
-    by_index = {shot.get("origin_index"): shot for shot in shots}
+    try:
+        clip_shots = bcp.shots_for_plan(old_plan, shots)
+    except ValueError as error:
+        return None, [], str(error)
     # The plan remembers which shots each clip covers; the clip is rebuilt from exactly those, so the cuts are
     # the old ones whatever today's packer would decide.  (pack() builds the same dict: kind, location, shots,
     # seconds.)  Title cards and clips without shot bookkeeping keep their old entry.
     rebuilt = []
     for before in old_plan.get("clips") or []:
-        indexes = before.get("shot_indexes") or []
-        if before.get("kind") != "video" or not indexes or any(i not in by_index for i in indexes):
+        pieces = clip_shots.get(before["clip_id"])
+        if not pieces:
             rebuilt.append(before)
             continue
-        pieces = [piece for i in indexes for piece in bcp.split_long_shot(by_index[i])]
         clip = {"kind": "video", "location": before.get("location") or pieces[0]["location"], "shots": pieces,
                 "seconds": round(sum(bcp.shot_seconds(p) for p in pieces), 2)}
         rebuilt.append(bcp.clip_entry(clip, before["clip_id"], ctx))
@@ -130,6 +134,7 @@ def main() -> int:
     parser.add_argument("--repack", action="store_true", help="full re-pack with new cuts instead of rebuilding in place")
     parser.add_argument("--mode", choices=("15", "30"), help=argparse.SUPPRESS)  # worker: one clip length per process
     parser.add_argument("--dry-rebuild", action="store_true", help="rebuild in memory and report, write nothing")
+    parser.add_argument("--rebuild-existing", action="store_true", help="also rebuild plans whose casts were already completed, retaining their original cuts and tier")
     args = parser.parse_args()
     if args.dry_rebuild:
         args.apply = True
@@ -146,15 +151,17 @@ def main() -> int:
         by_mode: dict[str, list[int]] = {}
         for index, script_path in episodes_of(novel_dir, wanted):
             by_mode.setdefault(plan_mode(script_path.parent), []).append(index)
+        failed = False
         for mode, indexes in sorted(by_mode.items()):
             env = {**os.environ, "NOVEL_CLIP_SECONDS_MAX": mode}
             if mode == "30":
                 env.pop("NOVEL_CLIP_SECONDS_MAX", None)
             command = [sys.executable, str(Path(__file__).resolve()), "--novel-dir", str(novel_dir), "--apply", "--mode", mode,
-                       "--chapters", ",".join(map(str, indexes))] + (["--dry-rebuild"] if args.dry_rebuild else [])
+                       "--chapters", ",".join(map(str, indexes))] + (["--dry-rebuild"] if args.dry_rebuild else []) + (["--rebuild-existing"] if args.rebuild_existing else [])
             print(f"[{mode} 秒档] {len(indexes)} 集", flush=True)
-            subprocess.run(command, env=env, check=False)
-        return 0
+            result = subprocess.run(command, env=env, check=False)
+            failed = failed or result.returncode != 0
+        return 1 if failed else 0
 
     episodes = shots_changed = clips_changed = rebuilt = skipped = 0
     by_name: Counter = Counter()
@@ -172,7 +179,7 @@ def main() -> int:
                 shot["characters"] = cast
                 touched += 1
                 by_name.update(added)
-        if not touched:
+        if not touched and not args.rebuild_existing:
             continue
         episodes += 1
         shots_changed += touched
@@ -200,14 +207,18 @@ def main() -> int:
                 skipped += 1
                 print(f"  {script_path.parent.name}: 保留分段失败（{why}），未动")
                 continue
-        backup = script_path.with_name("chapter_script.json.bak-cast")
-        if not backup.exists():
-            shutil.copy2(script_path, backup)
-        script_path.write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
+        if touched:
+            backup = script_path.with_name("chapter_script.json.bak-cast")
+            if not backup.exists():
+                shutil.copy2(script_path, backup)
+            script_path.write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
         if args.no_pack:
             continue
         if not args.repack:
             if changed:
+                backup_plan = plan_path.with_name("clip_plan.json.bak-cast")
+                if not backup_plan.exists():
+                    shutil.copy2(plan_path, backup_plan)
                 atomic_write_json(plan_path, merged)
             rebuilt += 1
             clips_changed += len(changed)
@@ -218,9 +229,12 @@ def main() -> int:
                 env["NOVEL_CLIP_SECONDS_MAX"] = "15"
             else:
                 env.pop("NOVEL_CLIP_SECONDS_MAX", None)
+            profile = (old.get("totals") or {}).get("profile") or {}
+            options = [item for key in ("style", "frame", "tier") if profile.get(key) for item in ("--" + key, str(profile[key]))]
             result = subprocess.run([sys.executable, str(SCRIPTS / "build_clip_plan_thin.py"), "--episode-dir", str(script_path.parent),
-                                     "--bible", str(bible_path)], cwd=SCRIPTS.parent, env=env, capture_output=True, text=True)
+                                     "--bible", str(bible_path), *options], cwd=SCRIPTS.parent, env=env, capture_output=True, text=True)
             if result.returncode != 0:
+                skipped += 1
                 print(f"  {script_path.parent.name}: 重算段计划失败: {result.stderr.strip()[-300:]}")
                 continue
             new = json.loads(plan_path.read_text(encoding="utf-8"))
@@ -235,17 +249,18 @@ def main() -> int:
             continue
 
     label = f"[{args.mode} 秒档] " if args.mode else ""
-    print(f"{label}{novel_dir.name}: {episodes} 集 / {shots_changed} 镜头的演员表缺人"
-          + (f"；已改分镜 {episodes} 集，段计划重算 {rebuilt} 集，演员表变了的段 {clips_changed}，分段对不上跳过 {skipped} 集"
+    print(f"{label}{novel_dir.name}: 检查 {episodes} 集 / {shots_changed} 镜头需补演员"
+          + (f"；{'预检' if args.dry_rebuild else '处理'}段计划 {rebuilt} 集，需更新的段 {clips_changed}，分段对不上跳过 {skipped} 集"
              if args.apply else "（预演，加 --apply 才写）"))
     print("补上最多的角色:", by_name.most_common(10))
     targets = novel_dir / "cast_completion_targets.txt"
     known = set()
     if args.mode and targets.is_file():
         known = {int(x) for x in targets.read_text(encoding="utf-8").split(",") if x.strip()}
-    targets.write_text(",".join(map(str, sorted(known | set(changed_episodes)))), encoding="utf-8")
-    print("涉及集号记在", targets)
-    return 0
+    if args.apply and not args.dry_rebuild:
+        targets.write_text(",".join(map(str, sorted(known | set(changed_episodes)))), encoding="utf-8")
+        print("涉及集号记在", targets)
+    return 1 if skipped else 0
 
 
 if __name__ == "__main__":

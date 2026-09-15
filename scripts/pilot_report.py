@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_runs import episode_status  # noqa: E402
+from thin_runs import REVIEW_POLICY, episode_status  # noqa: E402
 
 
 def mtime(path: Path) -> float:
@@ -52,12 +52,13 @@ def main() -> int:
             review = json.loads((d / "episode_review.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             review = {}
+        rereviewed = rereviewed and review.get("policy") == REVIEW_POLICY
         status = episode_status(d, True)
         verdicts = review.get("clips") or {}
         feedback = review.get("feedback") or {}
         per_clip = []
         for cid in sorted(corrections):
-            if not rereviewed:
+            if not rereviewed or verdicts.get(cid, {}).get("severity") not in {"pass", "minor", "fail"}:
                 outcome = "待复审"
             elif cid in feedback:
                 outcome = "仍 must_fix"

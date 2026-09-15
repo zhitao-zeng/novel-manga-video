@@ -268,6 +268,20 @@ TERMINAL_PUNCT = "。！？…!?"
 SFX_ONLY = re.compile(r"^[\u4e00-\u9fff]{1,5}声$")
 
 
+def nonverbal_sound(turn: dict) -> str:
+    """A standalone sneeze/bark is a sound event, not Chinese words to recite."""
+    text = str(turn.get("text") or "").strip()
+    if turn.get("delivery_mode") not in {"visible_dialogue", "offscreen_dialogue"}:
+        return ""
+    if turn.get("delivery_mode") == "offscreen_dialogue" and SFX_ONLY.fullmatch(text):
+        return text
+    bare = re.sub(r"[\W_]+", "", text)
+    sound = next((sound for pattern, sound in ((r"(?:阿嚏)+", "打喷嚏"), (r"汪+", "犬吠"),
+                 (r"喵[呜喵]*", "猫叫"), (r"咳+", "咳嗽"), (r"吼+", "吼叫"), (r"呵", "短促轻笑"), (r"嗝+", "打嗝"))
+                  if re.fullmatch(pattern, bare)), "")
+    return (str(turn.get("speaker_name") or "") + sound) if sound else ""
+
+
 def merged_turns(shot: dict) -> list[dict]:
     """Rejoin pieces of one line that the planner split at a comma.
 
@@ -280,8 +294,8 @@ def merged_turns(shot: dict) -> list[dict]:
     extra_sfx: list[str] = []
     for turn in shot["turns"]:
         text = turn["text"].strip()
-        if turn["delivery_mode"] == "offscreen_dialogue" and SFX_ONLY.match(text):
-            extra_sfx.append(text)
+        if sound := nonverbal_sound(turn):
+            extra_sfx.append(sound)
             continue
         if (
             merged
@@ -294,7 +308,8 @@ def merged_turns(shot: dict) -> list[dict]:
         else:
             merged.append({**turn, "text": text})
     if extra_sfx:
-        shot["sfx"] = "，".join([*(x for x in [shot.get("sfx", "")] if x), *extra_sfx])
+        existing = str(shot.get("sfx") or "")
+        shot["sfx"] = "，".join([*(x for x in [existing] if x), *(s for s in dict.fromkeys(extra_sfx) if s not in existing)])
     return merged
 
 
@@ -441,7 +456,9 @@ def clip_cast(clip: dict) -> list[str]:
     listed: list[str] = []
     active: set[str] = set()
     for shot in clip["shots"]:
-        for name in shot["characters"]:
+        explicit = shot.get("in_frame") or []
+        active.update(explicit)
+        for name in dict.fromkeys([*shot["characters"], *explicit]):
             if name not in listed:
                 listed.append(name)
         picture = "".join(str(shot.get(k, "")) for k in ("visual_prompt", "motion_prompt", "end_state"))
@@ -545,7 +562,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg",
                            **({"phase": str(phase.get("label", ""))} if phase else {})})
         sheet = novel_dir is not None and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
-        lead_sheet = sheet and name in leads and os.environ.get("NOVEL_TWO_VIEWS", "").strip() == "1"
+        lead_sheet = TWO_VIEW_CAST_LIMIT > 0 and sheet and name in leads and os.environ.get("NOVEL_TWO_VIEWS", "").strip() == "1"
         # Only a sheet that exists is referenced: the fast tier never draws one at render time (the full tier
         # did, which is what the old "phase is None" clause assumed), and a plan that promises a missing file
         # fails the pre-render check for the whole episode.  Without a novel_dir to look at, keep the old rule.
@@ -741,11 +758,17 @@ def prepared_shots(script: dict, episode_dir: Path) -> list[dict]:
     """The script's shots as the packer reads them: nicknames resolved to canonical names, "同上" camera and light
     filled in from the last concrete value, and every shot numbered."""
     shots = script["shots"]
+    segments_path = episode_dir / 'segments.json'
+    if segments_path.is_file():
+        from source_identity_thin import resolve_script
+        resolve_script(script, episode_dir.parent, json.loads(segments_path.read_text()))
     aliases_path = episode_dir.parent / "bible_aliases.json"
     aliases = json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {}
     if aliases:  # a nickname in the script must resolve to the canonical card
         for shot in shots:
             shot["characters"] = list(dict.fromkeys(aliases.get(n, n) for n in shot.get("characters", [])))
+            if "in_frame" in shot:
+                shot["in_frame"] = list(dict.fromkeys(aliases.get(n, n) for n in (shot.get("in_frame") or [])))
             for turn in shot.get("turns", []):
                 turn["speaker_name"] = aliases.get(turn.get("speaker_name", ""), turn.get("speaker_name", ""))
     # "同上" is only meaningful inside one prompt.  Resolve it (and blanks)
@@ -775,12 +798,14 @@ def context_for_plan(episode_dir: Path, bible_path: Path, plan: dict) -> dict:
     return load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"), tier=profile.get("tier"))
 
 
-def shots_for_plan(plan: dict, shots: list[dict]) -> dict[str, list[dict]]:
+def shots_for_plan(plan: dict, shots: list[dict], clip_ids: set[str] | None = None) -> dict[str, list[dict]]:
     """Recover each clip's own stage parts without moving cuts or repeating a whole split stage.
 
     New entries record shot_parts. Older plans identify standalone split parts in split_long_stages; other
     old packer splits are recovered by their ordered occurrences. A range that cannot be recovered is an
     error, so callers leave that episode untouched instead of guessing a new cut.
+    A targeted rebuild still counts siblings from the whole plan, but validates
+    and returns only its requested clips. Unrelated broken stages cannot block it.
     """
     by_index = {s["index"]: s for s in shots}
     legacy_parts = {cid: (part, len(ids)) for ids in (plan.get("split_long_stages") or {}).get("split", {}).values()
@@ -794,6 +819,8 @@ def shots_for_plan(plan: dict, shots: list[dict]) -> dict[str, list[dict]]:
             spans[clip["clip_id"]] = clip["shot_parts"]
         elif clip["clip_id"] in legacy_parts:
             if len(set(indexes)) != 1:
+                if clip_ids is not None and clip["clip_id"] not in clip_ids:
+                    continue
                 raise ValueError(f"{clip['clip_id']}: split part has multiple source stages")
             spans[clip["clip_id"]] = [{"index": indexes[0], "part": list(legacy_parts[clip["clip_id"]])}]
         else:
@@ -802,17 +829,20 @@ def shots_for_plan(plan: dict, shots: list[dict]) -> dict[str, list[dict]]:
             # legacy repeats name one occurrence; explicit shot_parts, above, remain authoritative.
             spans[clip["clip_id"]] = [{"index": i} for i in dict.fromkeys(indexes)]
     occurrences = Counter(s["index"] for own in spans.values() for s in own)
-    parts = {i: split_long_shot(copy.deepcopy(by_index[i])) for i in occurrences if i in by_index}
+    needed = {s["index"] for cid, own in spans.items() if clip_ids is None or cid in clip_ids for s in own}
+    parts = {i: split_long_shot(copy.deepcopy(by_index[i])) for i in needed if i in by_index}
     used: Counter = Counter()
     recovered = {}
     for cid, own in spans.items():
         selected = []
         for span in own:
             index = span["index"]
+            used[index] += 1
+            if clip_ids is not None and cid not in clip_ids:
+                continue
             if index not in parts:
                 raise ValueError(f"{cid}: source stage {index} is missing")
             pieces = parts[index]
-            used[index] += 1
             part, total = span.get("part") or (used[index], occurrences[index])
             if part == total == 1:
                 # An old uncut stage stays one stage. Completing its cast must not alter its cuts
@@ -822,7 +852,8 @@ def shots_for_plan(plan: dict, shots: list[dict]) -> dict[str, list[dict]]:
             if len(pieces) != total or not 1 <= part <= len(pieces):
                 raise ValueError(f"{cid}: stage {index} has {len(pieces)} parts, plan requires part {part}/{total}")
             selected.append(copy.deepcopy(pieces[part - 1]))
-        recovered[cid] = selected
+        if clip_ids is None or cid in clip_ids:
+            recovered[cid] = selected
     return recovered
 
 

@@ -318,14 +318,14 @@ def runner(tmp_path: Path, local: str | None = "pool") -> rc.ThinMediaRunner:
     return r
 
 
-def test_a_retake_note_is_in_the_prompts_language_and_numbered_on_a_local_lane(tmp_path):
+def test_local_retries_do_not_add_spoken_director_notes(tmp_path):
     h3, seedance = runner(tmp_path), runner(tmp_path, local=None)
     clip = video_clip(prompt_h3="english")
-    assert h3.retry_suffix(clip, 1) == "" and h3.retry_suffix(clip, 2) == rc.RETRY_SUFFIX_H3
-    assert h3.retry_suffix(clip, 3).endswith(" This is take 3.") and "【" not in h3.retry_suffix(clip, 3)
+    assert h3.retry_suffix(clip, 1) == h3.retry_suffix(clip, 2) == h3.retry_suffix(clip, 3) == ""
     assert seedance.retry_suffix(clip, 2) == seedance.retry_suffix(clip, 3) == rc.RETRY_SUFFIX
     for suffix in (h3.retry_suffix(clip, 2), h3.retry_suffix(clip, 4), rc.RETRY_SUFFIX):
         assert h3.without_retry("prompt" + suffix) == "prompt"
+    assert h3.without_retry('prompt' + rc.RETRY_SUFFIX_H3 + ' This is take 4.') == 'prompt'
 
 
 def test_a_free_lane_gives_cached_failures_fresh_takes(tmp_path, monkeypatch):

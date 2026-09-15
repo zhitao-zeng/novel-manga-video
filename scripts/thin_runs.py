@@ -17,6 +17,7 @@ from pathlib import Path
 from thin_profile import h3_prompt_fingerprint, plan_fingerprint
 
 RENDER_RUNS_PER_PLAN = 3
+REVIEW_POLICY = "thin-review-v1.17-story"
 RUNS_FILE = ".render_runs"
 
 
@@ -80,6 +81,9 @@ def episode_status(directory: Path, h3_lane: bool) -> str:
     plan_path, report_path = directory / "clip_plan.json", directory / "thin_media_report.json"
     if not plan_path.is_file():
         return "no_plan"
+    from clip_readiness import current_blocks
+    if current_blocks(directory):
+        return "plan_blocked"
     if not report_path.is_file():
         return "pending"
     data = json.loads(report_path.read_text(encoding="utf-8"))
@@ -95,9 +99,12 @@ def episode_status(directory: Path, h3_lane: bool) -> str:
         return "stale"
     if data.get("failed_clips") or not data.get("assembly"):
         return "clips_failed"
-    if not (directory / f"{directory.name}.mp4").is_file():
+    assembly = data["assembly"]
+    final = Path(assembly["final_video"]) if assembly.get("pending_publish") and assembly.get("final_video") else directory / f"{directory.name}.mp4"
+    if not final.is_file():
         return "pending"
-    if data.get("gate_failed_clips") or not data["assembly"].get("thin_passed"):
+    from thin_profile import blocking_clip_failures, assembly_gate_passed
+    if blocking_clip_failures(directory.parent,data,directory) or not assembly_gate_passed(directory.parent,assembly,directory):
         return "done_with_warnings"
     return "done"
 
@@ -109,4 +116,5 @@ def gate_failures(directory: Path) -> list[str]:
         data = json.loads((directory / "thin_media_report.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
-    return list(data.get("gate_failed_clips") or [])
+    from thin_profile import blocking_clip_failures
+    return blocking_clip_failures(directory.parent,data,directory)

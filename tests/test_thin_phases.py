@@ -55,8 +55,13 @@ def test_phased_lays_the_look_over_a_copy():
     assert phased(character, None) is character
 
 
-def test_plan_references_follow_the_chapter(tmp_path):
+def test_plan_references_follow_the_chapter(tmp_path, monkeypatch):
+    monkeypatch.setattr(planner, "TWO_VIEW_CAST_LIMIT", 2)
+    monkeypatch.setenv("NOVEL_TWO_VIEWS", "1")
     novel_dir = novel(tmp_path)
+    sheet = novel_dir / "series_assets/characters/character_002/expressions.jpeg"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    sheet.write_bytes(b"available expression sheet")
     b = bible()
     location_map = {"宿舍": "宿舍：床铺和书桌"}
     later, bindings, _ = planner.build_references(["沈玄川", "苏清月"], "宿舍", b, location_map, novel_dir=novel_dir, chapter=2000)

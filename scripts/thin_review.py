@@ -73,7 +73,7 @@ def image_part(path: Path, max_side: int) -> dict:
 
 # Prefix caching is off on the instances, so nothing is gained by pinning a
 # kind of call to one of them; a counter spreads the load evenly instead.
-_CALL_COUNTER = itertools.count()
+_CALL_COUNTER = itertools.count(os.getpid())  # episode workers must not all start at verify-0
 
 
 
@@ -248,6 +248,31 @@ def story_block(clip: dict, segments: dict) -> str:
     source = "\n".join(str(segments.get(str(s), "")) for s in clip.get("segment_ids") or []).strip()[:1500]
     event = scripted_event(clip)
     return (f"\n本段原文（剧情依据）：{source or '（无）'}" + (f"\n本段剧本事件：{event}" if event else "") + "\n")
+
+
+def source_contract_block(clip: dict, episode_dir: Path) -> str:
+    """Carry verified attribution into subsequent video reviews, not just repair."""
+    from novel_manga.runtime_backends import normalize_text
+    try:
+        facts = json.loads((episode_dir/'source_speaker_contract.json').read_text())
+        source = normalize_text('\n'.join(segment_texts(episode_dir).values()))
+    except (OSError, ValueError):
+        return ''
+    lines = clip.get('lines', [])
+    bound = []
+    for row in facts:
+        quote = str(row.get('source_quote') or '')
+        text = str(row.get('adapted_text') or '')
+        if (row.get('stage') in clip.get('shot_indexes', []) and quote and text
+                and normalize_text(quote) in source
+                and any(line.get('speaker_name') == row.get('speaker')
+                        and (normalize_text(text) in normalize_text(line.get('text',''))
+                             or normalize_text(line.get('text','')) in normalize_text(text)) for line in lines)):
+            bound.append({'speaker':row['speaker'],'dialogue':text,'relation':row.get('relation'),'source_quote':quote})
+    if not bound:
+        return ''
+    return ('\n已逐条核验的台词归属（引用来自原文，后续复审继续使用）：'+json.dumps(bound,ensure_ascii=False)
+            +'\n判断动作/说话者时先核对这份对应关系。若认为它与原文冲突，必须指出具体原文，不能凭旧判词改换说话者。\n')
 
 
 def obj(properties: dict, required: list[str] | None = None) -> dict:
@@ -1251,6 +1276,19 @@ VERIFY_QUESTIONS = (
 )
 
 
+def review_world_context(novel_dir: Path) -> str:
+    """Use the book's existing normal-world notes in precise review as well."""
+    path=Path(novel_dir)/'review_normal.txt'
+    if not path.is_file():
+        return ''
+    normal='\n'.join(line for line in path.read_text(encoding='utf-8').splitlines() if line.strip() and not line.lstrip().startswith('#'))
+    if not normal:
+        return ''
+    return ('\n本书正常设定（解释下面通用检查项时必须遵守）：\n'+normal+
+            '\n本段原文、角色当前成长阶段和明确身份优先于笼统规则。原文或人设明确允许的拟人、变形、分身等不判为生成错误；'
+            '这些设定不能为动作或台词安错人、遗漏必需角色、超出原文人数的复制开脱。\n')
+
+
 INSTRUCTION_SCHEMA = obj({"instruction": {"type": "string"}})
 
 
@@ -1297,6 +1335,8 @@ def verify_to_verdict(answer: dict) -> dict:
         "severity": "fail" if obvious else ("minor" if subtle else "pass"),
         "feedback": (str(answer.get("instruction") or "").strip() or ("按原文修正剧情：" + evidence)) if obvious else "",
         "verify": {"verdict": answer.get("verdict"), **flags, "ghost_text": bool(answer.get("ghost_text")),
+                   "evidence": evidence, "instruction": str(answer.get("instruction") or ""),
+                   **({"repair_advice": answer["repair_advice"]} if answer.get("repair_advice") else {}),
                    "people": [f"{p.get('who')}({p.get('gender')}{'/动物' if p.get('is_animal') else ''}) {p.get('doing')} [{p.get('frames')}]" for p in people][:8] if isinstance(people, list) else []},
     }
 
@@ -1333,7 +1373,8 @@ def judge_clip_verify(clip: dict, video: Path, bible: StoryBible, location_time:
             + (f"\n允许在远处背景出现的角色：{'、'.join(background)}" if background else "")
             + story_block(clip, _SEGMENTS_CACHE.setdefault(work_dir.parents[2], segment_texts(work_dir.parents[2])))
             + snapshot_block(clip, work_dir.parents[2])
-            + f"\n预期台词：{lines or '无'}\n" + VERIFY_QUESTIONS)
+            + source_contract_block(clip, work_dir.parents[2])
+            + f"\n预期台词：{lines or '无'}\n" + review_world_context(bible_root(work_dir)) + VERIFY_QUESTIONS)
     parts.append({"type": "text", "text": text})
     answer = ask_json(parts, VERIFY_SCHEMA, name="clip_verify", max_tokens=900)
     return verify_to_verdict(answer)

@@ -132,10 +132,11 @@ def main() -> int:
         picked: list = []
         seen: set[int] = set()
         order = [name for name, _ in KINDS] + ["其它"]
-        while len(picked) < args.pick and any(by_kind.values()):
+        target = min(args.pick, len(candidates))
+        while len(picked) < target:
             for kind in order:
                 pool = [item for item in by_kind.get(kind, []) if item[0] not in seen]
-                if not pool or len(picked) >= args.pick:
+                if not pool or len(picked) >= target:
                     continue
                 item = random.choice(pool)
                 picked.append(item)
@@ -155,6 +156,8 @@ def main() -> int:
         print("（预演，加 --apply 才写 review_feedback.json）")
         return 0
     for n, d, fresh, _, existing in chosen:
+        from repair_history import begin_trial
+        begin_trial(d, set(fresh), "instruction", after_notes={**existing, **fresh}, changes=fresh)
         (d / "review_feedback.json").write_text(json.dumps({**existing, **fresh}, ensure_ascii=False, indent=1), encoding="utf-8")
     numbers = ",".join(str(item[0]) for item in chosen)
     (novel_dir / "repair_targets.txt").write_text(numbers, encoding="utf-8")

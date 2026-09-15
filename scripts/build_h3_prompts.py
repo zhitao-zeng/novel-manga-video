@@ -40,6 +40,7 @@ from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
 from thin_runs import corrections  # noqa: E402
 
 from novel_manga.util import atomic_write_json  # noqa: E402
+from h3_request_checks import request_issues
 
 STAGE = re.compile(r"【阶段[^】]*】(.*?)(?=【阶段|画面呈现|$)", re.S)
 SOUND = re.compile(r"声音：.*?(?=结束时：|$)", re.S)
@@ -78,6 +79,12 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
     for ref in (clip.get("references") or []):
         if ref.get("role") == "character":
             picture += 1
+            crowd=clip.get('crowd_roles',{}).get(ref['name'])
+            if crowd:
+                defs.append(f"<Picture {picture}> provides shared clothing only for {crowd['count']} distinct unnamed supporting people. "
+                            'Their faces and hairstyles must be different from each other and must not copy the face in this picture. '
+                            'For a pair, one has a narrow face and the other a broad face. This is a clothing reference, not one repeated identity.')
+                continue
             subject_of[ref["name"]] = picture
             # One instance, and nobody else wears this face: 雾月's most common defect (321 clips on 2026-09-14) was
             # the lead's face or coat on a second person, and the Chinese binding's "只出现一次" never reached H3.
@@ -146,17 +153,24 @@ def warn(clip: dict, message: str) -> None:
 
 
 def tag_names(text: str, naming: str) -> str:
-    """Every tagged character's name - full, and the part before the dot - replaced by its tag."""
+    """Resolve full names and unambiguous short forms to their supplied subject tags."""
+    names, shorts = {}, {}
     for line in naming.splitlines():
         if " = " not in line:
             continue
         name, tag = (part.strip() for part in line.split(" = ", 1))
         if name:
-            text = text.replace(name, tag)
+            names[name] = tag
             short = name.split("·")[0]
             if len(short) >= 2:
-                text = text.replace(short, tag)
-    return text
+                shorts.setdefault(short, set()).add(tag)
+    mapping = {**{name: next(iter(tags)) for name, tags in shorts.items() if len(tags) == 1}, **names}
+    if not mapping:
+        return text
+    # One longest-first replacement: 林凡 must not consume 林凡青, and a
+    # shared abbreviated name must not silently choose one of two people.
+    pattern = re.compile("|".join(re.escape(name) for name in sorted(mapping, key=len, reverse=True)))
+    return pattern.sub(lambda match: mapping[match.group()], text)
 
 
 META = re.compile(r"tag list|translat|original text|system prompt|the user|please verify|contradiction|instruction says", re.I)
@@ -203,8 +217,8 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     (雾月 2026-09-13: 190 episodes looped on the folded answer)."""
     prompt = clip.get("prompt") or ""
     note = str(note or "").strip()
-    digest = h3_source_digest(prompt, note)
-    if clip.get("prompt_h3_of") == digest and clip.get("prompt_h3"):
+    digest = h3_source_digest(prompt, note,clip.get('crowd_roles'))
+    if clip.get("prompt_h3_of") == digest and clip.get("prompt_h3") and not request_issues(clip):
         return False
     stages = stages_of(prompt)
     if not stages:
@@ -212,7 +226,14 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         return False
     _, subject_of = subject_lines(clip)
     naming = "".join(f"{name} = <Subject {n}>\n" for name, n in subject_of.items())
-    visuals = [visual for visual, _ in stages]
+    picture=0
+    for ref in clip.get('references',[]):
+        if ref.get('role') in {'character','location'}:
+            picture+=1
+        crowd=clip.get('crowd_roles',{}).get(ref.get('name'))
+        if crowd and ref.get('role')=='character':
+            naming+=f"{ref['name']} = the {crowd['count']} distinct unnamed supporting people wearing the clothing from <Picture {picture}>\n"
+    visuals = [tag_names(visual, naming) for visual, _ in stages]
     tagged = tag_names(note, naming) if note else ""
 
     def ask_lines(lines: list[str], extra: str) -> list[str]:
@@ -229,9 +250,14 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
                 if len(english) == len(visuals) + 1 and all(english):
                     direction = clean_note(english[-1], naming)
                     if direction:
-                        clip["prompt_h3"] = compose(clip, english[:-1], stages, direction)
-                        clip["prompt_h3_of"] = digest
-                        return True
+                        candidate = compose(clip, english[:-1], stages, direction)
+                        conflicts = request_issues({'prompt_h3':candidate})
+                        if not conflicts:
+                            clip['prompt_h3'] = candidate
+                            clip['prompt_h3_of'] = digest
+                            return True
+                        problem = '; '.join(conflicts)
+                        continue
                     problem = "the director's correction did not come back in English"
                 else:
                     problem = f"{len(english)} sentence(s) back for {len(visuals) + 1} lines"
@@ -243,9 +269,14 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
         if len(english) == len(visuals) and all(english):
-            clip["prompt_h3"] = compose(clip, english, stages, "")
-            clip["prompt_h3_of"] = digest
-            return True
+            candidate = compose(clip, english, stages, '')
+            conflicts = request_issues({'prompt_h3':candidate})
+            if not conflicts:
+                clip['prompt_h3'] = candidate
+                clip['prompt_h3_of'] = digest
+                return True
+            problem = '; '.join(conflicts)
+            continue
         problem = f"{len(english)} sentence(s) back for {len(visuals)} lines"
     warn(clip, f"FAILED after {tries} tries: {problem}")
     return False
@@ -286,7 +317,9 @@ def main() -> int:
             plan = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return 0, 0, 0
-        video = [c for c in plan["clips"] if c.get("kind") == "video"]
+        from clip_readiness import inspect_episode
+        _, blocked = inspect_episode(episode)
+        video = [c for c in plan["clips"] if c.get("kind") == "video" and c["clip_id"] not in blocked]
         notes = {key: str(value) for key, value in corrections(episode).items()}  # director corrections, per clip
         # Every clip whose English prompt is due - all of them with --rebuild - and does not get one is a failure:
         # an older English prompt left in place is not a rebuild (it used to pass as one, exit code 0).
@@ -305,7 +338,7 @@ def main() -> int:
             now = {key: str(value) for key, value in corrections(episode).items()}
             for clip in current.get("clips", []):
                 new = made.get(clip.get("clip_id"))
-                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or "", now.get(clip.get("clip_id"), "")):
+                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or "", now.get(clip.get("clip_id"), ""),clip.get('crowd_roles')):
                     clip["prompt_h3"], clip["prompt_h3_of"] = new["prompt_h3"], new["prompt_h3_of"]
             atomic_write_json(path, current)
             plan = current

@@ -151,7 +151,8 @@ def batch_stub(tmp_path, monkeypatch, statuses, **args) -> thin_batch.Batch:
 
 def paid_episode(tmp_path: Path) -> Path:
     directory = episode(tmp_path)
-    plan = {"policy": "thin-clip-plan-v9-15s", "clips": [{"clip_id": "clip_01", "kind": "video", "prompt": "p", "references": []}]}
+    plan = {"policy": "thin-clip-plan-v9-15s", "clips": [{"clip_id": "clip_01", "kind": "video", "prompt": "p", "references": [],
+             "seconds_estimate": 10, "request_seconds": 10}]}
     (directory / "clip_plan.json").write_text(json.dumps(plan), encoding="utf-8")
     (directory / "thin_media_report.json").write_text(json.dumps({"gate_failed_clips": ["clip_01"]}), encoding="utf-8")
     return directory
@@ -285,8 +286,8 @@ def test_a_correction_goes_into_the_english_prompt_in_english(tmp_path, monkeypa
     monkeypatch.setattr(h3prompts, "ask_json", lambda *args, **kwargs: next(answers))
     fresh = {key: value for key, value in clip.items() if key not in ("prompt_h3", "prompt_h3_of")}
     assert h3prompts.convert(fresh, note=note)
-    section = fresh["prompt_h3"].split("director_note:\n")[1].split("\n\noverall_soundscape")[0]
-    assert section == "The man wears a blue robe." and not re.search("[一-鿿]", section)
+    section = fresh["prompt_h3"].split("summary:\n")[1].split("\n\nretention_analysis")[0]
+    assert section.endswith("The man wears a blue robe.") and not re.search("[一-鿿]", section)
     assert fresh["prompt_h3_of"] == h3_source_digest(prompt, note)
 
 

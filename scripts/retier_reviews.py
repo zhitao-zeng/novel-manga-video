@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_review import apply_genre_review_rules, compose_feedback, fix_tier, flag_line, script_check, segment_texts  # noqa: E402
+from thin_review import STORY_FATAL, apply_genre_review_rules, compose_feedback, fix_tier, flag_line, script_check, segment_texts  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
 
 
@@ -69,7 +69,8 @@ def main() -> int:
             if not isinstance(verdict, dict) or verdict.get("severity") != "fail":
                 continue
             tier = fix_tier(verdict, bible)
-            if args.script_check and tier == "must_fix" and "scripted" not in verdict:
+            if (args.script_check and tier == "must_fix" and "scripted" not in verdict
+                    and not (verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL)):
                 check = script_check(plan_clips.get(clip_id, {}), verdict, segments)
                 if check is not None:
                     checked += 1

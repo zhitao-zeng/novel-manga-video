@@ -58,7 +58,7 @@ def episode(workspace, n=1, *, passed=True, gate_failed=False, failed=False, cli
 
 def review(directory, severities, *, fresh=True):
     path = directory / "episode_review.json"
-    write(path, {"clips": {f"clip_{i:02d}": {"severity": severity} for i, severity in enumerate(severities, 1)}})
+    write(path, {"policy": monitor.REVIEW_POLICY, "clips": {f"clip_{i:02d}": {"severity": severity} for i, severity in enumerate(severities, 1)}})
     final = (directory / f"{directory.name}.mp4").stat().st_mtime
     stamp = final + 1 if fresh else final - 1
     os.utime(path, (stamp, stamp))
@@ -159,7 +159,7 @@ def test_live_and_board_javascript_render_the_status_payload(workspace):
     good, _ = episode(workspace, 1, clips=2)
     review(good, ["pass", "review_error"])
     episode(workspace, 2, passed=False)
-    write(workspace / "delivery.json", {"deliverable": 1, "total": 2, "generated_at": "2026-09-12 23:00:00",
+    write(workspace / "delivery.json", {"review_policy": monitor.REVIEW_POLICY, "deliverable": 1, "total": 2, "generated_at": "2026-09-12 23:00:00",
                                         "gates": {"tech": {"blocked": 1}, "review": {"blocked": 0, "must_fix_clips": 0},
                                                   "script": {"flagged": 0, "would_block": 0}}})
     live = {"now": time.strftime("%Y-%m-%d %H:%M:%S"), "novels": [monitor._novel_status(NOVEL)],
@@ -173,11 +173,28 @@ def test_live_and_board_javascript_render_the_status_payload(workspace):
     }
     pages = [{"html": monitor.PAGE, "data": live, "body": "novels"},
              {"html": monitor.PAGE_BOARD, "data": board, "body": "board"}]
+    import copy
+    pipeline={"updated_at":live['now'],'age_seconds':10,'status':'running','total':2,'deliverable':1,'remaining':1,
+              'inspection':{'episode_buckets':{'passed':1,'checked_with_errors':1},'clips':{'total':2,'passed':1,'failed':1,'unchecked':0}},
+              'technical':{'done':1,'done_with_warnings':1},'ready_clips':1,'blocked_clips':0,'plan_blocked_clips':0,
+              'held_episodes':[],'capacity':{'repair_episodes':24},'jobs':[],
+              'repair':{'tracked':2,'passed':1,'generated':3,'retained':0,'avg_generations_passed':2,'total_cost_per_passed':3,'blocks':[],'updated_at':live['now']},
+              'shared_audit':{'total':5,'counts':{'done':2,'pending':3}},'resources':{'available_instances':3,'available_slots':6,'night_instances':0,'instances':[]},
+              'net_delivery':{'since':live['now'],'rates':{'15':None,'60':None}}}
+    for original in list(pages):
+        page=copy.deepcopy(original);page['data']['novels'][0]['pipeline']=pipeline;pages.append(page)
+    for original in list(pages[:2]):
+        page=copy.deepcopy(original)
+        page['data']['novels'][0]['pipeline']={'mode':'audit','audit':{
+            'scope':'仅 H3 片段','total':100,'episodes':20,'checked':4,'passed':3,'flagged':1,'flagged_episodes':1,
+            'flagged_rate':25,'status':'running','workers':8,'alive':True,'counts':{'done':4,'pending':88,'running':8},
+            'sampled_at':live['now'],'updated_at':live['now'],'excluded_models':{'sd2_5':90},'issues':{}}}
+        pages.append(page)
     script = r"""
 const vm = require('vm'), fs = require('fs'), assert = require('assert').strict;
 (async()=>{
   for(const p of JSON.parse(fs.readFileSync(0,'utf8'))){
-    const elements = Object.fromEntries([...p.html.matchAll(/id="([^"]+)"/g)].map(m=>[m[1], {style:{}, innerHTML:'', textContent:''}]));
+    const elements = Object.fromEntries([...p.html.matchAll(/id="([^"]+)"/g)].map(m=>[m[1], {style:{}, innerHTML:'', textContent:'',querySelectorAll:()=>[]}]));
     const timers = [];
     const ctx = vm.createContext({document:{getElementById:id=>elements[id], addEventListener:()=>{}},
       fetch:async()=>({json:async()=>p.data}), setTimeout:(fn,ms)=>timers.push(ms), setInterval:()=>{}});
@@ -185,18 +202,30 @@ const vm = require('vm'), fs = require('fs'), assert = require('assert').strict;
     await new Promise(resolve=>setImmediate(resolve));
     assert(!elements.stamp.textContent.includes('读取失败'), elements.stamp.textContent);
     const html = elements[p.body].innerHTML;
-    assert(html.includes('质检合格') && html.includes('未过质检 1') && html.includes('审查失败 1'),html);
-    assert(html.includes('可交付') && html.includes('</b> / 2 · 技术挡 1'),html);
-    assert(html.includes('暂无总完成时间'),html);
+    if(p.data.novels[0].pipeline&&p.data.novels[0].pipeline.mode==='audit'){
+      for(const label of ['仅 H3 片段','本轮已审','审查通过','标记明显问题','8 路 Qwen']) assert(html.includes(label),label);
+      assert(!html.includes('待交付')&&!html.includes('需重拍比例')&&!html.includes('NaN')&&!html.includes('undefined'),html);
+    }else if(p.data.novels[0].pipeline){
+      for(const label of ['统一产线','可交付','技术状态','当前片段审查','修复方式与实际开销','交付净增长与技术产出','Qwen / Flash 共同补查','运行阶段与实际算力','诊断参考']) assert(html.includes(label),label);
+      assert(html.includes('观察中') && html.includes('至少累计 5 分钟采样后显示'));
+      assert(!html.includes('NaN') && !html.includes('undefined'),html);
+    }else{
+      assert(html.includes('质检合格') && html.includes('未过质检 1') && html.includes('审查执行异常 1'),html);
+      assert(html.includes('可交付') && html.includes('</b> / 2 · 技术挡 1'),html);
+      assert(html.includes('暂无总完成时间'),html);
+    }
     assert(!html.includes('全部跑完'),html);
-    if(p.body==='board'){
+    if(p.body==='board'&&!p.data.novels[0].pipeline){
       assert(html.includes('100.0%') && html.includes('未计入通过率'),html);
       assert(html.includes('需要重拍的片段') && html.includes('段无需重拍'),html);
       assert(html.indexOf('需要重拍的片段') < html.indexOf('设定一致性明细'),html);
       assert(html.includes('明显画面错误 · 复审与修复验收'),html);
       assert(html.includes('复审未发现明显错误 1 段') && html.includes('出现&lt;字幕&gt;'),html);
-      assert(timers.includes(300000));
-    }else{
+      assert(timers.includes(15000));
+    }else if(p.body==='board'){
+      assert(timers.includes(15000));
+      assert(!html.includes('需要重拍的片段')&&!html.includes('设定一致性明细'));
+    }else if(!p.data.novels[0].pipeline){
       assert(elements.health.className.includes('bad'));
       assert(elements.attention.innerHTML.includes('待处理'));
       assert(!html.includes('（sd2.0）'));

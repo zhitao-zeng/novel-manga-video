@@ -20,6 +20,7 @@ novel directory produced by ``scripts/build_bible_thin.py``.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -47,7 +48,7 @@ MODERATION_MARKERS = (".moderation_replanned", ".moderation_replanned2")  # one 
 MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥、色情暧昧一律改为间接表现：不写具体暴力动作和伤势，不写露骨或挑逗台词，"
                    "冲突用对峙、退让、旁观者反应和事后结果来交代；避免刀、枪、毒品、赌博、自残等词；台词选原文里克制的句子。")
 sys.path.insert(0, str(SCRIPTS))
-from thin_profile import h3_prompt_outdated  # noqa: E402
+from thin_profile import h3_prompt_outdated, reference_image_env  # noqa: E402
 from thin_runs import RENDER_RUNS_PER_PLAN, corrections, count_run, episode_status, gate_failures, render_runs  # noqa: E402
 
 
@@ -192,7 +193,7 @@ class Batch:
             "PYTHONPATH": "src:scripts",
             "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": os.environ.get("NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"),
-            "PHANROUTER_INLINE_REFERENCE_IMAGES": "1",
+            **reference_image_env(os.environ),
             # Someone has checked the bill: submissions recorded as unconfirmed before this run may be sent again - not
             # one that goes unconfirmed during it (the provider compares its record with this start time).
             **({"NOVEL_RESUBMIT_UNCONFIRMED": f"{time.time():.0f}"} if args.resubmit_unconfirmed else {}),
@@ -444,9 +445,6 @@ class Batch:
         if self.args.dry_run:
             row["render"] = f"would render ({status})"
             return
-        if free and not self.args.cache_only and not self.h3_ready(chapter):
-            row["render"] = "skipped (H3 prompt not ready)"
-            return
         lock = directory / ".render.lock"
         if lock.is_file():
             try:
@@ -458,6 +456,48 @@ class Batch:
                 log(f"ch{chapter}: another render (pid {pid}) is running; skipped")
                 return
             lock.unlink(missing_ok=True)
+        if not self.args.cache_only:
+            from repair_split_ranges import repair_episode
+            recovered = repair_episode(directory, apply=True)
+            if recovered["changed"]:
+                log(f"ch{chapter}: restored split dialogue for {', '.join(recovered['changed'])}; refreshing prompts")
+            if recovered["skipped"]:
+                log(f"ch{chapter}: split ranges left unchanged: {recovered['skipped']}")
+        if self.fast and not self.args.cache_only:
+            from single_card_plan import single_card_plan,repair_missing_expressions
+            from novel_manga.util import atomic_write_json
+            plan_path = directory / "clip_plan.json"
+            restored=repair_missing_expressions(directory)
+            if restored['changed']:
+                log(f"ch{chapter}: removed missing expression references in {len(restored['changed'])} clips; retained {len(restored['retained'])} already approved videos")
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            targets = None
+            if (directory/'episode_review.json').is_file():
+                # Existing reviewed footage keeps its exact cached references.
+                # Repair preparation normalizes changed clips before sealing
+                # their trials; here only missing material needs normalization.
+                from repair_review_thin import read, current_takes
+                takes=current_takes(directory,plan,read(directory/'episode_review.json',{}))
+                targets={clip['clip_id'] for clip in plan['clips'] if clip['clip_id'] not in takes}
+            before_plan=copy.deepcopy(plan)
+            changed = single_card_plan(plan,targets)
+            if changed:
+                from repair_history import refresh_prepared_plan
+                refresh_prepared_plan(directory,before_plan,plan,corrections(directory))
+                atomic_write_json(plan_path, plan)
+                log(f"ch{chapter}: main character card only for {', '.join(changed)}; refreshing reference bindings")
+        if not self.args.cache_only:
+            from clip_readiness import inspect_episode, may_reuse_duration_cache, save_check
+            plan, blocked = inspect_episode(directory)
+            video_ids = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
+            if video_ids and video_ids <= blocked.keys() and not any(may_reuse_duration_cache(directory, cid, reasons) for cid, reasons in blocked.items()):
+                save_check(directory, plan, blocked)
+                row.update(render="plan_blocked", note="all clips await corrected plans; no generation run spent")
+                log(f"ch{chapter}: all {len(blocked)} clips wait for corrected plans; no video requested")
+                return
+        if free and not self.args.cache_only and not self.h3_ready(chapter):
+            row["render"] = "skipped (H3 prompt not ready)"
+            return
         # Three runs per clip plan and set of director corrections, then stop: a clip that fails the same
         # gate every time (a silent generation, say) would otherwise be regenerated and paid for on every
         # round of the lane loop.  A re-plan or a new correction starts the count again (thin_runs.py).
@@ -473,12 +513,19 @@ class Batch:
             row["note"] = "needs a look: same failure on every run; see thin_media_report.json"
             log(f"ch{chapter}: gave up after {runs} render runs on this plan; needs a look")
             return
-        if not self.args.cache_only:  # a rebuild from cached clips generates nothing, so it spends no run
-            count_run(directory)
         lock.write_text(str(os.getpid()), encoding="utf-8")
         try:
             if not self.args.cache_only:  # cards are only built, judged and redrawn for clips about to be generated
                 self.prepare_cards(chapter)
+                plan, blocked = inspect_episode(directory, assets=True)
+                save_check(directory, plan, blocked)
+                video_ids = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
+                if video_ids and video_ids <= blocked.keys() and not any(may_reuse_duration_cache(directory, cid, reasons) for cid, reasons in blocked.items()):
+                    row.update(render="plan_blocked", note="all clips await plans/assets; no generation run spent")
+                    log(f"ch{chapter}: no executable clips after asset preparation; no video requested")
+                    return
+                if not video_ids or video_ids - blocked.keys():
+                    count_run(directory)
             command = [sys.executable, str(SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers), "--inflight", str(self.args.inflight)] + (["--tier", self.args.tier] if self.args.tier else []) + (["--prescreen"] if self.args.prescreen else []) + ([] if self.args.moderation_repair else ["--no-moderation-repair"]) + (["--cache-only"] if self.args.cache_only else [])
             # Fresh paid takes of gate-failed clips only for the final a person approved them for, and only on the
             # first call: a second call counted the takes the first had just bought as cached failures and bought two
@@ -592,7 +639,10 @@ class Batch:
         except (OSError, ValueError):
             return 0
         notes = corrections(directory)  # a correction is written into the English prompt: a new one makes it due
+        from clip_readiness import inspect_episode
+        _, blocked = inspect_episode(directory)
         return sum(1 for clip in plan.get("clips", []) if clip.get("kind") == "video"
+                   and clip["clip_id"] not in blocked
                    and h3_prompt_outdated(clip, str(notes.get(clip.get("clip_id"), ""))))
 
     def prepare_cards(self, chapter: int) -> None:
@@ -601,7 +651,10 @@ class Batch:
         directory = self.episode_dir(chapter)
         row = self.rows[chapter]
         plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
-        wanted = {ref["asset_id"] for clip in plan["clips"] for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}}
+        from clip_readiness import inspect_episode
+        _, blocked = inspect_episode(directory)
+        wanted = {ref["asset_id"] for clip in plan["clips"] if clip["clip_id"] not in blocked
+                  for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}}
         # Named characters who keep coming back - in the group chat or off
         # screen - without ever being on camera are never referenced by a clip,
         # so they never got a card; the chat avatar and any later appearance

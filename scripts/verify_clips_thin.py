@@ -46,13 +46,15 @@ JUDGE_KEYS = ("QWEN38_LOCAL_BASE_URL", "QWEN38_LOCAL_MODEL", "QWEN38_LOCAL_API_K
 
 
 class Verifier:
-    def __init__(self, novel_dir: Path, out: Path, judge_tag: str, workers: int):
+    def __init__(self, novel_dir: Path, out: Path, judge_tag: str, workers: int, *, repair_advice: bool = False, max_tokens: int | None = None):
         self.novel = novel_dir.resolve()
         self.prefix = self.novel.name
         self.out = out
         self.frames = out.parent / "frames"
         self.judge_tag = judge_tag
         self.workers = workers
+        self.repair_advice = repair_advice
+        self.max_tokens = max_tokens
         self.judge_env = {k: os.environ[k] for k in JUDGE_KEYS if k in os.environ}
         tr.apply_genre_review_rules(self.novel)
         self.bible = StoryBible.model_validate_json((self.novel / "story_bible.json").read_text(encoding="utf-8"))
@@ -100,8 +102,10 @@ class Verifier:
     # ---- one clip ----
     def prompt_for(self, clip: dict, ep_dir: Path, chapter: int, claim: str) -> tuple[list, str]:
         by_name = {c.name: tr.phased(c, tr.phase_for(self.phases, c.name, chapter)) for c in self.bible.characters}
-        cast = [n for n in clip.get("cast", []) if n in by_name]
+        crowds=clip.get('crowd_roles',{})
+        cast = [n for n in clip.get("cast", []) if n in by_name and n not in crowds]
         extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for s in clip.get("shots", []) for e in (s.get("extras") or []))]))
+        extras.extend(f"{v['count']}名不同的{name}（服装可以相同，脸和发型必须能区分；参考图只提供制服）" for name,v in crowds.items())
         listeners = list(dict.fromkeys(l for l in [*(clip.get("listeners") or []), *(l for s in clip.get("shots", []) for l in (s.get("listeners") or []))] if l in by_name))
         offscreen = list(dict.fromkeys(str(r.get("speaker_name") or "") for r in clip.get("lines", []) if r.get("delivery_mode") == "offscreen_dialogue" and r.get("speaker_name")))
         background = [n for n in clip.get("background_only", []) if n in by_name]
@@ -123,6 +127,8 @@ class Verifier:
                 + "".join(f"\n- {tr.describe(by_name[n])}" for n in cast)
                 + (f"\n允许在远处背景出现的角色：{'、'.join(background)}" if background else "")
                 + tr.story_block(clip, segments) + tr.snapshot_block(clip, ep_dir)
+                + tr.source_contract_block(clip, ep_dir)
+                + tr.review_world_context(self.novel)
                 + f"\n预期台词：{lines or '无'}\n"
                 + (f"\n上一位审片员的意见（待核实；他有时会夸大，例如把几个戴同款帽子的人说成克隆、把画外说话的人说成缺席、把背景里的路人说成多出的角色）：{claim}\n" if claim else "")
                 + tr.VERIFY_QUESTIONS.replace("evidence：一句话", "claim_confirmed：上一位审片员说的问题在帧里确实看得到（没有给意见时填 false）；\nevidence：一句话"))
@@ -142,8 +148,26 @@ class Verifier:
         schema = json.loads(json.dumps(SCHEMA))
         schema["properties"]["claim_confirmed"] = {"type": "boolean"}
         schema["required"].append("claim_confirmed")
+        schema['properties']['people']['maxItems'] = 8
+        for key, limit in [('who', 80), ('doing', 80), ('frames', 40)]:
+            schema['properties']['people']['items']['properties'][key]['maxLength'] = limit
+        for key in ['evidence', 'instruction']:
+            schema['properties'][key]['maxLength'] = 300
         try:
             cards, text = self.prompt_for(clip, ep_dir, chapter, claim)
+            # History belongs to the repairer. Do not prime the visual judge
+            # with earlier failure labels when it is deciding a new take.
+            advice = self.repair_advice and (ep_dir / "repair_history/history.json").is_file()
+            if advice:
+                schema["properties"]["repair_advice"] = {"type": "object", "additionalProperties": False,
+                    "required": ["layer", "evidence", "next_change"], "properties": {
+                        "layer": {"type": "string", "enum": ["none", "plan", "request", "asset", "generation", "uncertain"]},
+                        "evidence": {"type": "string", "maxLength": 200}, "next_change": {"type": "string", "maxLength": 200}}}
+                schema["required"].append("repair_advice")
+                text += ("\n\n依据当前画面和原文判断。实际请求也可能有错，不能用错误请求替画面开脱。"
+                         + "\n实际视频请求（核对角色编号与动作主体）：\n" + str(clip.get("prompt_h3") or clip.get("prompt") or "")[:8000]
+                         + "\n另填 repair_advice：layer 为分镜 plan、实际请求 request、资产 asset、生成执行 generation 或证据不足 uncertain；"
+                           "当前没错填 none。evidence 引用可核对的依据；next_change 只提一个具体改动，没错留空。这个建议不改变前面的画面判定。")
             frames = tr.clip_frames(video, self.frames / f"{self.prefix}_{ep}" / cid, tr.MAX_IMAGES - len(cards))
             parts, legend = [], []
             for k, (name, path) in enumerate(cards, 1):
@@ -156,7 +180,7 @@ class Verifier:
             os.environ.update(self.judge_env)
             if "QWEN38_LOCAL_MODEL" in self.judge_env:
                 tr.MODEL = self.judge_env["QWEN38_LOCAL_MODEL"]
-            answer = tr.ask_json(parts, schema, name="verify", max_tokens=900)
+            answer = tr.ask_json(parts, schema, name="verify", max_tokens=getattr(self, 'max_tokens', None) or (1200 if advice else 900))
         except Exception as error:  # noqa: BLE001
             return {"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "error": f"{type(error).__name__}: {str(error)[:100]}"}
         answer.update({"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "claim": claim[:300],

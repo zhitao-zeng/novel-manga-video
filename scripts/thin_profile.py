@@ -14,6 +14,13 @@ from pathlib import Path
 
 DEFAULTS = {"style": "2d", "frame": "9:16", "tier": "quality", "genre": "generic"}
 TIERS = ("quality", "fast")
+MAX_HOLD_SECONDS = 6.0
+
+
+def reference_image_env(env) -> dict[str, str]:
+    """Worker defaults: an opted-in asset library must not be disabled by the lane's inline default."""
+    assets = str(env.get("PHANROUTER_REFERENCE_ASSETS", "0")).strip().lower() in {"1", "true", "yes"}
+    return {"PHANROUTER_INLINE_REFERENCE_IMAGES": "0" if assets else env.get("PHANROUTER_INLINE_REFERENCE_IMAGES", "1")}
 
 FRAMES = {
     "9:16": {"width": 1080, "height": 1920, "text": "竖屏9:16", "video_ratio": "9:16", "image_ratio": "9:16",
@@ -57,6 +64,62 @@ def is_fast(profile: dict | None) -> bool:
     return bool(profile) and profile.get("tier") == "fast"
 
 
+def _scope_speech_policy(path: str) -> tuple:
+    scope=json.loads(Path(path).read_text()).get('scope') or {}
+    return scope.get('speech_gate'),frozenset(map(int,scope.get('episodes',[])))
+
+
+def speech_gate_policy(novel_dir: Path, episode_dir: Path | None = None) -> str:
+    policy=load_profile(novel_dir).get('speech_gate','enforce')
+    if episode_dir is not None:
+        scope_path=novel_dir/'repair_manager/state.json'
+        number=episode_dir.name.rsplit('_',1)[-1]
+        if number.isdigit() and scope_path.is_file():
+            scoped,episodes=_scope_speech_policy(str(scope_path))
+            if scoped and int(number) in episodes:
+                return scoped
+    return policy
+
+
+def media_qc_ignores(novel_dir: Path, episode_dir: Path | None = None) -> list[str]:
+    ignored=list(load_profile(novel_dir).get('qc_ignore') or [])
+    if speech_gate_policy(novel_dir,episode_dir)=='observe':
+        ignored.extend(['silence_ratio','long_silence'])
+    return list(dict.fromkeys(ignored))
+
+
+def assembly_gate_passed(novel_dir: Path, assembly: dict, episode_dir: Path | None = None) -> bool:
+    if assembly.get('thin_passed'):
+        return True
+    checks=(assembly.get('media_qc') or {}).get('checks') or {}
+    failed={name for name,row in checks.items() if row.get('passed') is False}
+    hold=float(assembly.get('max_hold_seconds',float('inf')))
+    return bool(failed) and failed <= set(media_qc_ignores(novel_dir,episode_dir)) and hold <= MAX_HOLD_SECONDS
+
+
+def speech_gate_result(novel_dir: Path, analysis: dict, episode_dir: Path | None = None) -> dict:
+    """A book may observe speech errors while retaining all other clip gates."""
+    issues = list(dict.fromkeys([*analysis.get('issues',[]), *analysis.get('speech_issues',[])]))
+    speech = [issue for issue in issues if issue.startswith('missing_') or issue in {
+        'voice_energy_missing','excess_unplanned_speech','director_instruction_spoken'}]
+    observe = speech_gate_policy(novel_dir,episode_dir) == 'observe'
+    if not observe and not analysis.get('speech_issues'):
+        return analysis
+    blocking = [issue for issue in issues if issue not in speech] if observe else issues
+    return {**analysis,'issues':blocking,'speech_issues':speech,'speech_gate':'observe' if observe else 'enforce',
+            'passed':not blocking if issues else analysis.get('passed',False)}
+
+
+def blocking_clip_failures(novel_dir: Path, report: dict, episode_dir: Path | None = None) -> list[str]:
+    clips = {row['clip_id']:row.get('selected') or {} for row in report.get('clips',[])}
+    ids = list(dict.fromkeys([*report.get('gate_failed_clips',[]),
+                             *(cid for cid,row in clips.items() if row.get('speech_issues'))]))
+    if not ids or speech_gate_policy(novel_dir,episode_dir) != 'observe':
+        return ids
+    results = {cid:speech_gate_result(novel_dir,clips.get(cid,{}),episode_dir) for cid in ids}
+    return [cid for cid,row in results.items() if not row.get('speech_issues') or not row.get('passed')]
+
+
 def frame_spec(profile: dict) -> dict:
     return FRAMES[profile["frame"]]
 
@@ -78,14 +141,22 @@ def plan_fingerprint(plan: dict) -> str:
          [(row.get("speaker_name"), row.get("chat_target", ""), row.get("text")) for row in clip.get("chat_lines", [])])
         for clip in plan.get("clips", [])
     ]
+    retakes = [(c['clip_id'],c['repair_take']) for c in plan.get('clips',[]) if c.get('repair_take')]
+    if retakes:
+        material.append(('repair_takes',retakes))
+    crowds=[(c['clip_id'],c['crowd_roles']) for c in plan.get('clips',[]) if c.get('crowd_roles')]
+    if crowds:
+        material.append(('crowd_roles',crowds))
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def h3_source_digest(prompt: str, note: str = "") -> str:
+def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = None) -> str:
     """What build_h3_prompts.py stamps as prompt_h3_of: which Chinese prompt - and director correction, which goes into
     the English prompt - an English one was made from.  Without a correction it is the digest of the prompt alone."""
     note = (note or "").strip()
     material = prompt + (f"\n【导演修正】{note}" if note else "")
+    if crowd_roles:
+        material += '\n'+json.dumps(crowd_roles,ensure_ascii=False,sort_keys=True)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
@@ -95,7 +166,9 @@ def h3_prompt_outdated(clip: dict, note: str = "") -> bool:
     if not clip.get("prompt_h3"):
         return True
     made_from = clip.get("prompt_h3_of")
-    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "", note)
+    if str(note or '').strip() and not made_from:
+        return True  # an unstamped old translation cannot prove it includes a new correction
+    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "", note,clip.get('crowd_roles'))
 
 
 def h3_prompt_fingerprint(plan: dict) -> str:

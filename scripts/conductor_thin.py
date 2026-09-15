@@ -33,7 +33,8 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from thin_runs import RENDER_RUNS_PER_PLAN, episode_status, gate_failures, render_runs
+from thin_runs import REVIEW_POLICY, RENDER_RUNS_PER_PLAN, episode_status, gate_failures, render_runs
+from thin_profile import reference_image_env
 
 REPO = Path(__file__).resolve().parent.parent
 PY = str(REPO / ".venv" / "bin" / "python")
@@ -56,7 +57,7 @@ def load_dotenv(path: Path) -> None:
         value = value.strip().strip("'\"")
         os.environ.setdefault(key, value)
 BASE_ENV = {"PYTHONPATH": "src:scripts", "NOVEL_PLANNER_BACKEND": "deterministic",
-            "NOVEL_CREATIVE_PROFILE": "short-drama-adaptive-v1", "PHANROUTER_INLINE_REFERENCE_IMAGES": "1"}
+            "NOVEL_CREATIVE_PROFILE": "short-drama-adaptive-v1"}
 PLAN_BLOCK_RUNS = 3  # runs a planning block gets while some of its chapters are left without a plan
 PLAN_RETRY_SECONDS = 600  # ...spaced out, so a planning-server outage does not burn them in three ticks
 REVIEW_ERROR_ROUNDS = 3  # reviews an episode gets while the judge keeps failing on some of its clips
@@ -192,8 +193,8 @@ class Conductor:
         and 3 of 诸天's episodes sat as reviewed with those clips unjudged and unflagged (2026-09-11)."""
         errors = self.summary(review, "review_errors", lambda data: (
             sum(1 for c in (data.get("clips") or {}).values() if c.get("severity") == "review_error"),
-            int(data.get("error_rounds", 0))))
-        return bool(errors) and errors[0] > 0 and errors[1] < REVIEW_ERROR_ROUNDS
+            int(data.get("error_rounds", 0)), data.get("policy")))
+        return errors is None or errors[2] != REVIEW_POLICY or (errors[0] > 0 and errors[1] < REVIEW_ERROR_ROUNDS)
 
     def range_stats(self, r: dict) -> dict:
         chapters = [self.chapter(n) for n in range(r["a"], r["b"] + 1)]
@@ -286,6 +287,7 @@ class Conductor:
             self.log(f"[dry] would start {name}: {' '.join(command[:8])} ...")
             return
         env = {**os.environ, **BASE_ENV, **(extra_env or {})}
+        env.update(reference_image_env(env))
         log_path = self.tmp / f"{name}.log"
         with log_path.open("ab") as handle:
             handle.write(f"\n===== {datetime.now():%F %T} {' '.join(command)}\n".encode())
