@@ -33,7 +33,7 @@ from novel_manga.ingest import read_novel
 from novel_manga.models import Character, StoryBible
 from novel_manga.runtime_backends import normalize_text
 from novel_manga.util import atomic_write_json
-from story_identity import read
+from identity_store_thin import read
 
 POLICY = 'source-book-rebuild-v2-independent-check'
 ACTOR_KINDS = {'person', 'creature', 'group'}
@@ -441,7 +441,8 @@ def compile_book(directory, chapters):
         'alias_checks': alias_checks,
         'objects': [{'chapter': r['chapter'], **a} for r in records for a in r['facts']['actors'] if a['kind'] in {'object', 'concept'}]})
     by_name = {e['canonical']: e for e in entities}
-    from story_identity import POLICY as IDENTITY_POLICY, chapter_inputs
+    from novel_manga.story.source_identity import POLICY as IDENTITY_POLICY
+    from identity_store_thin import chapter_inputs
     for r in records:
         n = r['chapter']; d = directory / f'{directory.name}_{n}'
         names, mentions, appearances, local_cast, actors = {}, [], [], [], []
@@ -482,7 +483,8 @@ def compile_book(directory, chapters):
 
 
 def source_bindings(directory, chapter):
-    from story_identity import current_context, effective_aliases
+    from identity_store_thin import current_context
+    from identity_context_thin import effective_aliases
     context = current_context(directory / f'{directory.name}_{chapter}')
     return effective_aliases(directory, chapter, context) if context else {}
 

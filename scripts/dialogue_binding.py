@@ -7,7 +7,7 @@ from novel_manga.story.dialogue import (
 
 
 def confirmed_bindings(directory: Path, shots: list[dict]) -> dict:
-    from story_identity import read, current_context
+    from identity_store_thin import read, current_context
     return resolve_bindings(shots, read(directory / 'source_speaker_contract.json', []),
                             current_context(directory), read(directory / 'segments.json', []))
 

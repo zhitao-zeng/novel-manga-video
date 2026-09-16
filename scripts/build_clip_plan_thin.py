@@ -441,7 +441,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "extras": list(dict.fromkeys(e for shot in clip["shots"] for e in (shot.get("extras") or []))),
     }
     from h3_request_checks import source_crowds
-    from story_identity import current_context, read
+    from identity_store_thin import current_context, read
     segments = read(ctx['episode_dir'] / 'segments.json', [])
     passage = '\n'.join(s['text'] for s in segments if s['segment_id'] in entry['segment_ids'])
     crowds = source_crowds(entry, bible.model_dump(), passage, context=current_context(ctx['episode_dir']))

@@ -36,7 +36,7 @@ def read(path, default=None):
 
 def inputs(directory):
     from thin_profile import plan_fingerprint
-    from story_identity import data_files
+    from identity_store_thin import data_files
     plan = read(directory / 'clip_plan.json', {})
     paths = [directory / 'chapter_script.json', directory / 'segments.json',
              directory / 'identity_context.json', *data_files(directory.parent)]
@@ -124,7 +124,8 @@ def audit(directory):
                                 for i, shot in enumerate(script['shots'], 1)]}
     bible = read(directory.parent / 'story_bible.json', {})
     passage = '\n'.join(s['text'] for s in segments)
-    from story_identity import resolve_chapter, prompt_context, reading_segments
+    from identity_flow_thin import resolve_chapter
+    from identity_context_thin import prompt_context, reading_segments
     identity_reading = resolve_chapter(directory)
     load_entity_index(directory.parent, int(directory.name.rsplit('_', 1)[1]), ctx=planner_ctx)
     names = set(mentioned_characters(passage, [c['name'] for c in bible['characters']], ctx=planner_ctx))
@@ -264,7 +265,8 @@ def prepare_one(directory):
             return record(directory, 'needs_source' if not after['source_readable'] else 'needs_repair', audit=after)
         answer = after
     # Rebind current source entity types before translating legacy requests.
-    from story_identity import current_context, typed_entities
+    from identity_store_thin import current_context
+    from identity_context_thin import typed_entities
     from repair_flow_thin import rebuild_clips
     plan = read(plan_path, {})
     types = typed_entities(directory.parent, current_context(directory))
@@ -330,7 +332,7 @@ def main():
         try:
             prepare_one(directory)
         except Exception as error:
-            from story_identity import UnreadableSource
+            from novel_manga.story.source_identity import UnreadableSource
             record(directory, 'needs_source' if isinstance(error, UnreadableSource) else 'error',
                    reason=str(error)[:300] if isinstance(error, ValueError) else type(error).__name__)
             raise

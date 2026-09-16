@@ -151,7 +151,8 @@ def grant_changed_source_retry(directory: Path, before: dict, before_notes: dict
 
 def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
     if kind == 'entities':
-        from story_identity import resolve_chapter, typed_entities
+        from identity_flow_thin import resolve_chapter
+        from identity_context_thin import typed_entities
         from repair_flow_thin import repair_episode
         import repair_history as history
         context = resolve_chapter(directory)

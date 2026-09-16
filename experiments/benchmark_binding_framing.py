@@ -45,7 +45,7 @@ def clone(frozen, dest, case):
         trial['managed']=False
     if h:
         atomic_write_json(episode/'repair_history/history.json',h)
-    from story_identity import resolve_chapter
+    from identity_flow_thin import resolve_chapter
     resolve_chapter(episode)
     return novel,episode
 
@@ -54,7 +54,7 @@ def freeze(novel, output, specs):
     if (output/'manifest.json').exists():
         return read(output/'manifest.json')
     from novel_manga.repair.scheduling import active_episodes
-    from story_identity import IdentityCatalog
+    from identity_store_thin import load_catalog
     from novel_manga.review.storage import take_identity
     busy=active_episodes(read(novel/'repair_manager/state.json',{'jobs':[]}))
     frozen=output/'frozen'/novel.name
@@ -67,7 +67,7 @@ def freeze(novel, output, specs):
     for p in (novel/'series_assets/voices').glob('*'):
         if p.is_file():
             copy_if_present(p,frozen/p.relative_to(novel))
-    catalog=IdentityCatalog(novel)
+    catalog=load_catalog(novel)
     cases=[]
     for spec in specs:
         ep,cid=spec.split(':');ep=int(ep)

@@ -160,7 +160,7 @@ def test_chapter_repair_budget_survives_full_draft_retries(monkeypatch, tmp_path
         raise TimeoutError("simulated slow repair")
 
     monkeypatch.setattr(planner_requests, "call_model", draft)
-    monkeypatch.setattr('story_identity.resolve_chapter', lambda *a, **k: {})
+    monkeypatch.setattr('identity_flow_thin.resolve_chapter', lambda *a, **k: {})
     monkeypatch.setattr(pc_validation, "validate_and_normalize", lambda *args, **kwargs: (["clip_1 stage 1: missing speaker"], [], []))
     monkeypatch.setattr(planner_requests, "patch_plan", failed_patch)
     monkeypatch.setattr(sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo",

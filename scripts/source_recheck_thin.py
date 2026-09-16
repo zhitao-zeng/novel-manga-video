@@ -65,11 +65,12 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     by_index = {s.get('index', i):s for i,s in enumerate(script.get('shots', []),1)}
     segments = {str(s['segment_id']):s['text'] for s in read(directory / 'segments.json', [])}
     names_all = [c['name'] for c in bible.get('characters', [])]
-    from story_identity import IdentityCatalog, resolve_chapter
+    from identity_store_thin import load_catalog
+    from identity_flow_thin import resolve_chapter
     identity_reading = resolve_chapter(directory)
     from dialogue_binding import apply_confirmed_speakers
     protected_bindings = apply_confirmed_speakers(directory, script['shots'])
-    catalog = IdentityCatalog(novel)
+    catalog = load_catalog(novel)
     load_entity_index(novel, episode, ctx=planner_ctx)
     present = ledger_cast(novel, episode)
     contracts = read(directory / 'source_speaker_contract.json', [])

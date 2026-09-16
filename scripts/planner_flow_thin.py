@@ -85,10 +85,12 @@ def run(args, ctx: PlannerContext) -> int:
         shutil.copy2(args.bible, bible_target)
     segments = pc_text.split_segments(episode.source_text, episode.source_title, pc_constants.SEGMENT_COUNT)
     atomic_write_json(episode_dir / 'segments.json', segments)
+    from identity_store_thin import load_chapter
+    identity_data = load_chapter(episode_dir)
     if not args.dry_run and not args.replay:
-        from story_identity import resolve_chapter
-        resolve_chapter(episode_dir)
-    planner_context.load_entity_index(novel_dir, episode.index, ctx=ctx)
+        from identity_flow_thin import resolve_chapter
+        resolve_chapter(episode_dir, data=identity_data)
+    planner_context.load_entity_index(novel_dir, episode.index, ctx=ctx, identity_data=identity_data)
 
     # Which characters and locations the planner may name.  The whole bible is
     # never sent: at a few thousand chapters it would be hundreds of people the
@@ -109,10 +111,10 @@ def run(args, ctx: PlannerContext) -> int:
     recent_locations = planner_context.recent_names(cast.get("locations", {}), episode.index, pc_constants.CAST_RECENT_CHAPTERS)
     main_cast = [c for c in full_bible.characters if "主角" in c.role]
     ledger_cast_here = planner_context.ledger_cast(novel_dir, episode.index)
-    from story_identity import current_context
-    current_identity = current_context(episode_dir)
+    from identity_store_thin import current_context
+    current_identity = current_context(episode_dir, data=identity_data)
     if current_identity:
-        from story_identity import active_cast_names
+        from novel_manga.story.source_identity import active_cast_names
         active_names = active_cast_names(current_identity)
         present = [c for c in full_bible.characters if c.name in active_names]
         main_cast, carried = [], []
@@ -126,8 +128,8 @@ def run(args, ctx: PlannerContext) -> int:
         present = [c for c in full_bible.characters if named_here(c.name)]
         carried = [c for c in full_bible.characters if c.name in recent_characters]
     sliced_characters = list({c.name: c for c in [*main_cast, *present, *carried]}.values())
-    from story_identity import typed_entities
-    entity_types = typed_entities(novel_dir, current_identity)
+    from identity_context_thin import typed_entities
+    entity_types = typed_entities(novel_dir, current_identity, data=identity_data)
     sliced_characters = [c for c in sliced_characters if entity_types.get(c.name, {}).get('kind') != 'object']
     # A location is known from the chapter that added it (bible_growth.json);
     # the base bible's locations count as known from the start.  Never offer a
@@ -194,8 +196,8 @@ def run(args, ctx: PlannerContext) -> int:
     volumes = json.loads(volumes_path.read_text(encoding="utf-8")) if volumes_path.is_file() else []
     previous_volumes = [row for row in volumes if int(row.get("to", 0)) < episode.index][-2:]
     schema = pc_contracts.build_schema(names, list(location_map), [segment["segment_id"] for segment in segments], ctx=ctx)
-    from story_identity import prompt_context
-    identity_context = prompt_context(episode_dir, names)
+    from identity_context_thin import prompt_context
+    identity_context = prompt_context(episode_dir, names, data=identity_data)
     payload = {
         "policy": ctx.policy,
         "chapter_index": episode.index,

@@ -148,7 +148,7 @@ def record_cast(novel_dir: Path, chapter: int, characters: list[str], locations:
         atomic_write_json(path, index)
 
 
-def load_entity_index(novel_dir: Path, chapter: int | None = None, *, ctx: PlannerContext) -> bool:
+def load_entity_index(novel_dir: Path, chapter: int | None = None, *, ctx: PlannerContext, identity_data=None) -> bool:
     """entity_index.json (build_entity_index.py): the forms each character is actually called by in this
     book, already unique.  When it is there, name lookups use it instead of guessing."""
     path = Path(novel_dir) / "entity_index.json"
@@ -156,11 +156,11 @@ def load_entity_index(novel_dir: Path, chapter: int | None = None, *, ctx: Plann
     ctx.entity_tiers.clear()
     ctx.entity_generic.clear()
     ctx.forms_index.clear()
-    from story_identity import effective_aliases
+    from identity_context_thin import effective_aliases
     ctx.aliases.clear()
-    ctx.aliases.update(effective_aliases(novel_dir, chapter))
+    ctx.aliases.update(effective_aliases(novel_dir, chapter, data=identity_data))
     try:
-        index = json.loads(path.read_text(encoding="utf-8"))
+        index = identity_data.book.index if identity_data is not None else json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     for row in index.get("characters", []):

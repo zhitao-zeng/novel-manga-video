@@ -35,7 +35,7 @@ def source_state(directory: Path, clip: dict) -> dict:
     paths=[directory.parent/name for name in ['entity_index.json','bible_aliases.json']]
     paths += [directory.parent/r['path'] for r in clip.get('references',[]) if r.get('path') and r.get('role')!='voice']
     assets={str(p):[p.stat().st_mtime_ns,p.stat().st_size] if p.is_file() else None for p in paths}
-    from story_identity import current_context
+    from identity_store_thin import current_context
     identity_context = current_context(directory)
     source_identity = {k: [{field:value for field,value in row.items() if field!='source_quote'}
                           for row in identity_context.get(k, [])] for k in ['mentions','relations','appearances']}

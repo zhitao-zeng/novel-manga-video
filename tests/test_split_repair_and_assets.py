@@ -125,7 +125,7 @@ def test_story_repair_addresses_plan_index_and_preserves_source_index(split_epis
     (episode / "clip_plan.json").write_text(json.dumps(plan))
     (episode / "episode_review.json").write_text(json.dumps({"clips": {"clip_02": {"tier": "must_fix", "story_ok": False}}}))
     monkeypatch.setattr(repair, "ledger_cast", lambda *a: {})
-    monkeypatch.setattr('story_identity.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
+    monkeypatch.setattr('identity_flow_thin.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     def answer(content, schema, **kwargs):
         assert schema["properties"]["stages"]["items"]["properties"]["origin_index"]["enum"] == [1]
         return {"stages": [{"origin_index": 1, "in_frame": ["林凡"], "actions": [], "extras": ["持灯的侍者"], "event": "林凡转身说话"}]}
@@ -150,7 +150,7 @@ def test_source_body_conflict_rolls_back_candidate_before_saving(split_episode, 
     before = {name: (episode / name).read_bytes() for name in ['chapter_script.json', 'clip_plan.json']}
     context = {'entities': {'e1': '林凡'}, 'mentions': [], 'appearances': [
         {'entity_id': 'e1', 'source_quote': quote, 'description': '白狐'}]}
-    monkeypatch.setattr('story_identity.resolve_chapter', lambda *a, **k: context)
+    monkeypatch.setattr('identity_flow_thin.resolve_chapter', lambda *a, **k: context)
     monkeypatch.setattr(repair, 'ledger_cast', lambda *a: {})
     def ask(*a, **k):
         if k['name'] == 'repair_source_appearance':

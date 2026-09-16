@@ -1,9 +1,10 @@
+import identity_store_thin as identity_store_thin
+import novel_manga.story.source_identity as source_identity
 import copy
 from pathlib import Path
 
 from novel_manga.util import atomic_write_json
 import dialogue_binding as binding
-import story_identity as identity
 from build_h3_prompts import compose
 from h3_request_checks import request_issues
 
@@ -13,7 +14,7 @@ def fixture(tmp_path):
     quote='乙惊慌地问：“怎么回事？”甲淡淡一笑。'
     atomic_write_json(d.parent/'story_bible.json',{'characters':[{'name':'甲'},{'name':'乙'}]})
     atomic_write_json(d/'segments.json',[{'segment_id':'seg_1','text':quote}])
-    context={'policy':identity.POLICY,'inputs':identity.chapter_inputs(d),'entities':{'e001':'甲','e002':'乙'},
+    context={'policy':source_identity.POLICY,'inputs':identity_store_thin.chapter_inputs(d),'entities':{'e001':'甲','e002':'乙'},
              'mentions':[{'form':n,'kind':'proper','entity_id':eid,'presence':'on_stage'} for eid,n in [('e001','甲'),('e002','乙')]],'relations':[]}
     atomic_write_json(d/'identity_context.json',context)
     fact={'stage':1,'turn':1,'speaker':'乙','source_quote':quote,'source_speaker_phrase':'乙','relation':'verbatim','adapted_text':'怎么回事？'}
@@ -26,7 +27,7 @@ def test_explicit_grounded_fact_survives_an_older_policy_and_script_drift(tmp_pa
     d,shots,_=fixture(tmp_path)
     bindings=binding.apply_confirmed_speakers(d,shots)
     assert shots[0]['turns'][0]['speaker_name']=='乙' and '乙' in shots[0]['in_frame']
-    assert bindings[(1,1)]['identity_policy']==identity.POLICY
+    assert bindings[(1,1)]['identity_policy']==source_identity.POLICY
 
 
 def test_changed_words_or_disagreeing_source_owner_do_not_reuse_a_fact(tmp_path):

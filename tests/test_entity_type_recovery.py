@@ -1,3 +1,4 @@
+import identity_flow_thin as identity_flow_thin
 import time
 from pathlib import Path
 
@@ -31,13 +32,12 @@ def test_semantic_group_does_not_need_a_literal_number_or_occupational_suffix():
 
 def test_partial_entity_repair_cannot_publish_an_incomplete_plan(tmp_path,monkeypatch):
     import prepare_recovery_thin as recovery
-    import story_identity
     import repair_flow_thin
     directory=tmp_path/'book'/'book_1'
     plan={'clips':[{'clip_id':'clip_01','cast':['道具']} ]}
     atomic_write_json(directory/'clip_plan.json',plan)
     atomic_write_json(directory.parent/'entity/types.json',{'道具':{'kind':'object'}})
-    monkeypatch.setattr(story_identity,'resolve_chapter',lambda _: {})
+    monkeypatch.setattr(identity_flow_thin,'resolve_chapter',lambda _: {})
     monkeypatch.setattr(repair_flow_thin,'repair_episode',lambda *a,**k:{'changed':[],'why':'speaker unresolved'})
     with pytest.raises(ValueError,match='incomplete'):
         recovery.prepare(directory,'entities')

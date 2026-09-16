@@ -29,7 +29,7 @@ def source_crowds(clip: dict, bible: dict, passage: str, *, context=None) -> dic
     speaking={t.get('speaker_name') for t in clip.get('lines',[]) if t.get('text')}
     result={}
     if context:
-        from story_identity import canonical_entity
+        from novel_manga.story.identity import canonical_entity
         for m in context.get('mentions', []):
             if m.get('entity_kind') != 'group' or m['entity_id'] == 'UNKNOWN':
                 continue

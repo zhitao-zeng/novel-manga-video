@@ -134,7 +134,7 @@ def source_appearance_check(passage: str, shots: list[dict], context: dict) -> d
 
 
 def source_identities(names: list[str], bible: dict, passage: str, *, context=None, catalog=None) -> list[dict]:
-    from story_identity import identity_rows
+    from novel_manga.story.source_identity import identity_rows
     return identity_rows(names, bible, passage, context=context, catalog=catalog)
 
 
@@ -322,7 +322,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
             clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,
                     "seconds": round(sum(bcp.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
             after = bcp.clip_entry(clip, before["clip_id"], ctx)
-            from story_identity import current_context
+            from identity_store_thin import current_context
             crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])), context=current_context(episode_dir))
             if crowds:
                 after['crowd_roles']=crowds
@@ -373,11 +373,13 @@ def _proposal_data(novel_dir: Path, index: int, *, record_evidence=None, use_his
     leads = [c["name"] for c in bible.get("characters", []) if "主角" in str(c.get("role", ""))]
     from planner_context_thin import load_entity_index
     from novel_manga.planning.cast import mentioned_characters
-    from story_identity import IdentityCatalog, resolve_chapter, prompt_block
+    from identity_store_thin import load_catalog
+    from identity_flow_thin import resolve_chapter
+    from identity_context_thin import prompt_block
     identity_reading = resolve_chapter(episode_dir)
     from dialogue_binding import apply_confirmed_speakers
     protected_bindings = apply_confirmed_speakers(episode_dir, script['shots'])
-    catalog = IdentityCatalog(novel_dir)
+    catalog = load_catalog(novel_dir)
     load_entity_index(novel_dir, index, ctx=planner_ctx)
     source_names = mentioned_characters('\n'.join(segments.values()), bible_names, ctx=planner_ctx)
     resolved_names = [identity_reading['entities'].get(m['entity_id']) for m in identity_reading['mentions']
@@ -385,7 +387,7 @@ def _proposal_data(novel_dir: Path, index: int, *, record_evidence=None, use_his
     names = list(dict.fromkeys([*(n for n in resolved_names if n in bible_names), *leads, *source_names, *present, *in_script]))[:40]
     if identity_reading.get('actorless_confirmed'):
         names = []
-    from story_identity import typed_entities
+    from identity_context_thin import typed_entities
     entity_types = typed_entities(novel_dir, identity_reading)
     names = [n for n in names if entity_types.get(n, {}).get('kind') != 'object']
     if any(t.get('speaker_name')=='无名群声' and t.get('delivery_mode')=='offscreen_dialogue'

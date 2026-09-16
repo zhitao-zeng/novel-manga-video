@@ -4,7 +4,8 @@ import pytest
 
 import rebuild_source_book as rebuild
 from novel_manga.util import atomic_write_json
-from story_identity import active_cast_names, current_context, read
+from novel_manga.story.source_identity import active_cast_names
+from identity_store_thin import current_context, read
 
 
 def actor(i, name, kind='person', named=True):

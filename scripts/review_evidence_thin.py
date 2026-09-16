@@ -5,7 +5,7 @@ import json
 from novel_manga.models import StoryBible
 from novel_manga.review.evidence import ClipEvidence
 import thin_phases
-from story_identity import prompt_block as identity_prompt_block
+from identity_context_thin import prompt_block as identity_prompt_block
 import os
 import re
 import subprocess
@@ -77,7 +77,7 @@ def source_contract_block(clip: dict, episode_dir: Path) -> str:
         return ''
     lines = clip.get('lines', [])
     bound = []
-    from story_identity import current_context
+    from identity_store_thin import current_context
     identity_context = current_context(episode_dir)
     for row in facts:
         if identity_context and row.get('identity_policy') != identity_context['policy']:

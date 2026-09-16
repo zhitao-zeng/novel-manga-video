@@ -75,7 +75,7 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
     import thin_profile
     import novel_manga.review.policy as review_policy
     monkeypatch.setattr(planner_context,'load_entity_index',lambda *a,**k:None)
-    monkeypatch.setattr('story_identity.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
+    monkeypatch.setattr('identity_flow_thin.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     monkeypatch.setattr(planner_context,'ledger_cast',lambda *a:{})
     monkeypatch.setattr(repair,'speaker_contract',lambda *a,**k:{})
     monkeypatch.setattr(repair,'repair_episode',lambda *a,**k:{'changed':['a','c'] if structural else [],

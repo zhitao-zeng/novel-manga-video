@@ -45,7 +45,7 @@ import novel_manga.review.storage as review_storage
 import review_evidence_thin as review_evidence
 import thin_phases as thin_phases  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
-from story_identity import prompt_block as identity_prompt_block
+from identity_context_thin import prompt_block as identity_prompt_block
 
 SCHEMA = review_contracts.VERIFY_SCHEMA
 JUDGE_KEYS = ("QWEN38_LOCAL_BASE_URL", "QWEN38_LOCAL_MODEL", "QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_STREAM")
