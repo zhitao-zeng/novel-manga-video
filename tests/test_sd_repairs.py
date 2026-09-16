@@ -1,6 +1,9 @@
 """Regressions from the 2026-09-11 review of the Seedance lines and the packer (issues 16-21), and the
 cache-only rebuild that puts the dropped title cards back into finished episodes."""
 from __future__ import annotations
+import conductor_dispatch_thin as conductor_dispatch
+import conductor_workers_thin as conductor_workers
+import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
 
@@ -21,10 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import build_clip_plan_thin as packer  # noqa: E402
-import conductor_thin  # noqa: E402
+import conductor_flow_thin as conductor_flow  # noqa: E402
 import planner_context_thin as planner_context  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
-import thin_batch  # noqa: E402
+import production_flow_thin as production_flow  # noqa: E402
 from novel_manga.config import DEFAULT_FONT_PATH  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider, SubmissionUncertain  # noqa: E402
@@ -186,7 +189,7 @@ def test_thin_batch_cache_only_rebuilds_without_cards_or_a_run(tmp_path, monkeyp
                                                                   "failed_clips": [], "gate_failed_clips": [], "assembly": {"thin_passed": True}}), encoding="utf-8")
     monkeypatch.delenv("NOVEL_LOCAL_H3_URL", raising=False)
     monkeypatch.delenv("NOVEL_CLIP_SECONDS_MAX", raising=False)
-    batch = object.__new__(thin_batch.Batch)
+    batch = object.__new__(production_flow.Batch)
     batch.args = types.SimpleNamespace(rerender=True, cache_only=True, no_render=False, dry_run=False, workers=0, inflight=4, tier=None,
                                        prescreen=False, moderation_repair=True, prune=False, retake_failed=False)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
@@ -195,7 +198,7 @@ def test_thin_batch_cache_only_rebuilds_without_cards_or_a_run(tmp_path, monkeyp
     monkeypatch.setattr(batch, "run", lambda command, log_path: (commands.append(command), (0, ""))[1])
     monkeypatch.setattr(batch, "prepare_cards", lambda chapter: cards.append(chapter))
     monkeypatch.setattr(batch, "fill_result", lambda chapter: None)
-    batch.render(1)
+    production_render.render(batch, 1)
     assert len(commands) == 1 and "--cache-only" in commands[0]
     assert not cards and render_runs(directory) == 0
 
@@ -213,8 +216,8 @@ def test_a_replanned_chapter_replaces_its_appearances(tmp_path):
 
 
 # ---------------------------------------------------------------- 21: --plan-parallel
-def test_the_plan_stage_plans_chapters_side_by_side_and_checkpoints_in_order():
-    batch = object.__new__(thin_batch.Batch)
+def test_the_plan_stage_plans_chapters_side_by_side_and_checkpoints_in_order(monkeypatch):
+    batch = object.__new__(production_flow.Batch)
     batch.args = types.SimpleNamespace(plan_parallel=3)
     running, peak, order, lock = [0], [0], [], threading.Lock()
 
@@ -226,7 +229,8 @@ def test_the_plan_stage_plans_chapters_side_by_side_and_checkpoints_in_order():
         with lock:
             running[0] -= 1
     batch.grow, batch.plan = (lambda chapter: None), plan
-    batch.volume_checkpoint = lambda chapter, chapters: order.append(chapter)
+    import production_reports_thin
+    monkeypatch.setattr(production_reports_thin, "volume_checkpoint", lambda batch, chapter, chapters: order.append(chapter))
     batch.plan_stage([1, 2, 3, 4, 5, 6])
     assert peak[0] == 3 and order == [1, 2, 3, 4, 5, 6]
 
@@ -238,8 +242,8 @@ def test_the_conductor_fills_a_servers_slots_with_blocks_not_parallel_chapters(t
               "ranges": [{"chapters": "1-6", "plan_mode": 15}], "qwen": {"urls": []},
               "planning": {"block_size": 3, "blocks_min": 1, "blocks_max": 2, "margin": 0,
                            "models": [{"model": "m", "base": "http://127.0.0.1:9/v1", "slots": 2}]}}
-    c = conductor_thin.Conductor(config, dry_run=False)
+    c = conductor_flow.Conductor(config, dry_run=False)
     commands = []
-    monkeypatch.setattr(c, "spawn", lambda name, command, extra=None: commands.append(command))
-    c.tick_planning(congested=False)
+    monkeypatch.setattr(conductor_workers, "spawn", lambda conductor, name, command, extra=None: commands.append(command))
+    conductor_dispatch.tick_planning(c, congested=False)
     assert len(commands) == 2 and all("--plan-parallel" not in command for command in commands)

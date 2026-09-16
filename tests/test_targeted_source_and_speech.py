@@ -1,3 +1,6 @@
+import repair_manager_dispatch_thin as repair_manager_dispatch
+import repair_manager_state_thin as repair_manager_state
+import repair_manager_workers_thin as repair_manager_workers
 import json
 
 from thin_profile import speech_gate_result, blocking_clip_failures
@@ -56,17 +59,17 @@ def test_collective_offscreen_voice_and_named_duchess_can_be_grounded(monkeypatc
 
 def test_current_full_delivery_finishes_despite_an_old_failed_scan(tmp_path,monkeypatch):
     import time
-    import manage_repair_thin as manager
-    m=manager.Manager(tmp_path/'book',tmp_path/'legacy')
+    import repair_manager_flow_thin as repair_manager_flow
+    m=repair_manager_flow.Manager(tmp_path/'book',tmp_path/'legacy')
     m.state.update(phase=2,scan_started=True,jobs=[{'kind':'scan','status':'needs_attention','episodes':[]}])
     m.last_delivery=time.monotonic()
-    def refresh():
+    def refresh(manager):
         m.info={1:{}}
         m.state['summary']={'deliverable_precise':1}
         m.last_refresh=time.monotonic()
-    monkeypatch.setattr(m,'refresh',refresh)
-    monkeypatch.setattr(m,'reap',lambda:False)
-    monkeypatch.setattr(m,'schedule',lambda:None)
-    monkeypatch.setattr(m,'launch',lambda:None)
+    monkeypatch.setattr(repair_manager_state,'refresh',refresh)
+    monkeypatch.setattr(repair_manager_workers,'reap',lambda manager:False)
+    monkeypatch.setattr(repair_manager_dispatch,'schedule',lambda manager:None)
+    monkeypatch.setattr(repair_manager_workers,'launch',lambda manager:None)
     m.run()
     assert m.state['status']=='complete'

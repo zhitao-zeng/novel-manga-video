@@ -1,27 +1,28 @@
+import repair_manager_dispatch_thin as repair_manager_dispatch
 import copy
 import json
 from types import SimpleNamespace
 
 import pytest
 
-import manage_repair_thin as manager
+import repair_manager_flow_thin as repair_manager_flow
 import repair_flow_thin as repair
 import source_recheck_thin as source
 from test_managed_repair import fixture_episode
 
 
 def test_duration_conflict_never_cycles_as_a_seed_retry(tmp_path):
-    m = manager.Manager(tmp_path/'book', tmp_path/'legacy')
+    m = repair_manager_flow.Manager(tmp_path/'book', tmp_path/'legacy')
     d = m.novel/'book_1'; d.mkdir(parents=True)
     (d/'chapter_script.json').write_text('{}')
     m.state['plan_queue'] = {'1': {'a': ['duration: planned 16s exceeds request 15s']}}
     m.info[1] = dict(status='plan_blocked', ready=False, bad=1, held=False,
                      plan_blocked=True, managed_clips=['a'])
-    m.schedule_recovery()
+    repair_manager_dispatch.schedule_recovery(m)
     job = m.state['jobs'][0]
     assert job['recovery_kind'] == 'plan'
     job['status'] = 'waiting_plan'
-    m.schedule_recovery()
+    repair_manager_dispatch.schedule_recovery(m)
     assert len(m.state['jobs']) == 1
 
 

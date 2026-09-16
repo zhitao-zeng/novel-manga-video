@@ -1,10 +1,13 @@
+import repair_manager_workers_thin as repair_manager_workers
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 
 import novel_manga.review.audit_queue as audit_queue
 import review_store_thin as review_store
-import manage_repair_thin as manager
+import novel_manga.repair.scheduling as schedule_rules
+import repair_manager_flow_thin as repair_manager_flow
+import repair_manager_workers_thin as repair_manager_workers
 
 
 def targets(n=30):
@@ -63,10 +66,10 @@ def test_joint_qwen_result_is_loaded_and_explicit_confirmation_keeps_priority(tm
 
 
 def test_shared_scanners_are_supplementary_and_failed_checks_are_not_success(tmp_path, monkeypatch):
-    m = manager.Manager(tmp_path / 'book', tmp_path / 'old')
+    m = repair_manager_flow.Manager(tmp_path / 'book', tmp_path / 'old')
     result = tmp_path / 'exit.json';result.write_text('{"returncode":4}')
     job = m.add('scan', [], source='shared_qwen', pid=123, result=str(result))
-    assert manager.supplementary(job)
-    monkeypatch.setattr(manager, 'alive', lambda pid: False)
-    m.reap()
+    assert schedule_rules.supplementary(job)
+    monkeypatch.setattr(repair_manager_workers, 'alive', lambda pid: False)
+    repair_manager_workers.reap(m)
     assert job['status'] == 'needs_attention'

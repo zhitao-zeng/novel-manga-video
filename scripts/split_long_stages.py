@@ -33,7 +33,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 
 import build_clip_plan_thin as packer  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
-from thin_batch import parse_chapters, pid_alive  # noqa: E402
+from production_common_thin import parse_chapters, pid_alive  # noqa: E402
 
 MARGIN_SECONDS = 5.0  # a stage this much longer than its clip's request is split; a second or two over is left alone
 

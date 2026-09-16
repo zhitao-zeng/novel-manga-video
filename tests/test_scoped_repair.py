@@ -1,8 +1,11 @@
+import repair_manager_state_thin as repair_manager_state
 import copy
 import json
 from pathlib import Path
 
-import manage_repair_thin as manager
+import repair_manager_flow_thin as repair_manager_flow
+import review_store_thin as review_store
+import thin_runs as thin_runs
 from single_card_plan import single_card_plan
 
 
@@ -11,9 +14,9 @@ def test_manager_does_not_inspect_or_write_outside_scope(tmp_path,monkeypatch):
     (state/'state.json').write_text(json.dumps({'scope':{'episodes':[1]},'jobs':[],'passes':{},'phase':2}))
     for n in [1,2]:(novel/f'book_{n}').mkdir()
     touched=[]
-    monkeypatch.setattr(manager,'episode_status',lambda d,*a:touched.append(d.name) or 'no_plan')
-    monkeypatch.setattr(manager,'reconcile',lambda *a,**k:({},{}))
-    m=manager.Manager(novel,tmp_path/'legacy');m.refresh(write=False)
+    monkeypatch.setattr(thin_runs,'episode_status',lambda d,*a:touched.append(d.name) or 'no_plan')
+    monkeypatch.setattr(review_store,'reconcile',lambda *a,**k:({},{}))
+    m=repair_manager_flow.Manager(novel,tmp_path/'legacy');repair_manager_state.refresh(m, write=False)
     assert touched==['book_1'] and set(m.info)=={1}
     assert m.state['summary']['total']==1
     assert not (novel/'book_2/episode_review.json').exists()

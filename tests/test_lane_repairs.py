@@ -2,6 +2,9 @@
 blocks, English (H3) prompts and their voices, retakes, the render-run count, corrections, card reuse,
 the card manifest, review errors and the voice bank."""
 from __future__ import annotations
+import conductor_dispatch_thin as conductor_dispatch
+import conductor_state_thin as conductor_state
+import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
 
@@ -19,9 +22,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import build_voices_thin  # noqa: E402
-import conductor_thin  # noqa: E402
+import conductor_common_thin as conductor_common
+import conductor_flow_thin as conductor_flow
+import thin_runs as thin_runs  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
-import thin_batch  # noqa: E402
+import production_flow_thin as production_flow  # noqa: E402
 import novel_manga.models as review_models
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.storage as review_storage
@@ -69,13 +74,13 @@ def later(path: Path, seconds: float) -> None:
     os.utime(path, (stamp, stamp))
 
 
-def conductor(tmp_path: Path, keys: list[dict] | None = None, chapters: str = "1-3") -> conductor_thin.Conductor:
+def conductor(tmp_path: Path, keys: list[dict] | None = None, chapters: str = "1-3") -> conductor_flow.Conductor:
     (tmp_path / NOVEL).mkdir(exist_ok=True)
     (tmp_path / NOVEL / "bible_growth.json").write_text(json.dumps({"99": {}}), encoding="utf-8")
     config = {"novel_dir": str(tmp_path / NOVEL), "tmp_dir": str(tmp_path / "conductor"), "keys": keys or [],
               "ranges": [{"chapters": chapters, "plan_mode": 15}],
               "planning": {"block_size": 3, "blocks_min": 1, "blocks_max": 1, "margin": 0}, "qwen": {"urls": []}}
-    return conductor_thin.Conductor(config, dry_run=True)
+    return conductor_flow.Conductor(config, dry_run=True)
 
 
 # ---------------------------------------------------------------- render runs (6, 12)
@@ -86,7 +91,7 @@ def test_the_conductor_reads_the_render_runs_thin_batch_counts(tmp_path):
     count_run(directory)
     count_run(directory)
     assert render_runs(directory) == 2
-    assert conductor(tmp_path).chapter(1)["runs"] == 2
+    assert conductor_state.chapter(conductor(tmp_path), 1)["runs"] == 2
     later(directory / "clip_plan.json", 5)  # written again with the same clips: the count stands
     assert render_runs(directory) == 2
     (directory / "review_feedback.json").write_text(json.dumps({"clip_01": "修正"}, ensure_ascii=False), encoding="utf-8")
@@ -101,35 +106,35 @@ def test_a_planning_block_with_chapters_left_unplanned_runs_again_a_bounded_numb
     (episode(tmp_path, 2) / "planning_failed.json").write_text("{}", encoding="utf-8")
     (episode(tmp_path, 3) / "planning_skipped.json").write_text("{}", encoding="utf-8")
     block = c.blocks[0]
-    for run in range(1, conductor_thin.PLAN_BLOCK_RUNS + 1):
-        c.tick_planning(congested=False)  # dry run: the block "starts"
+    for run in range(1, conductor_common.PLAN_BLOCK_RUNS + 1):
+        conductor_dispatch.tick_planning(c, congested=False)  # dry run: the block "starts"
         assert block["proc"] and not block["done"]
-        c.tick_planning(congested=False)  # ...and its process is gone
-        if run < conductor_thin.PLAN_BLOCK_RUNS:
+        conductor_dispatch.tick_planning(c, congested=False)  # ...and its process is gone
+        if run < conductor_common.PLAN_BLOCK_RUNS:
             assert not block["done"] and block["runs"] == run and block["retry_at"] > time.time()
             block["retry_at"] = 0.0
-    assert block["done"] and block["runs"] == conductor_thin.PLAN_BLOCK_RUNS
+    assert block["done"] and block["runs"] == conductor_common.PLAN_BLOCK_RUNS
 
 
 def test_a_planning_block_is_done_once_its_chapters_are_planned_or_skipped(tmp_path):
     c = conductor(tmp_path)
-    c.tick_planning(congested=False)
+    conductor_dispatch.tick_planning(c, congested=False)
     for n in (1, 2):
         write_plan(episode(tmp_path, n), [video_clip()])
     (episode(tmp_path, 3) / "planning_skipped.json").write_text("{}", encoding="utf-8")
-    c.tick_planning(congested=False)
+    conductor_dispatch.tick_planning(c, congested=False)
     assert c.blocks[0]["done"] and c.blocks[0]["runs"] == 1
 
 
 def test_a_chapter_too_short_to_plan_is_marked_skipped(tmp_path):
-    batch = object.__new__(thin_batch.Batch)
+    batch = object.__new__(production_flow.Batch)
     batch.args = types.SimpleNamespace(replan=False, min_chapter_chars=300, dry_run=False)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {7: {}}
     batch.chapter = lambda index: types.SimpleNamespace(text_count=42)
     batch.plan(7)
     marker = tmp_path / NOVEL / f"{NOVEL}_7" / "planning_skipped.json"
     assert json.loads(marker.read_text(encoding="utf-8"))["chars"] == 42
-    assert conductor(tmp_path, chapters="7-7").settled(7)
+    assert conductor_state.settled(conductor(tmp_path, chapters="7-7"), 7)
 
 
 # ---------------------------------------------------------------- finals with gate failures (1)
@@ -143,15 +148,15 @@ def warned_episode(tmp_path: Path) -> Path:
 
 def test_a_free_lane_takes_back_a_final_with_gate_failures_until_its_runs_are_used(tmp_path):
     directory = warned_episode(tmp_path)
-    paid = conductor(tmp_path, [PAID_KEY]).chapter(1)
+    paid = conductor_state.chapter(conductor(tmp_path, [PAID_KEY]), 1)
     assert paid["blocked"] and not paid["done"]  # a preview on a paid lane waits for a person
     free = conductor(tmp_path, [H3_KEY])
-    assert not free.chapter(1)["done"] and not free.chapter(1)["blocked"]
-    assert 1 in free.range_stats(free.ranges[0])["renderable"]
+    assert not conductor_state.chapter(free, 1)["done"] and not conductor_state.chapter(free, 1)["blocked"]
+    assert 1 in conductor_state.range_stats(free, free.ranges[0])["renderable"]
     for _ in range(RENDER_RUNS_PER_PLAN):
         count_run(directory)
-    state = free.chapter(1)
-    assert state["blocked"] and not state["done"] and 1 not in free.range_stats(free.ranges[0])["renderable"]
+    state = conductor_state.chapter(free, 1)
+    assert state["blocked"] and not state["done"] and 1 not in conductor_state.range_stats(free, free.ranges[0])["renderable"]
 
 
 def test_a_free_lane_takes_back_a_final_cut_before_a_correction(tmp_path):
@@ -159,14 +164,14 @@ def test_a_free_lane_takes_back_a_final_cut_before_a_correction(tmp_path):
     write_report(directory, write_plan(directory, [video_clip()]))
     (directory / f"{NOVEL}_1.mp4").write_bytes(b"mp4")
     free = conductor(tmp_path, [H3_KEY])
-    assert free.chapter(1)["done"]
+    assert conductor_state.chapter(free, 1)["done"]
     (directory / "review_feedback.json").write_text(json.dumps({"clip_01": "修正"}, ensure_ascii=False), encoding="utf-8")
     later(directory / "review_feedback.json", 5)
-    assert not free.chapter(1)["done"]
+    assert not conductor_state.chapter(free, 1)["done"]
 
 
-def batch_for(tmp_path: Path, monkeypatch, **overrides) -> thin_batch.Batch:
-    batch = object.__new__(thin_batch.Batch)
+def batch_for(tmp_path: Path, monkeypatch, **overrides) -> production_flow.Batch:
+    batch = object.__new__(production_flow.Batch)
     args = dict(rerender=False, no_render=False, dry_run=False, workers=0, inflight=4, tier=None, prescreen=False,
                 moderation_repair=True, prune=False, cache_only=False, retake_failed=False)
     args.update(overrides)
@@ -185,7 +190,7 @@ def batch_for(tmp_path: Path, monkeypatch, **overrides) -> thin_batch.Batch:
     return batch
 
 
-def scripts_run(batch: thin_batch.Batch) -> list[str]:
+def scripts_run(batch: production_flow.Batch) -> list[str]:
     return [Path(command[1]).name for command in batch.commands]
 
 
@@ -193,16 +198,16 @@ def test_thin_batch_retakes_a_final_with_gate_failures_on_a_free_lane_only(tmp_p
     directory = warned_episode(tmp_path)
     monkeypatch.delenv("NOVEL_LOCAL_H3_URL", raising=False)
     paid = batch_for(tmp_path, monkeypatch)
-    paid.render(1)
+    production_render.render(paid, 1)
     assert paid.rows[1]["render"] == "done_with_warnings" and not paid.commands
     monkeypatch.setenv("NOVEL_LOCAL_H3_URL", "pool")
     free = batch_for(tmp_path, monkeypatch)
-    free.render(1)
+    production_render.render(free, 1)
     assert scripts_run(free) == ["render_clips_thin.py"] and render_runs(directory) == 1
     for _ in range(RENDER_RUNS_PER_PLAN - 1):
         count_run(directory)
     spent = batch_for(tmp_path, monkeypatch)
-    spent.render(1)
+    production_render.render(spent, 1)
     assert spent.rows[1]["render"] == "done_with_warnings" and not spent.commands
 
 
@@ -213,7 +218,7 @@ def test_a_round_turned_away_by_another_renders_lock_spends_no_run(tmp_path, mon
     (directory / ".render.lock").write_text(str(os.getpid()), encoding="utf-8")
     batch = batch_for(tmp_path, monkeypatch)
     for _ in range(RENDER_RUNS_PER_PLAN + 1):
-        batch.render(1)
+        production_render.render(batch, 1)
     assert batch.rows[1]["render"].startswith("locked by pid") and render_runs(directory) == 0
 
 
@@ -251,7 +256,7 @@ def test_a_free_lane_converts_an_episode_without_english_prompts_before_renderin
             (directory / "clip_plan.json").write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
         return 0, ""
     monkeypatch.setattr(batch, "run", run)
-    batch.render(1)
+    production_render.render(batch, 1)
     assert scripts_run(batch)[:2] == ["build_h3_prompts.py", "render_clips_thin.py"]
 
 
@@ -260,7 +265,7 @@ def test_an_episode_the_converter_cannot_finish_waits_without_spending_a_run(tmp
     write_plan(directory, [video_clip()])
     monkeypatch.setenv("NOVEL_LOCAL_H3_URL", "pool")
     batch = batch_for(tmp_path, monkeypatch)
-    batch.render(1)
+    production_render.render(batch, 1)
     assert batch.rows[1]["render"] == "skipped (H3 prompt not ready)"
     assert scripts_run(batch) == ["build_h3_prompts.py"] and render_runs(directory) == 0
 
@@ -434,13 +439,13 @@ def test_a_review_the_judge_could_not_finish_goes_back_in_the_queue(tmp_path):
     directory = episode(tmp_path)
     write_report(directory, write_plan(directory, [video_clip()]))
     review = directory / "episode_review.json"
-    review.write_text(json.dumps({"policy": conductor_thin.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}}), encoding="utf-8")
+    review.write_text(json.dumps({"policy": thin_runs.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}}), encoding="utf-8")
     later(review, 5)
     c = conductor(tmp_path)
-    assert c.chapter(1)["unreviewed"]
-    review.write_text(json.dumps({"policy": conductor_thin.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}, "error_rounds": 3}), encoding="utf-8")
+    assert conductor_state.chapter(c, 1)["unreviewed"]
+    review.write_text(json.dumps({"policy": thin_runs.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}, "error_rounds": 3}), encoding="utf-8")
     later(review, 10)
-    assert not c.chapter(1)["unreviewed"]
+    assert not conductor_state.chapter(c, 1)["unreviewed"]
 
 
 def test_a_resumed_review_judges_again_only_the_clips_it_failed_on(tmp_path, monkeypatch):

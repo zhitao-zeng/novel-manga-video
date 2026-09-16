@@ -1,3 +1,5 @@
+import repair_manager_dispatch_thin as repair_manager_dispatch
+import repair_manager_workers_thin as repair_manager_workers
 import json
 import os
 from pathlib import Path
@@ -6,7 +8,10 @@ import sys
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import manage_repair_thin as manager
+import novel_manga.repair.scheduling as schedule_rules
+import repair_manager_flow_thin as repair_manager_flow
+import repair_manager_workers_thin as repair_manager_workers
+import thin_runs as thin_runs
 
 
 def info(**extra):
@@ -26,15 +31,15 @@ def info(**extra):
     ("after repair:\nafter retake 1:", ["/x/wy_gate.py"], 9),
 ])
 def test_import_the_current_step_not_the_start_of_the_batch(tail, args, expected):
-    assert manager.legacy_step(args, tail) == expected
+    assert repair_manager_workers.legacy_step(args, tail) == expected
 
 
 def test_all_lanes_share_episode_ownership(tmp_path):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     existing = m.add("fill", [2, 3], pid=os.getpid())
     m.info = {n: info() for n in range(1, 150)}
     m.info[145] = info(bad=0, can_fill=True, status="stale", ready=False)
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     groups = [j["episodes"] for j in m.state["jobs"]]
     assert sum(map(len, groups)) == len({n for g in groups for n in g})
     assert len([j for j in m.state["jobs"] if j["kind"] == "repair"]) == 24
@@ -43,32 +48,32 @@ def test_all_lanes_share_episode_ownership(tmp_path):
 
 
 def test_next_fill_can_render_while_previous_fill_is_reviewed(tmp_path):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     first = m.add("fill", [1, 2], step=1, pid=os.getpid())
     m.info = {n: info(bad=0, ready=False, status="stale", can_fill=True) for n in range(1, 20)}
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     fills = [j for j in m.state["jobs"] if j["kind"] == "fill"]
     assert len(fills) == 13
     assert fills[0] is first and fills[1]["step"] == 0
     assert all(not set(j["episodes"]) & {1, 2} for j in fills[1:])
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     assert len([j for j in m.state["jobs"] if j["kind"] == "fill"]) == 13
 
 
 def test_fill_review_backlog_has_a_bound(tmp_path):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     for n in range(1, 25):
         m.add("fill", [n], step=1)
     m.info = {n: info(bad=0, ready=False, status="stale", can_fill=True) for n in range(1, 50)}
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     assert len(m.state["jobs"]) == 24  # reserve bounded room for pending reviews
 
 
 def test_smaller_new_batches_do_not_repartition_an_existing_large_batch(tmp_path):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     old = m.add("repair", list(range(1, 61)), step=5, pid=os.getpid())
     m.info = {n: info() for n in range(1, 100)}
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     assert old["episodes"] == list(range(1, 61)) and old["step"] == 5
     new = [j for j in m.state["jobs"] if j is not old]
     assert not new  # grandfather the old batch, without exceeding the new episode cap
@@ -82,46 +87,46 @@ def test_smaller_new_batches_do_not_repartition_an_existing_large_batch(tmp_path
     ("done", {"unchecked": 0, "failed": 0, "flash_pending": 0}, "passed"),
 ])
 def test_episode_progress_buckets_do_not_overlap(status, counts, bucket):
-    assert manager.inspection_bucket(status, counts) == bucket
+    assert schedule_rules.inspection_bucket(status, counts) == bucket
 
 
 def test_second_pass_waits_for_qwen_and_primary_work_but_not_flash(tmp_path):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     m.state["passes"] = {"1": 1}
     rows = {1: info()}
     local = m.add("scan", [], source="local")
     flash = m.add("scan", [], source="flash")
-    assert not manager.second_pass_ready(m.state, rows)
+    assert not schedule_rules.second_pass_ready(m.state, rows)
     local["status"] = "done"
-    assert manager.second_pass_ready(m.state, rows)  # Flash may still be scanning
+    assert schedule_rules.second_pass_ready(m.state, rows)  # Flash may still be scanning
     fill = m.add("fill", [2])
-    assert not manager.second_pass_ready(m.state, rows)
+    assert not schedule_rules.second_pass_ready(m.state, rows)
     fill["status"] = "done"
-    assert manager.second_pass_ready(m.state, rows)
+    assert schedule_rules.second_pass_ready(m.state, rows)
     rows[1]["unverified"] = 1
-    assert not manager.second_pass_ready(m.state, rows)
+    assert not schedule_rules.second_pass_ready(m.state, rows)
     rows[1]["unverified"] = 0
     rows[1]["flash_pending"] = 1
     m.add("confirm", [1])
-    assert manager.second_pass_ready(m.state, rows)  # candidates are confirmed alongside repair
+    assert schedule_rules.second_pass_ready(m.state, rows)  # candidates are confirmed alongside repair
     local["status"] = "held"
-    assert not manager.second_pass_ready(m.state, rows)  # a failed primary scan is not a completed one
+    assert not schedule_rules.second_pass_ready(m.state, rows)  # a failed primary scan is not a completed one
 
 
 def test_confirmed_new_errors_still_need_a_first_repair_cycle(tmp_path):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     m.state["phase"] = 2
     m.state["passes"] = {"2": 1, "3": 2}
     m.info = {1: info(), 2: info(), 3: info()}
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     jobs = [j for j in m.state["jobs"] if j["kind"] == "repair"]
     assert [(j["episodes"], j["cycle"]) for j in jobs] == [([1], 1), ([2], 2)]
     assert all(3 not in j["episodes"] for j in jobs)  # exhausted errors remain visible, without endless retakes
     first = jobs[0]
-    first["step"] = len(manager.REPAIR)
-    m.finish(first)
+    first["step"] = len(schedule_rules.REPAIR)
+    repair_manager_workers.finish(m, first)
     assert m.state["passes"]["1"] == 1
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     assert any(j["episodes"] == [1] and j["cycle"] == 2 and j["status"] == "pending" for j in m.state["jobs"])
 
 
@@ -131,22 +136,22 @@ def test_confirmed_new_errors_still_need_a_first_repair_cycle(tmp_path):
     {1: info()},
 ])
 def test_flash_exemption_does_not_skip_unfinished_primary_work(tmp_path, rows):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     m.add("scan", [], source="flash")
-    assert not manager.second_pass_ready(m.state, rows)
+    assert not schedule_rules.second_pass_ready(m.state, rows)
 
 
 def test_restart_tracks_an_existing_renderer_then_continues_at_review(tmp_path, monkeypatch):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     job = m.add("repair", [12], step=8, pid=12345, adopted=True)
     m.save()
-    restarted = manager.Manager(m.novel, m.legacy)
-    monkeypatch.setattr(manager, "alive", lambda pid: True)
-    assert not restarted.reap()
+    restarted = repair_manager_flow.Manager(m.novel, m.legacy)
+    monkeypatch.setattr(repair_manager_workers, 'alive', lambda pid: True)
+    assert not repair_manager_workers.reap(restarted)
     assert restarted.state["jobs"][0]["step"] == 8
-    monkeypatch.setattr(manager, "alive", lambda pid: False)
-    monkeypatch.setattr(manager, "episode_status", lambda *a: "done")
-    assert restarted.reap()
+    monkeypatch.setattr(repair_manager_workers, 'alive', lambda pid: False)
+    monkeypatch.setattr(thin_runs, 'episode_status', lambda *a: "done")
+    assert repair_manager_workers.reap(restarted)
     assert restarted.state["jobs"][0]["step"] == 9
     assert restarted.state["jobs"][0]["status"] == "pending"
     assert restarted.state["passes"] == {}
@@ -157,39 +162,39 @@ def test_adoption_stops_controller_but_preserves_video_child(tmp_path, monkeypat
     legacy.mkdir()
     (legacy / "wy_repair_chain2.state").write_text("ep:1\nep:2\n")
     (legacy / "wy_repair_chain2.log").write_text("===== batch: 3,4\nbefore repair: x\nafter repair: x\n")
-    m = manager.Manager(novel, legacy)
-    monkeypatch.setattr(m, "adoption_preview", lambda: {
+    m = repair_manager_flow.Manager(novel, legacy)
+    monkeypatch.setattr(repair_manager_workers, "adoption_preview", lambda manager: {
         "controllers": [{"pid": 100, "args": ["bash", str(legacy / "wy_repair_chain2.sh")]}],
         "workers": [{"pid": 101, "args": ["python", "scripts/thin_batch.py", "--novel-dir", str(novel), "--chapters", "3,4"]}],
     })
-    monkeypatch.setattr(manager, "alive", lambda pid: True)
+    monkeypatch.setattr(repair_manager_workers, 'alive', lambda pid: True)
     stopped = []
-    monkeypatch.setattr(manager.os, "kill", lambda pid, sig: stopped.append(pid))
-    m.adopt()
+    monkeypatch.setattr(repair_manager_workers.os, "kill", lambda pid, sig: stopped.append(pid))
+    repair_manager_workers.adopt(m)
     assert stopped == [100]
     assert m.state["passes"] == {"1": 1, "2": 1}
     assert m.state["jobs"][0]["pid"] == 101 and m.state["jobs"][0]["step"] == 5
-    m.adopt()
+    repair_manager_workers.adopt(m)
     assert stopped == [100]  # a second call cannot import/reset the same work again
 
 
 def test_repeated_worker_failure_is_held_and_keeps_its_claim_visible(tmp_path):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     job = m.add("audit", [1], pid=101)
     class Failed:
         def poll(self): return 1
     m.children[101] = Failed()
     for attempt in range(3):
         job.update(status="running", pid=101)
-        m.reap()
+        repair_manager_workers.reap(m)
     assert job["status"] == "held" and job["step"] == 0 and job["episodes"] == [1]
 
 
 def test_legacy_overlap_is_drained_before_launching_the_next_step(tmp_path, monkeypatch):
-    m = manager.Manager(tmp_path / "novel", tmp_path / "legacy")
+    m = repair_manager_flow.Manager(tmp_path / "novel", tmp_path / "legacy")
     m.add("fill", [2], pid=os.getpid())
     pending = m.add("repair", [1, 2], step=1)
     m.info = {1: info(), 2: info()}
-    monkeypatch.setattr(m, "command", lambda _: pytest.fail("overlapping job must not be launched"))
-    m.launch()
+    monkeypatch.setattr(repair_manager_workers, "command", lambda *args: pytest.fail("overlapping job must not be launched"))
+    repair_manager_workers.launch(m)
     assert pending["status"] == "pending"

@@ -1,3 +1,5 @@
+import repair_manager_dispatch_thin as repair_manager_dispatch
+import repair_manager_workers_thin as repair_manager_workers
 
 from render_context_support import uninitialized_runner
 import copy
@@ -9,7 +11,8 @@ import pytest
 import managed_repair_thin as managed
 import repair_history as history
 import repair_flow_thin as repair
-import manage_repair_thin as manager
+import novel_manga.repair.scheduling as schedule_rules
+import repair_manager_flow_thin as repair_manager_flow
 from h3_request_checks import request_issues
 from thin_profile import plan_fingerprint
 from novel_manga.review.storage import take_identity
@@ -114,17 +117,17 @@ def test_cached_takes_and_duplicate_report_reads_do_not_spend_retry_budget():
 
 
 def test_legacy_episode_counts_do_not_block_new_clip_work(tmp_path):
-    m=manager.Manager(tmp_path/'book',tmp_path/'legacy');m.state['phase']=2;m.state['passes']['1']=2
+    m=repair_manager_flow.Manager(tmp_path/'book',tmp_path/'legacy');m.state['phase']=2;m.state['passes']['1']=2
     m.state['recovery_attempts']['1']={'residual':1}
     m.info[1]={'status':'done','ready':True,'bad':1,'held':False,'can_fill':False,'flash_pending':0,'unverified':0,'managed_clips':['b']}
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     assert len(m.state['jobs'])==1 and m.state['jobs'][0]['episodes']==[1]
 
 
 def test_unresolved_clip_preparation_does_not_keep_first_pass_running_forever():
     state={'jobs':[],'passes':{}}
     info={1:{'bad':1,'unverified':0,'can_fill':False,'managed_clips':[]}}
-    assert manager.second_pass_ready(state,info)
+    assert schedule_rules.second_pass_ready(state,info)
 
 
 def test_unchanged_failed_preparation_waits_for_corrected_inputs(tmp_path):
@@ -139,9 +142,9 @@ def test_unchanged_failed_preparation_waits_for_corrected_inputs(tmp_path):
 
 
 def test_all_repair_preparation_stages_use_the_integrated_entry(tmp_path):
-    m=manager.Manager(tmp_path/'book',tmp_path/'legacy')
+    m=repair_manager_flow.Manager(tmp_path/'book',tmp_path/'legacy')
     for step in [1,4,7]:
-        cmd,_=m.command({'kind':'repair','episodes':[1],'step':step,'id':'job-test'})
+        cmd,_=repair_manager_workers.command(m, {'kind':'repair','episodes':[1],'step':step,'id':'job-test'})
         assert 'scripts/prepare_recovery_thin.py' in cmd and cmd[cmd.index('--kind')+1]=='managed'
         assert cmd[cmd.index('--job-id')+1]==f'job-test-step{step}'
 

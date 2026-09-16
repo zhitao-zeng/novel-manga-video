@@ -1,5 +1,7 @@
 """Regressions for the September 14 review: preserve cuts/tier and enforce current review semantics."""
 from __future__ import annotations
+import conductor_state_thin as conductor_state
+import conductor_workers_thin as conductor_workers
 
 import copy
 import json
@@ -18,14 +20,15 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build_clip_plan_thin as packer  # noqa: E402
 import complete_cast_thin as completion  # noqa: E402
-import conductor_thin  # noqa: E402
+import conductor_flow_thin as conductor_flow
+import conductor_workers_thin as conductor_workers  # noqa: E402
 import delivery_gate_thin  # noqa: E402
 import novel_manga.planning.cast as pc_cast
 import planner_context_thin as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
 import retier_reviews  # noqa: E402
 import status_server  # noqa: E402
-import thin_batch  # noqa: E402
+import production_flow_thin as production_flow  # noqa: E402
 import novel_manga.model_client as model_client
 import review_episode_thin as review_episode
 import review_judges_thin as review_judges  # noqa: E402
@@ -186,7 +189,7 @@ def test_index_recognizes_two_character_people_but_not_generic_nouns(tmp_path):
 
 
 def conductor(novel, tmp_path):
-    return conductor_thin.Conductor({"novel_dir": str(novel), "tmp_dir": str(tmp_path / "conductor"), "keys": [],
+    return conductor_flow.Conductor({"novel_dir": str(novel), "tmp_dir": str(tmp_path / "conductor"), "keys": [],
         "ranges": [{"chapters": "1-1", "plan_mode": 15}], "qwen": {"urls": []},
         "planning": {"block_size": 1, "blocks_min": 1, "blocks_max": 1, "margin": 0}}, dry_run=True)
 
@@ -201,7 +204,7 @@ def test_old_review_is_pending_in_conductor_board_and_delivery(tmp_path, monkeyp
     path = episode / "episode_review.json"
     write(path, review)
     c = conductor(novel, tmp_path)
-    assert c.chapter(1)["unreviewed"]
+    assert conductor_state.chapter(c, 1)["unreviewed"]
     assert status_server._episode_state(episode, False)["review"] == "pending"
     assert status_server._parse_review(path) is None
     monkeypatch.setattr(sys, "argv", ["delivery_gate", "--novel-dir", str(novel), "--quiet"])
@@ -209,7 +212,7 @@ def test_old_review_is_pending_in_conductor_board_and_delivery(tmp_path, monkeyp
     assert not json.loads((novel / "delivery.json").read_text())["episodes"][0]["deliverable"]
     review["policy"] = REVIEW_POLICY
     write(path, review)
-    assert not c.chapter(1)["unreviewed"]
+    assert not conductor_state.chapter(c, 1)["unreviewed"]
     assert status_server._episode_state(episode, False)["review"] == "reviewed"
     delivery_gate_thin.main()
     assert json.loads((novel / "delivery.json").read_text())["episodes"][0]["deliverable"]
@@ -269,14 +272,14 @@ def test_asset_opt_in_survives_conductor_batch_and_provider(tmp_path, monkeypatc
         monkeypatch.setenv(key, value)
     monkeypatch.delenv("PHANROUTER_ASSET_PUBLIC_BASE", raising=False)
     captured = {}
-    monkeypatch.setattr(conductor_thin.subprocess, "Popen", lambda *a, **k: (captured.update(k), SimpleNamespace(pid=123))[1])
+    monkeypatch.setattr(conductor_workers.subprocess, "Popen", lambda *a, **k: (captured.update(k), SimpleNamespace(pid=123))[1])
     c = conductor(novel, tmp_path)
     c.dry = False
-    c.spawn("worker", ["test-worker"])
+    conductor_workers.spawn(c, "worker", ["test-worker"])
     assert captured["env"]["PHANROUTER_INLINE_REFERENCE_IMAGES"] == "0"
     args = SimpleNamespace(novel_dir=str(novel), source=str(tmp_path / "novel.txt"), title=None, notes_json=None,
                            resubmit_unconfirmed=False, unattended=False, review_only=False, tier="fast", card_parallel=1)
-    batch = thin_batch.Batch(args)
+    batch = production_flow.Batch(args)
     assert batch.env["PHANROUTER_INLINE_REFERENCE_IMAGES"] == "0"
     monkeypatch.setenv("PHANROUTER_INLINE_REFERENCE_IMAGES", batch.env["PHANROUTER_INLINE_REFERENCE_IMAGES"])
     settings = Settings.from_env(provider="phanrouter", admission_mode="preview")

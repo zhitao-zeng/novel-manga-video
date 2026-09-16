@@ -2,6 +2,7 @@
 thin_batch and the conductor, reviews before the conductor stops, previews only a person can finish, unconfirmed
 submissions, the continuity of split stages, failed H3 rebuilds, corrections after a re-plan."""
 from __future__ import annotations
+import production_render_thin as production_render
 
 import json
 import os
@@ -17,8 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import build_clip_plan_thin as packer  # noqa: E402
-import conductor_thin  # noqa: E402
-import thin_batch  # noqa: E402
+import conductor_flow_thin as conductor_flow
+import conductor_state_thin as conductor_state
+import thin_runs as thin_runs  # noqa: E402
+import production_flow_thin as production_flow  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider, SubmissionUncertain  # noqa: E402
 from thin_profile import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint  # noqa: E402
@@ -53,13 +56,13 @@ def report_for(directory: Path, plan: dict, **fields) -> None:
     (directory / f"{directory.name}.mp4").write_bytes(b"mp4")
 
 
-def conductor(tmp_path: Path, keys: list[dict] | None = None) -> conductor_thin.Conductor:
+def conductor(tmp_path: Path, keys: list[dict] | None = None) -> conductor_flow.Conductor:
     (tmp_path / NOVEL).mkdir(exist_ok=True)
     (tmp_path / NOVEL / "bible_growth.json").write_text(json.dumps({"99": {}}), encoding="utf-8")
     config = {"novel_dir": str(tmp_path / NOVEL), "tmp_dir": str(tmp_path / "conductor"), "keys": keys or [],
               "ranges": [{"chapters": "1-1", "plan_mode": 15}], "qwen": {"urls": []},
               "planning": {"block_size": 1, "blocks_min": 1, "blocks_max": 1, "margin": 0}}
-    return conductor_thin.Conductor(config, dry_run=True)
+    return conductor_flow.Conductor(config, dry_run=True)
 
 
 # ---------------------------------------------------------------- 22: one reading of an episode
@@ -69,12 +72,12 @@ def test_the_conductor_reads_an_episode_as_thin_batch_does(tmp_path):
     plan = plan_with(directory, [clip])
     report_for(directory, plan, prompt_h3_fingerprint=h3_prompt_fingerprint(plan))
     free = conductor(tmp_path, [H3_KEY])
-    assert free.chapter(1)["done"]
+    assert conductor_state.chapter(free, 1)["done"]
     plan_with(directory, [{**clip, "prompt_h3": "english v2"}])  # the English prompt changed after the final
-    assert not free.chapter(1)["done"] and 1 in free.range_stats(free.ranges[0])["renderable"]
+    assert not conductor_state.chapter(free, 1)["done"] and 1 in conductor_state.range_stats(free, free.ranges[0])["renderable"]
     (directory / "thin_media_report.json").unlink()  # what a re-plan does
     paid = conductor(tmp_path, [PAID_KEY])
-    assert not paid.chapter(1)["done"] and 1 in paid.range_stats(paid.ranges[0])["renderable"]
+    assert not conductor_state.chapter(paid, 1)["done"] and 1 in conductor_state.range_stats(paid, paid.ranges[0])["renderable"]
 
 
 # ---------------------------------------------------------------- 23: reviews before stopping
@@ -84,7 +87,7 @@ def test_the_conductor_does_not_stop_while_a_final_waits_for_its_review(tmp_path
     c = conductor(tmp_path)
     assert c.tick()  # rendered, not reviewed: a review batch goes out and the conductor carries on
     review = directory / "episode_review.json"
-    review.write_text(json.dumps({"policy": conductor_thin.REVIEW_POLICY, "clips": {}}), encoding="utf-8")
+    review.write_text(json.dumps({"policy": thin_runs.REVIEW_POLICY, "clips": {}}), encoding="utf-8")
     later = (directory / f"{NOVEL}_1.mp4").stat().st_mtime + 5
     os.utime(review, (later, later))
     assert not c.tick()
@@ -97,18 +100,18 @@ def test_a_preview_that_failed_only_a_media_check_waits_for_a_person(tmp_path, m
     clip["prompt_h3_of"] = h3_source_digest(clip["prompt"])
     report_for(directory, plan_with(directory, [clip]), assembly={"thin_passed": False})
     free = conductor(tmp_path, [H3_KEY])
-    state = free.chapter(1)
-    assert state["blocked"] and not state["done"] and 1 not in free.range_stats(free.ranges[0])["renderable"]
+    state = conductor_state.chapter(free, 1)
+    assert state["blocked"] and not state["done"] and 1 not in conductor_state.range_stats(free, free.ranges[0])["renderable"]
     monkeypatch.setenv("NOVEL_LOCAL_H3_URL", "pool")
     monkeypatch.delenv("NOVEL_CLIP_SECONDS_MAX", raising=False)
-    batch = object.__new__(thin_batch.Batch)
+    batch = object.__new__(production_flow.Batch)
     batch.args = types.SimpleNamespace(rerender=False, cache_only=False, retake_failed=False, no_render=False, dry_run=False, workers=0,
                                        inflight=4, tier=None, prescreen=False, moderation_repair=True, prune=False)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
     batch.reviewing, batch.fast, batch.env, batch.notes, commands = False, True, {}, {}, []
     monkeypatch.setattr(batch, "run", lambda command, log_path: (commands.append(command), (0, ""))[1])
     monkeypatch.setattr(batch, "fill_result", lambda chapter: None)
-    batch.render(1)
+    production_render.render(batch, 1)
     assert not commands and batch.rows[1]["render"] == "done_with_warnings"  # no re-assembly of the same clips
 
 
@@ -225,7 +228,7 @@ def test_a_repair_batch_builds_only_the_cards_its_episode_references(tmp_path, m
     monkeypatch.setattr(recurring_cards_thin, "recurring_without_cards", lambda novel_dir: [("甲", "character_099", 2)])
 
     def prepared(no_recurring: bool) -> set:
-        batch = object.__new__(thin_batch.Batch)
+        batch = object.__new__(production_flow.Batch)
         batch.args = types.SimpleNamespace(no_recurring_cards=no_recurring)
         batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
         wanted: set = set()

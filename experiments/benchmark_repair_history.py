@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from benchmark_repair_cause import ROOT, ROOT_FILES, EPISODE_FILES, copy_if_present, clone_case, render_arm, evaluate_arm, evaluation_passed
 from clip_readiness import plan_issues
-from manage_repair_thin import active_episodes
+from novel_manga.repair.scheduling import active_episodes
 from novel_manga.config import Settings
 from novel_manga.models import StoryBible
 from novel_manga.util import atomic_write_json

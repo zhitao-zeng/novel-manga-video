@@ -2,6 +2,7 @@
 missed their own takes, English (H3) prompts that carried Chinese the model read out, split parts that lost their
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
+import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
 
@@ -23,7 +24,7 @@ import build_clip_plan_thin as packer  # noqa: E402
 import build_h3_prompts as h3prompts  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
 import split_long_stages as tool  # noqa: E402
-import thin_batch  # noqa: E402
+import production_flow_thin as production_flow  # noqa: E402
 import novel_manga.models as review_models
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.policy as review_policy
@@ -138,8 +139,8 @@ def test_resubmitting_releases_only_what_went_unconfirmed_before_the_run(monkeyp
 
 
 # ---------------------------------------------------------------- thin_batch: retakes and held clips (2)
-def batch_stub(tmp_path, monkeypatch, statuses, **args) -> thin_batch.Batch:
-    batch = object.__new__(thin_batch.Batch)
+def batch_stub(tmp_path, monkeypatch, statuses, **args) -> production_flow.Batch:
+    batch = object.__new__(production_flow.Batch)
     defaults = dict(rerender=False, cache_only=False, retake_failed=False, no_render=False, dry_run=False, workers=0, inflight=4,
                     tier=None, prescreen=False, moderation_repair=True, prune=False, resubmit_unconfirmed=False)
     defaults.update(args)
@@ -169,10 +170,10 @@ def paid_episode(tmp_path: Path) -> Path:
 def test_retake_failed_goes_only_to_the_first_call_of_the_approved_retake(tmp_path, monkeypatch):
     paid_episode(tmp_path)
     retake = batch_stub(tmp_path, monkeypatch, ["done_with_warnings", "clips_failed", "clips_failed"], retake_failed=True)
-    retake.render(1)
+    production_render.render(retake, 1)
     assert ["--retake-failed" in command for command in retake.commands] == [True, False]
     stale = batch_stub(tmp_path, monkeypatch, ["stale", "clips_failed", "clips_failed"], retake_failed=True)
-    stale.render(1)
+    production_render.render(stale, 1)
     assert len(stale.commands) == 2 and not any("--retake-failed" in command for command in stale.commands)
 
 
@@ -184,10 +185,10 @@ def test_a_held_submission_can_be_released_past_the_run_limit(tmp_path, monkeypa
     record.parent.mkdir(parents=True)
     record.write_text(json.dumps({"request_sha256": "x", "submit_uncertain_at": time.time() - 60}), encoding="utf-8")
     plain = batch_stub(tmp_path, monkeypatch, ["clips_failed"])
-    plain.render(1)
+    production_render.render(plain, 1)
     assert not plain.commands and plain.rows[1]["render"].startswith("gave up")
     released = batch_stub(tmp_path, monkeypatch, ["clips_failed", "done", "done"], resubmit_unconfirmed=True)
-    released.render(1)
+    production_render.render(released, 1)
     assert len(released.commands) == 1
 
 

@@ -1,10 +1,14 @@
+import repair_manager_dispatch_thin as repair_manager_dispatch
+import repair_manager_workers_thin as repair_manager_workers
 
 from render_context_support import uninitialized_runner
 import json
 from pathlib import Path
 import subprocess
 
-import manage_repair_thin as manager
+import novel_manga.repair.scheduling as schedule_rules
+import repair_manager_flow_thin as repair_manager_flow
+import repair_manager_workers_thin as repair_manager_workers
 import prepare_recovery_thin as recovery
 
 
@@ -14,7 +18,7 @@ def info(**kw):
 
 
 def test_recovery_takes_ownership_and_shares_existing_worker_limits(tmp_path):
-    m = manager.Manager(tmp_path / 'book', tmp_path / 'old')
+    m = repair_manager_flow.Manager(tmp_path / 'book', tmp_path / 'old')
     m.state['phase'] = 2
     for n in range(1, 31):
         d = m.novel / f'book_{n}'
@@ -26,54 +30,54 @@ def test_recovery_takes_ownership_and_shares_existing_worker_limits(tmp_path):
     m.info[40] = {**info(), 'status': 'done_with_warnings'}
     m.info[41] = {**info(), 'bad': 1}
     m.state['passes']['41'] = 2
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     jobs = [j for j in m.state['jobs'] if j['kind'] == 'recovery']
     assert len(jobs) == 24
     assert {j['recovery_kind'] for j in jobs} == {'plan', 'technical', 'residual'}
-    assert len(manager.active_episodes(m.state)) == 32
-    assert manager.stage_slots(jobs[0]) == ('repair_model', 1)
+    assert len(schedule_rules.active_episodes(m.state)) == 32
+    assert schedule_rules.stage_slots(jobs[0]) == ('repair_model', 1)
     jobs[0]['step'] = 1
-    assert manager.stage_slots(jobs[0]) == ('repair_render', 1)
-    m.schedule()
+    assert schedule_rules.stage_slots(jobs[0]) == ('repair_render', 1)
+    repair_manager_dispatch.schedule(m)
     assert len([j for j in m.state['jobs'] if j['kind'] == 'recovery']) == 24
 
 
 def test_completed_recovery_is_not_scheduled_again_for_same_failure(tmp_path):
-    m = manager.Manager(tmp_path / 'book', tmp_path / 'old')
+    m = repair_manager_flow.Manager(tmp_path / 'book', tmp_path / 'old')
     m.info[1] = {**info(), 'status': 'done_with_warnings'}
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     job = m.state['jobs'][0]
     assert job['kind'] == 'recovery'
     job['step'] = 3
-    m.finish(job)
-    m.schedule()
+    repair_manager_workers.finish(m, job)
+    repair_manager_dispatch.schedule(m)
     assert len(m.state['jobs']) == 1
     assert not m.state['passes']
 
 
 def test_missing_expression_recovery_precedes_new_targets_and_transfers_owner(tmp_path,monkeypatch):
-    monkeypatch.setattr(manager,'REPAIR_EPISODES',2)
-    m=manager.Manager(tmp_path/'book',tmp_path/'old')
+    monkeypatch.setattr(schedule_rules,'REPAIR_EPISODES',2)
+    m=repair_manager_flow.Manager(tmp_path/'book',tmp_path/'old')
     old=m.add('fill',[1]);old['status']='waiting_plan'
     m.info[1]={**info(),'status':'plan_blocked','plan_blocked':True,'ready':False}
     m.state['plan_queue']={'1':{'clip_01':['asset: missing required image characters/c/expressions.jpeg']}}
     m.state['targeted_recovery']=[{'episode':n,'method':'managed'} for n in [2,3]]
-    m.schedule_recovery()
+    repair_manager_dispatch.schedule_recovery(m)
     jobs=[j for j in m.state['jobs'] if j['status']=='pending']
     assert old['status']=='superseded' and len(jobs)==2
     assert jobs[0]['episodes']==[1] and jobs[0]['recovery_kind']=='references' and jobs[0]['replaces']==old['id']
     assert jobs[1]['episodes']==[2]
-    m.schedule_recovery()
+    repair_manager_dispatch.schedule_recovery(m)
     assert len(m.state['jobs'])==3
 
 
 def test_recovery_no_change_stops_without_three_model_retries(tmp_path, monkeypatch):
-    m = manager.Manager(tmp_path / 'book', tmp_path / 'old')
+    m = repair_manager_flow.Manager(tmp_path / 'book', tmp_path / 'old')
     result = tmp_path / 'result.json'
     result.write_text(json.dumps({'returncode': 4}))
     j = m.add('recovery', [1], pid=123, result=str(result), recovery_kind='residual')
-    monkeypatch.setattr(manager, 'alive', lambda pid: False)
-    m.reap()
+    monkeypatch.setattr(repair_manager_workers, 'alive', lambda pid: False)
+    repair_manager_workers.reap(m)
     assert j['status'] == 'needs_attention' and j['failures'] == 0
 
 
@@ -142,13 +146,13 @@ def test_exposure_repair_does_not_turn_blank_video_into_a_pass(tmp_path):
 
 
 def test_old_black_gate_can_receive_one_cache_only_exposure_repair(tmp_path):
-    m = manager.Manager(tmp_path / 'book', tmp_path / 'old')
+    m = repair_manager_flow.Manager(tmp_path / 'book', tmp_path / 'old')
     m.info[1] = {**info(), 'status': 'done_with_warnings', 'exposure_due': True}
     m.state['recovery_attempts']['1'] = {'technical': 1}
-    m.schedule()
+    repair_manager_dispatch.schedule(m)
     job = m.state['jobs'][0]
     assert job['step'] == 1 and job['cache_only'] and job['recovery_kind'] == 'technical'
     job['step'] = 3
-    m.finish(job)
-    m.schedule()
+    repair_manager_workers.finish(m, job)
+    repair_manager_dispatch.schedule(m)
     assert len(m.state['jobs']) == 1

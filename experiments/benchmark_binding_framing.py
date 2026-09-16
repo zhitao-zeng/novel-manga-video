@@ -53,7 +53,7 @@ def clone(frozen, dest, case):
 def freeze(novel, output, specs):
     if (output/'manifest.json').exists():
         return read(output/'manifest.json')
-    from manage_repair_thin import active_episodes
+    from novel_manga.repair.scheduling import active_episodes
     from story_identity import IdentityCatalog
     from novel_manga.review.storage import take_identity
     busy=active_episodes(read(novel/'repair_manager/state.json',{'jobs':[]}))

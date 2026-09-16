@@ -1,6 +1,7 @@
 """split_long_stages.py: an old plan's clamped clips become the parts the packer now cuts them into, and nothing
 else about the episode changes - the other clips keep their entries and their rendered videos."""
 from __future__ import annotations
+import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
 
@@ -14,7 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import render_flow_thin as rc  # noqa: E402
 import split_long_stages as tool  # noqa: E402
-import thin_batch  # noqa: E402
+import production_flow_thin as production_flow  # noqa: E402
 from thin_profile import plan_fingerprint  # noqa: E402
 
 
@@ -146,7 +147,7 @@ def test_thin_batch_retake_failed_takes_a_paid_final_back(tmp_path, monkeypatch)
     monkeypatch.delenv("NOVEL_CLIP_SECONDS_MAX", raising=False)
 
     def batch(retake: bool):
-        b = object.__new__(thin_batch.Batch)
+        b = object.__new__(production_flow.Batch)
         b.args = types.SimpleNamespace(rerender=False, cache_only=False, retake_failed=retake, no_render=False, dry_run=False, workers=0,
                                        inflight=4, tier=None, prescreen=False, moderation_repair=True, prune=False)
         b.novel_dir, b.novel_id, b.rows = tmp_path / "nov", "nov", {1: {}}
@@ -154,7 +155,7 @@ def test_thin_batch_retake_failed_takes_a_paid_final_back(tmp_path, monkeypatch)
         monkeypatch.setattr(b, "run", lambda command, log_path: (b.commands.append(command), (0, ""))[1])
         monkeypatch.setattr(b, "prepare_cards", lambda chapter: None)
         monkeypatch.setattr(b, "fill_result", lambda chapter: None)
-        b.render(1)
+        production_render.render(b, 1)
         return b
     assert not batch(False).commands
     assert "--retake-failed" in batch(True).commands[0]

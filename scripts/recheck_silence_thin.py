@@ -18,7 +18,7 @@ from pathlib import Path
 
 from novel_manga.qc import inspect_silence
 from novel_manga.util import atomic_write_json, media_duration
-from thin_batch import pid_alive
+from production_common_thin import pid_alive
 from thin_runs import episode_status
 
 

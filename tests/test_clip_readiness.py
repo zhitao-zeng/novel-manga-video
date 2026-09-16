@@ -1,3 +1,4 @@
+import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
 import copy
@@ -10,7 +11,7 @@ import pytest
 
 import clip_readiness as ready
 import render_flow_thin as rendering
-import thin_batch
+import production_flow_thin as production_flow
 from thin_runs import episode_status, render_runs
 
 
@@ -145,7 +146,7 @@ def test_failed_asset_build_only_blocks_clips_with_missing_images(episode, monke
 
 def batch_for(episode):
     directory, _, _ = episode
-    batch = thin_batch.Batch.__new__(thin_batch.Batch)
+    batch = production_flow.Batch.__new__(production_flow.Batch)
     batch.episode_dir = lambda n: directory
     batch.render_status = lambda n: episode_status(directory, False)
     batch.rows, batch.fast, batch.reviewing = {1: {}}, False, False
@@ -162,7 +163,7 @@ def test_all_blocked_spends_no_run_or_asset_or_translation_calls(episode, monkey
     monkeypatch.setenv("NOVEL_LOCAL_H3_URL", "pool")
     batch.h3_ready = lambda n: pytest.fail("do not translate an impossible request")
     batch.prepare_cards = lambda n: pytest.fail("do not buy cards for an impossible request")
-    batch.render(1)
+    production_render.render(batch, 1)
     assert batch.rows[1]["render"] == "plan_blocked"
     assert render_runs(directory) == 0
     assert episode_status(directory, True) == "plan_blocked"
@@ -178,7 +179,7 @@ def test_missing_card_is_built_before_admission_and_all_missing_spends_no_run(ep
     batch = batch_for(episode)
     builds = []
     batch.prepare_cards = lambda n: builds.append(n)
-    batch.render(1)
+    production_render.render(batch, 1)
     assert builds == [1] and render_runs(directory) == 0
     assert ready.current_blocks(directory) and not (directory / ".render.lock").exists()
     (directory.parent / "missing.jpeg").write_bytes(b"completed image")

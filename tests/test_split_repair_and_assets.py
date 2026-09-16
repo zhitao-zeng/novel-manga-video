@@ -1,3 +1,4 @@
+import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
 """Split recovery must preserve dialogue order; asset checks must stay episode-local."""
@@ -249,14 +250,14 @@ def test_blocked_repack_includes_siblings_instead_of_duplicating_dialogue(split_
 
 
 def test_batch_restores_ranges_before_translating_h3_prompts(split_episode, monkeypatch):
-    import thin_batch
+    import production_flow_thin as production_flow
     episode, script, plan = split_episode
     for clip in plan["clips"]:
         clip.pop("shot_parts")
         clip.update(shot_indexes=[1, 1, 1], spoken_text="甲" * 48 + "乙" * 48 + "丙" * 48, prompt_h3="stale")
     (episode / "clip_plan.json").write_text(json.dumps(plan))
     (episode / "chapter_script.json").write_text(json.dumps(script))
-    batch = thin_batch.Batch.__new__(thin_batch.Batch)
+    batch = production_flow.Batch.__new__(production_flow.Batch)
     batch.rows, batch.fast = {1: {}}, True
     batch.args = SimpleNamespace(no_render=False, rerender=False, dry_run=False, cache_only=False, retake_failed=False)
     batch.episode_dir = lambda chapter: episode
@@ -269,7 +270,7 @@ def test_batch_restores_ranges_before_translating_h3_prompts(split_episode, monk
         assert all("prompt_h3" not in c for c in updated["clips"])
         return False  # do not render until the replacement English prompts are ready
     batch.h3_ready = h3_ready
-    batch.render(1)
+    production_render.render(batch, 1)
     assert batch.rows[1]["render"] == "skipped (H3 prompt not ready)"
 
 
