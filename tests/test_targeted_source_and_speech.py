@@ -1,7 +1,7 @@
 import json
 
 from thin_profile import speech_gate_result, blocking_clip_failures
-from thin_review import source_contract_block
+from review_evidence_thin import source_contract_block
 from repair_flow_thin import source_identities
 
 

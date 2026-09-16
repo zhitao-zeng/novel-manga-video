@@ -91,7 +91,7 @@ def main() -> int:
                 status = f"error: {type(error).__name__}: {str(error)[:120]}"
             row = {"asset_id": asset_id, "status": status, "seconds": round(time.monotonic() - started, 1), "flags": []}
             if args.review and status == "built":
-                from thin_review import card_verdict_current, remediate_cards, review_cards
+                from review_cards_thin import card_verdict_current, remediate_cards, review_cards
                 cached = card_verdict_current(novel_dir, asset_id)
                 # judged before and unchanged since: a clean verdict stands, a
                 # flagged one goes straight to its one fix without re-judging

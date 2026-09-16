@@ -1,19 +1,21 @@
 import json
 from pathlib import Path
 
-import thin_review as review
+import novel_manga.review.contracts as review_contracts
+import novel_manga.review.storage as review_storage
+import review_evidence_thin as review_evidence
 import shared_audit_thin as audit
 import repair_review_thin as precise
 
 
 def test_precise_review_reads_existing_world_rules_without_changing_global_rules(tmp_path):
     (tmp_path/'review_normal.txt').write_text('# 说明\n龙可以直立并使用手掌。\n')
-    original=review.VERIFY_QUESTIONS
-    context=review.review_world_context(tmp_path)
+    original=review_contracts.VERIFY_QUESTIONS
+    context=review_evidence.review_world_context(tmp_path)
     assert '龙可以直立并使用手掌' in context
     assert '本段原文' in context and '不能为动作或台词安错人' in context
-    assert '# 说明' not in context and review.VERIFY_QUESTIONS==original
-    assert review.review_world_context(tmp_path/'another_book')==''
+    assert '# 说明' not in context and review_contracts.VERIFY_QUESTIONS==original
+    assert review_evidence.review_world_context(tmp_path/'another_book')==''
 
 
 def test_audit_only_import_backs_up_review_and_leaves_video_untouched(tmp_path):
@@ -24,7 +26,7 @@ def test_audit_only_import_backs_up_review_and_leaves_video_untouched(tmp_path):
     (directory/'episode_review.json').write_text(json.dumps(old))
     (directory/'clip_plan.json').write_text(json.dumps({'clips':[{'clip_id':'c','kind':'video'}]}))
     (directory/'thin_media_report.json').write_text(json.dumps({'clips':[{'clip_id':'c','selected':{'video':str(video)}}]}))
-    take=review.take_identity(video)
+    take=review_storage.take_identity(video)
     row={'ep':1,'clip':'c','video':str(video),'take':take,'mode':'joint','verdict':'fine','people':[],'evidence':'normal dragon'}
     local={precise.evidence_key(1,'c',str(video),take):row}
     assert audit.sync_episode(novel,state,1,local,{})
@@ -51,7 +53,7 @@ def test_partial_audit_preserves_unaudited_model_clips(tmp_path):
     (directory/'episode_review.json').write_text(json.dumps(old))
     (directory/'clip_plan.json').write_text(json.dumps({'clips':[{'clip_id':cid,'kind':'video'} for cid in ['h3','sd']]}))
     (directory/'thin_media_report.json').write_text(json.dumps({'clips':[{'clip_id':cid,'selected':{'video':str(video)}} for cid,video in [('h3',h3),('sd',sd)]]}))
-    take=review.take_identity(h3);row={'ep':1,'clip':'h3','video':str(h3),'take':take,'mode':'joint','verdict':'fine','people':[]}
+    take=review_storage.take_identity(h3);row={'ep':1,'clip':'h3','video':str(h3),'take':take,'mode':'joint','verdict':'fine','people':[]}
     local={precise.evidence_key(1,'h3',str(h3),take):row}
     audit.sync_episode(novel,state,1,local,{})
     updated=json.loads((directory/'episode_review.json').read_text())

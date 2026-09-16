@@ -22,7 +22,12 @@ import build_voices_thin  # noqa: E402
 import conductor_thin  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
 import thin_batch  # noqa: E402
-import thin_review  # noqa: E402
+import novel_manga.models as review_models
+import novel_manga.review.contracts as review_contracts
+import novel_manga.review.storage as review_storage
+import review_episode_thin as review_episode
+import review_evidence_thin as review_evidence
+import review_judges_thin as review_judges  # noqa: E402
 from thin_profile import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint  # noqa: E402
 from thin_runs import RENDER_RUNS_PER_PLAN, count_run, render_runs  # noqa: E402
 
@@ -451,25 +456,25 @@ def test_a_resumed_review_judges_again_only_the_clips_it_failed_on(tmp_path, mon
     (directory / "thin_media_report.json").write_text(json.dumps({"clips": [
         {"clip_id": cid, "selected": {"video": str(path), "hypothesis": ""}} for cid, path in videos.items()]}), encoding="utf-8")
     review = directory / "episode_review.json"
-    review.write_text(json.dumps({"policy": thin_review.POLICY, "clips": {
-        "clip_01": {"video": str(videos["clip_01"]), "take": thin_review.take_identity(videos["clip_01"]), "severity": "pass"},
+    review.write_text(json.dumps({"policy": review_contracts.POLICY, "clips": {
+        "clip_01": {"video": str(videos["clip_01"]), "take": review_storage.take_identity(videos["clip_01"]), "severity": "pass"},
         "clip_02": {"video": str(videos["clip_02"]), "severity": "review_error", "error": "ReadTimeout"}}}), encoding="utf-8")
     later(review, 5)
     (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(thin_review, "apply_genre_review_rules", lambda novel_dir: None)
-    monkeypatch.setattr(thin_review, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
+    monkeypatch.setattr(review_evidence, "apply_genre_review_rules", lambda novel_dir: None)
+    monkeypatch.setattr(review_models, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
     judged = []
 
     def judge(clip, video, *rest):
         judged.append(clip["clip_id"])
         return {"severity": "pass"}
-    monkeypatch.setattr(thin_review, "judge_clip", judge)
-    report = thin_review.review_episode(directory)
+    monkeypatch.setattr(review_judges, "judge_clip", judge)
+    report = review_episode.review_episode(directory)
     assert judged == ["clip_02"] and report["clips"]["clip_01"]["severity"] == "pass" and report["error_rounds"] == 0
-    thin_review.review_episode(directory)  # the same takes: every verdict stands, nothing is judged again
+    review_episode.review_episode(directory)  # the same takes: every verdict stands, nothing is judged again
     assert judged == ["clip_02"]
     monkeypatch.setenv("NOVEL_REVIEW_FRESH", "1")
-    thin_review.review_episode(directory)  # asked for a fresh review: every clip again
+    review_episode.review_episode(directory)  # asked for a fresh review: every clip again
     assert judged == ["clip_02", "clip_01", "clip_02"]
 
 

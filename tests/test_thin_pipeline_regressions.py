@@ -10,7 +10,7 @@ from scripts import build_clip_plan_thin as packer
 
 # The standalone scripts import their siblings from the scripts directory.
 import plan_chapter_thin as planner
-from novel_manga import model_client as thin_review
+from novel_manga import model_client
 
 
 def _shot(index: int, clip_hint: str = "clip_1") -> dict:
@@ -56,8 +56,8 @@ def test_packer_does_not_guess_anatomy_from_species_words(description):
 
 def _mock_model(monkeypatch, handler):
     client_type = httpx.Client
-    monkeypatch.setattr(thin_review.httpx, "Client", lambda **kw: client_type(transport=httpx.MockTransport(handler), **kw))
-    monkeypatch.setattr(thin_review, "endpoint_order", lambda _: ["http://model.invalid/v1"])
+    monkeypatch.setattr(model_client.httpx, "Client", lambda **kw: client_type(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(model_client, "endpoint_order", lambda _: ["http://model.invalid/v1"])
 
 
 def _response(content: str, finish_reason: str = "stop") -> httpx.Response:
@@ -74,7 +74,7 @@ def test_truncated_json_gets_only_one_retry_with_capped_tokens(monkeypatch, init
 
     _mock_model(monkeypatch, model)
     with pytest.raises(ValueError, match="JSON truncated"):
-        thin_review.ask_json([], {}, name="names", max_tokens=initial)
+        model_client.ask_json([], {}, name="names", max_tokens=initial)
     assert tokens == expected
 
 
@@ -82,7 +82,7 @@ def test_truncated_json_gets_only_one_retry_with_capped_tokens(monkeypatch, init
 def test_model_retries_share_remaining_timeout(monkeypatch, first_failure):
     clock = [0.0]
     timeouts = []
-    monkeypatch.setattr(thin_review.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(model_client.time, "monotonic", lambda: clock[0])
 
     def model(request):
         timeouts.append(request.extensions["timeout"]["read"])
@@ -92,15 +92,15 @@ def test_model_retries_share_remaining_timeout(monkeypatch, first_failure):
         return _response('{"ok": true}')
 
     _mock_model(monkeypatch, model)
-    monkeypatch.setattr(thin_review, "endpoint_order", lambda _: ["http://one.invalid/v1", "http://two.invalid/v1"])
-    assert thin_review.ask_json([], {}, name="names", timeout=10) == {"ok": True}
+    monkeypatch.setattr(model_client, "endpoint_order", lambda _: ["http://one.invalid/v1", "http://two.invalid/v1"])
+    assert model_client.ask_json([], {}, name="names", timeout=10) == {"ok": True}
     assert timeouts == [10, 4]
 
 
 def test_no_model_retry_after_time_budget_is_spent(monkeypatch):
     clock = [0.0]
     calls = []
-    monkeypatch.setattr(thin_review.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(model_client.time, "monotonic", lambda: clock[0])
 
     def model(request):
         calls.append(request)
@@ -109,7 +109,7 @@ def test_no_model_retry_after_time_budget_is_spent(monkeypatch):
 
     _mock_model(monkeypatch, model)
     with pytest.raises(TimeoutError, match="request budget exhausted"):
-        thin_review.ask_json([], {}, name="names", timeout=10)
+        model_client.ask_json([], {}, name="names", timeout=10)
     assert len(calls) == 1
 
 

@@ -12,7 +12,7 @@ re-judged.  Without --apply it only counts.  Each file it changes is backed up o
 episode_review.json.bak-retier.
 
 --script-check asks, for every must_fix clip that was never checked, whether the flagged oddity is what the
-book wrote (thin_review.script_check: the clip's event line and source segments against the judge's
+book wrote (review_judges_thin.script_check: the clip's event line and source segments against the judge's
 complaint); a scripted one drops to optional with the evidence stored, and its retake instruction goes.
 The model is asked in the dry run too, so the count is real; only the writing waits for --apply.
 """
@@ -25,7 +25,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_review import STORY_FATAL, apply_genre_review_rules, compose_feedback, fix_tier, flag_line, script_check, segment_texts  # noqa: E402
+from novel_manga.review.contracts import STORY_FATAL
+from review_evidence_thin import apply_genre_review_rules, segment_texts
+from novel_manga.review.policy import compose_feedback, fix_tier, flag_line
+from review_judges_thin import script_check  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
 
 

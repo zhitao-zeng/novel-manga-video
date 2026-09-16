@@ -54,7 +54,7 @@ def freeze(novel, output, specs):
         return read(output/'manifest.json')
     from manage_repair_thin import active_episodes
     from story_identity import IdentityCatalog
-    from thin_review import take_identity
+    from novel_manga.review.storage import take_identity
     busy=active_episodes(read(novel/'repair_manager/state.json',{'jobs':[]}))
     frozen=output/'frozen'/novel.name
     for name in ROOT_FILES+EXTRA_ROOT:

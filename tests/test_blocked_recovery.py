@@ -1,6 +1,7 @@
 
 from render_context_support import uninitialized_runner
 import copy
+from novel_manga.review import storage as review_storage, contracts as review_contracts
 import json
 from pathlib import Path
 
@@ -83,7 +84,7 @@ def test_approved_existing_video_does_not_require_its_old_wrong_request(tmp_path
     d=tmp_path/'book_1';d.mkdir();video=d/'clip.mp4';video.write_bytes(b'actual footage')
     clip={'clip_id':'c','kind':'video','prompt':'corrected intent','references':[]}
     record={'clip':history.accepted_clip_material(clip),'note':'','video':str(video),
-            'take':review.tr.take_identity(video),'reference_digests':[]}
+            'take':review_storage.take_identity(video),'reference_digests':[]}
     (d/'source_acceptances.json').write_text(json.dumps({'c':record}))
     assert history.source_accepted_take(d,clip,'')==video
     assert history.source_accepted_take(d,{**clip,'prompt':'new scene'},'') is None

@@ -8,7 +8,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import retier_reviews  # noqa: E402
-import thin_review  # noqa: E402
+import novel_manga.model_client as model_client
+import novel_manga.review.policy as review_policy
+import novel_manga.review.prompts as review_prompts
+import review_judges_thin as review_judges  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 
 PROMPT = ("【生成目标】生成一段横屏短剧片段，约12秒。核心主体是达克尼斯，"
@@ -27,9 +30,9 @@ def verdict(**extra) -> dict:
 
 
 def test_event_line_is_read_from_the_prompt():
-    assert thin_review.scripted_event({"prompt": PROMPT}) == "从“掌心裂开一张嘴巴，露出利齿”到“邪教徒们面面相觑”"
-    assert thin_review.scripted_event({"prompt": "没有事件行"}) == ""
-    assert thin_review.scripted_event({}) == ""
+    assert review_prompts.scripted_event({"prompt": PROMPT}) == "从“掌心裂开一张嘴巴，露出利齿”到“邪教徒们面面相觑”"
+    assert review_prompts.scripted_event({"prompt": "没有事件行"}) == ""
+    assert review_prompts.scripted_event({}) == ""
 
 
 def test_script_check_sends_event_source_and_complaint(monkeypatch):
@@ -39,8 +42,8 @@ def test_script_check_sends_event_source_and_complaint(monkeypatch):
         seen["text"], seen["name"] = parts[0]["text"], name
         return {"scripted": True, "evidence": SOURCE[:12], "note": "原文写了"}
 
-    monkeypatch.setattr(thin_review, "ask_json", fake_ask)
-    out = thin_review.script_check({"prompt": PROMPT, "segment_ids": ["seg_4"]}, verdict(), {"seg_4": SOURCE})
+    monkeypatch.setattr(model_client, "ask_json", fake_ask)
+    out = review_judges.script_check({"prompt": PROMPT, "segment_ids": ["seg_4"]}, verdict(), {"seg_4": SOURCE})
     assert out == {"scripted": True, "evidence": SOURCE[:12], "note": "原文写了"}
     assert seen["name"] == "script_check"
     for needle in ("掌心裂开一张嘴巴", "蠕动着裂开", "手掌中心出现了一张嘴巴"):
@@ -51,30 +54,30 @@ def test_nothing_to_check_against_asks_nothing(monkeypatch):
     def refuse(*_, **__):
         raise AssertionError("must not ask")
 
-    monkeypatch.setattr(thin_review, "ask_json", refuse)
-    assert thin_review.script_check({"prompt": "无", "segment_ids": []}, verdict(), {}) is None
-    assert thin_review.script_check({"prompt": PROMPT, "segment_ids": []}, {"severity": "fail"}, {}) is None
+    monkeypatch.setattr(model_client, "ask_json", refuse)
+    assert review_judges.script_check({"prompt": "无", "segment_ids": []}, verdict(), {}) is None
+    assert review_judges.script_check({"prompt": PROMPT, "segment_ids": []}, {"severity": "fail"}, {}) is None
 
 
 def test_a_model_failure_changes_nothing(monkeypatch):
     def boom(*_, **__):
         raise RuntimeError("timeout")
 
-    monkeypatch.setattr(thin_review, "ask_json", boom)
-    assert thin_review.script_check({"prompt": PROMPT, "segment_ids": []}, verdict(), {}) is None
+    monkeypatch.setattr(model_client, "ask_json", boom)
+    assert review_judges.script_check({"prompt": PROMPT, "segment_ids": []}, verdict(), {}) is None
 
 
 def test_fix_tier_honours_a_scripted_verdict():
-    assert thin_review.fix_tier(verdict(), bible()) == "must_fix"
-    assert thin_review.fix_tier(verdict(scripted={"evidence": SOURCE[:12], "note": ""}), bible()) == "optional"
-    assert thin_review.fix_tier(verdict(scripted=False), bible()) == "must_fix"
+    assert review_policy.fix_tier(verdict(), bible()) == "must_fix"
+    assert review_policy.fix_tier(verdict(scripted={"evidence": SOURCE[:12], "note": ""}), bible()) == "optional"
+    assert review_policy.fix_tier(verdict(scripted=False), bible()) == "must_fix"
 
 
 def test_flag_line_names_the_reason():
     v = {"identity_issue": "手掌中心出现嘴巴", "scripted": {"evidence": "x", "note": ""}}
-    assert thin_review.flag_line("clip_04", v, "optional") == "clip_04: [剧本] 手掌中心出现嘴巴"
-    assert thin_review.flag_line("clip_04", {"identity_issue": "x"}, "optional") == "clip_04: [可选] x"
-    assert thin_review.flag_line("clip_04", {"identity_issue": "x"}, "must_fix") == "clip_04: x"
+    assert review_policy.flag_line("clip_04", v, "optional") == "clip_04: [剧本] 手掌中心出现嘴巴"
+    assert review_policy.flag_line("clip_04", {"identity_issue": "x"}, "optional") == "clip_04: [可选] x"
+    assert review_policy.flag_line("clip_04", {"identity_issue": "x"}, "must_fix") == "clip_04: x"
 
 
 def test_retier_script_check_drops_a_scripted_retake(tmp_path, monkeypatch):
@@ -99,7 +102,7 @@ def test_retier_script_check_drops_a_scripted_retake(tmp_path, monkeypatch):
         scripted = "嘴巴" in text and "蠕动着裂开" in text
         return {"scripted": scripted, "evidence": SOURCE[:12] if scripted else "", "note": "n"}
 
-    monkeypatch.setattr(thin_review, "ask_json", fake_ask)
+    monkeypatch.setattr(model_client, "ask_json", fake_ask)
     monkeypatch.setattr(sys, "argv", ["retier_reviews.py", "--novel-dir", str(novel), "--script-check", "--apply"])
     assert retier_reviews.main() == 0
     report = json.loads((episode / "episode_review.json").read_text(encoding="utf-8"))
@@ -111,5 +114,5 @@ def test_retier_script_check_drops_a_scripted_retake(tmp_path, monkeypatch):
     assert (episode / "episode_review.json.bak-retier").is_file()
 
     # A second run asks nothing: both verdicts carry their answer.
-    monkeypatch.setattr(thin_review, "ask_json", lambda *_, **__: (_ for _ in ()).throw(AssertionError("asked again")))
+    monkeypatch.setattr(model_client, "ask_json", lambda *_, **__: (_ for _ in ()).throw(AssertionError("asked again")))
     assert retier_reviews.main() == 0

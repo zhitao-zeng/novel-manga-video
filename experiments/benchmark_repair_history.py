@@ -37,7 +37,8 @@ from thin_batch import load_dotenv
 from thin_profile import load_profile, h3_prompt_outdated, plan_fingerprint
 from thin_runs import episode_status
 from verify_clips_thin import Verifier
-import thin_review as tr
+import novel_manga.review.contracts as review_contracts
+import novel_manga.review.storage as review_storage
 
 
 def make_runner(novel, episode, *, cache_only=False):
@@ -85,7 +86,7 @@ def freeze(novel: Path, output: Path, count=8):
             continue
         ep = novel / f"{novel.name}_{number}"
         current = Path(row.get("video") or "")
-        if not current.is_file() or tr.take_identity(current) != row.get("take"):
+        if not current.is_file() or review_storage.take_identity(current) != row.get("take"):
             continue
         runner = make_runner(novel, ep, cache_only=True)
         clip = next(c for c in runner.clip_plan["clips"] if c["clip_id"] == cid)
@@ -104,7 +105,7 @@ def freeze(novel: Path, output: Path, count=8):
             copy_if_present(video, dest / f"{label}.mp4")
             copy_if_present(video.parent / "request.json", dest / f"{label}.request.json")
         original_review = read(dest / "episode_review.json")
-        original_review["clips"] = {cid: {**row, "video": str(dest / "failed.mp4"), "take": tr.take_identity(dest / "failed.mp4")}}
+        original_review["clips"] = {cid: {**row, "video": str(dest / "failed.mp4"), "take": review_storage.take_identity(dest / "failed.mp4")}}
         original_review["feedback"] = {cid: row.get("feedback") or row.get("story_issue") or "按原文修正画面"}
         atomic_write_json(dest / "episode_review.json", original_review)
         for c in plan["clips"]:
@@ -153,7 +154,7 @@ def confirm(output: Path):
         if not common or any("error" in row or evaluation_passed(row) for row in pair.values()):
             excluded.append({"case": case["id"], "why": "two matching-request takes did not confirm the same obvious error"})
             continue
-        observations = [{"video": row["video"], "take": row["take"], "policy": tr.POLICY,
+        observations = [{"video": row["video"], "take": row["take"], "policy": review_contracts.POLICY,
                          "verdict": "obvious", "errors": [k for k in ERROR_FIELDS if row.get(k)],
                          "evidence": row.get("evidence", ""), "instruction": row.get("instruction", "")} for row in pair.values()]
         clip = next(c for c in read(frozen / f"{frozen.name}_{case['episode']}" / "clip_plan.json")["clips"] if c["clip_id"] == case["clip_id"])

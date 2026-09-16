@@ -98,7 +98,7 @@ def test_source_quotes_and_ids_are_checked_before_saving(tmp_path):
 
 
 def test_one_source_reading_is_reused_and_source_edits_invalidate_it(tmp_path, monkeypatch):
-    from novel_manga import model_client as thin_review
+    from novel_manga import model_client
     novel = book(tmp_path)
     directory = novel / 'book_1'
     atomic_write_json(directory / 'segments.json', [{'segment_id': 'seg_1', 'text': '甲推门进来。'}])
@@ -108,7 +108,7 @@ def test_one_source_reading_is_reused_and_source_edits_invalidate_it(tmp_path, m
         assert '艺术设计' not in str(args)
         return {'actors': [{'source_id':1,'name':'甲','forms':[{'form':'甲','kind':'proper','paragraphs':[1]}],
                            'presence':'on_stage','paragraphs':[1],'kind':'individual','appearance':''}], 'relations': []}
-    monkeypatch.setattr(thin_review, 'ask_json', ask)
+    monkeypatch.setattr(model_client, 'ask_json', ask)
     first = identity.resolve_chapter(directory)
     assert identity.resolve_chapter(directory) == first and calls == ['chapter_identity_source']
     atomic_write_json(directory / 'segments.json', [{'segment_id': 'seg_1', 'text': '甲转身离开。'}])
@@ -139,7 +139,7 @@ def test_two_source_actors_do_not_collapse_through_a_legacy_alias(tmp_path):
 
 
 def test_catalog_update_rematches_source_actors_without_another_model_read(tmp_path,monkeypatch):
-    from novel_manga import model_client as thin_review
+    from novel_manga import model_client
     novel=book(tmp_path,('甲',));directory=novel/'book_1'
     atomic_write_json(directory/'segments.json',[{'segment_id':'seg_1','text':'甲走进房间。'}])
     calls=[]
@@ -147,7 +147,7 @@ def test_catalog_update_rematches_source_actors_without_another_model_read(tmp_p
         calls.append(1)
         return {'actors':[{'source_id':1,'name':'甲','forms':[{'form':'甲','kind':'proper','paragraphs':[1]}],
                            'kind':'individual','presence':'on_stage','appearance':'','paragraphs':[1]}]}
-    monkeypatch.setattr(thin_review,'ask_json',ask)
+    monkeypatch.setattr(model_client,'ask_json',ask)
     identity.resolve_chapter(directory)
     atomic_write_json(novel/'bible_aliases.json',{'某称呼':'甲'})
     identity.resolve_chapter(directory)
@@ -241,7 +241,7 @@ def test_declared_prop_never_uses_a_character_card(tmp_path):
 
 @pytest.mark.parametrize('confirmed, extracted', [(False, False), (True, True), (True, False)])
 def test_readability_false_requires_confirmation_and_preserves_raw_evidence(tmp_path,monkeypatch,confirmed,extracted):
-    from novel_manga import model_client as thin_review
+    from novel_manga import model_client
     novel=book(tmp_path,('甲乙',));directory=novel/'book_1'
     raw=[{'segment_id':'seg_1','text':'甲\n乙走进屋里。'}]
     atomic_write_json(directory/'segments.json',raw)
@@ -255,7 +255,7 @@ def test_readability_false_requires_confirmation_and_preserves_raw_evidence(tmp_
                 'forms':[{'form':'甲乙','kind':'proper','paragraphs':[1]}],
                 'kind':'individual','presence':'on_stage','paragraphs':[1],'appearance':''}]}
         return {'source_readable':False,'source_problem':'人名中间换行','actors':[]}
-    monkeypatch.setattr(thin_review,'ask_json',ask)
+    monkeypatch.setattr(model_client,'ask_json',ask)
     if confirmed and extracted:
         result=identity.resolve_chapter(directory)
         assert result['mentions'][0]['source_quote']==raw[0]['text']
@@ -271,7 +271,7 @@ def test_readability_false_requires_confirmation_and_preserves_raw_evidence(tmp_
 
 
 def test_empty_cached_extraction_is_repaired_not_reused(tmp_path, monkeypatch):
-    from novel_manga import model_client as thin_review
+    from novel_manga import model_client
     novel = book(tmp_path)
     directory = novel / 'book_1'
     atomic_write_json(directory / 'segments.json', [{'segment_id': 's', 'text': '乙走进来。'}])
@@ -286,7 +286,7 @@ def test_empty_cached_extraction_is_repaired_not_reused(tmp_path, monkeypatch):
         return {'source_readable': True, 'actorless_confirmed': False, 'actors': [{
             'source_id': 1, 'name': '乙', 'paragraphs': [1], 'presence': 'on_stage',
             'kind': 'individual', 'appearance': '', 'forms': [{'form': '乙', 'kind': 'proper', 'paragraphs': [1]}]}]}
-    monkeypatch.setattr(thin_review, 'ask_json', ask)
+    monkeypatch.setattr(model_client, 'ask_json', ask)
     result = identity.resolve_chapter(directory)
     assert identity.active_cast_names(result) == {'乙'}
     assert identity.resolve_chapter(directory) == result
@@ -295,7 +295,7 @@ def test_empty_cached_extraction_is_repaired_not_reused(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('confirmed', [False, True])
 def test_actorless_source_needs_positive_confirmation(tmp_path, monkeypatch, confirmed):
-    from novel_manga import model_client as thin_review
+    from novel_manga import model_client
     novel = book(tmp_path)
     directory = novel / 'book_1'
     atomic_write_json(directory / 'segments.json', [{'segment_id': 's', 'text': '落日照着空山。'}])
@@ -304,7 +304,7 @@ def test_actorless_source_needs_positive_confirmation(tmp_path, monkeypatch, con
         calls.append(kwargs['name'])
         return {'source_readable': True, 'actors': [],
                 **({'actorless_confirmed': confirmed} if len(calls) > 1 else {})}
-    monkeypatch.setattr(thin_review, 'ask_json', ask)
+    monkeypatch.setattr(model_client, 'ask_json', ask)
     if confirmed:
         result = identity.resolve_chapter(directory)
         assert result['actorless_confirmed'] and not identity.active_cast_names(result)

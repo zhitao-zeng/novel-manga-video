@@ -8,7 +8,9 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import thin_review as tr
+import novel_manga.review.contracts as review_contracts
+import novel_manga.review.policy as review_policy
+import novel_manga.review.storage as review_storage
 from novel_manga.util import atomic_write_json
 from verify_clips_thin import ROOT, Verifier, parse_episodes
 
@@ -80,7 +82,7 @@ def current_takes(directory: Path, plan: dict, review: dict) -> dict:
         path = Path(video)
         if not path.is_absolute():
             path = ROOT / path
-        take = tr.take_identity(path)
+        take = review_storage.take_identity(path)
         if take:
             result[cid] = {"video": str(path), "take": take}
     return result
@@ -90,7 +92,7 @@ def verdict_from_record(record: dict) -> dict:
     answer = dict(record)
     people = answer.get("people") or []
     answer["people"] = [p if isinstance(p, dict) else {"who": p} for p in people]
-    verdict = tr.verify_to_verdict(answer)
+    verdict = review_policy.verify_to_verdict(answer)
     verdict["verify"]["people"] = people
     verdict["tier"] = "must_fix" if verdict["story_ok"] is False else "optional"
     if record.get("mode") in {"confirm", 'source_confirm'}:
@@ -105,7 +107,7 @@ def verdict_from_record(record: dict) -> dict:
 def assemble_review(directory: Path, previous: dict, clips: dict) -> dict:
     feedback = {cid: v.get("feedback") or v.get("story_issue") or "按原文修正画面"
                 for cid, v in clips.items() if (v.get("tier") or v.get("fix_tier")) == "must_fix"}
-    return {**previous, "policy": tr.POLICY, "episode": directory.name, "video_name": "clip.mp4", "clips": clips,
+    return {**previous, "policy": review_contracts.POLICY, "episode": directory.name, "video_name": "clip.mp4", "clips": clips,
             "feedback": feedback, "flags": [f"{cid}: {note}" for cid, note in feedback.items()]}
 
 

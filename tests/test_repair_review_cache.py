@@ -1,3 +1,4 @@
+from novel_manga.review import storage as review_storage, contracts as review_contracts
 import json
 from pathlib import Path
 import sys
@@ -11,12 +12,12 @@ def setup_episode(tmp_path, *, bad=True):
     d.mkdir(parents=True)
     video = d / "clip.mp4"
     video.write_bytes(b"current video")
-    current = {"video": str(video), "take": review.tr.take_identity(video)}
+    current = {"video": str(video), "take": review_storage.take_identity(video)}
     plan = {"clips": [{"kind": "video", "clip_id": "clip_01"}]}
     (d / "clip_plan.json").write_text(json.dumps(plan))
     (d / "thin_media_report.json").write_text(json.dumps({"clips": [{"clip_id": "clip_01", "selected": {"video": str(video)}}]}))
     row = {**current, "severity": "fail" if bad else "pass", "tier": "must_fix" if bad else "optional", "feedback": "old complaint" if bad else ""}
-    (d / "episode_review.json").write_text(json.dumps({"policy": review.tr.POLICY, "clips": {"clip_01": row}, "feedback": {"clip_01": "old complaint"} if bad else {}}))
+    (d / "episode_review.json").write_text(json.dumps({"policy": review_contracts.POLICY, "clips": {"clip_01": row}, "feedback": {"clip_01": "old complaint"} if bad else {}}))
     return d, current
 
 

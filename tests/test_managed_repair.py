@@ -12,7 +12,7 @@ import repair_flow_thin as repair
 import manage_repair_thin as manager
 from h3_request_checks import request_issues
 from thin_profile import plan_fingerprint
-from thin_review import take_identity
+from novel_manga.review.storage import take_identity
 
 
 def fixture_episode(tmp_path):

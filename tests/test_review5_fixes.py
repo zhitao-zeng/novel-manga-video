@@ -24,7 +24,9 @@ import plan_chapter_thin as planner  # noqa: E402
 import retier_reviews  # noqa: E402
 import status_server  # noqa: E402
 import thin_batch  # noqa: E402
-import thin_review  # noqa: E402
+import novel_manga.model_client as model_client
+import review_episode_thin as review_episode
+import review_judges_thin as review_judges  # noqa: E402
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
@@ -223,7 +225,7 @@ def test_retierring_restores_a_wrong_actor_hidden_by_scripted_exemption(tmp_path
     verdict = {"severity": "fail", "tier": "optional", "story_ok": False, "story_kind": "动作落在错误的人物身上",
                "story_issue": "原文是林凡递信，画面是苏清递信", "scripted": {"evidence": "林凡递信", "note": ""}}
     write(episode / "episode_review.json", {"policy": REVIEW_POLICY, "clips": {"clip_01": verdict}, "feedback": {}})
-    monkeypatch.setattr(thin_review, "ask_json", lambda *a, **k: pytest.fail("retiering must not call a model"))
+    monkeypatch.setattr(model_client, "ask_json", lambda *a, **k: pytest.fail("retiering must not call a model"))
     monkeypatch.setattr(sys, "argv", ["retier_reviews", "--novel-dir", str(novel), "--apply"])
     retier_reviews.main()
     review = json.loads((episode / "episode_review.json").read_text())
@@ -238,10 +240,10 @@ def test_new_story_failure_is_never_sent_for_a_scripted_oddity_exemption(tmp_pat
     video.write_bytes(b"take")
     write(episode / "clip_plan.json", {"clips": [{"clip_id": "clip_01", "kind": "video", "prompt": "p"}]})
     write(episode / "thin_media_report.json", {"clips": [{"clip_id": "clip_01", "selected": {"video": str(video)}}]})
-    monkeypatch.setattr(thin_review, "judge_clip", lambda *a, **k: {
+    monkeypatch.setattr(review_judges, "judge_clip", lambda *a, **k: {
         "severity": "fail", "story_ok": False, "story_kind": "动作落在错误的人物身上", "story_issue": "林凡的动作由苏清执行"})
-    monkeypatch.setattr(thin_review, "script_check", lambda *a, **k: pytest.fail("a wrong actor cannot be exempted"))
-    report = thin_review.review_episode(episode)
+    monkeypatch.setattr(review_judges, "script_check", lambda *a, **k: pytest.fail("a wrong actor cannot be exempted"))
+    report = review_episode.review_episode(episode)
     assert report["clips"]["clip_01"]["tier"] == "must_fix" and report["feedback"]["clip_01"]
 
 

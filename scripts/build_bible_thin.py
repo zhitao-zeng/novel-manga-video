@@ -168,7 +168,7 @@ def main() -> int:
     })
     filled: list[str] = []
     if args.fill:
-        from thin_review import review_bible
+        from review_bible_thin import review_bible
         review = review_bible(novel_dir, source, fill=True, chapters=max(1, args.bible_chapters))
         filled = review["filled"]
         bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))

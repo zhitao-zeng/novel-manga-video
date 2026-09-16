@@ -39,11 +39,15 @@ if "QWEN38_LOCAL_BASE_URL" not in os.environ:
             os.environ["QWEN38_LOCAL_BASE_URL"] = _line.split("=", 1)[1].strip().strip('"').strip("\'")
             break
 from novel_manga import model_client
-import thin_review as tr  # noqa: E402
+import novel_manga.review.contracts as review_contracts
+import novel_manga.review.prompts as review_prompts
+import novel_manga.review.storage as review_storage
+import review_evidence_thin as review_evidence
+import thin_phases as thin_phases  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
 from story_identity import prompt_block as identity_prompt_block
 
-SCHEMA = tr.VERIFY_SCHEMA
+SCHEMA = review_contracts.VERIFY_SCHEMA
 JUDGE_KEYS = ("QWEN38_LOCAL_BASE_URL", "QWEN38_LOCAL_MODEL", "QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_STREAM")
 
 
@@ -58,9 +62,9 @@ class Verifier:
         self.repair_advice = repair_advice
         self.max_tokens = max_tokens
         self.judge_env = {k: os.environ[k] for k in JUDGE_KEYS if k in os.environ}
-        tr.apply_genre_review_rules(self.novel)
+        review_evidence.apply_genre_review_rules(self.novel)
         self.bible = StoryBible.model_validate_json((self.novel / "story_bible.json").read_text(encoding="utf-8"))
-        self.phases = tr.load_phases(self.novel)
+        self.phases = thin_phases.load_phases(self.novel)
         grammar = self.novel / "visual_grammar.json"
         self.location_time = json.loads(grammar.read_text(encoding="utf-8")).get("location_time", {}) if grammar.is_file() else {}
         self._segments: dict = {}
@@ -103,7 +107,7 @@ class Verifier:
 
     # ---- one clip ----
     def prompt_for(self, clip: dict, ep_dir: Path, chapter: int, claim: str) -> tuple[list, str]:
-        by_name = {c.name: tr.phased(c, tr.phase_for(self.phases, c.name, chapter)) for c in self.bible.characters}
+        by_name = {c.name: thin_phases.phased(c, thin_phases.phase_for(self.phases, c.name, chapter)) for c in self.bible.characters}
         crowds=clip.get('crowd_roles',{})
         cast = [n for n in clip.get("cast", []) if n in by_name and n not in crowds]
         extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for s in clip.get("shots", []) for e in (s.get("extras") or []))]))
@@ -114,27 +118,27 @@ class Verifier:
         cards = []
         for name in cast[:3 if len(cast) <= 3 else 2]:
             path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and str(ref["path"]).endswith("turnaround.jpeg")), None)
-            path = tr.phase_card(self.novel, self.phases, name, chapter) or path
+            path = thin_phases.phase_card(self.novel, self.phases, name, chapter) or path
             if path is not None and (self.novel / path).is_file():
                 cards.append((name, path))
         lines = "；".join(f"{r.get('speaker_name') or '旁白'}：{r['text']}" for r in clip.get("lines", []))
         location = clip.get("location", "")
         expected_time = self.location_time.get(location, "")
-        segments = self._segments.get(ep_dir) or self._segments.setdefault(ep_dir, tr.segment_texts(ep_dir))
+        segments = self._segments.get(ep_dir) or self._segments.setdefault(ep_dir, review_evidence.segment_texts(ep_dir))
         text = ("这是一段动画短剧视频的抽帧。你是终审：判断一个没看过角色设定卡、顺着看剧的观众，看这一段会不会觉得画面不对劲。\n"
                 f"本段设定：地点 {location}" + (f"（{expected_time}）" if expected_time else "") + f"；出场人物 {'、'.join(cast) or '无具名角色'}"
                 + (f"；无参考图的配角（按描述画，不算多出的人）：{'、'.join(extras)}" if extras else "")
                 + (f"；按分镜只露背影或不入镜的听者：{'、'.join(listeners)}（不在画面里不算缺席）" if listeners else "")
                 + (f"；画外说话的人：{'、'.join(offscreen)}（本来就不在画面里，不算缺席）" if offscreen else "")
-                + "".join(f"\n- {tr.describe(by_name[n])}" for n in cast)
+                + "".join(f"\n- {review_prompts.describe(by_name[n])}" for n in cast)
                 + (f"\n允许在远处背景出现的角色：{'、'.join(background)}" if background else "")
-                + tr.story_block(clip, segments) + tr.snapshot_block(clip, ep_dir)
-                + tr.source_contract_block(clip, ep_dir)
-                + tr.review_world_context(self.novel)
+                + review_prompts.story_block(clip, segments) + review_evidence.snapshot_block(clip, ep_dir)
+                + review_evidence.source_contract_block(clip, ep_dir)
+                + review_evidence.review_world_context(self.novel)
                 + identity_prompt_block(ep_dir, cast)
                 + f"\n预期台词：{lines or '无'}\n"
                 + (f"\n上一位审片员的意见（待核实；他有时会夸大，例如把几个戴同款帽子的人说成克隆、把画外说话的人说成缺席、把背景里的路人说成多出的角色）：{claim}\n" if claim else "")
-                + tr.VERIFY_QUESTIONS.replace("evidence：一句话", "claim_confirmed：上一位审片员说的问题在帧里确实看得到（没有给意见时填 false）；\nevidence：一句话"))
+                + review_contracts.VERIFY_QUESTIONS.replace("evidence：一句话", "claim_confirmed：上一位审片员说的问题在帧里确实看得到（没有给意见时填 false）；\nevidence：一句话"))
         return cards, text
 
     def verify(self, job: tuple) -> dict:
@@ -146,8 +150,8 @@ class Verifier:
         video = self.video_of(ep_dir, cid, (review.get("clips") or {}).get(cid))
         if clip is None or video is None:
             return {"ep": ep, "clip": cid, "mode": mode, "error": "no clip or video"}
-        take = tr.take_identity(video)
-        chapter = tr.chapter_of(ep_dir)
+        take = review_storage.take_identity(video)
+        chapter = thin_phases.chapter_of(ep_dir)
         schema = json.loads(json.dumps(SCHEMA))
         schema["properties"]["claim_confirmed"] = {"type": "boolean"}
         schema["required"].append("claim_confirmed")
@@ -171,13 +175,13 @@ class Verifier:
                          + "\n实际视频请求（核对角色编号与动作主体）：\n" + str(clip.get("prompt_h3") or clip.get("prompt") or "")[:8000]
                          + "\n另填 repair_advice：layer 为分镜 plan、实际请求 request、资产 asset、生成执行 generation 或证据不足 uncertain；"
                            "当前没错填 none。evidence 引用可核对的依据；next_change 只提一个具体改动，没错留空。这个建议不改变前面的画面判定。")
-            frames = tr.clip_frames(video, self.frames / f"{self.prefix}_{ep}" / cid, tr.MAX_IMAGES - len(cards))
+            frames = review_evidence.clip_frames(video, self.frames / f"{self.prefix}_{ep}" / cid, review_contracts.MAX_IMAGES - len(cards))
             parts, legend = [], []
             for k, (name, path) in enumerate(cards, 1):
-                parts.append(model_client.image_part(self.novel / path, tr.CARD_SIDE))
+                parts.append(model_client.image_part(self.novel / path, review_contracts.CARD_SIDE))
                 legend.append(f"图{k}=角色卡：{name}")
             for k, frame in enumerate(frames, len(cards) + 1):
-                parts.append(model_client.image_part(frame, tr.FRAME_WIDTH))
+                parts.append(model_client.image_part(frame, review_contracts.FRAME_WIDTH))
                 legend.append(f"图{k}=视频第{k - len(cards)}帧")
             parts.append({"type": "text", "text": "，".join(legend) + "。\n" + text})
             os.environ.update(self.judge_env)
@@ -248,7 +252,7 @@ class Verifier:
             ep_dir = self.episode_dir(j[0])
             review = self.load(ep_dir / "episode_review.json") or {}
             video = self.video_of(ep_dir, j[1], (review.get("clips") or {}).get(j[1]))
-            if video is None or (j[0], j[1], str(video), json.dumps(tr.take_identity(video))) not in done:
+            if video is None or (j[0], j[1], str(video), json.dumps(review_storage.take_identity(video))) not in done:
                 fresh.append(j)
         return fresh
 

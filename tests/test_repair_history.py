@@ -6,7 +6,9 @@ import pytest
 
 import repair_history as history
 from novel_manga import model_client
-import thin_review as reviewlib
+import novel_manga.review.policy as review_policy
+import novel_manga.review.storage as review_storage
+import review_evidence_thin as review_evidence
 from repair_review_thin import current_takes
 from thin_profile import plan_fingerprint
 from thin_runs import REVIEW_POLICY, episode_status
@@ -27,7 +29,7 @@ def episode(tmp_path):
     write(video.parent / "request.json", {"prompt": "original request"})
     write(video.parent / "asr.json", {"passed": True})
     plan = {"clips": [{"clip_id": "clip_01", "kind": "video", "prompt": "original request", "request_seconds": 8, "references": []}]}
-    take = reviewlib.take_identity(video)
+    take = review_storage.take_identity(video)
     review = {"policy": REVIEW_POLICY, "clips": {"clip_01": {"video": str(video), "take": take,
               "story_ok": False, "verify": {"verdict": "obvious", "same_person_twice": True,
                                             "evidence": "two copies of the lead", "instruction": "one lead"}}},
@@ -170,7 +172,7 @@ def test_interrupted_publication_can_resume_without_losing_the_old_movie(episode
 
 
 def test_cause_advice_is_preserved_without_overriding_the_visual_verdict():
-    result = reviewlib.verify_to_verdict({"verdict": "obvious", "same_person_twice": True, "people": [],
+    result = review_policy.verify_to_verdict({"verdict": "obvious", "same_person_twice": True, "people": [],
                                         "evidence": "two leads", "instruction": "one lead",
                                         "repair_advice": {"layer": "generation", "evidence": "request says one", "next_change": "close shot"}})
     assert result["story_ok"] is False
@@ -186,7 +188,7 @@ def test_managed_verifier_adds_advice_without_old_failure_labels(episode, monkey
     v.novel, v.frames, v.prefix, v.judge_tag, v.judge_env = directory.parent, directory / "frames", "nov", "test", {}
     v.repair_advice = True
     monkeypatch.setattr(v, "prompt_for", lambda *a: ([], "current frame questions"))
-    monkeypatch.setattr(reviewlib, "clip_frames", lambda *a: [directory / "frame.jpeg"])
+    monkeypatch.setattr(review_evidence, "clip_frames", lambda *a: [directory / "frame.jpeg"])
     monkeypatch.setattr(model_client, "image_part", lambda *a: {"type": "text", "text": "test frame"})
     calls = []
     def ask(parts, schema, **kwargs):

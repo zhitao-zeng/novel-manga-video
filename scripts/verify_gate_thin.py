@@ -22,7 +22,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 from novel_manga.util import atomic_write_json  # noqa: E402
 from verify_clips_thin import Verifier, parse_episodes  # noqa: E402
-import thin_review as tr  # noqa: E402
+import novel_manga.review.prompts as review_prompts
+import novel_manga.review.storage as review_storage
+import review_evidence_thin as review_evidence
+import review_judges_thin as review_judges  # noqa: E402
 
 
 def instruction_for_clip(ep_dir, cid, rec):
@@ -32,9 +35,9 @@ def instruction_for_clip(ep_dir, cid, rec):
         return note
     plan = v.load(ep_dir / "clip_plan.json") or {}
     clip = next((c for c in plan.get("clips", []) if c.get("clip_id") == cid), None) or {}
-    segments = tr.segment_texts(ep_dir)
+    segments = review_evidence.segment_texts(ep_dir)
     passage = "\n".join(str(segments.get(str(x), "")) for x in (clip.get("segment_ids") or []))
-    return tr.instruction_for(str(rec.get("evidence") or ""), tr.scripted_event(clip) if clip else "", passage)
+    return review_judges.instruction_for(str(rec.get("evidence") or ""), review_prompts.scripted_event(clip) if clip else "", passage)
 
 
 def main() -> int:
@@ -59,7 +62,7 @@ def main() -> int:
 
     def key_of(n: int, cid: str, clip_verdict: dict, ep_dir: Path):
         video = v.video_of(ep_dir, cid, clip_verdict)
-        return None if video is None else (n, cid, str(video), json.dumps(tr.take_identity(video)))
+        return None if video is None else (n, cid, str(video), json.dumps(review_storage.take_identity(video)))
 
     jobs = []
     for n in eps:

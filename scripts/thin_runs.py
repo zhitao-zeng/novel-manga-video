@@ -17,7 +17,7 @@ from pathlib import Path
 from thin_profile import h3_prompt_fingerprint, plan_fingerprint
 
 RENDER_RUNS_PER_PLAN = 3
-REVIEW_POLICY = "thin-review-v1.17-story"
+from novel_manga.review.contracts import REVIEW_POLICY
 RUNS_FILE = ".render_runs"
 
 

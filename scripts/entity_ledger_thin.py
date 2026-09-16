@@ -858,7 +858,7 @@ DEDUP_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["s
 def generic_records(ledger: "Ledger") -> list[dict]:
     """Bible records that are not proper names - 那位女士, 秘女, 灵魂, 调查师, 白猫: the book's cast list was built by
     name scans and holds the same being under several such labels."""
-    from thin_review import APPELLATION, GENERIC_NAMES
+    from novel_manga.story.name_rules import APPELLATION, GENERIC_NAMES
     out = []
     for e in ledger.entities:
         if e["status"] != "active" or e.get("source") != "bible":

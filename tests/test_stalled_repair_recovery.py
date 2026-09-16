@@ -72,7 +72,7 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
     import plan_chapter_thin as planner
     import build_h3_prompts as h3
     import thin_profile
-    import thin_review
+    import novel_manga.review.policy as review_policy
     monkeypatch.setattr(planner,'load_entity_index',lambda *a:None)
     monkeypatch.setattr('story_identity.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     monkeypatch.setattr(planner,'ledger_cast',lambda *a:{})
@@ -81,7 +81,7 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
         'proposal':{'plan':plan,'script':{'shots':[]},'notes':{},'changes':{},'structural_repair':structural}})
     monkeypatch.setattr(h3,'convert',lambda *a,**k:False)
     monkeypatch.setattr(thin_profile,'h3_prompt_outdated',lambda *a:False)
-    monkeypatch.setattr(thin_review,'verify_to_verdict',lambda *a:{'story_ok':True})
+    monkeypatch.setattr(review_policy,'verify_to_verdict',lambda *a:{'story_ok':True})
     take=source.current_takes(d,{'clips':clips},{'clips':reviews})['a']
     monkeypatch.setattr(source,'SourceVerifier',lambda *a,**k:SimpleNamespace(verify=lambda *a:{**take,'verdict':'fine'}))
     if changed_words is True:

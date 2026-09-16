@@ -238,7 +238,7 @@ class Batch:
             return
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             return
-        from thin_review import grow_bible
+        from review_bible_thin import grow_bible
         if self.fast and GROW_STRIDE > 1 and chapter % GROW_STRIDE != 1:
             return  # fast tier: sample chapters for growth (GROW_STRIDE = 1 grows every one)
         try:
@@ -376,7 +376,7 @@ class Batch:
         self.build_cards(planned)
         if not self.reviewing:
             return
-        from thin_review import remediate_cards, review_cards
+        from review_cards_thin import remediate_cards, review_cards
         self.card_review = review_cards(self.novel_dir)
         if self.args.unattended and self.card_review["flags"]:
             self.card_fixes = remediate_cards(self.novel_dir, self.card_review)
@@ -683,7 +683,7 @@ class Batch:
     def review_episode(self, chapter: int) -> None:
         """Automatic clip review; in unattended mode a failed clip gets the reviewer's
         correction appended to its prompt and is regenerated once, then reviewed again."""
-        from thin_review import review_episode
+        from review_episode_thin import review_episode
         row = self.rows[chapter]
         directory = self.episode_dir(chapter)
         review = review_episode(directory)
@@ -778,7 +778,7 @@ class Batch:
         # story itself in front of the planner once the five-chapter recap has
         # scrolled past it.
         try:
-            from thin_review import summarize_volume
+            from review_bible_thin import summarize_volume
             arc = summarize_volume(self.novel_dir, first, chapter)
             if arc:
                 lines += ["", f"## 主线（第 {first}–{chapter} 章）", "", arc.get("summary", ""), "",

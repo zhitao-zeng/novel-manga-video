@@ -139,7 +139,7 @@ def record_render(directory: Path, report: dict):
     history = load(directory)
     if not history["trials"]:
         return
-    from thin_review import take_identity
+    from novel_manga.review.storage import take_identity
     changed = False
     for trial in history['trials']:
         if trial is not history['trials'][-1] and not trial.get('managed'):
@@ -220,7 +220,7 @@ reference-image or video change invalidates this acceptance.
     record = read(directory / 'source_acceptances.json', {}).get(clip['clip_id'])
     if not record or record.get('clip') != accepted_clip_material(clip) or record.get('note','') != note:
         return None
-    from thin_review import take_identity
+    from novel_manga.review.storage import take_identity
     from novel_manga.media.common import reference_digests
     video = Path(record['video'])
     references = tuple(directory.parent / r['path'] for r in clip.get('references', []) if r.get('role') != 'voice')

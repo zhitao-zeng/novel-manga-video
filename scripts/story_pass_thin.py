@@ -15,7 +15,7 @@ properly warmed up.
 Only the *commit* is sequential.  The model calls that do not depend on the
 bible run ahead in pools:
 
-  * scan: the chapter's proper names and locations (thin_review.scan_chapter),
+  * scan: the chapter's proper names and locations (review_bible_thin.scan_chapter),
     several chapters at once
   * summary + hook per chapter into recap.json, order-free
   * ledger: the entity ledger's reading of the chapter (entity_ledger_thin),
@@ -23,7 +23,7 @@ bible run ahead in pools:
     the bible grows from the ledger's records instead of a second name scan
   * commit, in chapter order under the novel-wide lock: new names checked
     against the bible as it is *now*, descriptions written for the genuinely
-    new ones (thin_review.grow_bible with the scan handed in)
+    new ones (review_bible_thin.grow_bible with the scan handed in)
   * a volume summary every --volume-size chapters into volumes.json
 
 Resumable: a chapter whose growth is recorded in bible_growth.json and whose
@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from entity_ledger_thin import Ledger, build_index  # noqa: E402
 from novel_manga.model_client import ask_json
-from thin_review import grow_bible, scan_chapter, summarize_volume  # noqa: E402
+from review_bible_thin import grow_bible, scan_chapter, summarize_volume  # noqa: E402
 
 from novel_manga.ingest import read_novel  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402

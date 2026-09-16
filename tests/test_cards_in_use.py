@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import mark_cards_in_use  # noqa: E402
 from novel_manga.media import assets as media_assets
 import render_flow_thin  # noqa: E402
-import thin_review  # noqa: E402
+import review_cards_thin as review_cards  # noqa: E402
 
 
 def novel(tmp_path: Path) -> Path:
@@ -66,7 +66,7 @@ def test_remediation_skips_cards_in_use(tmp_path, monkeypatch):
     report = {"characters": {
         "character_001": {"views": ["turnaround.jpeg"], "actions": ["regenerate"]},
         "character_002": {"views": ["turnaround.jpeg"], "actions": ["regenerate"]}}, "locations": {}}
-    done = thin_review.remediate_cards(root, report)
+    done = review_cards.remediate_cards(root, report)
     assert done["in_use"] == ["character_001/turnaround.jpeg"]
     assert done["deleted"] == ["character_002/turnaround.jpeg"]
     assert (root / "series_assets/characters/character_001/turnaround.jpeg").is_file()

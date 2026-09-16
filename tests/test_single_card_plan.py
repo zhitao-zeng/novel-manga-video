@@ -113,7 +113,7 @@ def test_missing_expression_cleanup_only_reuses_a_current_approved_video(tmp_pat
     import build_h3_prompts as prompts
     import repair_history as history
     from thin_profile import h3_source_digest,plan_fingerprint
-    from thin_review import take_identity
+    from novel_manga.review.storage import take_identity
     from single_card_plan import repair_missing_expressions
     d=tmp_path/'book'/'book_1';d.mkdir(parents=True)
     clip=legacy_clip();clip['shot_indexes']=[2];clip['shot_parts']=[{'index':2,'part':[1,1]}]

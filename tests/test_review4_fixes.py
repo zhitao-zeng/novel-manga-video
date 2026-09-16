@@ -24,7 +24,13 @@ import build_h3_prompts as h3prompts  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
 import split_long_stages as tool  # noqa: E402
 import thin_batch  # noqa: E402
-import thin_review  # noqa: E402
+import novel_manga.models as review_models
+import novel_manga.review.contracts as review_contracts
+import novel_manga.review.policy as review_policy
+import novel_manga.review.storage as review_storage
+import review_episode_thin as review_episode
+import review_evidence_thin as review_evidence
+import review_judges_thin as review_judges  # noqa: E402
 from novel_manga.providers import phanrouter  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.h3_pool import PoolUnavailable  # noqa: E402
@@ -379,11 +385,11 @@ def review_with(tmp_path, monkeypatch, verdict) -> dict:
     (directory / "thin_media_report.json").write_text(json.dumps({"clips": [
         {"clip_id": "clip_01", "selected": {"video": str(video), "hypothesis": ""}}]}), encoding="utf-8")
     (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(thin_review, "apply_genre_review_rules", lambda novel_dir: None)
-    monkeypatch.setattr(thin_review, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
-    monkeypatch.setattr(thin_review, "judge_clip", lambda *args: dict(verdict))
-    monkeypatch.setattr(thin_review, "compose_feedback", lambda *args, **kwargs: "修正")
-    thin_review.review_episode(directory)
+    monkeypatch.setattr(review_evidence, "apply_genre_review_rules", lambda novel_dir: None)
+    monkeypatch.setattr(review_models, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
+    monkeypatch.setattr(review_judges, "judge_clip", lambda *args: dict(verdict))
+    monkeypatch.setattr(review_policy, "compose_feedback", lambda *args, **kwargs: "修正")
+    review_episode.review_episode(directory)
     return json.loads((directory / "episode_review.json").read_text(encoding="utf-8"))
 
 
@@ -410,17 +416,17 @@ def test_a_verdict_is_reused_only_for_the_very_same_take(tmp_path, monkeypatch):
     (directory / "clip_plan.json").write_text(json.dumps({"policy": "thin-clip-plan-v9-15s", "clips": clips}, ensure_ascii=False), encoding="utf-8")
     (directory / "thin_media_report.json").write_text(json.dumps({"clips": [
         {"clip_id": clip_id, "selected": {"video": str(video), "hypothesis": ""}} for clip_id, video in videos.items()]}), encoding="utf-8")
-    (directory / "episode_review.json").write_text(json.dumps({"policy": thin_review.POLICY, "clips": {
-        "clip_01": {"video": str(videos["clip_01"]), "take": thin_review.take_identity(videos["clip_01"]), "severity": "pass"},
+    (directory / "episode_review.json").write_text(json.dumps({"policy": review_contracts.POLICY, "clips": {
+        "clip_01": {"video": str(videos["clip_01"]), "take": review_storage.take_identity(videos["clip_01"]), "severity": "pass"},
         "clip_02": {"video": str(videos["clip_02"]), "severity": "review_error", "error": "ReadTimeout"}}}), encoding="utf-8")
     # split_long_stages moved another clip's take to this path: the same path, an older mtime, another file
     videos["clip_01"].unlink()
     videos["clip_01"].write_bytes(b"another clip's take")
     os.utime(videos["clip_01"], (time.time() - 86400, time.time() - 86400))
     (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(thin_review, "apply_genre_review_rules", lambda novel_dir: None)
-    monkeypatch.setattr(thin_review, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
+    monkeypatch.setattr(review_evidence, "apply_genre_review_rules", lambda novel_dir: None)
+    monkeypatch.setattr(review_models, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
     judged = []
-    monkeypatch.setattr(thin_review, "judge_clip", lambda clip, video, *rest: judged.append(clip["clip_id"]) or {"severity": "pass"})
-    thin_review.review_episode(directory)
+    monkeypatch.setattr(review_judges, "judge_clip", lambda clip, video, *rest: judged.append(clip["clip_id"]) or {"severity": "pass"})
+    review_episode.review_episode(directory)
     assert judged == ["clip_01", "clip_02"]
