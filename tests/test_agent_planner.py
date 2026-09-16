@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-import novel_manga.planner as planner_module
+import experiments.legacy.planner as planner_module
 from novel_manga.config import Settings
 from novel_manga.ingest import read_novel
 from novel_manga.models import (
@@ -18,7 +18,7 @@ from novel_manga.models import (
     StoryBible,
     TurnDelivery,
 )
-from novel_manga.planner import OpenAICompatiblePlanner, _loads_json_object
+from experiments.legacy.planner import OpenAICompatiblePlanner, _loads_json_object
 from novel_manga.script_planning import deterministic_chapter_diagnosis
 from novel_manga.script_planning import evaluate_script_quality, normalize_chronological_plan
 

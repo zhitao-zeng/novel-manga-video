@@ -7,6 +7,12 @@ request's success probability, not the full scheduler's cache/no-op behaviour.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
+
 import argparse
 import copy
 from dataclasses import replace

@@ -1,5 +1,11 @@
 """Episode 1 -- 陨落的天才.  Ported from the validated ceiling plan, remapped
 onto the 19-event diagnosis of the three-chapter novel."""
+
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
 from build_s1 import (
     B, F, YAN, MEI, XUN, TESTER, ShotBuilder, audio, beat, cam, delta, fact, perf, turn,
 )

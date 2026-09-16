@@ -6,6 +6,12 @@ shown taking the 战之气 while the audience watches.  The social humiliation
 flips the relationship: the girl the whole family reveres has been keeping
 his secret for years, and she is about to make him admit it.
 """
+
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
 from build_s1 import (
     B, F, YAN, MEI, XUN, ZHAN, ELDER, YOUTH, MAIDEN, BUTLER,
     ShotBuilder, audio, beat, cam, delta, fact, perf, turn,

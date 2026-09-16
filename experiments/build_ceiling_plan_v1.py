@@ -11,9 +11,15 @@ the exact bundle layout _load_or_build_plan expects, so a normal
 
 Run inside the project venv with the production .env sourced:
     set -a; source .env; set +a
-    .venv/bin/python scripts/build_ceiling_plan_v1.py
+    .venv/bin/python experiments/build_ceiling_plan_v1.py
 """
 from __future__ import annotations
+
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
 
 import hashlib
 import json

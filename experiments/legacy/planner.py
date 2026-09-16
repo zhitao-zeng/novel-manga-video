@@ -18,16 +18,16 @@ from typing import TypeVar
 import httpx
 from pydantic import ValidationError
 
-from .config import NATIVE_DIALOGUE_POLICY, Settings
-from .bible import (
+from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
+from novel_manga.bible import (
     _bounded_validate, _compact_excerpt, _fingerprint, _loads_json_object, _validate_story_bible, _validation_feedback, _validation_retry
 )
-from .creative_direction import (
+from novel_manga.creative_direction import (
     SHORT_DRAMA_PROFILE,
     apply_creative_direction,
     creative_prompt_brief,
 )
-from .models import (
+from novel_manga.models import (
     AdaptationLedgerItem,
     CameraBeat,
     CameraPlan,
@@ -62,8 +62,8 @@ from .models import (
     TurnDerivation,
     TurnDevice,
 )
-from .safety import safe_visual_prompt
-from .script_planning import (
+from novel_manga.safety import safe_visual_prompt
+from novel_manga.script_planning import (
     SHORT_DRAMA_TURN_HARD_MAX,
     _narration_body,
     _quote_key,
@@ -81,7 +81,7 @@ from .script_planning import (
     validate_chapter_diagnosis,
     validate_series_state,
 )
-from .util import atomic_write_json
+from novel_manga.util import atomic_write_json
 
 
 STYLE = (

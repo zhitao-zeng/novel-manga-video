@@ -3,7 +3,7 @@ from pathlib import Path
 
 from novel_manga.config import Settings
 from novel_manga.ingest import read_novel
-from novel_manga.planner import CommandPlanner
+from experiments.legacy.planner import CommandPlanner
 from novel_manga.script_planning import evaluate_script_quality
 
 

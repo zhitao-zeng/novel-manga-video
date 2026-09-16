@@ -39,10 +39,12 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from thin_profile import endpoint_order, load_genre, load_profile  # noqa: E402
 
+from novel_manga.story.identity import name_matches
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_card, phase_for, phased  # noqa: E402
 from novel_manga.util import atomic_write_json, media_duration  # noqa: E402
 from thin_runs import REVIEW_POLICY  # noqa: E402
+from story_identity import prompt_block as identity_prompt_block
 
 POLICY = REVIEW_POLICY  # shared with scheduling and delivery: the judge reads the source passage
 BASE_URL = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
@@ -260,7 +262,11 @@ def source_contract_block(clip: dict, episode_dir: Path) -> str:
         return ''
     lines = clip.get('lines', [])
     bound = []
+    from story_identity import current_context
+    identity_context = current_context(episode_dir)
     for row in facts:
+        if identity_context and row.get('identity_policy') != identity_context['policy']:
+            continue  # old attribution must not override a newer source identity reading
         quote = str(row.get('source_quote') or '')
         text = str(row.get('adapted_text') or '')
         if (row.get('stage') in clip.get('shot_indexes', []) and quote and text
@@ -308,9 +314,6 @@ def extract_names(chapter_text: str) -> list[dict]:
     return ask_json([{"type": "text", "text": prompt}], NAME_SCHEMA, name="names", max_tokens=1500).get("characters", [])
 
 
-def name_matches(name: str, known: list[str]) -> bool:
-    compact = re.sub(r"\s+", "", name)
-    return any(compact == k or (len(compact) >= 2 and (compact in k or k in compact)) for k in known)
 
 
 def excerpts(text: str, name: str, limit: int = 12) -> str:
@@ -387,8 +390,10 @@ def fill_characters(bible: StoryBible, bible_path: Path, missing: dict, text: st
         # is the recurring one), inside EXISTING_BUDGET.  role cannot rank them - in 诸天 only 8 of
         # 1310 entries say 配角 and many hold a whole appearance paragraph instead.
         lines = [(c.name, f"- {c.name}：{c.gender}，{c.age}，{c.appearance[:60]}") for c in bible.characters]
-        ordered = [line for name, line in lines if len(name) >= 2 and name in text]
-        ordered += [line for name, line in lines if not (len(name) >= 2 and name in text)]
+        plausible = {name for name, _ in lines if len(name) >= 2 and (
+            name in text or any(len(wanted) >= 2 and (wanted in name or name in wanted) for wanted in missing))}
+        ordered = [line for name, line in lines if name in plausible]
+        ordered += [line for name, line in lines if name not in plausible]
         kept, used = [], 0
         for line in ordered:
             if used + len(line) + 1 > EXISTING_BUDGET:
@@ -836,7 +841,7 @@ def judge_clip(clip: dict, video: Path, bible: StoryBible, location_time: dict, 
         + "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色是否与其角色卡一致、没有两个角色长成同一人、没有角色被画成另一个角色的服装发型、近景里没有多出的具名角色（远处模糊背景里的人不算），不一致时在 identity_issue 写清是谁、哪一帧；"
         "若给出了原著账本出场快照，以快照为准判断谁该在场、谁该做动作、谁只是声音或只被提及；快照说某人在别人的身体里，画面就该是那具身体。"
         "story_ok：对照本段原文——原文里在这一段有动作或对白的人物是否都出现在画面里？画面里的动作是否由原文说的那个人完成"
-        "（例如原文是薇奥拉环住莱恩的脖子吻他，画面却是猫或别的人在做，就是动作落在错误的人物身上；出场人物名单漏了原文里的人，"
+        "（例如原文是甲将物品递给乙，画面却由丙代替甲，就是动作落在错误的人物身上；出场人物名单漏了原文里的人，"
         "也按原文判）？只看原文写到的事，不苛求细节；story_kind 选最主要的一类（story_ok 为 true 时填无问题）；story_issue 用一句话写清谁缺席、或谁的动作被谁做了；"
         "location_ok 与 time_of_day_ok 是否符合地点和时间设定；text_or_watermark 画面是否出现手机屏幕聊天消息以外的文字、字幕、水印、Logo；"
         "chat_text_ok：若本段有应显示的群消息，帧里手机屏幕上的文字是否是清晰的简体中文且内容与预期一致（允许只显示部分或截断，不允许乱码、错字连篇或无关文字），没有预期消息时填 true，不一致时在 chat_text_issue 写清；visual_defects 是否有明显崩坏（多手、面部扭曲、肢体错位、人物穿模）；"
@@ -1265,7 +1270,7 @@ VERIFY_QUESTIONS = (
     "\n先逐个描述视频帧里看到的每个人（people：who 是谁或长相，gender，is_animal，doing 在做什么，frames 出现在哪几帧），再回答：\n"
     "same_person_twice：同一帧里是否有两个或更多长得一样（同脸同装）的人；\n"
     "species_or_gender_wrong：人被画成动物、动物被画成人或别的动物、动物直立拟人化，或原文里的女人由男人演（反之）、成人画成小孩；\n"
-    "action_by_wrong_person：原文里甲做的动作或说的话，画面里由乙做或对错的对象做（例如原文薇奥拉吻莱恩，画面是猫或别人在亲）；\n"
+    "action_by_wrong_person：原文里甲做的动作或说的话，画面里由乙做或对错的对象做（例如原文甲向乙递东西，画面却由丙递出）；\n"
     "actor_missing：原文这一段里有动作或对白的人不在画面里，而且没有别人替他做（只露背影的听者、画外说话的人不算缺席）；\n"
     "lead_face_swapped：主角或其他给了角色卡的主要人物，脸型发型明显不是角色卡上那个人（追剧的观众认得主角，这也算一眼看出）；\n"
     "ghost_text：画面出现字幕、文字、水印、Logo（手机屏幕上的消息除外）；这一项单独记录，不影响 verdict；\n"
@@ -1284,7 +1289,7 @@ def review_world_context(novel_dir: Path) -> str:
     normal='\n'.join(line for line in path.read_text(encoding='utf-8').splitlines() if line.strip() and not line.lstrip().startswith('#'))
     if not normal:
         return ''
-    return ('\n本书正常设定（解释下面通用检查项时必须遵守）：\n'+normal+
+    return ('\n本书美术说明（用于理解风格，不是人物身份与剧情的豁免）：\n'+normal+
             '\n本段原文、角色当前成长阶段和明确身份优先于笼统规则。原文或人设明确允许的拟人、变形、分身等不判为生成错误；'
             '这些设定不能为动作或台词安错人、遗漏必需角色、超出原文人数的复制开脱。\n')
 
@@ -1374,7 +1379,8 @@ def judge_clip_verify(clip: dict, video: Path, bible: StoryBible, location_time:
             + story_block(clip, _SEGMENTS_CACHE.setdefault(work_dir.parents[2], segment_texts(work_dir.parents[2])))
             + snapshot_block(clip, work_dir.parents[2])
             + source_contract_block(clip, work_dir.parents[2])
-            + f"\n预期台词：{lines or '无'}\n" + review_world_context(bible_root(work_dir)) + VERIFY_QUESTIONS)
+            + f"\n预期台词：{lines or '无'}\n" + review_world_context(bible_root(work_dir))
+            + identity_prompt_block(work_dir.parents[2], cast) + VERIFY_QUESTIONS)
     parts.append({"type": "text", "text": text})
     answer = ask_json(parts, VERIFY_SCHEMA, name="clip_verify", max_tokens=900)
     return verify_to_verdict(answer)

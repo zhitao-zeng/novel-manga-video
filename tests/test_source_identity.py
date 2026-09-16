@@ -86,9 +86,9 @@ def test_picture_repair_does_not_reuse_old_renderer_reference_numbers():
     assert '@图片' not in s['motion_prompt'] and '<Subject' not in s['visual_prompt']
 
 
-def test_explicit_gender_conflict_is_distinct_from_looking_at_a_man():
-    assert repair.wrong_gender_description('塞西娅为中年男性形象，穿白色长袍。','塞西娅','女')
-    assert not repair.wrong_gender_description('塞西娅看向一位男性。','塞西娅','女')
+def test_source_attribution_does_not_treat_a_design_gender_as_source_evidence():
+    rows=repair.source_identities(['某人'],{'characters':[{'name':'某人','gender':'女','appearance':'设计外形'}]},'某人开口。')
+    assert 'gender' not in rows[0] and rows[0]['source_names']==['某人']
 
 
 def test_disputed_speaker_cannot_choose_a_name_without_source_grounding(monkeypatch):
@@ -110,3 +110,30 @@ def test_verified_source_attribution_is_reused_without_asking_again(monkeypatch)
     monkeypatch.setattr(repair,'ask_json',unexpected)
     assert repair.speaker_contract(source,shots,['甲','乙'],[],[
         {'stage':1,'turn':1,'speaker':'乙','source_quote':source}])=={(1,1):'乙'}
+
+
+def test_named_source_speaker_cannot_be_replaced_by_a_different_available_character(monkeypatch):
+    source='星垣扭过头：“我承认我找不到了。”赤岚叹气。'
+    shots=[{'origin_index':6,'turns':[{'delivery_mode':'offscreen_dialogue','speaker_name':'赤岚','text':'我承认我找不到了。'}]}]
+    row={'stage':6,'turn':1,'speaker':'赤岚','source_speaker_phrase':'星垣',
+         'source_quote':source,'relation':'verbatim','adapted_text':'我承认我找不到了。'}
+    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[row]})
+    assert repair.speaker_contract(source,shots,['赤岚'],[{'name':'赤岚','source_names':['赤岚']}],[row])=={}
+
+
+def test_short_name_uses_chapter_semantics_without_a_special_introduction_pattern():
+    bible={'characters':[{'name':'霜','role':'霜痕之龙，青年巨龙'}]}
+    context={'entities':{'e1':'霜'},'mentions':[{'form':'霜','entity_id':'e1','presence':'on_stage'}]}
+    identities=repair.source_identities(['霜'],bible,'霜转身离开。',context=context)
+    assert identities[0]['source_names']==['霜']
+
+
+def test_split_sentence_can_use_a_program_located_continuous_source_quote(monkeypatch):
+    source='澜歌微微摇头。\n“睡觉便是我们的锻炼方式！\n看来，你还不知道。”'
+    shots=[{'origin_index':23,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'澜歌','text':'睡觉便是我们的锻炼方式！看来，'}]}]
+    rows=iter([{'speakers':[]},{'speakers':[{'stage':23,'turn':1,'speaker':'澜歌',
+                'source_speaker_phrase':'澜歌','relation':'verbatim','source_quote':''}]}])
+    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:next(rows))
+    evidence=[]
+    assert repair.speaker_contract(source,shots,['澜歌'],[{'name':'澜歌','source_names':['澜歌']}],evidence_out=evidence)=={(23,1):'澜歌'}
+    assert evidence[0]['source_quote']==source

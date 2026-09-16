@@ -50,6 +50,11 @@ SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots"]
 ASK = ("Translate each numbered Chinese shot description into ONE English sentence that states only what the "
        "camera sees: framing and angle, where the characters are and what they do, the light, the setting. "
        "Never include spoken dialogue, and never invent any.\n"
+       "Preserve explicit counts of independent bodies and anatomical heads separately. The classifier in 三头X "
+       "counts three individual animals; it does NOT also give each animal three heads. Only say multi-headed when "
+       "the description explicitly supports multiple heads on one body, such as 一个身体、三颗头 or a fusion retaining "
+       "three heads. An explicit statement of independent individuals takes precedence over an ambiguous classifier. "
+       "Never add anatomical head counts, or merge independently acting subjects, from a species name alone.\n"
        "Refer to each character by the tag given below, never by name and never by a translated name, "
        "so the sentence points at the same reference picture the tag does.\n"
        "Return one sentence per input shot, in order.\n\n")
@@ -81,7 +86,7 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             picture += 1
             crowd=clip.get('crowd_roles',{}).get(ref['name'])
             if crowd:
-                defs.append(f"<Picture {picture}> provides shared clothing only for {crowd['count']} distinct unnamed supporting people. "
+                defs.append(f"<Picture {picture}> provides shared clothing only for {crowd['count'] or 'several'} distinct unnamed supporting people. "
                             'Their faces and hairstyles must be different from each other and must not copy the face in this picture. '
                             'For a pair, one has a narrow face and the other a broad face. This is a clothing reference, not one repeated identity.')
                 continue
@@ -119,6 +124,9 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str
 
     body = []
     for index, ((_, turns), text) in enumerate(zip(stages, english), 1):
+        if 'dialogue_bindings' in clip:
+            turns = [(r['speaker_name'],r['text'],r['delivery_mode']=='offscreen_dialogue')
+                     for r in clip['dialogue_bindings'] if r['stage']==index]
         body.append(f"[Shot {index}] {text}")
         for who, line, offscreen in turns:
             if who in subject_of and not offscreen:
@@ -232,12 +240,14 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             picture+=1
         crowd=clip.get('crowd_roles',{}).get(ref.get('name'))
         if crowd and ref.get('role')=='character':
-            naming+=f"{ref['name']} = the {crowd['count']} distinct unnamed supporting people wearing the clothing from <Picture {picture}>\n"
+            naming+=f"{ref['name']} = the {crowd['count'] or 'several'} distinct unnamed supporting people wearing the clothing from <Picture {picture}>\n"
     visuals = [tag_names(visual, naming) for visual, _ in stages]
     tagged = tag_names(note, naming) if note else ""
 
     def ask_lines(lines: list[str], extra: str) -> list[str]:
-        question = [{"type": "text", "text": ASK + extra + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
+        feedback = ('\nThe previous output failed: ' + problem +
+                    '. Use only the declared Subject tags; groups described without a Subject tag stay distinct unnamed people.\n') if problem else ''
+        question = [{"type": "text", "text": ASK + extra + feedback + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
         answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines))
         return [str(s).strip() for s in (answer.get("shots") or [])]
 
@@ -251,7 +261,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
                     direction = clean_note(english[-1], naming)
                     if direction:
                         candidate = compose(clip, english[:-1], stages, direction)
-                        conflicts = request_issues({'prompt_h3':candidate})
+                        conflicts = request_issues({**clip, 'prompt_h3':candidate})
                         if not conflicts:
                             clip['prompt_h3'] = candidate
                             clip['prompt_h3_of'] = digest
@@ -270,7 +280,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             continue
         if len(english) == len(visuals) and all(english):
             candidate = compose(clip, english, stages, '')
-            conflicts = request_issues({'prompt_h3':candidate})
+            conflicts = request_issues({**clip, 'prompt_h3':candidate})
             if not conflicts:
                 clip['prompt_h3'] = candidate
                 clip['prompt_h3_of'] = digest

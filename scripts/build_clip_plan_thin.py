@@ -25,6 +25,8 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from novel_manga.story.actions import blocking_note, normalize_actions
+from novel_manga.story.dialogue import merged_turns, nonverbal_sound
 from novel_manga.models import StoryBible
 from plan_chapter_thin import ALIASES as PLAN_ALIASES, load_entity_index, mentioned_characters  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_for, phase_labels, phased  # noqa: E402
@@ -48,13 +50,14 @@ SOFT_CUT_SECONDS = 18.0 if MAX_CLIP_SECONDS > 15 else round(MAX_CLIP_SECONDS * 0
 MAX_STAGES = 6 if MAX_CLIP_SECONDS > 15 else 3
 STRIP_PUNCT = r"[\s　，。！？；：、…—,.!?;:\"“”'‘’（）()]"
 STAGE_LABELS = ["一", "二", "三", "四", "五", "六"]
-ANON_VOICE = {
+DEFAULT_ANON_VOICE = {
     "无名测验员": "画外的中年测验员（男声）",
-    "无名族人": "画外一名楚家族人",
+    "无名族人": "画外一名族人",
     "无名少年": "画外一名少年",
     "无名少女": "画外一名少女",
     "无名群声": "画外的人群",
 }
+ANON_VOICE = dict(DEFAULT_ANON_VOICE)
 
 
 def spoken_chars(value: str) -> int:
@@ -264,53 +267,11 @@ def absorb_small_clips(clips: list[dict]) -> list[dict]:
     return result
 
 
-TERMINAL_PUNCT = "。！？…!?"
-SFX_ONLY = re.compile(r"^[\u4e00-\u9fff]{1,5}声$")
 
 
-def nonverbal_sound(turn: dict) -> str:
-    """A standalone sneeze/bark is a sound event, not Chinese words to recite."""
-    text = str(turn.get("text") or "").strip()
-    if turn.get("delivery_mode") not in {"visible_dialogue", "offscreen_dialogue"}:
-        return ""
-    if turn.get("delivery_mode") == "offscreen_dialogue" and SFX_ONLY.fullmatch(text):
-        return text
-    bare = re.sub(r"[\W_]+", "", text)
-    sound = next((sound for pattern, sound in ((r"(?:阿嚏)+", "打喷嚏"), (r"汪+", "犬吠"),
-                 (r"喵[呜喵]*", "猫叫"), (r"咳+", "咳嗽"), (r"吼+", "吼叫"), (r"呵", "短促轻笑"), (r"嗝+", "打嗝"))
-                  if re.fullmatch(pattern, bare)), "")
-    return (str(turn.get("speaker_name") or "") + sound) if sound else ""
 
 
-def merged_turns(shot: dict) -> list[dict]:
-    """Rejoin pieces of one line that the planner split at a comma.
 
-    A piece whose predecessor ended mid-sentence (comma, no terminal
-    punctuation) is a continuation of the same line.  Separate crowd lines end
-    with terminal punctuation and stay separate voices.  Offscreen "turns" that
-    are really a sound label (e.g. 狼嚎声) become sfx instead of speech.
-    """
-    merged: list[dict] = []
-    extra_sfx: list[str] = []
-    for turn in shot["turns"]:
-        text = turn["text"].strip()
-        if sound := nonverbal_sound(turn):
-            extra_sfx.append(sound)
-            continue
-        if (
-            merged
-            and turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}
-            and merged[-1]["delivery_mode"] == turn["delivery_mode"]
-            and merged[-1]["speaker_name"] == turn["speaker_name"]
-            and merged[-1]["text"].rstrip()[-1:] not in TERMINAL_PUNCT
-        ):
-            merged[-1] = {**merged[-1], "text": merged[-1]["text"] + text}
-        else:
-            merged.append({**turn, "text": text})
-    if extra_sfx:
-        existing = str(shot.get("sfx") or "")
-        shot["sfx"] = "，".join([*(x for x in [existing] if x), *(s for s in dict.fromkeys(extra_sfx) if s not in existing)])
-    return merged
 
 
 ORDINALS = ["一名", "另一名", "第三名", "第四名", "第五名"]
@@ -601,53 +562,6 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     return references, bindings, location_binding
 
 
-# 头 counts animals, so 三头龙 usually means "three dragons" - and a video model reads it as "a
-# three-headed dragon" and draws one.  Two or more dragons take 条, two or more 雪铠 take 只; a count of
-# one is left alone (one head is normal), and so is anything not followed by those nouns, such as 三头犬.
-# Some dragons do have several heads - in 星海, one fused from three young dragons, and 赛洛斯, written
-# 赛洛斯三头龙 - so a prompt is left as written when it counts heads (三个脑袋, 三颗头颅) or opens a
-# clause with a cast name and the count.  A name inside a list (洛恩、科特林、赛洛斯三头龙) still counts
-# dragons.
-_HEAD_COUNT = re.compile(r"(两|二|三|四|五|六|七|八|九|十|几|数|[2-9])头(?=[^，。；、{}\s]{0,4}?(龙|雪铠))")
-_COUNTED_HEADS = re.compile(r"[两二三四五六七八九几数多][颗个](头|脑袋)")
-_CLAUSE_START = r'(?:^|(?<=[，。；：“”"‘’（(【\s]))'
-
-
-def plain_counts(prompt: str, cast: list[str] = ()) -> str:
-    """Rewrite animal counts outside the spoken lines, which sit inside {} and stay as written."""
-    parts = re.split(r"(\{[^}]*\})", prompt)
-    direction = "".join(part for part in parts if not part.startswith("{"))
-    if _COUNTED_HEADS.search(direction) or any(
-            re.search(_CLAUSE_START + re.escape(name) + _HEAD_COUNT.pattern, direction, re.M) for name in cast):
-        return prompt
-    return "".join(part if part.startswith("{") else
-                   _HEAD_COUNT.sub(lambda m: m.group(1) + ("条" if m.group(2) == "龙" else "只"), part)
-                   for part in parts)
-
-
-
-def blocking_note(shot: dict) -> str:
-    """Where each person in frame stands.  MiniMax's own guide asks for every subject's position in every shot, and
-    the community's two-person staging - profile view, each on their own side - keeps two faces from blending into
-    one.  From the stage's actions: the first actor at frame left, the person acted on at frame right facing them,
-    everyone else behind them turned away and silent; a lone actor stands centre front.  Nothing for one person."""
-    people = list(shot.get("characters") or [])
-    if len(people) < 2:
-        return ""
-    actions = [a for a in (shot.get("actions") or []) if a.get("actor") in people]
-    actor = actions[0]["actor"] if actions else people[0]
-    target = next((a.get("target") for a in actions if a.get("target") in people and a.get("target") != actor), None)
-    if target is None and not actions:
-        target = people[1]
-    # only a pure bystander goes to the back: someone a later action reaches (the light that strikes <Subject 3>)
-    # stays available for it
-    involved = {actor, target} | {a.get("actor") for a in actions} | {a.get("target") for a in actions}
-    rest = [n for n in people if n not in involved]
-    parts = ([f"{actor}在画面左侧前景，{target}在右侧前景，两人侧面相对、各占一侧"] if target
-             else [f"{actor}在前景居中"])
-    if rest:
-        parts.append(f"{'、'.join(rest)}只在后景侧身或背对镜头，不开口、不做主要动作")
-    return "构图：" + "；".join(parts) + "。"
 
 
 def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: list[str], location_binding: str, grammar: dict | None = None, frame: dict | None = None) -> str:
@@ -725,7 +639,7 @@ def compile_prompt(clip: dict, bible: StoryBible, cast: list[str], bindings: lis
         rejects = [r.replace("（手机屏幕上剧本指定的聊天消息除外）", "") for r in rejects]
         globals()["GENRE_REJECTS"] = [r.replace("（手机屏幕上剧本指定的聊天消息除外）", "") for r in GENRE_REJECTS]
     lines.append("【不要】" + "；".join([*avoid, *GENRE_REJECTS, *rejects, NO_SUBTITLES]) + "。")
-    return plain_counts("\n".join(lines), cast)
+    return "\n".join(lines)
 
 
 def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None = None, style: str | None = None,
@@ -737,14 +651,14 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     grammar = load_grammar(grammar_path, episode_dir)
     load_chat_screen(episode_dir.parent)
     load_voices(episode_dir.parent)
-    aliases_path = episode_dir.parent / "bible_aliases.json"
-    PLAN_ALIASES.update(json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {})
-    load_entity_index(episode_dir.parent)
+    load_entity_index(episode_dir.parent, chapter_of(episode_dir))
     profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
     genre = load_genre(profile)
     GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]
     GENRE_CROWD = genre.get("crowd_default", "")
-    ANON_VOICE.update(genre.get("anon_voice") or {})  # off-screen voice descriptions for the genre's anonymous roles
+    ANON_VOICE.clear()
+    ANON_VOICE.update(DEFAULT_ANON_VOICE)
+    ANON_VOICE.update(genre.get("anon_voice") or {})
     TWO_VIEW_CAST_LIMIT = 0 if is_fast(profile) else 2
     overrides_path = episode_dir / "clip_overrides.json"
     return {
@@ -761,9 +675,16 @@ def prepared_shots(script: dict, episode_dir: Path) -> list[dict]:
     segments_path = episode_dir / 'segments.json'
     if segments_path.is_file():
         from source_identity_thin import resolve_script
-        resolve_script(script, episode_dir.parent, json.loads(segments_path.read_text()))
-    aliases_path = episode_dir.parent / "bible_aliases.json"
-    aliases = json.loads(aliases_path.read_text(encoding="utf-8")) if aliases_path.is_file() else {}
+        resolve_script(script, episode_dir.parent, json.loads(segments_path.read_text()), chapter=chapter_of(episode_dir))
+    from story_identity import effective_aliases
+    aliases = effective_aliases(episode_dir.parent, chapter_of(episode_dir))
+    from story_identity import current_context, typed_entities
+    types = typed_entities(episode_dir.parent, current_context(episode_dir))
+    objects = {name for name, row in types.items() if row['kind'] == 'object'}
+    for shot in shots:
+        for field in ['characters', 'in_frame', 'listeners']:
+            if field in shot:
+                shot[field] = [name for name in shot[field] if name not in objects]
     if aliases:  # a nickname in the script must resolve to the canonical card
         for shot in shots:
             shot["characters"] = list(dict.fromkeys(aliases.get(n, n) for n in shot.get("characters", [])))
@@ -771,6 +692,12 @@ def prepared_shots(script: dict, episode_dir: Path) -> list[dict]:
                 shot["in_frame"] = list(dict.fromkeys(aliases.get(n, n) for n in (shot.get("in_frame") or [])))
             for turn in shot.get("turns", []):
                 turn["speaker_name"] = aliases.get(turn.get("speaker_name", ""), turn.get("speaker_name", ""))
+                if turn.get('chat_target'):
+                    turn['chat_target'] = aliases.get(turn['chat_target'], turn['chat_target'])
+            if 'actions' in shot:
+                shot['actions'] = normalize_actions(shot['actions'], aliases=aliases, extras=shot.get('extras', []))
+    from dialogue_binding import apply_confirmed_speakers
+    apply_confirmed_speakers(episode_dir, shots)
     # "同上" is only meaningful inside one prompt.  Resolve it (and blanks)
     # from the last concrete value in reading order so that the first stage of
     # every clip states its light and camera explicitly.
@@ -898,7 +825,8 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         for turn in merged_turns(shot)
         if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}
     ]
-    return {
+    from dialogue_binding import clip_bindings
+    entry = {
         "clip_id": clip_id,
         "kind": "video",
         "location": clip["location"],
@@ -911,6 +839,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "cast": cast,
         "references": references,
         "lines": lines,
+        "dialogue_bindings": clip_bindings(clip['shots']),
         "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip(), "chat_target": str(t.get("chat_target") or "").strip()} for shot in clip["shots"] for t in chat_turns(shot)],
         "spoken_text": "".join(line["text"] for line in lines),
         "prompt": prompt,
@@ -923,6 +852,14 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "listeners": list(dict.fromkeys(l for shot in clip["shots"] for l in (shot.get("listeners") or []))),
         "extras": list(dict.fromkeys(e for shot in clip["shots"] for e in (shot.get("extras") or []))),
     }
+    from h3_request_checks import source_crowds
+    from story_identity import current_context, read
+    segments = read(ctx['episode_dir'] / 'segments.json', [])
+    passage = '\n'.join(s['text'] for s in segments if s['segment_id'] in entry['segment_ids'])
+    crowds = source_crowds(entry, bible.model_dump(), passage, context=current_context(ctx['episode_dir']))
+    if crowds:
+        entry['crowd_roles'] = crowds
+    return entry
 
 
 def plan_totals(clips: list[dict], shots: list[dict], ctx: dict) -> dict:

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 
-from scripts import benchmark_seedance_speed as probe
+from experiments import benchmark_seedance_speed as probe
 
 
 def _setup(monkeypatch, handler):

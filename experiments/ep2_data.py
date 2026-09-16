@@ -8,6 +8,12 @@ removed and the only rule that matters dramatically -- one year, seven
 The transmigration secret is the episode's information gap: the audience
 learns it, nobody on screen knows.
 """
+
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
 from build_s1 import (
     B, F, YAN, ZHAN, ShotBuilder, audio, beat, cam, delta, fact, perf, turn,
 )

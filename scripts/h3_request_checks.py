@@ -15,10 +15,11 @@ def request_issues(clip: dict) -> list[str]:
     declared=set(re.findall(r'<Subject\s+(\d+)> is the character',text))
     if declared or 'subject_definitions:' in text:
         issues.extend(f'subject {n} has no identity definition' for n in sorted(set(re.findall(r'<Subject\s+(\d+)>',body))-declared))
-    return issues
+    from dialogue_binding import final_dialogue_issues
+    return issues + final_dialogue_issues(clip)
 
 
-def source_crowds(clip: dict, bible: dict, passage: str) -> dict:
+def source_crowds(clip: dict, bible: dict, passage: str, *, context=None) -> dict:
     """A literal plural occupational role denotes people, not repeated identity.
 
     Limited to silent unnamed roles whose role description repeats that label.
@@ -27,6 +28,15 @@ def source_crowds(clip: dict, bible: dict, passage: str) -> dict:
     by_name={c['name']:c for c in bible.get('characters',[])}
     speaking={t.get('speaker_name') for t in clip.get('lines',[]) if t.get('text')}
     result={}
+    if context:
+        from story_identity import canonical_entity
+        for m in context.get('mentions', []):
+            if m.get('entity_kind') != 'group' or m['entity_id'] == 'UNKNOWN':
+                continue
+            name = context['entities'].get(canonical_entity(context, m['entity_id']))
+            if name in clip.get('cast', []) and m['form'] in passage:
+                result[name] = {'count': m.get('count', 0), 'source_quote': m.get('source_quote', '')}
+        return result
     numbers={'两':2,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9}
     for ref in clip.get('references',[]):
         name=ref.get('name','')

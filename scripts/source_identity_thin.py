@@ -6,10 +6,14 @@ from pathlib import Path
 import re
 
 
-def resolve_script(script: dict, novel: Path, segments: list[dict]) -> dict[int, dict[str, str]]:
+def resolve_script(script: dict, novel: Path, segments: list[dict], *, chapter: int | None = None) -> dict[int, dict[str, str]]:
     from plan_chapter_thin import load_entity_index, ENTITY_FORMS, mentioned_characters
-    load_entity_index(novel)
-    if not ENTITY_FORMS:
+    from story_identity import current_context, effective_aliases
+    chapter = chapter if chapter is not None else script.get('episode_index')
+    scoped = current_context(novel / f'{novel.name}_{chapter}') if chapter is not None else {}
+    scoped_aliases = effective_aliases(novel, chapter, scoped) if scoped else {}
+    load_entity_index(novel, chapter)
+    if not ENTITY_FORMS and not scoped:
         return {}
     bible_path = novel / 'story_bible.json'
     bible_names = {c['name'] for c in json.loads(bible_path.read_text()).get('characters', [])} if bible_path.is_file() else set(ENTITY_FORMS)
@@ -24,6 +28,11 @@ def resolve_script(script: dict, novel: Path, segments: list[dict]) -> dict[int,
         mapping = {}
         for old in listed:
             if not old:
+                continue
+            if scoped:
+                target = scoped_aliases.get(old)
+                if target and target in bible_names:
+                    mapping[old] = target
                 continue
             anchors = {old}
             alternatives = {name for name in names if name != old and anchors.intersection(ENTITY_FORMS[name])}
@@ -59,4 +68,4 @@ def resolve_script(script: dict, novel: Path, segments: list[dict]) -> dict[int,
 def resolved_changes(directory: Path) -> dict[int, dict[str, str]]:
     script = json.loads((directory / 'chapter_script.json').read_text())
     segments = json.loads((directory / 'segments.json').read_text())
-    return resolve_script(script, directory.parent, segments)
+    return resolve_script(script, directory.parent, segments, chapter=int(directory.name.rsplit('_', 1)[1]))

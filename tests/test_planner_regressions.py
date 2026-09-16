@@ -1,5 +1,5 @@
 from novel_manga.ingest import read_novel
-from novel_manga.planner import DeterministicPlanner
+from experiments.legacy.planner import DeterministicPlanner
 
 
 def test_deterministic_plan_keeps_closing_quote_and_extracts_real_names(tmp_path):

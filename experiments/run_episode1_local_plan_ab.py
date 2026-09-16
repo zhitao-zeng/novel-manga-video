@@ -7,6 +7,12 @@ media generation and writes only to the research evidence directory.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
+
 import argparse
 import json
 import os
@@ -18,7 +24,7 @@ from pathlib import Path
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
 from novel_manga.ingest import read_novel
 from novel_manga.models import StoryBible
-from novel_manga.planner import CommandPlanner
+from experiments.legacy.planner import CommandPlanner
 from novel_manga.util import atomic_write_json
 
 
@@ -33,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--planner-command",
         type=Path,
-        default=Path("scripts/deepseek_local_planner_command.py"),
+        default=Path("experiments/deepseek_local_planner_command.py"),
     )
     parser.add_argument("--max-revisions", type=int, default=2)
     return parser.parse_args()

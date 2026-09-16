@@ -9,7 +9,7 @@ from novel_manga.models import (
     Shot,
     StoryBible,
 )
-from novel_manga.planner import OpenAICompatiblePlanner
+from experiments.legacy.planner import OpenAICompatiblePlanner
 from novel_manga.script_planning import evaluate_script_quality
 
 

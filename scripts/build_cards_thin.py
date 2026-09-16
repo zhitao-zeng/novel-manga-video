@@ -72,6 +72,8 @@ def main() -> int:
     characters = {a for a in ids if a.startswith("character_")}
     locations = {a for a in ids if a.startswith("location_")}
     results = {}
+    type_path = novel_dir / 'entity/types.json'
+    types = json.loads(type_path.read_text()) if type_path.is_file() else {}
     for asset_id in ids:
         lock_path = root / ".locks" / f"{asset_id}.lock"
         with open(lock_path, "w") as lock:
@@ -100,6 +102,9 @@ def main() -> int:
                 elif cached is not None:
                     row["review"] = "cached"
                 row["flags"] = review["flags"]
+                entry = (review.get('characters', {}) | review.get('locations', {})).get(asset_id, {})
+                if asset_id.startswith('character_') and types.get(entry.get('name'), {}).get('kind') == 'object':
+                    row['status'] = 'entity_type_mismatch'
             results[asset_id] = row
             print(json.dumps(row, ensure_ascii=False), flush=True)
     return 0 if all(r["status"] == "built" for r in results.values()) else 2

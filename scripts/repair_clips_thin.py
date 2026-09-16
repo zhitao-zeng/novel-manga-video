@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "src")]
 os.environ.setdefault("SECOND_REVIEW_JUDGE", "local")
 import second_review  # noqa: E402,F401
+from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
 from novel_manga.util import atomic_write_json  # noqa: E402
 from plan_chapter_thin import ledger_cast, ledger_snapshot_for  # noqa: E402
 from thin_review import ask_json  # noqa: E402
@@ -36,8 +37,9 @@ RULES = (
     "你在修一段动画短剧的分镜。判官对照原文发现这段画面把动作或台词安错了人，或漏了人。下面给你：这段原文、现有分镜的各阶段、"
     "原著账本记的这段谁在场、判官的意见。只输出 JSON。对每个阶段（按 origin_index）重写：\n"
     "in_frame：这一阶段画面里真正出现的具名人物（只能从候选名单选；原文里只被提起、在别处、或只有声音的人不进）。\n"
-    "actions：这一阶段谁对谁做了什么，actor/target 是 in_frame 里的名字，action 是谓语短语（如“环住脖子吻住”“递过信封”），没有动作就空数组。\n"
-    "extras：原文里在场、有动作或台词、但不在候选名单里的无名人物，用不超过 12 字的外貌描述（如“戴眼镜的灰发老妇人”），没有就空数组。\n"
+    "涉及个体与头数时，按原文写清独立身体的数量及各自动作；一个身体多颗头或融合形态另写头数，不能由物种名称或量词猜测。\n"
+    "actions：这一阶段谁对谁做了什么。actor/target 可以是具名角色、extras描述，或原文明示的动物、道具、环境对象，不受 in_frame 名单限制。action 是谓语短语（如“环住脖子吻住”“递过信封”）。无动作就空数组，无受事或目标不明确则 target 留空；不能随便挑已有角色补位或默认填自己。\n"
+    "extras：原文里在场、有动作或台词、但没有专属角色卡的无名人物、动物等，用简短描述（如“戴眼镜的灰发老妇人”“灰色野山羊”），没有就空数组。具名角色仍须核对其身份。\n"
     "event：改写后的事件句，一句话写清谁做什么，先写动作再写其余。\n"
     "有可见说话者的阶段，in_frame 只放说话的人和这一阶段与他有动作往来的人（听的人不进）。判官说缺席的人若原文这段确实在场，必须进 in_frame。"
 )
@@ -61,12 +63,13 @@ def schema_for(names: list[str], indexes: list[int]) -> dict:
                                                                   "required": ["origin_index", "in_frame", "actions", "extras", "event"],
                                                                   "properties": {
                                                                       "origin_index": {"type": "integer", "enum": indexes},
-                                                                      "in_frame": {"type": "array", "maxItems": 6, "items": {"type": "string", "enum": names}},
+                                                                      "in_frame": {"type": "array", "maxItems": 6 if names else 0,
+                                                                                   "items": {"type": "string", **({"enum": names} if names else {})}},
                                                                       "actions": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": False,
                                                                                                                             "required": ["actor", "action", "target"],
-                                                                                                                            "properties": {"actor": {"type": "string", "enum": [*names, ""]},
+                                                                                                                            "properties": {"actor": {"type": "string", "maxLength": 80},
                                                                                                                                            "action": {"type": "string"},
-                                                                                                                                           "target": {"type": "string", "enum": [*names, ""]}}}},
+                                                                                                                                           "target": {"type": "string", "maxLength": 80}}}},
                                                                       "extras": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
                                                                       "event": {"type": "string"}}}}}}
 
@@ -86,7 +89,7 @@ def source_passage(segments: dict, segment_ids: list) -> str:
     return '\n'.join(segments[ids[i]] for i in sorted(window))
 
 
-def repair_prompt(passage: str, shots: list[dict], snapshot: dict, issue: str, names: list[str], history: str = "", reframe: bool = False, request_context: str = "") -> str:
+def repair_prompt(passage: str, shots: list[dict], snapshot: dict, issue: str, names: list[str], history: str = "", reframe: bool = False, request_context: str = "", *, require_structure: bool = False) -> str:
     cast = "、".join(f"{c['name']}（{c['presence']}）" for c in snapshot.get("chapter_cast", [])) or "（账本没读这一章）"
     named = {seg: v.get("named_here", []) for seg, v in (snapshot.get("segments") or {}).items()}
     strategy = ("\n本次处理多轮后残留，必须重新组织镜头并填写 visual_prompt、camera、shot_scale。"
@@ -97,6 +100,14 @@ def repair_prompt(passage: str, shots: list[dict], snapshot: dict, issue: str, n
                 "台词文字、先后顺序及画内/画外方式保持不变，只改确实安错的说话者。"
                 "画面和事件字段只用中文角色名，不写@图片编号或Subject编号，这些由打包器重新分配。"
                 "修复建议是线索，以原文和账本为准；不能根据判官猜测改人物身份。" if reframe else "")
+    if require_structure:
+        strategy += ('\n这次必须改变可拍的镜头结构，不能只换形容词或重述纠正指令。'
+                     '保留原有说话者、对白、动作主体和对象、阶段顺序与时长范围。'
+                     '在以下方式中选择适合本段原文的一种：把易混动作改为动作主体的近景/特写；'
+                     '把接触过程集中在明确的施事与受事上；把无动作的听者从当前正脸同框中移开；'
+                     '给必须表现的关键人物明确的单人反应镜头。'
+                     '至少改变一个阶段的出镜人物集合或景别，并用visual_prompt和camera写清新构图；'
+                     '不能靠换动作主体或对象、删除必要事件来满足变化。')
     return (RULES + strategy + f"\n\n候选名单：{'、'.join(names)}\n账本记的本章在场情况：{cast}\n这段原文里点到名的人：{named}\n"
             f"判官意见：{issue}\n\n原文（含相邻段落供身份指代核对；只改现有阶段的事件）：\n{passage}\n\n现有分镜：\n" + "\n".join(stage_view(s) for s in shots)
             + ("\n\n" + history + "\n据已发生的结果拟定具体修改；不要把未验证的猜测当事实。" if history else "")
@@ -108,6 +119,7 @@ def repair_prompt(passage: str, shots: list[dict], snapshot: dict, issue: str, n
 
 def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = False) -> None:
     fix = dict(fix)
+    old_action_line = action_text(shot.get('actions', []))
     for key in ('event', 'visual_prompt', 'end_state'):
         if fix.get(key):
             fix[key] = re.sub(r'@图片\d+|<(?:Subject|Picture)\s*\d+>', '', str(fix[key])).replace('（）','').replace('()','')
@@ -117,34 +129,39 @@ def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = Fals
             if (0 <= i < len(shot.get('turns', [])) and speaker.get('speaker_name') in names
                     and shot['turns'][i].get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue', 'singing'}):
                 shot['turns'][i]['speaker_name'] = speaker['speaker_name']
-    in_frame = [n for n in fix.get("in_frame") or [] if n in names]
-    actions = [{"actor": a["actor"], "action": str(a.get("action") or "").strip()[:40], "target": a.get("target") or ""}
-               for a in fix.get("actions") or [] if a.get("actor") in names and str(a.get("action") or "").strip()]
+    in_frame = [n for n in fix.get('in_frame', shot.get('in_frame', shot.get('characters', []))) or [] if n in names]
+    actions = normalize_actions(fix.get('actions'))
+    speakers = [t.get('speaker_name') for t in shot.get('turns', [])
+                if t.get('delivery_mode') in {'visible_dialogue', 'singing'} and t.get('speaker_name') in names]
+    for speaker in speakers:
+        if speaker not in in_frame:
+            in_frame.append(speaker)
     for a in actions:
         for who in (a["actor"], a["target"]):
-            if who and who in names and who not in in_frame:
+            if 'in_frame' not in fix and who and who in names and who not in in_frame:
                 in_frame.append(who)
     # Preserve the repair model's explicit participants. Listener framing below
     # may hide their faces, but must not erase their identity/reference binding.
     shot["in_frame"] = list(in_frame)
-    speakers = [t.get("speaker_name") for t in shot.get("turns") or [] if t.get("delivery_mode") == "visible_dialogue" and t.get("speaker_name") in names]
     listeners: list[str] = []
     if len(set(speakers)) == 1 and in_frame:
         speaker = speakers[0]
-        acting = {a["actor"] for a in actions} | {a["target"] for a in actions if a["target"]}
+        acting = action_participants(actions)
         keep = [c for c in in_frame if c == speaker or c in acting]
         if keep:
             listeners = [c for c in in_frame if c not in keep]
             in_frame = keep
-    line = "；".join(f"{a['actor']}{a['action']}{a['target']}" for a in actions)
+    line = action_text(actions)
     event = str(fix.get("event") or shot.get("motion_prompt") or "").strip()
-    shot["characters"] = in_frame or shot.get("characters") or []
+    if old_action_line and event.startswith(old_action_line + '。'):
+        event = event[len(old_action_line) + 1:]
+    shot["characters"] = in_frame
     shot["motion_prompt"] = (f"{line}。{event}" if line and line not in event else event) or shot.get("motion_prompt", "")
     shot["actions"] = actions
-    shot["extras"] = [str(e).strip()[:24] for e in fix.get("extras") or [] if str(e).strip()][:3]
+    shot["extras"] = normalize_extras(fix.get("extras"))
     shot["listeners"] = listeners
     if reframe:
-        for key in ("visual_prompt", "camera", "shot_scale", "end_state"):
+        for key in ("visual_prompt", "camera", "shot_scale", "end_state", "location"):
             if fix.get(key):
                 shot[key] = str(fix[key]).strip()
 
@@ -152,36 +169,67 @@ def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = Fals
 REBUILD_LOCK = threading.Lock()  # the packer's per-plan limits and name tables are module state
 
 
-def source_identities(names: list[str], bible: dict, passage: str) -> list[dict]:
-    """Ground scene candidates, including descriptive names shortened in prose.
-
-    These forms are local to the candidate set, never global character aliases.
-    A shared role such as 男孩 is not enough to choose between two candidates.
-    """
-    from plan_chapter_thin import _usable_forms
-    forms = {name:set(values) for name,values in _usable_forms(tuple(names)).items()}
-    for name in names:
-        if '的' in name and name.endswith(('男孩','女孩','老人','男人','女人')):
-            forms[name].add(name.rsplit('的',1)[1])
-        if name.endswith('身影'):
-            forms[name].add(name[:-2]+'人')
-        if name.endswith('公爵夫人'):
-            forms[name].update({name.replace('公爵夫人','公爵的夫人'),'公爵夫人'})
-        if name == '无名群声':
-            forms[name].update({'众人','人群','姑娘们','众位女士'})
-    owners = {}
-    for name, values in forms.items():
-        for value in values:
-            owners.setdefault(value,set()).add(name)
-    characters = [*bible.get('characters',[])]
-    if '无名群声' in names:
-        characters.append({'name':'无名群声','role':'原文中的群体画外音，不绑定某一人的角色卡'})
-    return [{'name':c['name'],'gender':c.get('gender'),'role':c.get('role'),
-             'source_names':[v for v in forms[c['name']] if v in passage and owners[v]=={c['name']}]}
-            for c in characters if c['name'] in names]
+def framing_signature(shots: list[dict]) -> list:
+    return [(tuple(sorted(set(s.get('in_frame', s.get('characters', []))))), s.get('shot_scale')) for s in shots]
 
 
-def speaker_contract(passage: str, shots: list[dict], names: list[str], identities: list[dict], fixed: list[dict] = (), evidence_out: list | None = None) -> dict[tuple[int, int], str]:
+def action_owners(shots: list[dict]) -> list:
+    return [sorted((a.get('actor',''), a.get('target','')) for a in s.get('actions', [])) for s in shots]
+
+
+def source_appearance_check(passage: str, shots: list[dict], context: dict) -> dict:
+    """Check rewritten pictures only when the reading found local body evidence."""
+    from thin_review import obj
+    from novel_manga.runtime_backends import normalize_text
+    active = {n for s in shots for n in [*s.get('characters', []), *s.get('in_frame', [])]}
+    relevant = [a for a in context.get('appearances', [])
+                if context.get('entities', {}).get(a['entity_id']) in active
+                and a.get('source_quote') and normalize_text(a['source_quote']) in normalize_text(passage)]
+    if not relevant:
+        return {'issues': [], 'checked': False}
+    # The extraction only selects the check; its paraphrase is never evidence.
+    # Guessed Bible gender and character-card designs do not enter this call.
+    fields = ['visual_prompt', 'motion_prompt', 'start_state', 'end_state', 'extras', 'actions']
+    candidates = {s['index']: {k: s[k] for k in fields if k in s} for s in shots}
+    schema = obj({'issues': {'type': 'array', 'maxItems': 6, 'items': obj({
+        'stage': {'type': 'integer', 'enum': list(candidates)},
+        'source_quote': {'type': 'string'}, 'candidate_quote': {'type': 'string'},
+        'reason': {'type': 'string', 'maxLength': 200}})}})
+    answer = ask_json([{'type': 'text', 'text':
+        '核对修后画面是否违背原文明示的性别、物种或当时身体形态，只报确定矛盾。'
+        '只能依据下列原文，禁止按名字、称谓、常识、人物卡或默认设计猜测。原文没交代就不报。'
+        '按事件先后和各阶段source_quote确认当前形态；变化前后的形态可以不同，不能用后来的变身否定较早镜头。'
+        '附身者身份与外在身体分开；比喻、辱骂和对白不能当身体事实。服装、配色与画风不在本检查范围。'
+        '每项必须逐字摘取原文source_quote和画面字段candidate_quote，并说明二者明确冲突，无法举证就留空。\n'
+        + json.dumps({'source': passage, 'name_bindings': [m for m in context.get('mentions', [])
+                     if m.get('kind') == 'proper' and context.get('entities', {}).get(m['entity_id']) in active],
+                     'entities': {eid: name for eid, name in context.get('entities', {}).items() if name in active},
+                     'stages': [{'stage': s['index'], 'source_quote': s.get('source_quote', ''),
+                                 'picture': candidates[s['index']]} for s in shots]}, ensure_ascii=False)}],
+        schema, name='repair_source_appearance', max_tokens=1400, timeout=120)
+    def strings(value):
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            return [s for v in value.values() for s in strings(v)]
+        if isinstance(value, list):
+            return [s for v in value for s in strings(v)]
+        return []
+    for issue in answer['issues']:
+        source = normalize_text(issue['source_quote'])
+        candidate = normalize_text(issue['candidate_quote'])
+        if (not source or source not in normalize_text(passage) or not candidate
+                or not any(candidate in normalize_text(s) for s in strings(candidates.get(issue['stage'], {})))):
+            raise ValueError('source appearance check returned unsupported evidence')
+    return {**answer, 'checked': True}
+
+
+def source_identities(names: list[str], bible: dict, passage: str, *, context=None, catalog=None) -> list[dict]:
+    from story_identity import identity_rows
+    return identity_rows(names, bible, passage, context=context, catalog=catalog)
+
+
+def speaker_contract(passage: str, shots: list[dict], names: list[str], identities: list[dict], fixed: list[dict] = (), evidence_out: list | None = None, *, identity_context=None) -> dict[tuple[int, int], str]:
     """Resolve disputed attribution from the source before writing the picture."""
     turns = [{'stage': s['origin_index'], 'turn': i, 'text': t['text'], 'current_speaker': t.get('speaker_name')}
              for s in shots for i,t in enumerate(s.get('turns', []), 1)
@@ -198,6 +246,18 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
         # These two homophones occur in the source files (754 / 1722), while
         # the adapted dialogue uses normal spelling. Quotes remain unmodified.
         return normalize_text(text).translate(str.maketrans({'莪':'我','伱':'你'}))
+    def phrase_matches_speaker(row):
+        phrase = str(row.get('source_speaker_phrase') or '').strip()
+        if not phrase:
+            return identity_context is None  # historical direct-call records
+        matches = [(len(normalize_text(form)), candidate['name']) for candidate in identities
+                   for form in [candidate['name'], *candidate.get('source_names', [])]
+                   if normalize_text(form) and normalize_text(form) in normalize_text(phrase)]
+        if not matches:
+            return False
+        longest = max(length for length, _ in matches)
+        owners = {name for length, name in matches if length == longest}
+        return owners == {row.get('speaker')}
     def supported_adaptation(row, turn):
         relation = row.get('relation')
         if relation not in {'narrated','shared_dialogue'} or row.get('speaker') == turn.get('current_speaker'):
@@ -206,20 +266,13 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
         forms = next((r.get('source_names',[]) for r in identities if r['name']==row.get('speaker')),[])
         return (relation=='narrated' and bool(phrase) and phrase in row.get('source_quote','')
                 and any(form and form in phrase for form in forms))
-    def contradicts_latter(row):
-        # Observed in chapter 113: “莱恩将视线投向旧日的神明，后者拍拍手：”.
-        # A literal quote alone did not stop the model from assigning it to 莱恩.
-        forms=next((r.get('source_names',[]) for r in identities if r['name']==row.get('speaker')),[])
-        quote=str(row.get('source_quote') or '')
-        for match in re.finditer(r'([^，,。！？；\n：“”]+?)(?:将视线投向|看向|望向|转向)([^，。；：]+)[，,]\s*后者[^。！？：]*[:：]',quote):
-            if any(form and form in match[1] and form not in match[2] for form in forms):
-                return True
-        return False
     fixed_result = {}
     by_key = {(t['stage'],t['turn']):t for t in turns}
     for row in fixed:
         key=(row.get('stage'),row.get('turn'));turn=by_key.get(key);quote=str(row.get('source_quote') or '')
-        if (turn and row.get('speaker') in grounded and normalize_text(quote) and not contradicts_latter(row)
+        if (turn and row.get('speaker') in grounded and normalize_text(quote)
+                and (identity_context is None or row.get('identity_policy') == identity_context.get('policy'))
+                and phrase_matches_speaker(row)
                 and normalize_text(quote) in normalize_text(passage)
                 and supported_adaptation(row,turn)
                 and (adapted_text(turn['text']) in adapted_text(quote)
@@ -244,7 +297,7 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
               '候选资料列出了姓名与原文称谓；先对照称谓，再确定说话者。'
               '剧本台词可以删减、合并原句或换一种说法，不要求它逐字出现在原文中。'
               '先找到与改编台词语义对应的原始发言，再根据原文前后叙述确定说话人。'
-              '先解析叙述中的指代：“甲看向乙，后者说”是乙说话，不是甲；不能选引用里最先出现的名字。'
+              '先根据上下文解析指代，不能选引用里最先出现的名字。'
               '按顺序填写：先摘录 source_quote，再从引用中填写实际说话人的 source_speaker_phrase（原文称谓或指代），'
               '最后才把这个说话人对应到候选资料的 speaker。'
               'source_quote 必须逐字摘录支撑该发言及归属的原文，包含必要的前后叙述；不能把改编台词伪装成原文引用。'
@@ -272,55 +325,56 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
     def valid(row):
         key=(row.get('stage'),row.get('turn'));turn=by_key.get(key);quote=str(row.get('source_quote') or '')
         return (turn and normalize_text(quote) and normalize_text(quote) in normalize_text(passage)
-                and not contradicts_latter(row) and row.get('relation') != 'uncertain' and row.get('speaker') in grounded
+                and phrase_matches_speaker(row)
+                and row.get('relation') != 'uncertain' and row.get('speaker') in grounded
                 and supported_adaptation(row,turn)
                 and (adapted_text(turn['text']) in adapted_text(quote)
                      or row.get('relation') in {'condensed','paraphrased','narrated','shared_dialogue'}))
     rows = [quoted(r) for r in answer.get('speakers', [])]
     missing = set(by_key) - {(r.get('stage'),r.get('turn')) for r in rows if valid(r)}
     if missing:
+        # Split dialogue can end in the next source paragraph. Locate unique
+        # verbatim fragments directly instead of repeatedly asking the model to
+        # copy a quote that omits the trailing "看来" / "另外" (星海 11/268/278).
+        paragraph_ends, source_flat = [], ''
+        for paragraph in paragraphs:
+            source_flat += adapted_text(paragraph)
+            paragraph_ends.append(len(source_flat))
+        literal = {}
+        for key in missing:
+            target = adapted_text(by_key[key]['text'])
+            if not target or source_flat.count(target) != 1:
+                continue
+            start = source_flat.index(target)
+            first = next(i for i, end in enumerate(paragraph_ends) if end > start)
+            last = next(i for i, end in enumerate(paragraph_ends) if end >= start + len(target))
+            literal[key] = '\n'.join(paragraphs[max(0, first-4):min(len(paragraphs), last+2)])
         # Correct the specific rejected evidence once, rather than marking the
         # whole clip permanently blocked because a quote contained an ellipsis.
         retry = ask_json([{'type':'text','text':prompt+'\n只补正以下未通过核验的阶段/轮次：'+json.dumps(sorted(missing))
                           +'。上次回答：'+json.dumps([r for r in rows if (r.get('stage'),r.get('turn')) in missing],ensure_ascii=False)
+                          +'。source_speaker_phrase中的具名人物必须与speaker是同一个人；候选里没有原文说话者时保留uncertain，不能换成另一名在场人物。'
                           +'。重新逐字复制连续原文，不添加省略号，不拼接远处的句子。若发言跨多个段落，就引用整段。'
-                          '若原文确实无法支持改编台词，保留 uncertain，不用猜测。'}],
+                          '若原文确实无法支持改编台词，保留 uncertain，不用猜测。'
+                          +'\n以下台词片段已在原文唯一定位，source_quote必须留空，程序使用给定连续原文。'
+                          '仍需依据叙述独立确定speaker和source_speaker_phrase，不能沿用旧归属：'
+                          +json.dumps([{'stage':k[0],'turn':k[1],'source_quote':v} for k,v in literal.items()],ensure_ascii=False)}],
                          schema,name='speaker_binding_evidence_correction',max_tokens=min(5000,900+650*len(missing)))
-        rows = [r for r in rows if (r.get('stage'),r.get('turn')) not in missing] + [quoted(r) for r in retry.get('speakers', [])]
+        corrected = [{**r, 'source_quote':literal[(r.get('stage'),r.get('turn'))]}
+                     if (r.get('stage'),r.get('turn')) in literal and not str(r.get('source_quote') or '').strip()
+                     else quoted(r) for r in retry.get('speakers', [])]
+        rows = [r for r in rows if (r.get('stage'),r.get('turn')) not in missing] + corrected
     for row in rows:
         key=(row.get('stage'),row.get('turn'));turn=by_key.get(key);quote=str(row.get('source_quote') or '')
-        if turn and normalize_text(quote) in normalize_text(passage) and contradicts_latter(row):
-            # One bounded correction of a demonstrated attribution error. Do
-            # not keep sampling all accepted turns or let an impossible former
-            # speaker through merely because its name appears in the quote.
-            retry_schema=copy.deepcopy(schema)
-            retry_schema['properties']['speakers']['items']['properties']['speaker']['enum']=[n for n in grounded if n!=row['speaker']]
-            if not retry_schema['properties']['speakers']['items']['properties']['speaker']['enum']:
-                continue
-            retry_schema['properties']['speakers']['minItems']=1
-            retry_schema['properties']['speakers']['maxItems']=1
-            retry=ask_json([{'type':'text','text':prompt+'\n只纠正这一条：'+json.dumps(row,ensure_ascii=False)
-                            +'。这段引用里，“后者”是被看向的人，前面执行“看向”动作的人不可能同时是“后者”。'
-                            '从剩余候选中确定被看向的是谁；可扩大引用到前文称谓对应，不能再次选刚才被排除的人。'}],
-                           retry_schema,name='speaker_binding_correction',max_tokens=1200)
-            fixed_rows=[r for r in retry.get('speakers',[]) if (r.get('stage'),r.get('turn'))==key]
-            if fixed_rows:
-                row=quoted(fixed_rows[0]);quote=str(row.get('source_quote') or '')
         if valid(row):
             result[key]=row['speaker']
             if evidence_out is not None:
-                evidence_out.append({**row,'adapted_text':turn['text']})
+                evidence_out.append({**row,'adapted_text':turn['text'], **({'identity_policy':identity_context['policy'],
+                    'entity_id':next((r.get('entity_id') for r in identities if r['name']==row['speaker']),None)} if identity_context else {})})
     return result
 
 
-def wrong_gender_description(text: str, name: str, gender: str) -> bool:
-    wrong = r'(?:男性|男人|男子|男士)' if gender == '女' else r'(?:女性|女人|女子|女士)' if gender == '男' else None
-    if not wrong:
-        return False
-    return bool(re.search(re.escape(name) + r'(?:是|为|呈现为|被画成|的外形是|的形象是)[^。；\n，]{0,20}' + wrong, text))
-
-
-def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str]) -> tuple[dict, list[str]]:
+def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str], *, repack_report: dict | None = None) -> tuple[dict, list[str]]:
     """Rebuild only the named clips from their recorded shot indexes; every other clip keeps its entry (and request)."""
     import build_clip_plan_thin as bcp
     with REBUILD_LOCK:
@@ -329,12 +383,23 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
         bible_data=read(bible_path,{})
         source_segments={str(s.get('segment_id')):s.get('text','') for s in read(episode_dir/'segments.json',[])}
         shots = bcp.prepared_shots(copy.deepcopy(script), episode_dir)
+        from clip_readiness import location_issues
+        by_index = {s['index']: s for s in shots}
+        recut = {c['clip_id'] for c in plan.get('clips', []) if c['clip_id'] in clip_ids
+                 and c.get('kind') == 'video' and location_issues(c, by_index)}
+        recut_ids = set()
+        if recut:
+            from repair_blocked_plan import repack
+            plan, report = repack(episode_dir, plan, script, targets=recut)
+            recut_ids = {cid for group in report['groups'] for cid in [*group['old'], *group['new']]}
+            if repack_report is not None:
+                repack_report.update(report)
         # Each clip recovers its own stage parts: a rewritten stage that no longer splits the way the plan
         # recorded (雾月 batch 2: "stage 13 has 1 parts, plan requires part 1/2") leaves that clip as it was
         # instead of failing the episode - and, before this, the whole batch.
-        merged, changed, skipped = [], [], []
+        merged, changed, skipped = [], sorted(recut_ids), []
         for before in plan.get("clips") or []:
-            if before["clip_id"] not in clip_ids or before.get("kind") != "video":
+            if before["clip_id"] in recut_ids or before["clip_id"] not in clip_ids or before.get("kind") != "video":
                 merged.append(before)
                 continue
             try:
@@ -345,10 +410,11 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
             if not pieces:
                 merged.append(before)
                 continue
-            clip = {"kind": "video", "location": before.get("location") or pieces[0]["location"], "shots": pieces,
+            clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,
                     "seconds": round(sum(bcp.shot_seconds(p) for p in pieces), 2)}
             after = bcp.clip_entry(clip, before["clip_id"], ctx)
-            crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])))
+            from story_identity import current_context
+            crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])), context=current_context(episode_dir))
             if crowds:
                 after['crowd_roles']=crowds
             # An unchanged request keeps its existing English rendering. A no-op
@@ -368,7 +434,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
         return {**plan, "clips": merged}, changed
 
 
-def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: bool = True, reframe: bool = False, identity: bool = False, source_issues: dict | None = None, return_proposal: bool = False) -> dict:
+def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: bool = True, reframe: bool = False, identity: bool = False, source_issues: dict | None = None, return_proposal: bool = False, require_structure: bool = False) -> dict:
     episode_dir = novel_dir / f"{novel_dir.name}_{index}"
     review = read(episode_dir / "episode_review.json", {})
     failing = source_issues if source_issues is not None else failing_clips(review)
@@ -377,7 +443,7 @@ def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: boo
     segments = {str(s.get("segment_id")): str(s.get("text") or "") for s in read(episode_dir / "segments.json", [])}
     if identity and plan and script:
         from source_identity_thin import resolve_script
-        identities = resolve_script(script, novel_dir, [{'segment_id': k, 'text': v} for k, v in segments.items()])
+        identities = resolve_script(script, novel_dir, [{'segment_id': k, 'text': v} for k, v in segments.items()], chapter=index)
         failing = {c['clip_id']: '原文身份消歧：' + json.dumps({i: identities[i] for i in set(c.get('shot_indexes', [])) if i in identities}, ensure_ascii=False)
                    + '。这是同一个人，统一使用正确姓名、角色卡和说话者；删掉旧错误身份的外貌、职业与服装描述，保留原文动作和全部对白。'
                    for c in plan.get('clips', []) if any(
@@ -396,9 +462,21 @@ def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: boo
         present = [name for name in present if name not in resolved_old]
     leads = [c["name"] for c in bible.get("characters", []) if "主角" in str(c.get("role", ""))]
     from plan_chapter_thin import load_entity_index, mentioned_characters
-    load_entity_index(novel_dir)
+    from story_identity import IdentityCatalog, resolve_chapter, prompt_block
+    identity_reading = resolve_chapter(episode_dir)
+    from dialogue_binding import apply_confirmed_speakers
+    protected_bindings = apply_confirmed_speakers(episode_dir, script['shots'])
+    catalog = IdentityCatalog(novel_dir)
+    load_entity_index(novel_dir, index)
     source_names = mentioned_characters('\n'.join(segments.values()), bible_names)
-    names = list(dict.fromkeys([*leads, *source_names, *present, *in_script]))[:40] or bible_names[:12]
+    resolved_names = [identity_reading['entities'].get(m['entity_id']) for m in identity_reading['mentions']
+                      if m.get('presence') in {'on_stage','voice'} and m['entity_id'] != 'UNKNOWN']
+    names = list(dict.fromkeys([*(n for n in resolved_names if n in bible_names), *leads, *source_names, *present, *in_script]))[:40]
+    if identity_reading.get('actorless_confirmed'):
+        names = []
+    from story_identity import typed_entities
+    entity_types = typed_entities(novel_dir, identity_reading)
+    names = [n for n in names if entity_types.get(n, {}).get('kind') != 'object']
     if any(t.get('speaker_name')=='无名群声' and t.get('delivery_mode')=='offscreen_dialogue'
            for shot in script.get('shots',[]) for t in shot.get('turns',[])):
         names = list(dict.fromkeys([*names,'无名群声']))
@@ -407,7 +485,7 @@ def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: boo
     by_index = {int(s.get("index", i)): s for i, s in enumerate(script.get("shots", []), 1)}
     seg_rows = [{"segment_id": k, "text": v} for k, v in segments.items()]
     snapshot = ledger_snapshot_for(novel_dir, index, seg_rows, cast_here, names) if cast_here else {}
-    repaired, notes, changes = [], [], {}
+    repaired, notes, changes, appearance_checks = [], [], {}, {}
     for clip in plan.get("clips") or []:
         cid = clip.get("clip_id")
         if cid not in failing:
@@ -418,27 +496,29 @@ def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: boo
             continue
         passage = source_passage(segments, clip.get("segment_ids") or [])
         shots = [{**by_index[i], "origin_index": i} for i in indexes]
+        original_stages = copy.deepcopy([by_index[i] for i in indexes])
         identity_legend = [{**row,'presence':cast_here.get(row['name'],'not_established')}
-                           for row in source_identities(names,bible,passage)]
+                           for row in source_identities(names,bible,passage,context=identity_reading,catalog=catalog)]
         by_name = {c['name']: c for c in bible.get('characters', [])}
         for shot in shots:
             corrected_names = set(identities.get(shot['origin_index'], {}).values()) if identity else set()
-            corrected_names.update(name for name in shot.get('characters', []) if name in by_name
-                                   and wrong_gender_description(str(shot.get('visual_prompt') or ''), name, by_name[name].get('gender','')))
             if corrected_names:
-                looks = '；'.join(f"{name}：{by_name[name].get('gender','')}，{by_name[name].get('age','')}，{by_name[name].get('appearance','')}，{by_name[name].get('wardrobe','')}"
-                                 for name in corrected_names if name in by_name)
-                # Do not keep feeding the old male-doctor picture back to the
-                # model after resolving it to the female diviner.
-                shot['visual_prompt'] = f"{'、'.join(shot.get('characters',[]))}在{shot.get('location','')}。{shot.get('motion_prompt','')}。已核实外形：{looks}"
+                looks = '；'.join(row['description'] for row in identity_reading.get('appearances', [])
+                                 if identity_reading['entities'].get(row['entity_id']) in corrected_names)
+                # An identity correction discards the previous identity's look.
+                # Only source-backed body facts are called verified appearance.
+                shot['visual_prompt'] = f"{'、'.join(shot.get('characters',[]))}在{shot.get('location','')}。{shot.get('motion_prompt','')}。原文形态：{looks or '按本章原文及当前资产确定，不继承旧错误身份的外观'}"
         excluded_speakers = set()
         if reframe and not identity and re.search('台词|说话|说出|发言|对白', failing[cid]):
             try:
                 contract_path = episode_dir / 'source_speaker_contract.json'
                 existing_contracts = read(contract_path, [])
+                existing_contracts = list({**{(r['stage'],r['turn']):r for r in existing_contracts}, **protected_bindings}.values())
                 evidence = []
                 binding_passage = '\n'.join(segments.values())
-                attributed = speaker_contract(binding_passage, shots, names, source_identities(names,bible,binding_passage), existing_contracts, evidence)
+                attributed = speaker_contract(binding_passage, shots, names,
+                    source_identities(names,bible,binding_passage,context=identity_reading,catalog=catalog),
+                    existing_contracts, evidence, identity_context=identity_reading)
                 if apply and evidence:
                     merged = {(r['stage'],r['turn']):r for r in existing_contracts}
                     merged.update({(r['stage'],r['turn']):r for r in evidence})
@@ -466,27 +546,29 @@ def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: boo
                 "visual_prompt": {"type": "string", "maxLength": 200}, "camera": {"type": "string", "maxLength": 60},
                 "shot_scale": {"type": "string", "enum": ["远景", "全景", "中景", "近景", "特写"]},
                 "end_state": {"type": "string", "maxLength": 200},
-                "speakers": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                "location": {"type": "string", "enum": list(dict.fromkeys(
+                    str(loc).split('：', 1)[0] for loc in bible.get('locations', [])))},
+                "speakers": {"type": "array", **({"maxItems": 0} if not clip_names else {}),
+                    "items": {"type": "object", "additionalProperties": False,
                     "required": ['turn_index', 'speaker_name'], 'properties': {'turn_index': {'type': 'integer', 'minimum': 1},
-                    'speaker_name': {'type': 'string', 'enum': clip_names}}}}})
+                    'speaker_name': {'type': 'string', **({'enum': clip_names} if clip_names else {})}}}}})
+            if not bible.get('locations'):
+                schema['properties']['stages']['items']['properties'].pop('location')
             schema["properties"]["stages"]["items"]["required"].extend(["visual_prompt", "camera", "shot_scale", "end_state", "speakers"])
         request_context = json.dumps({'candidate_identities': identity_legend, "cast": clip.get("cast"), "references": clip.get("references"),
                                       "prompt": clip.get("prompt", ""), "prompt_h3": clip.get("prompt_h3", ""),
                                       "advice": ((review.get("clips", {}).get(cid) or {}).get("verify") or {}).get("repair_advice")},
                                      ensure_ascii=False)[:7500] if reframe else ""
         try:
-            answer = ask_json([{"type": "text", "text": repair_prompt(passage, shots, snapshot, failing[cid], clip_names, history, reframe, request_context)}],
+            answer = ask_json([{"type": "text", "text": repair_prompt(passage, shots, snapshot, failing[cid], clip_names, history, reframe, request_context, require_structure=require_structure)
+                              + prompt_block(episode_dir, clip_names)}],
                               schema, name="clip_repair", max_tokens=max(2400, min(4500, 800 * len(indexes))) if reframe else 1500)
         except Exception as error:  # noqa: BLE001
             notes.append(f"{cid}: model {type(error).__name__}: {str(error)[:80]}")
             continue
-        fixes = {int(f["origin_index"]): f for f in answer.get("stages") or [] if int(f.get("origin_index", -1)) in by_index}
+        fixes = {int(f["origin_index"]): f for f in answer.get("stages") or [] if int(f.get("origin_index", -1)) in indexes}
         if not fixes:
             notes.append(f"{cid}: empty answer")
-            continue
-        if identity and any(wrong_gender_description(str(f.get('visual_prompt') or ''), name, by_name[name].get('gender',''))
-                            for i,f in fixes.items() for name in identities.get(i, {}).values() if name in by_name):
-            notes.append(f'{cid}: rewritten picture contradicts resolved character gender')
             continue
         for i, fix in fixes.items():
             if reframe:
@@ -495,20 +577,46 @@ def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: boo
                 fix['speakers'] = [{'turn_index': j, 'speaker_name': t.get('speaker_name','')}
                                    for j,t in enumerate(by_index[i].get('turns', []),1)]
             apply_stage(by_index[i], fix, names, reframe=reframe)
+        if require_structure:
+            revised = [by_index[i] for i in indexes]
+            problem = ('reframe changed action owners instead of camera structure' if any(
+                           old and old != new for old,new in zip(action_owners(original_stages), action_owners(revised)))
+                       else 'reframe only changed wording; cast and shot scales are unchanged'
+                       if framing_signature(original_stages) == framing_signature(revised) else '')
+            if problem:
+                for i, original in zip(indexes, original_stages):
+                    by_index[i].clear(); by_index[i].update(original)
+                notes.append(f'{cid}: {problem}')
+                continue
+        revised = [by_index[i] for i in indexes]
+        if revised != original_stages:
+            try:
+                # Legacy scripts use list position as their stage address;
+                # origin_index can refer to a different, pre-split numbering.
+                check = source_appearance_check(passage, [{**by_index[i], 'index': i} for i in indexes], identity_reading)
+                appearance_checks[cid] = check
+                if check['issues']:
+                    raise ValueError('source appearance conflict: ' + '; '.join(i['reason'] for i in check['issues']))
+            except Exception as error:
+                for i, original in zip(indexes, original_stages):
+                    by_index[i].clear(); by_index[i].update(original)
+                notes.append(f'{cid}: {str(error)[:200]}')
+                continue
         changes[cid] = list(fixes.values())
         repaired.append(cid)
     if not repaired:
-        return {"episode": index, "clips": 0, "why": "; ".join(notes)[:160]}
+        return {"episode": index, "clips": 0, "why": "; ".join(notes)[:250], 'appearance_checks': appearance_checks}
     if identity and set(failing) - set(repaired):
         return {'episode': index, 'clips': 0, 'why': 'identity preparation incomplete: ' + '; '.join(notes)[:160]}
     try:
-        new_plan, changed = rebuild_clips(episode_dir, novel_dir / "story_bible.json", script, plan, set(repaired))
+        structural = {}
+        new_plan, changed = rebuild_clips(episode_dir, novel_dir / "story_bible.json", script, plan, set(repaired), repack_report=structural)
     except Exception as error:  # noqa: BLE001 - one episode's rebuild must not take the batch down
         return {"episode": index, "clips": 0, "failing": len(failing), "why": f"rebuild failed: {type(error).__name__}: {str(error)[:100]}"}
     if identity and set(failing) - set(changed):
         return {'episode': index, 'clips': 0, 'why': 'identity clips could not all be rebuilt; source files left unchanged'}
     old_notes = read(episode_dir / 'review_feedback.json', {})
-    new_notes = {k: v for k, v in old_notes.items() if k not in changed} if reframe else old_notes
+    new_notes = {k: v for k, v in old_notes.items() if k not in changed} if reframe or structural else old_notes
     if apply and changed:
         if use_history:
             from repair_history import begin_trial
@@ -523,11 +631,15 @@ def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history: boo
                 backup.write_text((episode_dir / name).read_text(encoding="utf-8"), encoding="utf-8")
         (episode_dir / "chapter_script.json").write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
         atomic_write_json(episode_dir / "clip_plan.json", new_plan)
+        if appearance_checks:
+            atomic_write_json(episode_dir / 'repair_appearance_checks.json', appearance_checks)
         if new_notes != old_notes:
             atomic_write_json(episode_dir / 'review_feedback.json', new_notes)
-    result = {"episode": index, "clips": len(changed), "failing": len(failing), "why": "; ".join(notes)[:120], "changed": changed}
+    result = {"episode": index, "clips": len(changed), "failing": len(failing), "why": "; ".join(notes)[:250], "changed": changed,
+              'appearance_checks': appearance_checks}
     if return_proposal:
-        result['proposal'] = {'script':script,'plan':new_plan,'notes':new_notes,'changes':changes}
+        result['proposal'] = {'script':script,'plan':new_plan,'notes':new_notes,'changes':changes,
+                              'structural_repair': structural}
     return result
 
 

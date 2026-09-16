@@ -7,6 +7,12 @@ Existing task IDs are polled on resume. Ambiguous submissions are never repeated
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
+
 import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor

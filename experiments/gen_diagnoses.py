@@ -7,6 +7,12 @@ hand.  Nothing here touches media.
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
+
+
 import json
 import sys
 from pathlib import Path
@@ -16,7 +22,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from novel_manga.config import Settings
 from novel_manga.ingest import read_novel
-from novel_manga.providers import build_planner
+from experiments.legacy.providers import build_planner
 from novel_manga.util import atomic_write_json
 
 OUT = Path("/mnt/disk1/zengzhitao/tmp/ftj-s1-snapshot")

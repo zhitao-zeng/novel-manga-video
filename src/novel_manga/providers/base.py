@@ -4,8 +4,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..models import EpisodePlan, NovelDocument, StoryBible
-from ..planner import Planner
 
 
 @dataclass(frozen=True)
@@ -33,8 +31,3 @@ class MediaProvider(ABC):
         duration: float,
         additional_images: tuple[Path, ...] = (),
     ) -> Path: ...
-
-@dataclass
-class ProviderBundle:
-    planner: Planner
-    media: MediaProvider

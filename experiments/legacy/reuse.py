@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .models import EpisodePlan, ScriptTurn, StoryBible
-from .planner import OpenAICompatiblePlanner
+from novel_manga.models import EpisodePlan, ScriptTurn, StoryBible
+from experiments.legacy.planner import OpenAICompatiblePlanner
 
 
 def normalize_reuse_text(value: str) -> str:

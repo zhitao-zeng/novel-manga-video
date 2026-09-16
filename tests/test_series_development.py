@@ -15,7 +15,7 @@ from novel_manga.models import (
     ShowrunnerPlan,
     StoryBible,
 )
-from novel_manga.planner import (
+from experiments.legacy.planner import (
     OpenAICompatiblePlanner,
     _current_projection_context,
     _normalize_current_episode_state_quotes,

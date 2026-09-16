@@ -23,7 +23,7 @@ from novel_manga.models import (
     ShotIntent,
     StoryBible,
 )
-from novel_manga.planner import (
+from experiments.legacy.planner import (
     EpisodePlanningFailed,
     OpenAICompatiblePlanner,
     _compile_retention_beat_episode,
