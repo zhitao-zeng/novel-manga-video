@@ -272,6 +272,19 @@ class Verifier:
         return results
 
 
+class CurrentVerifier(Verifier):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("repair_advice", True)
+        super().__init__(*args, **kwargs)
+
+    def video_of(self, ep_dir, cid, review_clip):
+        plan = self.load(ep_dir / "clip_plan.json") or {}
+        review = self.load(ep_dir / "episode_review.json") or {}
+        from review_store_thin import current_takes
+        current = current_takes(ep_dir, plan, review).get(cid)
+        return Path(current["video"]) if current else None
+
+
 def parse_episodes(text: str) -> set[int]:
     out: set[int] = set()
     for part in (text or "").replace("\n", ",").split(","):

@@ -4,7 +4,7 @@ from pathlib import Path
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.storage as review_storage
 import review_evidence_thin as review_evidence
-import shared_audit_thin as audit
+import audit_flow_thin as audit_flow
 import novel_manga.review.reconciliation as reconciliation
 import review_store_thin as review_store
 
@@ -30,18 +30,18 @@ def test_audit_only_import_backs_up_review_and_leaves_video_untouched(tmp_path):
     take=review_storage.take_identity(video)
     row={'ep':1,'clip':'c','video':str(video),'take':take,'mode':'joint','verdict':'fine','people':[],'evidence':'normal dragon'}
     local={reconciliation.evidence_key(1,'c',str(video),take):row}
-    assert audit.sync_episode(novel,state,1,local,{})
+    assert audit_flow.sync_episode(novel,state,1,local,{})
     assert json.loads((state/'before_reviews/1.json').read_text())==old
     assert json.loads((directory/'episode_review.json').read_text())['clips']['c']['story_ok']
     assert video.read_bytes()==b'original video'
-    assert audit.sync_episode(novel,state,1,local,{})
+    assert audit_flow.sync_episode(novel,state,1,local,{})
     assert json.loads((state/'before_reviews/1.json').read_text())==old
 
 
 def test_audit_does_not_overwrite_a_repair_owned_episode(tmp_path,monkeypatch):
-    monkeypatch.setattr(audit,'active_episodes',lambda state:{1})
+    monkeypatch.setattr(audit_flow,'active_episodes',lambda state:{1})
     monkeypatch.setattr(review_store,'reconcile',lambda *a,**k:(_ for _ in ()).throw(AssertionError('repair owns the episode')))
-    assert not audit.sync_episode(tmp_path/'book',tmp_path/'state',1,{},{})
+    assert not audit_flow.sync_episode(tmp_path/'book',tmp_path/'state',1,{},{})
 
 
 def test_partial_audit_preserves_unaudited_model_clips(tmp_path):
@@ -56,7 +56,7 @@ def test_partial_audit_preserves_unaudited_model_clips(tmp_path):
     (directory/'thin_media_report.json').write_text(json.dumps({'clips':[{'clip_id':cid,'selected':{'video':str(video)}} for cid,video in [('h3',h3),('sd',sd)]]}))
     take=review_storage.take_identity(h3);row={'ep':1,'clip':'h3','video':str(h3),'take':take,'mode':'joint','verdict':'fine','people':[]}
     local={reconciliation.evidence_key(1,'h3',str(h3),take):row}
-    audit.sync_episode(novel,state,1,local,{})
+    audit_flow.sync_episode(novel,state,1,local,{})
     updated=json.loads((directory/'episode_review.json').read_text())
     assert updated['clips']['sd']==untouched
     assert updated['audit_scope']['checked_clips']==['h3']
@@ -64,6 +64,6 @@ def test_partial_audit_preserves_unaudited_model_clips(tmp_path):
 
 def test_nested_sd_audit_respects_the_main_repair_owner(tmp_path,monkeypatch):
     novel=tmp_path/'book';state=novel/'repair_manager/sd_audit'
-    monkeypatch.setattr(audit,'active_episodes',lambda directory:{7} if directory==novel/'repair_manager' else set())
+    monkeypatch.setattr(audit_flow,'active_episodes',lambda directory:{7} if directory==novel/'repair_manager' else set())
     monkeypatch.setattr(review_store,'reconcile',lambda *a,**k: (_ for _ in ()).throw(AssertionError('repair owns this episode')))
-    assert not audit.sync_episode(novel,state,7,{},{})
+    assert not audit_flow.sync_episode(novel,state,7,{},{})

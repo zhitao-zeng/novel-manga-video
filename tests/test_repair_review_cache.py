@@ -6,7 +6,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.review.reconciliation as reconciliation
 import review_store_thin as review_store
-import repair_review_thin as review
+import repair_review_flow_thin as review_flow
+import verify_clips_thin as verify_clips
 
 
 def setup_episode(tmp_path, *, bad=True):
@@ -46,8 +47,8 @@ def test_imported_precise_pass_clears_false_candidate_without_a_model_call(tmp_p
     assert reconciliation.missing_reviews(result, takes, "all") == []
     state, legacy = tmp_path / "state", tmp_path / "legacy"
     state.mkdir(); legacy.mkdir()
-    monkeypatch.setattr(review, "CurrentVerifier", lambda *a: (_ for _ in ()).throw(AssertionError("must reuse the result")))
-    assert review.review_batch(d.parent, [1], "all", state, legacy)["judged"] == 0
+    monkeypatch.setattr(verify_clips, 'CurrentVerifier', lambda *a: (_ for _ in ()).throw(AssertionError("must reuse the result")))
+    assert review_flow.review_batch(d.parent, [1], "all", state, legacy)["judged"] == 0
 
 
 def test_a_result_for_a_previous_take_cannot_clear_a_new_video(tmp_path):

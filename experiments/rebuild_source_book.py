@@ -41,7 +41,7 @@ JUDGE_SLOT = threading.BoundedSemaphore(1)
 
 
 def setup_models():
-    from thin_batch import load_dotenv
+    from novel_manga.util import load_dotenv
     load_dotenv(ROOT / '.env')
     os.environ['QWEN38_LOCAL_BASE_URL'] = ','.join(
         [f'http://127.0.0.1:{p}/v1' for p in range(18120, 18125)]

@@ -125,3 +125,13 @@ def reconcile_review(directory: Path, plan: dict, previous: dict, takes: dict, l
     expected = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
     result = assemble_review(directory, previous, {cid: v for cid, v in clips.items() if cid in expected})
     return result
+
+
+def merge_audit_review(directory: Path, episode: int, previous: dict, result: dict, takes: dict, local: dict) -> dict:
+    """Update only the clips this audit actually checked, retaining other channels."""
+    checked={cid for cid,take in takes.items() if evidence_key(episode,cid,take['video'],take['take']) in local}
+    clips=dict(previous.get('clips',{}))
+    clips.update({cid:row for cid,row in result.get('clips',{}).items() if cid in checked})
+    updated=assemble_review(directory,previous,clips)
+    updated['audit_scope']={'source':'qwen','checked_clips':sorted(checked)}
+    return updated

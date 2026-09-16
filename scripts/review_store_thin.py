@@ -67,3 +67,21 @@ def reconcile(directory: Path, local: dict, flash: dict, *, write: bool = True) 
     if write and result != previous:
         atomic_write_json(directory / "episode_review.json", result)
     return result, takes
+
+
+def sync_audit_review(directory: Path, state_dir: Path, episode: int, local: dict, flash: dict) -> bool:
+    """Back up once, then import current audit evidence without touching media.
+
+    The audit flow has already checked that no repair job owns this episode.
+    """
+    original=directory/'episode_review.json'
+    backup=state_dir/'before_reviews'/f'{episode}.json'
+    if original.is_file() and not backup.exists():
+        backup.parent.mkdir(parents=True,exist_ok=True)
+        backup.write_bytes(original.read_bytes())
+    previous=read(original,{})
+    result,takes=reconcile(directory,local,flash,write=False)
+    updated = reconciliation.merge_audit_review(directory, episode, previous, result, takes, local)
+    if updated != previous:
+        atomic_write_json(original, updated)
+    return True

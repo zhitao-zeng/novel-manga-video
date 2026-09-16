@@ -312,7 +312,7 @@ def main():
     parser.add_argument('--workers', type=int, default=6)
     parser.add_argument('--episode', type=int)
     args = parser.parse_args()
-    from thin_batch import load_dotenv
+    from novel_manga.util import load_dotenv
     load_dotenv(ROOT / '.env')
     # This queue uses local Qwen, independent of paid planner lane settings.
     os.environ['QWEN38_LOCAL_BASE_URL'] = ','.join(f'http://127.0.0.1:{p}/v1' for p in range(18120, 18125)) + ',http://172.28.4.52:18125/v1,http://172.28.4.52:18126/v1'

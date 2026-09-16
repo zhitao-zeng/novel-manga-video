@@ -32,7 +32,7 @@ from novel_manga.util import atomic_write_json
 from diagnose_clip_repair import clip_context, diagnose, diagnose_numbered
 from review_store_thin import current_takes
 from novel_manga.util import read_json as read
-from thin_batch import load_dotenv
+from novel_manga.util import load_dotenv
 from thin_runs import episode_status
 
 PILOT_CASES = ["wuyue_667_clip_07", "wuyue_1312_clip_01", "wuyue_1104_clip_02", "wuyue_710_clip_03", "wuyue_1563_clip_01"]

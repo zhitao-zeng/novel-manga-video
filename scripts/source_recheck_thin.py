@@ -11,7 +11,7 @@ from novel_manga.repair.proposal import RepairProposal
 from repair_publication_thin import publish_candidate, publish_source_review
 from novel_manga.util import atomic_write_json
 from novel_manga.runtime_backends import normalize_text
-from repair_review_thin import CurrentVerifier
+from verify_clips_thin import CurrentVerifier
 from review_store_thin import current_takes
 from novel_manga.util import read_json as read
 from repair_history import accepted_clip_material, begin_trial

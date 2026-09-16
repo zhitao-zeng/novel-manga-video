@@ -48,25 +48,13 @@ MODERATION_MARKERS = (".moderation_replanned", ".moderation_replanned2")  # one 
 MODERATION_NOTE = ("本章内容有平台审核风险。打斗、威胁、血腥、色情暧昧一律改为间接表现：不写具体暴力动作和伤势，不写露骨或挑逗台词，"
                    "冲突用对峙、退让、旁观者反应和事后结果来交代；避免刀、枪、毒品、赌博、自残等词；台词选原文里克制的句子。")
 sys.path.insert(0, str(SCRIPTS))
+from novel_manga.util import load_dotenv
 from thin_profile import h3_prompt_outdated, reference_image_env  # noqa: E402
 from thin_runs import RENDER_RUNS_PER_PLAN, corrections, count_run, episode_status, gate_failures, render_runs  # noqa: E402
 
 
 def log(message: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
-
-
-def load_dotenv(path: Path) -> None:
-    if not path.is_file():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip().removeprefix("export ").strip()
-        value = value.strip().strip("'\"")
-        os.environ.setdefault(key, value)
 
 
 def held_submissions(directory: Path) -> int:

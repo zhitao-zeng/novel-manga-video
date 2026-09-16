@@ -373,7 +373,8 @@ class Manager:
         self.last_refresh = time.monotonic()
 
     def command(self, job: dict) -> tuple[list[str], dict]:
-        from thin_batch import load_dotenv, reference_image_env
+        from novel_manga.util import load_dotenv
+        from thin_profile import reference_image_env
         load_dotenv(ROOT / ".env")
         env = dict(os.environ, PYTHONPATH="src:scripts", NOVEL_VIDEO_MODEL="minimax-h3-ref2va-turbo",
                    NOVEL_LOCAL_H3_URL="pool", NOVEL_INFLIGHT_POOL="h3pool", NOVEL_REVIEW_MODE="verify",
