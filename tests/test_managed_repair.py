@@ -169,8 +169,9 @@ def test_failed_source_preparation_does_not_prevent_another_clip_from_being_prep
 def test_explicit_generation_retry_invalidates_old_cache_without_spoken_instruction(tmp_path):
     import render_clips_thin as render
     r=render.ThinMediaRunner.__new__(render.ThinMediaRunner)
-    r.clip_base=lambda clip:'same instruction';r.uses_h3_prompt=lambda clip:True
-    clip={'clip_id':'a','request_seconds':5,'repair_take':1}
+    from types import SimpleNamespace
+    r.settings=SimpleNamespace(local_h3_base_url='pool');r.novel_dir=tmp_path;r.feedback={}
+    clip={'clip_id':'a','request_seconds':5,'repair_take':1,'prompt_h3':'same instruction'}
     saved={'duration':5,'prompt':'same instruction','references':[],'reference_sha256':[]}
     assert not r.request_matches(clip,saved,[],[])
     assert r.request_matches(clip,{**saved,'repair_take':1},[],[])
