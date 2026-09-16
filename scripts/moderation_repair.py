@@ -156,7 +156,7 @@ def _restore_fixed(original: str, rewritten: str) -> str:
 
 def _risky_spans(prompt: str) -> list[str]:
     """The local model's ranking of what a Chinese platform filter would flag."""
-    from thin_review import ask_json
+    from novel_manga.model_client import ask_json
 
     schema = {"type": "object", "properties": {"spans": {"type": "array", "items": {"type": "string"}}},
               "required": ["spans"], "additionalProperties": False}
@@ -169,7 +169,7 @@ def _risky_spans(prompt: str) -> list[str]:
 
 def _rewrite(prompt: str, spans: list[str], round_index: int, protect: tuple[str, ...] = ()) -> tuple[str, list[dict]] | None:
     """Rewrite the prompt; returns it with the spoken-line edits it declares."""
-    from thin_review import ask_json
+    from novel_manga.model_client import ask_json
 
     schema = {"type": "object", "properties": {
         "prompt": {"type": "string"},

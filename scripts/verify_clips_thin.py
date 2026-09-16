@@ -38,6 +38,7 @@ if "QWEN38_LOCAL_BASE_URL" not in os.environ:
         if _line.startswith("QWEN38_LOCAL_BASE_URL="):
             os.environ["QWEN38_LOCAL_BASE_URL"] = _line.split("=", 1)[1].strip().strip('"').strip("\'")
             break
+from novel_manga import model_client
 import thin_review as tr  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
 from story_identity import prompt_block as identity_prompt_block
@@ -173,16 +174,16 @@ class Verifier:
             frames = tr.clip_frames(video, self.frames / f"{self.prefix}_{ep}" / cid, tr.MAX_IMAGES - len(cards))
             parts, legend = [], []
             for k, (name, path) in enumerate(cards, 1):
-                parts.append(tr.image_part(self.novel / path, tr.CARD_SIDE))
+                parts.append(model_client.image_part(self.novel / path, tr.CARD_SIDE))
                 legend.append(f"图{k}=角色卡：{name}")
             for k, frame in enumerate(frames, len(cards) + 1):
-                parts.append(tr.image_part(frame, tr.FRAME_WIDTH))
+                parts.append(model_client.image_part(frame, tr.FRAME_WIDTH))
                 legend.append(f"图{k}=视频第{k - len(cards)}帧")
             parts.append({"type": "text", "text": "，".join(legend) + "。\n" + text})
             os.environ.update(self.judge_env)
             if "QWEN38_LOCAL_MODEL" in self.judge_env:
-                tr.MODEL = self.judge_env["QWEN38_LOCAL_MODEL"]
-            answer = tr.ask_json(parts, schema, name="verify", max_tokens=getattr(self, 'max_tokens', None) or (1200 if advice else 900))
+                model_client.MODEL = self.judge_env["QWEN38_LOCAL_MODEL"]
+            answer = model_client.ask_json(parts, schema, name="verify", max_tokens=getattr(self, 'max_tokens', None) or (1200 if advice else 900))
         except Exception as error:  # noqa: BLE001
             return {"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "error": f"{type(error).__name__}: {str(error)[:100]}"}
         answer.update({"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "claim": claim[:300],

@@ -41,7 +41,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from entity_ledger_thin import Ledger, build_index  # noqa: E402
-from thin_review import ask_json, grow_bible, scan_chapter, summarize_volume  # noqa: E402
+from novel_manga.model_client import ask_json
+from thin_review import grow_bible, scan_chapter, summarize_volume  # noqa: E402
 
 from novel_manga.ingest import read_novel  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402

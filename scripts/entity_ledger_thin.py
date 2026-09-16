@@ -43,7 +43,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "src")]
 os.environ.setdefault("SECOND_REVIEW_JUDGE", "local")
 import second_review  # noqa: E402,F401  (registers the local judge endpoints ask_json uses)
-from thin_review import ask_json  # noqa: E402
+from novel_manga.model_client import ask_json  # noqa: E402
 
 LEDGER_POLICY = "entity-ledger-v2"
 RECENT_WINDOW = 15  # chapters: someone on stage this recently is offered even if the chapter never names them

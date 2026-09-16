@@ -49,7 +49,8 @@ from novel_manga.models import (
 from novel_manga.util import atomic_write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_profile import endpoint_order, is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
+from novel_manga.model_client import endpoint_order
+from thin_profile import is_fast, load_genre, FRAMES, STYLE_NAME, frame_spec, load_profile
 
 POLICY = "thin-chapter-plan-v13-bounded-repair" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 SEGMENT_COUNT = 8
@@ -773,7 +774,7 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     stages to insert and the replacements for the rejected ones.  The result
     is a deep copy; the caller validates it like any draft.
     """
-    from thin_review import ask_json
+    from novel_manga.model_client import ask_json
     segment_ids = [s["segment_id"] for s in segments]
     texts = {s["segment_id"]: s["text"] for s in segments}
     slots = stage_slots(raw)
@@ -892,7 +893,7 @@ def _post_any(client: httpx.Client, base_urls: list[str], headers: dict, request
 
 def _post(client: httpx.Client, base_url: str, headers: dict, request: dict) -> dict:
     if os.environ.get("QWEN38_LOCAL_STREAM", "").strip() == "1":
-        from thin_review import stream_completion  # a proxied platform cuts non-streaming calls at 60 s
+        from novel_manga.model_client import stream_completion  # a proxied platform cuts non-streaming calls at 60 s
         return stream_completion(client, f"{base_url.rstrip('/')}/chat/completions", headers, request)
     response = client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=request)
     response.raise_for_status()
@@ -931,7 +932,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
         system_prompt += f"\n\n【全书视觉语法，camera 和 light 字段必须与之一致】{grammar_text(grammar)}"
     system_prompt += (f"\n\n【本章导演意见，优先于一般偏好】{notes}" if notes else "")
     headers = {}
-    from thin_review import endpoint_key  # key by variable name or key file, never on a command line
+    from novel_manga.model_client import endpoint_key  # key by variable name or key file, never on a command line
     api_key = endpoint_key()
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"

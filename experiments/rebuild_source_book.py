@@ -55,7 +55,7 @@ def setup_models():
 def judge_json(parts, schema, *, name, max_tokens=2200, timeout=240):
     """Independent configured judge, one in flight, without changing the reader's backend."""
     import httpx
-    from thin_review import stream_completion
+    from novel_manga.model_client import stream_completion
     # Import during setup/main has already selected the local reader. Only
     # read the alternate configuration here; do not mutate process settings.
     from second_review import JUDGES
@@ -75,7 +75,7 @@ def judge_json(parts, schema, *, name, max_tokens=2200, timeout=240):
 
 
 def fact_schema(count):
-    from thin_review import obj
+    from novel_manga.model_client import obj
     text = {'type': 'string'}
     refs = {'type': 'array', 'minItems': 1, 'items': {'type': 'integer', 'minimum': 1, 'maximum': count}}
     aid = {'type': 'integer', 'minimum': 1, 'maximum': 40}
@@ -206,7 +206,7 @@ def validate_facts(facts, segments):
 
 
 def check_facts(facts, segments):
-    from thin_review import obj
+    from novel_manga.model_client import obj
     # Show the actual names beside every reference. A judge repeatedly read
     # actor=1 as the second list entry and invented speaker swaps in valid data.
     names = {a['id']: a['name'] for a in facts['actors']}
@@ -262,7 +262,7 @@ def extract_one(directory, chapter):
     saved = read(path, {})
     if saved.get('policy') == POLICY and saved.get('segments') == segments and saved.get('status') == 'verified':
         return saved
-    from thin_review import ask_json
+    from novel_manga.model_client import ask_json
     payload = FACT_RULES + json.dumps([{'paragraph': i, **s} for i, s in enumerate(segments, 1)], ensure_ascii=False)
     errors = []
     # Retain the earlier source reads. An invalid judge must not force an
@@ -369,7 +369,7 @@ def compile_book(directory, chapters):
     names_seen = Counter(a['name'] for r in records for a in r['facts']['actors'] if a['named'] and a['kind'] in ACTOR_KINDS)
     canonical = {name: sorted(group, key=lambda x: (-names_seen[x], len(x), x))[0]
                  for group in groups.values() for name in group}
-    from thin_review import obj
+    from novel_manga.model_client import obj
     alias_checks = []
     for r in records:
         owners = [canonical[a['name']] for a in r['facts']['actors'] if a['named'] and a['kind'] in ACTOR_KINDS]
@@ -487,7 +487,7 @@ def source_bindings(directory, chapter):
 
 
 def check_script(directory, chapter):
-    from thin_review import obj
+    from novel_manga.model_client import obj
     d = directory / f'{directory.name}_{chapter}'
     facts = read(directory / f'rebuild/facts/{chapter}.json')
     script = read(d / 'chapter_script.json')
@@ -511,7 +511,7 @@ def check_script(directory, chapter):
 
 def check_episode_story(script, segments, facts, name_bindings=None):
     """Read only what the script presents, then compare the understood story."""
-    from thin_review import obj
+    from novel_manga.model_client import obj
     visible = [{'stage': i, **{k: shot[k] for k in ['characters', 'in_frame', 'listeners', 'location',
                 'visual_prompt', 'motion_prompt', 'actions', 'extras', 'turns', 'end_state', 'sfx'] if k in shot}}
                for i, shot in enumerate(script.get('shots', []), 1)]

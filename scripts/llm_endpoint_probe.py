@@ -13,7 +13,7 @@ import httpx
 
 def main() -> int:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from thin_review import endpoint_key
+    from novel_manga.model_client import endpoint_key
     key = endpoint_key()
     headers = {"Authorization": "Bearer " + key} if key else {}
     print("key:", "present" if key else "none")

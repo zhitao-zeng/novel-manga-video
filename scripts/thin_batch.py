@@ -294,12 +294,12 @@ class Batch:
 
     # ---- stages ----
     def check_qwen(self) -> None:
-        from thin_profile import qwen_endpoints
+        from novel_manga.model_client import qwen_endpoints
         alive = []
         for base in qwen_endpoints():
             try:
                 probe = urllib.request.Request(f"{base}/models")
-                from thin_review import endpoint_key
+                from novel_manga.model_client import endpoint_key
                 key = endpoint_key()
                 if key:  # an endpoint behind a key answers 401 to a bare probe
                     probe.add_header("Authorization", "Bearer " + key)

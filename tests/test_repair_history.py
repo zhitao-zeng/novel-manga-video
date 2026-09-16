@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import repair_history as history
+from novel_manga import model_client
 import thin_review as reviewlib
 from repair_review_thin import current_takes
 from thin_profile import plan_fingerprint
@@ -186,14 +187,14 @@ def test_managed_verifier_adds_advice_without_old_failure_labels(episode, monkey
     v.repair_advice = True
     monkeypatch.setattr(v, "prompt_for", lambda *a: ([], "current frame questions"))
     monkeypatch.setattr(reviewlib, "clip_frames", lambda *a: [directory / "frame.jpeg"])
-    monkeypatch.setattr(reviewlib, "image_part", lambda *a: {"type": "text", "text": "test frame"})
+    monkeypatch.setattr(model_client, "image_part", lambda *a: {"type": "text", "text": "test frame"})
     calls = []
     def ask(parts, schema, **kwargs):
         calls.append(parts[-1]["text"])
         assert "repair_advice" in schema["required"]
         assert kwargs["max_tokens"] == 1200
         return {"verdict": "fine", "people": [], "repair_advice": {"layer": "none", "evidence": "", "next_change": ""}}
-    monkeypatch.setattr(reviewlib, "ask_json", ask)
+    monkeypatch.setattr(model_client, "ask_json", ask)
     result = v.verify((1, "clip_01", "", "managed"))
     assert result["verdict"] == "fine" and len(calls) == 1
     assert "two copies of the lead" not in calls[0]

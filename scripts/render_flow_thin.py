@@ -146,7 +146,7 @@ def prescreen_prompt(prompt: str) -> float:
     """Ask the local Qwen whether the prompt is likely to trip the video service's
     content filter (violence, gore, sexual content, gambling, drugs, politics)."""
     try:
-        from thin_review import ask_json, obj
+        from novel_manga.model_client import ask_json, obj
         verdict = ask_json([{"type": "text", "text": (
             "下面是一段给视频生成模型的提示词。判断它被平台内容审核拒绝的可能性（暴力打斗细节、血腥伤势、色情或挑逗台词、赌博、毒品、自残、敏感政治），"
             "risk 为 0 到 1，reason 一句话。只输出JSON。\n\n" + prompt[:6000])}], obj({"risk": {"type": "number"}, "reason": {"type": "string"}}), name="prescreen", max_tokens=120)

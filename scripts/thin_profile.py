@@ -180,18 +180,8 @@ def h3_prompt_fingerprint(plan: dict) -> str:
     return hashlib.sha256(json.dumps(material, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def qwen_endpoints() -> list[str]:
-    """All local Qwen base URLs (QWEN38_LOCAL_BASE_URL may be comma-separated)."""
-    raw = os.environ.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
-    return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
 
 
-def endpoint_order(key: str) -> list[str]:
-    """Endpoints in the order to try for one request: a stable pick by key
-    (spreads chapters over instances) followed by the others as fallbacks."""
-    endpoints = qwen_endpoints()
-    start = int(hashlib.sha256(key.encode("utf-8")).hexdigest(), 16) % len(endpoints)
-    return endpoints[start:] + endpoints[:start]
 
 
 GENRES_DIR = Path(__file__).resolve().parents[1] / "configs" / "genres"

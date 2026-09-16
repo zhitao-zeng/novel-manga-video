@@ -10,7 +10,7 @@ from scripts import build_clip_plan_thin as packer
 
 # The standalone scripts import their siblings from the scripts directory.
 import plan_chapter_thin as planner
-import thin_review
+from novel_manga import model_client as thin_review
 
 
 def _shot(index: int, clip_hint: str = "clip_1") -> dict:

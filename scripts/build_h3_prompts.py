@@ -35,7 +35,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 os.environ.setdefault("QWEN38_LOCAL_BASE_URL", ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)))
 os.environ.setdefault("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
 os.environ.setdefault("QWEN38_LOCAL_API_KEY_VAR", "H3_PROMPT_NO_KEY")
-from thin_review import ask_json  # noqa: E402
+from novel_manga.model_client import ask_json  # noqa: E402
 from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
 from thin_runs import corrections  # noqa: E402
 

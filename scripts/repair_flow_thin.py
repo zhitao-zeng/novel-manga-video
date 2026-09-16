@@ -33,7 +33,7 @@ from novel_manga.repair.execution import action_owners, apply_stage, framing_sig
 from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
 from novel_manga.util import atomic_write_json  # noqa: E402
 from plan_chapter_thin import ledger_cast, ledger_snapshot_for  # noqa: E402
-from thin_review import ask_json  # noqa: E402
+from novel_manga.model_client import ask_json  # noqa: E402
 
 LANE_FIELDS = ("prompt_h3", "prompt_h3_of")
 RULES = (
@@ -88,7 +88,7 @@ REBUILD_LOCK = threading.Lock()  # the packer's per-plan limits and name tables 
 
 def source_appearance_check(passage: str, shots: list[dict], context: dict) -> dict:
     """Check rewritten pictures only when the reading found local body evidence."""
-    from thin_review import obj
+    from novel_manga.model_client import obj
     from novel_manga.runtime_backends import normalize_text
     active = {n for s in shots for n in [*s.get('characters', []), *s.get('in_frame', [])]}
     relevant = [a for a in context.get('appearances', [])
