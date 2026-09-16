@@ -20,7 +20,9 @@ from dataclasses import replace as dc_replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from render_clips_thin import CARD_STYLE_SUFFIX_3D, FramedAssetFactory, FramedPhanRouter, ModerationRejected, apply_genre, log  # noqa: E402
+from novel_manga.media.assets import CARD_STYLE_SUFFIX_3D, FramedAssetFactory, ModerationRejected, apply_genre
+from novel_manga.media.adapters import FramedPhanRouter
+from novel_manga.media.common import log
 from thin_phases import load_phases, phased  # noqa: E402
 from thin_profile import frame_spec, load_genre, load_profile, styled_bible  # noqa: E402
 from novel_manga.config import Settings  # noqa: E402

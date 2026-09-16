@@ -60,7 +60,7 @@ def test_named_rejected_reference_is_not_redrawn_when_proven(tmp_path, monkeypat
 def test_remediation_skips_cards_in_use(tmp_path, monkeypatch):
     root = novel(tmp_path)
     monkeypatch.setattr("novel_manga.config.Settings.from_env", lambda **_: None)
-    monkeypatch.setattr(render_clips_thin, "FramedPhanRouter", lambda *_: None)
+    monkeypatch.setattr("novel_manga.media.adapters.FramedPhanRouter", lambda *_: None)
     render_clips_thin.record_privacy_ok(root, [ref("character_001")["path"]])
     report = {"characters": {
         "character_001": {"views": ["turnaround.jpeg"], "actions": ["regenerate"]},

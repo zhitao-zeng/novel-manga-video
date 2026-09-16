@@ -20,7 +20,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from render_clips_thin import RATE_LIMIT_RE, FramedAssetFactory, FramedPhanRouter, ModerationRejected, apply_genre, log  # noqa: E402
+from render_clips_thin import RATE_LIMIT_RE
+from novel_manga.media.assets import FramedAssetFactory, ModerationRejected, apply_genre
+from novel_manga.media.adapters import FramedPhanRouter
+from novel_manga.media.common import log
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, styled_bible  # noqa: E402
 
 from novel_manga.config import Settings  # noqa: E402

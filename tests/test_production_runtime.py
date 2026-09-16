@@ -29,7 +29,7 @@ from novel_manga.production_models import (
     RuntimeVisualGroup,
     SeriesAssetManifest,
 )
-from novel_manga.production_runtime import (
+from experiments.legacy.production_runtime import (
     EpisodeProductionRuntime,
     build_visual_groups,
     compile_phanrouter_runtime_motion_prompt,

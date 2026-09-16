@@ -12,10 +12,11 @@ from pathlib import Path
 
 from PIL import Image, ImageStat
 
-from .admission import evaluate_episode_admission
-from .config import NATIVE_DIALOGUE_POLICY, Settings
-from .face_consistency import evaluate_face_consistency
-from .models import (
+from novel_manga.admission import evaluate_episode_admission
+from novel_manga.media.common import audio_levels, cover_title
+from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
+from novel_manga.face_consistency import evaluate_face_consistency
+from novel_manga.models import (
     Episode,
     EpisodePlan,
     SpeechStrategy,
@@ -24,9 +25,9 @@ from .models import (
     TurnDevice,
     VisualStrategy,
 )
-from .production import SeriesAssetFactory, compile_production_plan, sha256_file, sha256_text
-from .preflight import evaluate_production_preflight
-from .production_models import (
+from novel_manga.production import SeriesAssetFactory, compile_production_plan, sha256_file, sha256_text
+from novel_manga.preflight import evaluate_production_preflight
+from novel_manga.production_models import (
     EpisodeSequenceContract,
     ImagePromptContract,
     ProductionPlan,
@@ -38,22 +39,22 @@ from .production_models import (
     ShotContract,
     ShotContractBeat,
 )
-from .providers.base import ImageResult, MediaProvider
-from .qc import inspect_media
-from .render import Renderer
-from .runtime_backends import (
+from novel_manga.providers.base import ImageResult, MediaProvider
+from novel_manga.qc import inspect_media
+from novel_manga.render import Renderer
+from novel_manga.runtime_backends import (
     RuntimeEvidenceBackends,
     aggregate_asr,
     correct_protected_lexicon,
     measured_speech_bounds,
 )
-from .sd_dialogue import (
+from novel_manga.sd_dialogue import (
     build_sd_prompt,
     compile_performance_prompt,
     performance_action_only,
     timed_subtitle_pages,
 )
-from .util import atomic_write_json, media_duration, run
+from novel_manga.util import atomic_write_json, media_duration, run
 
 
 SILENT_ACTION_MARKER = "【无对白动作镜】"
@@ -1248,7 +1249,7 @@ def _camera_mode_rank(mode: str) -> int:
 
 
 def _locked_group_camera_plan(camera_plan):
-    from .models import CameraBeat, CameraPlan
+    from novel_manga.models import CameraBeat, CameraPlan
 
     start = camera_plan.start_position if camera_plan is not None else "沿首次建立的行动轴同侧稳定取景"
     axis = camera_plan.action_axis if camera_plan is not None else "沿首次建立的行动轴同侧取景"
@@ -1312,20 +1313,7 @@ class EpisodeProductionRuntime:
     def _resolve(episode_dir: Path, path: str) -> Path:
         return episode_dir / path
 
-    @staticmethod
-    def _cover_title(source_title: str, video_title: str) -> str:
-        """Prefer the source chapter title while removing only its ordinal prefix."""
-        chapter_prefix = re.compile(
-            r"^\s*(?:第[零〇一二三四五六七八九十百千万两\d]+[章节卷回集]|"
-            r"chapter\s+\d+)\s*[:：\-—、.]?\s*",
-            re.IGNORECASE,
-        )
-        source_candidate = chapter_prefix.sub("", source_title).strip()
-        if source_candidate:
-            return source_candidate
-        video_candidate = video_title.rsplit("：", 1)[-1].rsplit(":", 1)[-1]
-        video_candidate = chapter_prefix.sub("", video_candidate).strip()
-        return video_candidate or source_title.strip() or "本集故事"
+    _cover_title = staticmethod(cover_title)
 
     @staticmethod
     def _select_cover_unit(plan: ProductionPlan) -> RuntimeUnit:
@@ -2515,26 +2503,7 @@ class EpisodeProductionRuntime:
             video_prompt=video_prompt,
         )
 
-    @staticmethod
-    def _audio_levels(path: Path) -> tuple[float | None, float | None]:
-        result = subprocess.run(
-            [
-                "ffmpeg", "-hide_banner", "-nostats", "-i", str(path),
-                "-af", "volumedetect", "-f", "null", "-",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        mean = re.search(r"mean_volume:\s*(-?(?:inf|\d+(?:\.\d+)?)) dB", result.stderr)
-        peak = re.search(r"max_volume:\s*(-?(?:inf|\d+(?:\.\d+)?)) dB", result.stderr)
-
-        def parse(match: re.Match[str] | None) -> float | None:
-            if match is None or match.group(1) in {"-inf", "inf"}:
-                return None
-            return float(match.group(1))
-
-        return parse(mean), parse(peak)
+    _audio_levels = staticmethod(audio_levels)
 
     def _select_group_audio(
         self,

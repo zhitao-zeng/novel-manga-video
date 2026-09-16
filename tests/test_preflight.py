@@ -28,7 +28,7 @@ from novel_manga.models import (
 from novel_manga.preflight import evaluate_production_preflight
 from novel_manga.production import compile_production_plan
 from novel_manga.production_models import AssetRecord, SeriesAssetManifest
-from novel_manga.production_runtime import EpisodeProductionRuntime, build_visual_groups
+from experiments.legacy.production_runtime import EpisodeProductionRuntime, build_visual_groups
 from novel_manga.render import Renderer
 from novel_manga.script_planning import (
     abridged_clause_subsequence,

@@ -221,7 +221,7 @@ reference-image or video change invalidates this acceptance.
     if not record or record.get('clip') != accepted_clip_material(clip) or record.get('note','') != note:
         return None
     from thin_review import take_identity
-    from render_clips_thin import reference_digests
+    from novel_manga.media.common import reference_digests
     video = Path(record['video'])
     references = tuple(directory.parent / r['path'] for r in clip.get('references', []) if r.get('role') != 'voice')
     if (take_identity(video) != record.get('take') or not all(p.is_file() for p in references)

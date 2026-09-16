@@ -45,8 +45,15 @@ def inspect_silence(video: Path, duration: float, *, silent_outro_seconds: float
     }
 
 
+def subtitle_check(ass: Path, *, required: bool = True) -> dict:
+    return {'passed': ass.is_file() and (not required or 'Dialogue:' in ass.read_text(encoding='utf-8')),
+            'detail': 'burned ASS source retained' if required else 'no planned dialogue; empty ASS is valid',
+            'required': required}
+
+
 def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: Settings, report: Path,
-                  *, silent_outro_seconds: float = 0.0, ignore_checks: tuple[str, ...] = ()) -> dict:
+                  *, silent_outro_seconds: float = 0.0, ignore_checks: tuple[str, ...] = (),
+                  subtitles_required: bool = True) -> dict:
     checks: dict[str, dict] = {}
     probe = subprocess.run([
         "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(video),
@@ -73,10 +80,7 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
         "passed": bool(audio_streams) and audio_stream.get("codec_name") == "aac",
         "detail": audio_stream.get("codec_name") if audio_streams else "missing",
     }
-    checks["subtitles"] = {
-        "passed": ass.is_file() and ass.read_text(encoding="utf-8").count("Dialogue:") > 0,
-        "detail": "burned ASS source retained",
-    }
+    checks["subtitles"] = subtitle_check(ass, required=subtitles_required)
     for label, image_path in (("cover", cover), ("ending_screen", ending)):
         try:
             with Image.open(image_path) as image:

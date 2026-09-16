@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import novel_manga.production_runtime as runtime_module
+import experiments.legacy.production_runtime as runtime_module
 import novel_manga.render as render_module
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
 from novel_manga.models import (
@@ -15,7 +15,7 @@ from novel_manga.models import (
     TurnDelivery,
 )
 from novel_manga.production_models import RuntimeUnit, RuntimeVisualGroup
-from novel_manga.production_runtime import (
+from experiments.legacy.production_runtime import (
     EpisodeProductionRuntime,
     apply_native_dialogue_profile,
     compile_seedance_native_audio_prompt,

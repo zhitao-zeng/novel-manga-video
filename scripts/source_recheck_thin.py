@@ -45,7 +45,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     from build_h3_prompts import convert
     from thin_profile import h3_prompt_outdated
     from clip_readiness import plan_issues
-    from render_clips_thin import reference_digests
+    from novel_manga.media.common import reference_digests
     from thin_review import verify_to_verdict
     from h3_request_checks import request_issues,source_crowds
 

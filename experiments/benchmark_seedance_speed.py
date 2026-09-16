@@ -29,7 +29,7 @@ import time
 
 import httpx
 
-from novel_manga.production_runtime import EpisodeProductionRuntime
+from novel_manga.media.common import audio_levels
 from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from render_clips_thin import MIN_PEAK_DB, MAX_MISSING, edit_distance, match_key, subsequence_overlap
@@ -103,7 +103,7 @@ def evaluate(root: Path, config: dict, case: dict, directory: Path) -> dict:
     asr = json.loads(asr_path.read_text())
     ref, hyp = match_key(case["spoken_text"]), match_key(asr["hypothesis"])
     missing = 1 - subsequence_overlap(ref, hyp) / max(1, len(ref))
-    mean_db, peak_db = EpisodeProductionRuntime._audio_levels(wav)
+    mean_db, peak_db = audio_levels(wav)
     speech_passed = bool(hyp and peak_db is not None and peak_db >= MIN_PEAK_DB and missing <= MAX_MISSING)
     return {**result, "reference": case["spoken_text"], "hypothesis": asr["hypothesis"], "asr_backend": asr.get("backend"),
             "cer": edit_distance(ref, hyp) / max(1, len(ref)), "missing_fraction": missing,

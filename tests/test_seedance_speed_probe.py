@@ -67,7 +67,7 @@ def test_native_480p_padding_is_reported_without_failing_valid_media(monkeypatch
     media = {"streams": [{"codec_type": "video", "codec_name": "h264", "width": 864, "height": 496, "r_frame_rate": "24/1"},
                          {"codec_type": "audio", "codec_name": "aac"}], "format": {"duration": "15.104"}}
     monkeypatch.setattr(probe.subprocess, "run", lambda *a, **kw: SimpleNamespace(stdout=json.dumps(media)))
-    monkeypatch.setattr(probe.EpisodeProductionRuntime, "_audio_levels", lambda _: (-28, -5))
+    monkeypatch.setattr(probe, "audio_levels", lambda _: (-28, -5))
     monkeypatch.setenv("NOVEL_ASR_COMMAND", "unused-asr-command")
     (tmp_path / "asr.json").write_text(json.dumps({"hypothesis": "你好", "backend": "test"}))
     result = probe.evaluate(tmp_path, {"parameters": {"duration": 15}}, {"spoken_text": "你好"}, tmp_path)
