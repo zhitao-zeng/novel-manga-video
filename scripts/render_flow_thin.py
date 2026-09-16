@@ -613,7 +613,7 @@ class ThinMediaRunner:
         return postprocess.story_segments(self.context, results)
 
     def assemble(self, results: list[dict]) -> AssemblyResult:
-        from repair_history import assembly_directory
+        from repair_delivery_thin import assembly_directory
         output_dir = assembly_directory(self.context.episode_dir)
         assembly = postprocess.assemble(self.context, results, output_dir)
         needs_subtitles = any(c.get('spoken_text') or c.get('lines') for c in self.context.clip_plan.get('clips', []))

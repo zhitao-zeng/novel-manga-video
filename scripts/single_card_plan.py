@@ -65,7 +65,7 @@ def repair_missing_expressions(directory: Path) -> dict:
     """
     from novel_manga.util import read_json as read
     from review_store_thin import current_takes
-    from repair_history import accepted_clip_material,begin_trial,load,save,refresh_prepared_plan,ERROR_FIELDS
+    from repair_history import accepted_clip_material, begin_trial, load, save, refresh_prepared_plan, ERROR_FIELDS
     from build_h3_prompts import convert
     from thin_profile import h3_prompt_outdated
     from novel_manga.media.common import reference_digests

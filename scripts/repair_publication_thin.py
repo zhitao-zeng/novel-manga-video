@@ -5,6 +5,7 @@ import fcntl
 from pathlib import Path
 from novel_manga.util import atomic_write_json
 from novel_manga.repair.proposal import RepairProposal
+import novel_manga.util as utils
 import repair_history as history
 
 
@@ -14,7 +15,7 @@ def publish_rewrite(episode_dir: Path, proposal: RepairProposal, *, use_history=
     script, new_plan, new_notes, changes = proposal.script, proposal.plan, proposal.notes, proposal.changes
     changed = proposal.changed
     appearance_checks = proposal.result.get('appearance_checks', {})
-    old_notes = history.read(episode_dir / 'review_feedback.json', {})
+    old_notes = utils.read_json(episode_dir / 'review_feedback.json', {})
     if use_history:
         from repair_history import begin_trial
         begin_trial(episode_dir, set(changed), "identity" if identity else "reframe" if reframe else "rewrite", after_plan=new_plan, after_notes=new_notes, changes=changes)

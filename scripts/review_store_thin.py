@@ -12,6 +12,7 @@ from novel_manga.review.audit_queue import export_results
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
 def load_evidence(paths: list[Path]) -> dict:
     result = {}
     for path in paths:

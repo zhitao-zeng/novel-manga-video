@@ -8,6 +8,7 @@ from novel_manga.review.reconciliation import evidence_key, missing_reviews
 import review_store_thin as review_store
 import verify_clips_thin as verify_clips
 
+
 def review_batch(novel: Path, episodes: list[int], scope: str, state_dir: Path, legacy: Path, workers: int = 6, max_tokens: int | None = None) -> dict:
     cache = state_dir / "verified.jsonl"
     local, flash = review_store.current_evidence(legacy, state_dir)
@@ -35,7 +36,8 @@ def review_batch(novel: Path, episodes: list[int], scope: str, state_dir: Path, 
         directory = novel / f"{novel.name}_{n}"
         review, takes = review_store.reconcile(directory, local, flash)
         remaining += len(missing_reviews(review, takes, scope))
-        from repair_history import observe, publish_if_ready
+        from repair_history import observe
+        from repair_delivery_thin import publish_if_ready
         observe(directory, review, takes)
         publish_if_ready(directory, review, takes)
     return {"episodes": episodes, "scope": scope, "judged": len(jobs), "remaining": remaining}

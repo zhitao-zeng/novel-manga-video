@@ -291,7 +291,8 @@ class Manager:
                 if blocked:
                     plan_queue[str(n)] = blocked
                 review, takes = reconcile(directory, local, flash, write=write and n not in busy)
-                from repair_history import observe, publication_pending, publish_if_ready
+                from repair_history import observe
+                from repair_delivery_thin import publication_pending, publish_if_ready
                 if write and n not in busy:
                     observe(directory, review, takes)
                     publish_if_ready(directory, review, takes)

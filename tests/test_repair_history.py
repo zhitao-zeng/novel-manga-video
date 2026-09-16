@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+import novel_manga.util as utils
+import repair_delivery_thin as delivery
 import repair_history as history
 from novel_manga import model_client
 import novel_manga.review.policy as review_policy
@@ -52,7 +54,7 @@ def test_trial_keeps_old_media_and_request_before_the_live_take_is_replaced(epis
     source.write_bytes(b"replacement")
     source.unlink()  # the renderer's later prune cannot erase the archived candidate
     assert old.read_bytes() == b"original take"
-    assert history.read(old.parent / "request.json")["prompt"] == "original request"
+    assert utils.read_json(old.parent / "request.json")["prompt"] == "original request"
     assert trial["before"]["clip_01"]["plan"] == plan["clips"][0]
     assert (directory / "nov_1.mp4").read_bytes() == b"incumbent movie"
 
@@ -100,7 +102,7 @@ def test_render_record_counts_new_material_and_ignores_other_requests(episode):
 def candidate_episode(episode):
     directory, plan, review, media = episode
     history.begin_trial(directory, {"clip_01"}, "rewrite")
-    out = history.assembly_directory(directory)
+    out = delivery.assembly_directory(directory)
     candidate = out / "nov_1.mp4"
     candidate.write_bytes(b"new candidate")
     media["assembly"].update(final_video=str(candidate), pending_publish=True)
@@ -125,7 +127,7 @@ def test_unapproved_candidate_never_replaces_the_incumbent(episode, problem):
     elif problem == "false_fine": row["verify"]["same_person_twice"] = True
     write(directory / "clip_plan.json", plan)
     write(directory / "thin_media_report.json", media)
-    assert not history.publish_if_ready(directory, review, takes)
+    assert not delivery.publish_if_ready(directory, review, takes)
     assert (directory / "nov_1.mp4").read_bytes() == b"incumbent movie"
     assert Path(media["assembly"]["final_video"]).read_bytes() == b"new candidate"
 
@@ -133,14 +135,14 @@ def test_unapproved_candidate_never_replaces_the_incumbent(episode, problem):
 def test_current_verified_candidate_is_published_and_previous_movie_is_kept(episode):
     directory, plan, review, media, takes = candidate_episode(episode)
     assert episode_status(directory, True) == "done"  # technically ready for review, not yet published
-    assert history.publication_pending(directory)
+    assert delivery.publication_pending(directory)
     review["feedback"] = {}
     review["clips"]["clip_01"].update(story_ok=True, verify={"verdict": "fine"})
-    assert history.publish_if_ready(directory, review, takes)
+    assert delivery.publish_if_ready(directory, review, takes)
     assert (directory / "nov_1.mp4").read_bytes() == b"new candidate"
     assert (directory / history.HISTORY_DIR / "previous_final.mp4").read_bytes() == b"incumbent movie"
-    assert not history.publication_pending(directory)
-    assert not history.publish_if_ready(directory, review, takes)  # publishing is idempotent
+    assert not delivery.publication_pending(directory)
+    assert not delivery.publish_if_ready(directory, review, takes)  # publishing is idempotent
 
 
 def test_first_candidate_can_be_reviewed_before_a_canonical_movie_exists(episode):
@@ -149,25 +151,25 @@ def test_first_candidate_can_be_reviewed_before_a_canonical_movie_exists(episode
     assert episode_status(directory, True) == "done"
     review["feedback"] = {}
     review["clips"]["clip_01"].update(story_ok=True, verify={"verdict": "fine"})
-    assert history.publish_if_ready(directory, review, takes)
+    assert delivery.publish_if_ready(directory, review, takes)
 
 
 def test_interrupted_publication_can_resume_without_losing_the_old_movie(episode, monkeypatch):
     directory, plan, review, media, takes = candidate_episode(episode)
     review["feedback"] = {}
     review["clips"]["clip_01"].update(story_ok=True, verify={"verdict": "fine"})
-    original_write = history.atomic_write_json
+    original_write = delivery.atomic_write_json
     def failed_report(path, value):
         if path.name == "thin_media_report.json":
             raise OSError("interrupted report write")
         original_write(path, value)
-    monkeypatch.setattr(history, "atomic_write_json", failed_report)
+    monkeypatch.setattr(delivery, "atomic_write_json", failed_report)
     with pytest.raises(OSError):
-        history.publish_if_ready(directory, review, takes)
+        delivery.publish_if_ready(directory, review, takes)
     assert Path(media["assembly"]["final_video"]).is_file()
     assert (directory / history.HISTORY_DIR / "previous_final.mp4").read_bytes() == b"incumbent movie"
-    monkeypatch.setattr(history, "atomic_write_json", original_write)
-    assert history.publish_if_ready(directory, review, takes)
+    monkeypatch.setattr(delivery, "atomic_write_json", original_write)
+    assert delivery.publish_if_ready(directory, review, takes)
     assert (directory / history.HISTORY_DIR / "previous_final.mp4").read_bytes() == b"incumbent movie"
 
 

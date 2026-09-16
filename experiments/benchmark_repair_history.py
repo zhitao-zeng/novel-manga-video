@@ -31,7 +31,8 @@ from novel_manga.config import Settings
 from novel_manga.models import StoryBible
 from novel_manga.util import atomic_write_json
 from repair_flow_thin import repair_episode
-from repair_history import read, ERROR_FIELDS
+from novel_manga.util import read_json as read
+from repair_history import ERROR_FIELDS
 from render_flow_thin import ThinMediaRunner
 from novel_manga.util import load_dotenv
 from thin_profile import load_profile, h3_prompt_outdated, plan_fingerprint

@@ -159,7 +159,7 @@ def main() -> int:
         ghosts = sorted(name for name in cast & measurable if body and not any(f in body for f in forms[name]))
 
         tech = status == "done"
-        from repair_history import publication_pending
+        from repair_delivery_thin import publication_pending
         reviewed_clean = review_state == "reviewed" and not feedback and not publication_pending(d)
         script_ok = not ghosts
         why = [w for w, bad in (("技术", not tech), ("审查", not reviewed_clean)) if bad]

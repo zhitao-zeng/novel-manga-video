@@ -59,7 +59,7 @@ uv run pytest
 - `src/novel_manga/story/compilation.py`：显式配置的片段编译，复用现有切段和提示词策略。
 - `src/novel_manga/repair/`：修复决策、内存候选及场景修改；流程层负责验证后写回。
 - `src/novel_manga/media/`：资产、生成、缓存、音轨分析、字幕和后期服务；每集使用独立 RenderContext。
-- `src/novel_manga/review/`：审查字段、提示词、证据对象、判词解释及片段版本识别。
+- `src/novel_manga/review/`：审查字段、提示词、证据合并、判词解释、片段版本识别和原有补查队列存取。
 - `src/novel_manga/model_client.py`：规划、身份核对和审查共用的 JSON 模型调用。
 - `src/novel_manga/bible.py`：新书初始化所需的人物库生成。
 - `src/novel_manga/batch_control.py`：已有执行器的操作入口与状态汇总。
@@ -75,5 +75,7 @@ uv run pytest
 渲染入口保持 `scripts/render_clips_thin.py`，流程编排位于 `scripts/render_flow_thin.py`；详见 [媒体模块说明](docs/render-module-decoupling-20260916.md)。
 
 审查入口保持 `scripts/thin_review.py`，取证、模型评审、人物库补全、卡片和整集报告分别编排；详见 [审查模块说明](docs/review-module-decoupling-20260916.md)。
+
+复审和补查命令只负责入口，状态存取、执行编排与成片发布分别维护；详见 [复审状态与发布说明](docs/review-state-decoupling-20260916.md)。
 
 早期上传/生成/下载 HTTP API、`novel-manga` 命令、旧整集控制器及专用 API 容器已移除，不提供兼容入口。已有剧本、人物库、视频和任务历史保留。
