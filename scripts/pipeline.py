@@ -1,57 +1,20 @@
-#!/usr/bin/env python
-"""One entry point for the whole pipeline: check it, start it, look at it, stop it.
-
-    scripts/pipeline.py validate     what the file says, and whether it can be true at once
-    scripts/pipeline.py status       what is actually running against what the file says
-    scripts/pipeline.py start        start every active novel that is not already running
-    scripts/pipeline.py stop         stop the conductors (render lanes finish their episodes)
-
-Video keys and planning servers are shared, so the checks that matter are the ones a single
-novel's config could never make: two novels rendering with one key, more planning slots
-promised than a borrowed box allows, or two novels rendering the same chapters.  Nothing here
-touches a running lane: stopping a conductor leaves its lane to finish, and starting one again
-adopts it.
-"""
+#!/usr/bin/env python3
+"""Manage production, preparation and repair through their existing controllers."""
 from __future__ import annotations
-
 import argparse
 import json
-import os
-import re
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PIPELINE = ROOT / "configs" / "pipeline.json"
-PY = str(ROOT / ".venv" / "bin" / "python")
+sys.path[:0] = [str(ROOT / 'src'), str(ROOT / 'scripts')]
+from novel_manga.batch_control import FLOWS, control, snapshot
+
+PIPELINE = ROOT / 'configs/pipeline.json'
 
 
 def load() -> dict:
     return json.loads(PIPELINE.read_text(encoding="utf-8"))
-
-
-def procs() -> list[tuple[int, str]]:
-    out = []
-    for entry in Path("/proc").iterdir():
-        if not entry.name.isdigit():
-            continue
-        try:
-            cmd = (entry / "cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ").strip()
-        except OSError:
-            continue
-        if cmd:
-            out.append((int(entry.name), cmd))
-    return out
-
-
-def conductor_pid(novel_id: str) -> int | None:
-    for pid, cmd in procs():
-        if "conductor_thin.py" in cmd and (f"--novel {novel_id}" in cmd or f"conductor.{novel_id}.json" in cmd):
-            return pid
-    return None
-
 
 def chapters_of(spec: str) -> set[int]:
     out: set[int] = set()
@@ -62,7 +25,6 @@ def chapters_of(spec: str) -> set[int]:
         elif part.strip():
             out.add(int(part))
     return out
-
 
 def validate(pipeline: dict) -> list[str]:
     problems = []
@@ -96,110 +58,54 @@ def validate(pipeline: dict) -> list[str]:
     return problems
 
 
-def start(pipeline: dict, only: str | None) -> int:
-    problems = validate(pipeline)
-    if problems:
-        print("配置有冲突，没有启动任何东西：")
-        for p in problems:
-            print("  -", p)
-        return 1
-    started = []
-    for novel in pipeline["novels"]:
-        if not novel.get("active") or (only and novel["id"] != only):
-            continue
-        if conductor_pid(novel["id"]):
-            print(f"{novel['title']}: 调度器已在运行，跳过")
-            continue
-        tmp = Path(novel.get("tmp_dir", f"/mnt/disk1/zengzhitao/tmp/conductor-{novel['id']}"))
-        tmp.mkdir(parents=True, exist_ok=True)
-        log = tmp.with_suffix(".stdout.log")
-        command = [PY, str(ROOT / "scripts" / "conductor_thin.py"), "--pipeline", str(PIPELINE), "--novel", novel["id"]]
-        with log.open("ab") as handle:
-            handle.write(f"\n===== {time.strftime('%F %T')} {' '.join(command)}\n".encode())
-            subprocess.Popen(command, cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT,
-                             stdin=subprocess.DEVNULL, start_new_session=True,
-                             env={**os.environ, "PYTHONPATH": "src:scripts"})
-        started.append(novel["title"])
-        time.sleep(2)
-    print("已启动：" + ("、".join(started) if started else "无（都在运行）"))
-    return 0
-
-
-def stop(pipeline: dict, only: str | None) -> int:
-    for novel in pipeline["novels"]:
-        if only and novel["id"] != only:
-            continue
-        pid = conductor_pid(novel["id"])
-        if pid:
-            os.kill(pid, 15)
-            print(f"{novel['title']}: 已停调度器 {pid}（渲染车道会把手上的集跑完）")
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=('validate', 'status', 'start', 'stop'))
+    parser.add_argument('--novel', help='小说 ID；未指定时 status 展示所有小说，start/stop 操作 active 小说')
+    parser.add_argument('--flow', choices=FLOWS, help='start/stop 默认 production；status 默认全部流程')
+    parser.add_argument('--json', action='store_true', help='输出结构化状态或操作结果')
+    parser.add_argument('--chapters', help='仅 prepare start：章节范围；默认复用已有准备范围或小说配置')
+    parser.add_argument('--workers', type=int, choices=range(1, 13), help='仅 prepare/repair start：工作并发数')
+    args = parser.parse_args(argv)
+    config = load()
+    if args.novel and args.novel not in {n['id'] for n in config['novels']}:
+        parser.error(f'unknown novel: {args.novel}')
+    flow = args.flow or 'production'
+    if args.chapters and (args.action != 'start' or flow != 'prepare'):
+        parser.error('--chapters 只用于 prepare start')
+    if args.workers and (args.action != 'start' or flow not in {'prepare', 'repair'}):
+        parser.error('--workers 只用于 prepare/repair start')
+    if args.action == 'validate' or (args.action == 'start' and flow == 'production'):
+        problems = validate(config)
+        if args.action == 'validate' or problems:
+            print(json.dumps({'valid': not problems, 'problems': problems}, ensure_ascii=False) if args.json
+                  else '配置检查：' + ('通过' if not problems else '\n' + '\n'.join(problems)))
+            return int(bool(problems))
+    if args.action == 'status':
+        report = snapshot(ROOT, config, novel=args.novel, flow=args.flow)
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
         else:
-            print(f"{novel['title']}: 没有在跑")
-    return 0
-
-
-def status(pipeline: dict) -> int:
-    problems = validate(pipeline)
-    print("配置检查：" + ("通过" if not problems else "有问题"))
-    for p in problems:
-        print("  -", p)
-    running = procs()
-    print(f"\n{'小说':<12}{'调度器':>8}{'渲染车道':>10}{'规划块':>8}{'渲染 key':>12}{'规划服务器':>28}")
-    for novel in pipeline["novels"]:
-        if not novel.get("active"):
+            print('小说 / 流程 / 状态 / 在途进程 / 待办集 / 阻塞集 / 更新于')
+            for novel in report['novels']:
+                for name, row in novel['flows'].items():
+                    pending = row['pending'] if row['pending'] is not None else '未统计'
+                    print(f"{novel['title']} / {name} / {row['status']} / {row['in_flight']} / {pending} / {row['blocked']} / {row['updated_at'] or '无记录'}")
+                    for reason in row['blocked_reasons'][:5]:
+                        print(f'  {reason}')
+        return 0
+    results = []; failed = False
+    for spec in config['novels']:
+        if (args.novel and spec['id'] != args.novel) or (not args.novel and not spec.get('active')):
             continue
-        pid = conductor_pid(novel["id"])
-        lanes = sum(1 for _, c in running if "thin_batch.py" in c and f"outputs/{novel['id']} " in c + " "
-                    and "--stage render" in c and "--review-only" not in c)
-        blocks = sum(1 for _, c in running if "thin_batch.py" in c and f"outputs/{novel['id']} " in c + " "
-                     and "--stage plan" in c)
-        print(f"{novel['title']:<12}{(pid or '停'):>8}{lanes:>10}{blocks:>8}"
-              f"{','.join(novel.get('render_keys', [])) or '-':>12}"
-              f"{','.join(f'{k}x{v}' for k, v in novel.get('planning', {}).items()) or '-':>28}")
-    video = pipeline["resources"]["video_keys"]
-    print("\n并发池")
-    for name, key in video.items():
-        directory = Path(key["inflight_dir"])
         try:
-            limit = (directory / "limit").read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
-        held = 0
-        inodes = {}
-        for path in directory.glob("slot_*.lock"):
-            try:
-                inodes[path.stat().st_ino] = 1
-            except OSError:
-                pass
-        try:
-            for line in Path("/proc/locks").read_text(encoding="utf-8", errors="replace").splitlines():
-                parts = line.split()
-                if len(parts) >= 6 and parts[1] == "FLOCK" and int(parts[5].split(":")[-1]) in inodes:
-                    held += 1
-        except OSError:
-            pass
-        print(f"  {name} ({key['model']}): 在飞 {held}/{limit}")
-    return 0
+            result = control(ROOT, spec, flow, args.action, chapters=args.chapters, workers=args.workers)
+        except (OSError, ValueError) as error:
+            result = {'action': 'error', 'reason': str(error)}; failed = True
+        results.append({'novel': spec['id'], 'flow': flow, **result})
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+    return int(failed)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("action", choices=("validate", "status", "start", "stop"))
-    parser.add_argument("--novel", help="只对这一本小说操作")
-    args = parser.parse_args()
-    pipeline = load()
-    if args.action == "validate":
-        problems = validate(pipeline)
-        print("配置检查：通过" if not problems else "配置检查：有问题")
-        for p in problems:
-            print("  -", p)
-        return 1 if problems else 0
-    if args.action == "status":
-        return status(pipeline)
-    if args.action == "start":
-        return start(pipeline, args.novel)
-    return stop(pipeline, args.novel)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == '__main__':
+    raise SystemExit(main())

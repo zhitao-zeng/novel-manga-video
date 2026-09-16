@@ -1,0 +1,83 @@
+import json
+import pytest
+
+from novel_manga.util import atomic_write_json
+import manage_repair_thin as manager
+import prepare_h3_book as preparation
+
+
+def setup(tmp_path, monkeypatch):
+    novel = tmp_path / 'book'
+    for n in (1, 2, 3):
+        directory = novel / f'book_{n}'
+        directory.mkdir(parents=True)
+        atomic_write_json(directory / 'clip_plan.json', {'clips': []})
+        atomic_write_json(directory / 'chapter_script.json', {'shots': []})
+    m = manager.Manager(novel, tmp_path / 'legacy')
+    m.state.update(preparation_gate=True, scan_started=True)
+    seen = []
+    def reconcile(directory, *args, **kwargs):
+        seen.append(directory.name)
+        return {'clips': {}, 'feedback': {}}, {}
+    monkeypatch.setattr(manager, 'reconcile', reconcile)
+    monkeypatch.setattr(manager, 'episode_status', lambda *args: 'pending')
+    return m, seen
+
+
+def test_unprepared_episodes_are_not_rendered_or_given_video_reviews(tmp_path, monkeypatch):
+    m, seen = setup(tmp_path, monkeypatch)
+    preparation.record(m.novel / 'book_1', 'ready')
+    preparation.record(m.novel / 'book_2', 'needs_repair')
+    m.refresh(write=False)
+    m.schedule()
+    assert seen == ['book_1']
+    assert [j['episodes'] for j in m.state['jobs']] == [[1]]
+    assert m.state['summary']['preparation']['waiting'] == 2
+    assert m.state['summary']['total'] == 3
+
+
+def test_stale_preparation_is_rejected_and_new_ready_work_is_admitted(tmp_path, monkeypatch):
+    m, seen = setup(tmp_path, monkeypatch)
+    directory = m.novel / 'book_1'
+    preparation.record(directory, 'ready')
+    atomic_write_json(directory / 'chapter_script.json', {'shots': [{'motion_prompt': 'changed'}]})
+    m.refresh(write=False)
+    m.schedule()
+    assert not m.state['jobs'] and not seen
+    preparation.record(directory, 'ready')
+    m.refresh(write=False)
+    m.schedule()
+    assert [j['episodes'] for j in m.state['jobs']] == [[1]]
+
+
+def test_production_edits_do_not_return_an_admitted_episode_to_preparation(tmp_path, monkeypatch):
+    m, seen = setup(tmp_path, monkeypatch)
+    directory = m.novel / 'book_1'
+    preparation.record(directory, 'ready')
+    m.refresh(write=False)
+    atomic_write_json(directory / 'chapter_script.json', {'shots': [{'motion_prompt': 'production repair'}]})
+    m.save()
+    resumed = manager.Manager(m.novel, m.legacy)
+    resumed.refresh(write=False)
+    assert resumed.state['admitted_episodes'] == [1]
+    assert not resumed.info[1].get('awaiting_preparation')
+
+
+def test_initial_production_preserves_chapter_order(tmp_path, monkeypatch):
+    m, seen = setup(tmp_path, monkeypatch)
+    for n in (1, 2, 3):
+        preparation.record(m.novel / f'book_{n}', 'ready')
+    m.refresh(write=False)
+    m.schedule()
+    assert [j['episodes'] for j in m.state['jobs']] == [[1], [2], [3]]
+
+
+def test_empty_ready_queue_waits_for_preparation_instead_of_exiting(tmp_path, monkeypatch):
+    m, seen = setup(tmp_path, monkeypatch)
+    m.state['phase'] = 2
+    m.last_delivery = manager.time.monotonic()
+    monkeypatch.setattr(manager.time, 'sleep', lambda seconds: (_ for _ in ()).throw(InterruptedError('stop test loop')))
+    with pytest.raises(InterruptedError):
+        m.run()
+    assert m.state['status'] == 'waiting_preparation'
+    assert not m.state['jobs']

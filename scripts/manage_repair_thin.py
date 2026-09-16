@@ -258,6 +258,7 @@ class Manager:
         info = {}
         inspection_rows = []
         plan_queue = {}
+        admitted = set(self.state.get('admitted_episodes', []))
         for directory in self.novel.glob(f"{self.novel.name}_*"):
             suffix = directory.name.rsplit("_", 1)[-1]
             if not directory.is_dir() or not suffix.isdigit():
@@ -265,6 +266,23 @@ class Manager:
             n = int(suffix)
             if self.episode_scope is not None and n not in self.episode_scope:
                 continue
+            if self.state.get('preparation_gate') and n not in admitted:
+                from prepare_h3_book import inputs as preparation_inputs, POLICY as PREPARATION_POLICY
+                preparation = read(self.novel / 'h3_preparation/episodes' / f'{n}.json', {})
+                if (preparation.get('policy') == PREPARATION_POLICY and preparation.get('status') == 'ready'
+                        and preparation.get('inputs') == preparation_inputs(directory)):
+                    admitted.add(n)
+                else:
+                    # Preparation owns these files. Do not write empty video
+                    # reviews or start structural repairs while it is editing.
+                    info[n] = {'status': 'pending', 'bad': 0, 'unverified': 0, 'flash_pending': 0,
+                               'can_fill': False, 'deliverable': False, 'held': False, 'ready': False,
+                               'plan_blocked': False, 'exposure_due': False, 'managed_clips': [],
+                               'managed_blocked': {}, 'awaiting_preparation': True}
+                    inspection_rows.append({'episode': n, 'status': 'pending', 'bucket': 'awaiting_preparation',
+                                            'total': 0, 'passed': 0, 'failed': 0, 'unchecked': 0,
+                                            'unconfirmed_candidates': 0, 'flash_pending': 0, 'processed_cycles': 0})
+                    continue
             try:
                 status = episode_status(directory, True)
                 blocked = current_blocks(directory) if status == "plan_blocked" else {}
@@ -306,6 +324,8 @@ class Manager:
                                         "total": 0, "passed": 0, "failed": 0, "unchecked": 0,
                                         "unconfirmed_candidates": 0, "flash_pending": 0, "processed_cycles": self.state["passes"].get(str(n), 0)})
         self.info = info
+        if self.state.get('preparation_gate'):
+            self.state['admitted_episodes'] = sorted(admitted)
         for job in self.state["jobs"]:
             if (job["kind"] == "recovery" and job["status"] == "done"
                     and job.get("outcome") in {None, "awaiting_current_delivery_check", "awaiting_review_or_publication"}):
@@ -325,6 +345,12 @@ class Manager:
                                  'repair_ready_clips':sum(len(r['managed_clips']) for r in info.values()),
                                  'repair_blocked_clips':sum(len(r['managed_blocked']) for r in info.values()),
                                  "residual_episodes": sorted(n for n, r in info.items() if r["bad"] and self.state["passes"].get(str(n), 0) >= 2)}
+        if self.state.get('preparation_gate'):
+            preparation = read(self.novel / 'h3_preparation/status.json', {})
+            self.state['summary']['preparation'] = {
+                'admitted': len(admitted), 'waiting': sum(bool(r.get('awaiting_preparation')) for r in info.values()),
+                'status': preparation.get('status'), 'counts': preparation.get('counts', {}),
+                'updated_at': preparation.get('at')}
         self.state["summary"]["inspection"] = {
             "episode_buckets": dict(Counter(r["bucket"] for r in inspection_rows)),
             "clips": {k: sum(r[k] for r in inspection_rows) for k in
@@ -337,7 +363,7 @@ class Manager:
         self.state["summary"]["recovery"] = {
             kind: dict(Counter(j["status"] for j in self.state["jobs"]
                                if j["kind"] == "recovery" and j.get("recovery_kind") == kind))
-            for kind in ("plan", "references", "technical", "residual", "identity", "binding", "speech", "review", 'source','managed')}
+            for kind in ("plan", "references", "technical", "residual", "identity", "binding", "speech", "review", 'source','managed','entities')}
         self.state["summary"]["recovery_outcomes"] = dict(Counter(
             j.get("outcome", "unknown") for j in self.state["jobs"] if j["kind"] == "recovery" and j["status"] == "done"))
         from shared_audit_thin import summary as audit_summary
@@ -378,7 +404,8 @@ class Manager:
         if step == "recover":
             n = job["episodes"][0]
             return [python, "scripts/prepare_recovery_thin.py", "--episode-dir", str(self.novel / f"{self.novel.name}_{n}"),
-                    "--kind", job["recovery_kind"], "--job-id", job["id"]], env
+                    "--kind", job["recovery_kind"], "--job-id", job["id"]] + (
+                        ['--extra-takes', str(job['extra_takes'])] if job.get('extra_takes') else []), env
         workers = "1" if len(job["episodes"]) == 1 else "6"
         if step in {"check", "review", "review1", "review2", "audit", "confirm"}:
             scope = "all" if job["kind"] == "recovery" else {"check": "candidates", "audit": "all", "confirm": "flash"}.get(step, "changed")
@@ -460,7 +487,7 @@ class Manager:
                 continue
             job["failures"] = 0
             managed_preparation = (job['kind']=='repair' and FLOWS['repair'][job['step']] in {'repair','note1','note2'}
-                                   or job['kind']=='recovery' and job['step']==0 and job.get('recovery_kind') in {'managed','residual','references'})
+                                   or job['kind']=='recovery' and job['step']==0 and job.get('recovery_kind') in {'managed','residual','references','source','entities'})
             if managed_preparation and len(job['episodes'])==1:
                 n=job['episodes'][0]
                 preparation_id=f"{job['id']}-step{job['step']}" if job['kind']=='repair' else job['id']
@@ -501,7 +528,7 @@ class Manager:
             reasons=[reason for values in self.state.get('plan_queue',{}).get(str(n),{}).values() for reason in values]
             if not any(reason.startswith('asset:') and reason.endswith('/expressions.jpeg') for reason in reasons):
                 continue
-            if row.get('held') or (n in busy and n not in waiting):
+            if row.get('held') or row.get('awaiting_preparation') or (n in busy and n not in waiting):
                 continue
             old=waiting.pop(n,None)
             if old:
@@ -516,7 +543,7 @@ class Manager:
             if active >= REPAIR_EPISODES:
                 break
             n = item['episode']
-            if n in busy or self.info.get(n, {}).get('held'):
+            if n in busy or self.info.get(n, {}).get('held') or self.info.get(n, {}).get('awaiting_preparation'):
                 continue
             options = {k:v for k,v in item.items() if k not in {'episode', 'method'}}
             self.add('recovery', [n], recovery_kind=item['method'], **options)
@@ -529,7 +556,7 @@ class Manager:
         exposure = set()
         for n, row in sorted(self.info.items()):
             used = self.state["recovery_attempts"].get(str(n), {})
-            if row.get("held") or (n in busy and n not in waiting):
+            if row.get("held") or row.get('awaiting_preparation') or (n in busy and n not in waiting):
                 continue
             block_reasons = [reason for reasons in self.state.get('plan_queue', {}).get(str(n), {}).values() for reason in reasons]
             request_only = bool(block_reasons) and all(reason.startswith('request:') for reason in block_reasons)
@@ -565,7 +592,7 @@ class Manager:
         busy = active_episodes(self.state)
         busy.update(item['episode'] for item in self.state['targeted_recovery'])
         def eligible(n):
-            return n not in busy and not self.info[n]["held"]
+            return n not in busy and not self.info[n]["held"] and not self.info[n].get('awaiting_preparation')
         repair_count = sum(len(j["episodes"]) for j in self.state["jobs"] if j["kind"] in {"repair", "recovery"} and j["status"] in {"pending", "running"})
         candidates = [n for n in sorted(self.info) if eligible(n) and self.info[n]["ready"] and self.info[n]["bad"]
                       and self.info[n].get('managed_clips',self.state['passes'].get(str(n),0)<self.state['phase'])]
@@ -575,7 +602,8 @@ class Manager:
         fills = [j for j in self.state["jobs"] if j["kind"] == "fill" and j["status"] in {"pending", "running"}]
         free_fills = min(REPAIR_BATCH_SIZE - sum(len(j["episodes"]) for j in fills if j["step"] == 0),
                          FILL_EPISODES - sum(len(j["episodes"]) for j in fills))
-        for n in [n for n in sorted(self.info, reverse=True) if eligible(n) and self.info[n]["can_fill"]][:max(0, free_fills)]:
+        for n in [n for n in sorted(self.info, reverse=not self.state.get('preparation_gate', False))
+                  if eligible(n) and self.info[n]["can_fill"]][:max(0, free_fills)]:
             self.add("fill", [n])
             busy.add(n)
         confirms = sum(len(j["episodes"]) for j in self.state["jobs"] if j["kind"] == "confirm" and j["status"] in {"pending", "running"})
@@ -672,6 +700,12 @@ class Manager:
                     self.last_delivery = time.monotonic()
                 if not paused and self.state["phase"] == 2 and any(j["status"] in {"pending", "running"} and supplementary(j) for j in self.state["jobs"]) and not any(j["status"] in {"pending", "running"} and not supplementary(j) for j in self.state["jobs"]):
                     self.state["status"] = "monitoring_shared_audit" if (self.directory / 'shared_audit.sqlite3').is_file() else "monitoring_flash"
+                if (not paused and self.state['summary'].get('preparation', {}).get('waiting')
+                        and not any(j['status'] in {'pending', 'running'} for j in self.state['jobs'])):
+                    self.state['status'] = 'waiting_preparation'
+                    self.save()
+                    time.sleep(5)
+                    continue
                 waiting_plan = any(j["status"] == "waiting_plan" for j in self.state["jobs"]) or bool(self.state.get("plan_queue"))
                 if not paused and waiting_plan and not any(j["status"] in {"pending", "running"} for j in self.state["jobs"]):
                     self.state["status"] = "waiting_plan"
@@ -696,8 +730,16 @@ def main():
     parser.add_argument("--legacy-dir", type=Path, default=Path("/mnt/disk1/zengzhitao/tmp/fix"))
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--adopt-legacy", action="store_true")
+    parser.add_argument('--prepared-only', action='store_true', help='admit new episodes only after current H3 book preparation passes')
+    parser.add_argument('--model-workers', type=int, choices=range(1, 13), default=12,
+                        help='parallel episode preparations; reduce while another book uses Qwen')
     args = parser.parse_args()
+    STAGE_CAPACITY['repair_model'] = args.model_workers
     manager = Manager(args.novel_dir, args.legacy_dir, args.state_dir)
+    if args.action == "run":
+        manager.state["model_workers"] = args.model_workers
+    if args.prepared_only:
+        manager.state['preparation_gate'] = True
     if args.action == "preview":
         snapshot = manager.adoption_preview()
         print(json.dumps({"controllers_to_retire": [{"pid": p["pid"], "entry": p["args"][-1]} for p in snapshot["controllers"]],

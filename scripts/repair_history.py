@@ -207,6 +207,7 @@ def accepted_clip_material(clip: dict) -> dict:
     return {**{k: clip.get(k) for k in ('clip_id','kind','prompt','prompt_h3','prompt_h3_skip','references',
                                     'request_seconds','lines','chat_lines','shot_indexes','shot_parts')},
             **({'repair_take':clip['repair_take']} if clip.get('repair_take') else {}),
+            **({'dialogue_bindings':clip['dialogue_bindings']} if 'dialogue_bindings' in clip else {}),
             **({'crowd_roles':clip['crowd_roles']} if clip.get('crowd_roles') else {})}
 
 

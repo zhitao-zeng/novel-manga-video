@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import subprocess
 import threading
 import urllib.error
@@ -29,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TMP = Path("/mnt/disk1/zengzhitao/tmp")
 CACHE_SECONDS = 20
 PORT = 18900
-UI_VERSION = str(time.time())
+UI_VERSION = "batch-control-20260916"
 
 NOVELS = [
     {"id": "zhutian-card", "title": "诸天万象录", "conductor": TMP / "conductor" / "conductor.log"},
@@ -346,6 +347,8 @@ def _lanes() -> list[dict]:
         if "thin_batch.py" not in line or "--novel-dir" not in line or " grep " in line:
             continue
         pid, _, args = line.strip().partition(" ")
+        if _entry_script(args) != 'thin_batch.py':
+            continue
         novel_match, range_match, stage_match = NOVEL_ARG.search(args), RANGE.search(args), STAGE.search(args)
         if not (novel_match and range_match):
             continue
@@ -429,9 +432,8 @@ def _workers() -> list[dict]:
         if len(parts) < 3:
             continue
         pid, elapsed, args = parts[0], int(parts[1]), parts[2]
-        if " grep " in args:
-            continue
-        if "render_clips_thin.py" in args:
+        entry = _entry_script(args)
+        if entry == 'render_clips_thin.py':
             episode = EPISODE_ARG.search(args)
             novel = NOVEL_ARG.search(args)
             if not (episode and novel):
@@ -454,17 +456,29 @@ def _workers() -> list[dict]:
             rows.append({"kind": "渲染单集", "novel": TITLES.get(novel_id, novel_id),
                          "what": episode.group(1).rsplit("_", 1)[-1] + " 集",
                          "detail": f"缓存 {ready}/{total} 段（未计质检）" if total else "", "elapsed": elapsed, "idle": idle})
-        elif "plan_chapter_thin.py" in args:
+        elif entry == 'plan_chapter_thin.py':
             index, novel = INDEX_ARG.search(args), NOVEL_ID_ARG.search(args)
             rows.append({"kind": "规划单章", "novel": TITLES.get(novel.group(1) if novel else "", "?"),
                          "what": (index.group(1) + " 章") if index else "", "detail": "", "elapsed": elapsed})
-        elif "build_cards_thin.py" in args:
+        elif entry == 'build_cards_thin.py':
             assets, novel = ASSETS_ARG.search(args), NOVEL_ARG.search(args)
             names = assets.group(1).split(",") if assets else []
             kinds = "角色卡" if all(n.startswith("character") for n in names) else ("场景卡" if all(n.startswith("location") for n in names) else "卡片")
             rows.append({"kind": f"生图·{kinds}", "novel": TITLES.get(Path(novel.group(1)).name if novel else "", "?"),
                          "what": ", ".join(n.rsplit("_", 1)[-1] for n in names[:4]), "detail": f"{len(names)} 张", "elapsed": elapsed})
-        elif "ms_upload_once.py" in args:
+        elif entry == 'prepare_h3_book.py' and '--episode' in shlex.split(args):
+            episode, novel = EPISODE_ARG.search(args), NOVEL_ARG.search(args)
+            rows.append({'kind':'开拍准备', 'novel':TITLES.get(Path(novel.group(1)).name if novel else '', '?'),
+                         'what':f'{episode.group(1)} 章' if episode else '', 'detail':'原文核对、局部修段或提示词准备', 'elapsed':elapsed})
+        elif entry in {'repair_review_thin.py','verify_clips_thin.py','shared_audit_thin.py','prepare_recovery_thin.py','repair_clips_thin.py','source_recheck_thin.py'}:
+            novel_id = _novel_from_args(args)
+            episodes = re.search(r'--episodes\s+(\S+)', args)
+            directory = re.search(r'--episode-dir\s+(\S+)', args)
+            rows.append({'kind':'修复准备' if entry in {'prepare_recovery_thin.py','repair_clips_thin.py','source_recheck_thin.py'} else '片段审查',
+                         'novel':TITLES.get(novel_id, novel_id or '?'),
+                         'what':episodes.group(1)+' 集' if episodes else (Path(directory.group(1)).name.rsplit('_',1)[-1]+' 集' if directory else ''),
+                         'detail':'', 'elapsed':elapsed})
+        elif entry == 'ms_upload_once.py':
             rows.append({"kind": "上传 ModelScope", "novel": "诸天万象录", "what": "", "detail": "", "elapsed": elapsed})
     rows.sort(key=lambda r: (r["kind"], -r["elapsed"]))
     return rows
@@ -477,20 +491,56 @@ def _ps_output() -> str:
         return ""
 
 
+def _entry_script(command: str) -> str:
+    """Classify the actual Python program, not a wrapper's child arguments."""
+    try:
+        args = shlex.split(command)
+    except ValueError:
+        return ''
+    if not args or not Path(args[0]).name.startswith('python'):
+        return ''
+    for arg in args[1:]:
+        if arg in {'-c', '-m'}:
+            return ''
+        if not arg.startswith('-'):
+            return Path(arg).name if arg.endswith('.py') else ''
+    return ''
+
+
+def _novel_from_args(command: str) -> str:
+    try:
+        args = shlex.split(command)
+    except ValueError:
+        return ''
+    for flag in ['--novel-dir', '--novel-id', '--episode-dir', '--episode']:
+        if flag in args and args.index(flag)+1 < len(args):
+            name = Path(args[args.index(flag)+1]).name
+            return name.rsplit('_',1)[0] if flag in {'--episode-dir','--episode'} else name
+    return ''
+
+
 def _processes() -> dict:
     out = _ps_output()
     if not out:
         return {}
-    def count(pattern: str) -> int:
-        return sum(1 for line in out.splitlines() if pattern in line and "grep" not in line)
-    return {
-        "runners": count("render_clips_thin.py --novel-dir"),
-        "planners": count("plan_chapter_thin.py"),
-        "cards": count("build_cards_thin.py"),
-        "reviews": count("--review-only"),
-        "conductors": count("conductor_thin.py --config") + count("conductor_thin.py --pipeline"),
-        "uploads": count("ms_upload_once.py"),
-    }
+    counts = dict.fromkeys(['runners','planners','preparations','repairs','cards','reviews','conductors','uploads'], 0)
+    kinds = {'render_clips_thin.py':'runners', 'plan_chapter_thin.py':'planners',
+             'build_cards_thin.py':'cards', 'repair_review_thin.py':'reviews', 'verify_clips_thin.py':'reviews',
+             'shared_audit_thin.py':'reviews', 'second_review.py':'reviews', 'thin_review.py':'reviews',
+             'prepare_recovery_thin.py':'repairs', 'repair_clips_thin.py':'repairs','source_recheck_thin.py':'repairs',
+             'conductor_thin.py':'conductors','ms_upload_once.py':'uploads'}
+    for line in out.splitlines():
+        entry = _entry_script(line)
+        kind = kinds.get(entry)
+        if entry == 'prepare_h3_book.py':
+            kind = 'preparations' if '--episode' in shlex.split(line) else 'conductors'
+        elif entry == 'manage_repair_thin.py' and 'run' in shlex.split(line):
+            kind = 'conductors'
+        elif entry == 'thin_batch.py' and '--review-only' in shlex.split(line):
+            kind = 'reviews'
+        if kind:
+            counts[kind] += 1
+    return counts
 
 
 def _pool_dir(novel_id: str, pool: str) -> Path:
@@ -554,9 +604,9 @@ def _held_by_novel(directory: Path) -> dict:
             cmd = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
         except OSError:
             continue
-        match = re.search(r"--episode (\w+?)_\d+", cmd)
-        if match:
-            counts[match.group(1)] = counts.get(match.group(1), 0) + 1
+        novel_id = _novel_from_args(cmd)
+        if novel_id:
+            counts[novel_id] = counts.get(novel_id, 0) + 1
     return counts
 
 
@@ -624,9 +674,10 @@ def _lane_pools() -> list[dict]:
     except (OSError, subprocess.SubprocessError):
         return rows
     for line in listing.splitlines():
-        if "thin_batch.py" not in line or "--stage render" not in line or "--review-only" in line or " grep " in line:
-            continue
         pid, _, args = line.strip().partition(" ")
+        entry = _entry_script(args)
+        if not (entry == 'render_clips_thin.py' or entry == 'thin_batch.py' and '--stage render' in args and '--review-only' not in args):
+            continue
         novel_match = NOVEL_ARG.search(args)
         env = _proc_env(pid)
         directory = env.get("NOVEL_INFLIGHT_DIR", "").strip()
@@ -649,6 +700,7 @@ def _lane_pools() -> list[dict]:
 
 
 _LOCAL_CACHE: dict = {"at": 0.0, "rows": []}
+_LOCAL_LOCK = threading.Lock()
 
 
 HOST_NAMES = {"local": "gpu16"}  # the night shift's id for this box; everyone calls it gpu16
@@ -693,6 +745,7 @@ def _local_video(ttl: float = 120.0) -> list[dict]:
     if now - _LOCAL_CACHE["at"] < ttl:
         return _LOCAL_CACHE["rows"]
     rows = []
+    direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     for novel_id, keys in _lane_keys().items():
         for name, base, host, gpus in _local_targets(keys):
             row = {"name": name, "where": where_label(host, gpus), "host": host or "",
@@ -701,7 +754,7 @@ def _local_video(ttl: float = 120.0) -> list[dict]:
                    "alive": False, "pending": 0, "done_hour": 0,
                    "seconds_hour": 0.0, "avg_take": None}
             try:
-                with urllib.request.urlopen(f"{base}/health", timeout=3) as response:
+                with direct.open(f"{base}/health", timeout=3) as response:
                     row["alive"] = response.status == 200
             except (urllib.error.URLError, OSError, ValueError):
                 rows.append(row)
@@ -709,7 +762,7 @@ def _local_video(ttl: float = 120.0) -> list[dict]:
             try:
                 # No limit: the service caps it at 100 and ignores offset, so asking for the
                 # last 100 jobs capped done_hour at 100 and made a 237/hour instance report 98.
-                with urllib.request.urlopen(f"{base}/v1/videos?order=desc", timeout=20) as response:
+                with direct.open(f"{base}/v1/videos?order=desc", timeout=20) as response:
                     jobs = json.loads(response.read()).get("data", [])
             except (urllib.error.URLError, OSError, ValueError):
                 jobs = []
@@ -805,15 +858,35 @@ def _warnings() -> list[dict]:
     return out[:8]
 
 
+def _local_video_cached() -> list[dict]:
+    """Remote instance statistics never hold up a page request."""
+    with _LOCAL_LOCK:
+        if _cache.get('data') is not None and time.time() - _LOCAL_CACHE['at'] > 120 and not _LOCAL_CACHE.get('building'):
+            _LOCAL_CACHE['building'] = True
+            def collect():
+                try:
+                    _local_video()
+                finally:
+                    _LOCAL_CACHE['building'] = False
+            threading.Thread(target=collect, daemon=True, name='status-h3-resources').start()
+    return _LOCAL_CACHE['rows']
+
+
 def snapshot() -> dict:
+    # The production controllers already publish current counters. Full-book
+    # validation is for the historical board's background worker, not HTTP.
+    history = _board_cache.get('data') or {}
+    by_id = {n['id']: n for n in history.get('novels', [])}
     return {
         "now": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "novels": [_novel_status(n) for n in NOVELS],
+        "novels": [{**by_id.get(n['id'], {}), 'id': n['id'], 'title': n['title'],
+                    'history_loading': n['id'] not in by_id, 'history_at': history.get('now'),
+                    'attention': by_id.get(n['id'], {}).get('attention', [])} for n in NOVELS],
         "lanes": _lanes(),
         "workers": _workers(),
         "processes": _processes(),
         "inflight": _inflight(),
-        "local": _local_video(),
+        "local": _local_video_cached(),
         "warnings": _warnings(),
     }
 
@@ -1030,19 +1103,21 @@ def board_snapshot() -> dict:
 
 def live_metrics(data: dict) -> dict:
     """Production counters stay live while expensive historical charts are cached."""
-    rows=[{**n,'pipeline':pipeline_metrics(ROOT/'outputs'/n['id']),'history_at':data.get('now')} for n in data.get('novels',[])]
+    rows=[{**n,'pipeline':pipeline_metrics(ROOT/'outputs'/n['id']),'history_at':n.get('history_at',data.get('now'))} for n in data.get('novels',[])]
     rows.sort(key=lambda n:0 if (n.get('pipeline') or {}).get('mode','repair')=='repair' and n.get('pipeline')
               else 1 if n.get('pipeline') else 2)
     return {**data,'novels':rows,'live_at':time.strftime('%F %T'),'ui_version':UI_VERSION}
 
 
 _cache: dict = {"at": 0.0, "data": None}
+_cache_lock = threading.Lock()
 
 
 def cached_snapshot() -> dict:
-    if time.time() - _cache["at"] > CACHE_SECONDS or _cache["data"] is None:
-        _cache["data"] = snapshot()
-        _cache["at"] = time.time()
+    with _cache_lock:
+        if time.time() - _cache["at"] > CACHE_SECONDS or _cache["data"] is None:
+            _cache["data"] = snapshot()
+            _cache["at"] = time.time()
     return live_metrics(_cache['data'])
 
 
@@ -1261,7 +1336,8 @@ LIVE_BODY = """
 <div class="card"><div class="label">运行明细 · 单集任务</div><div class="twrap"><table class="resp" id="workers"></table></div></div>
 <div class="card" id="local-card" style="display:none"><div class="label">本地 H3 生成资源</div>
   <div class="twrap"><table class="resp" id="local"></table></div></div>
-<div class="card"><div class="label">进程与在途</div><div class="pills" id="procs"></div>
+<div class="card"><div class="label">进程与在途 <span id="runtime-stamp" class="dim"></span></div><div class="pills" id="procs"></div>
+  <div class="dim" style="margin-top:8px">进程数按当前运行入口统计；请求在途包含等待生成资源的任务。</div>
   <div class="twrap" style="margin-top:12px"><table class="resp" id="inflight"></table></div></div>
 <script>
 const $ = id => document.getElementById(id);
@@ -1293,6 +1369,7 @@ function spark(bars){
 
 function novelCard(d, n){
   if(n.pipeline)return pipelineCurrentCard(n);
+  if(n.history_loading)return `<div class="card"><b>${pipelineEscape(n.title)}</b><div class="dim">历史记录正在后台读取。</div></div>`;
   const lanes = d.lanes.filter(l => l.novel === n.title);
   const workers = d.workers.filter(w => w.novel === n.title);
   const pools = d.inflight.filter(i => i.novel === n.title);
@@ -1362,6 +1439,18 @@ function laneRow(l){
     <td data-l="更新" class="${h==="ok"?"dim":"warn-t"}">${fmtAgo(l.age)}</td></tr>`;
 }
 
+function tickRuntime(){
+  fetch('runtime.json',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+    $("procs").innerHTML = Object.entries(d.processes||{})
+      .map(([k,v])=>`<span class="pill">${({runners:"渲染",planners:"规划",preparations:"开拍准备",repairs:"修复准备",cards:"角色卡",reviews:"审查",conductors:"调度器",uploads:"上传"})[k]||k} <b class="num">${v}</b></span>`).join("");
+    $("inflight").innerHTML = `<thead><tr><th>小说</th><th>通道</th><th>在途/上限</th></tr></thead><tbody>` +
+      (d.inflight||[]).map(i=>`<tr><td data-l="小说">${i.novel}</td><td data-l="通道">${i.pool}</td>
+        <td data-l="在途" class="num">${i.slots} / ${i.limit}</td></tr>`).join("") + `</tbody>`;
+    $('runtime-stamp').textContent=d.now;
+  }).catch(()=>{ $('runtime-stamp').textContent='更新失败，保留上次采样'; });
+}
+tickRuntime(); setInterval(tickRuntime,15000);
+
 function tick(){
   fetch("status.json",{cache:"no-store"}).then(r=>r.json()).then(d=>{
     if(d.ui_version&&d.ui_version!==DASHBOARD_VERSION){window.location.reload();return;}
@@ -1388,11 +1477,6 @@ function tick(){
         <td data-l="进度" class="dim">${w.detail}</td>
         <td data-l="已跑" class="${w.elapsed>1800?"warn-t":"dim"}">${fmtAgo(w.elapsed).replace("前","")}</td></tr>`).join("")
         : `<tr><td class="dim">暂时没有</td></tr>`) + `</tbody>`;
-    $("procs").innerHTML = Object.entries(d.processes)
-      .map(([k,v])=>`<span class="pill">${({runners:"渲染",planners:"规划",cards:"角色卡",reviews:"审查",conductors:"调度器",uploads:"上传"})[k]||k} <b class="num">${v}</b></span>`).join("");
-    $("inflight").innerHTML = `<thead><tr><th>小说</th><th>通道</th><th>在途/上限</th></tr></thead><tbody>` +
-      d.inflight.map(i=>`<tr><td data-l="小说">${i.novel}</td><td data-l="通道">${i.pool}</td>
-        <td data-l="在途" class="num">${i.slots} / ${i.limit}</td></tr>`).join("") + `</tbody>`;
     const L = d.local || [];
     $("local-card").style.display = L.length ? "" : "none";
     if (L.length) {
@@ -1419,6 +1503,7 @@ tick(); setInterval(tick, 15000);
 </script>"""
 
 BOARD_BODY = """
+<div id="book-overview" style="margin-bottom:16px"></div>
 <div id="board" style="display:grid;gap:16px"></div>
 <script>
 const DAY = 86400000;
@@ -1588,6 +1673,7 @@ function load(){
       document.getElementById("board").innerHTML = `<div class="card dim">首次统计要扫一遍每集的审查和渲染报告，十几秒到一分钟，好了会自动出来…</div>`;
       setTimeout(load, 3000); return;
     }
+    document.getElementById('book-overview').innerHTML=pipelineBookOverview(d.novels);
     pipelineRender('board',d.novels.map(boardCard).join(''));
     document.getElementById("stamp").textContent = `当前指标 ${d.live_at||d.now} · 每 15 秒同步`;
     setTimeout(load, 15000);
@@ -1604,7 +1690,10 @@ PAGE_BOARD = _page("看板", '<span id="stamp"></span>', BOARD_BODY)
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - http.server's interface
-        if self.path.startswith("/status.json"):
+        if self.path.startswith('/runtime.json'):
+            body = json.dumps({'now':time.strftime('%F %T'), 'processes':_processes(), 'inflight':_inflight()}, ensure_ascii=False).encode('utf-8')
+            content_type = 'application/json; charset=utf-8'
+        elif self.path.startswith("/status.json"):
             body = json.dumps(cached_snapshot(), ensure_ascii=False).encode("utf-8")
             content_type = "application/json; charset=utf-8"
         elif self.path.startswith("/board.json"):
@@ -1635,6 +1724,6 @@ if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
     server=ThreadingHTTPServer(("0.0.0.0",port),Handler)
     start_monitor(ROOT,[n['id'] for n in NOVELS])
-    _board_cache["building"] = True
-    threading.Thread(target=_build_board, daemon=True).start()  # warm the board cache
+    # Historical scans start on a board request. The live page needs only the
+    # controllers' saved state, including immediately after a server restart.
     server.serve_forever()

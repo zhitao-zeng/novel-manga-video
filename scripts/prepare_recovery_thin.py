@@ -123,7 +123,71 @@ def prepare_technical(directory: Path) -> dict:
     return {'changed': list(fresh), 'instructions': fresh, 'nonverbal': nonverbal}
 
 
-def prepare(directory: Path, kind: str) -> dict:
+def grant_changed_source_retry(directory: Path, before: dict, before_notes: dict, result: dict, extra_takes: int) -> list[str]:
+    """An explicit extra take requires a changed request, not merely a new seed."""
+    from managed_repair_thin import generated_counts, generation_limit
+    from repair_history import load, accepted_clip_material
+    counts = generated_counts(load(directory))
+    after = read(directory / 'clip_plan.json', {})
+    notes = read(directory / 'review_feedback.json', {})
+    old = {c['clip_id']:c for c in before.get('clips', [])}
+    grants = read(directory / 'repair_budget_grants.json', {})
+    granted = []
+    for clip in after.get('clips', []):
+        cid = clip['clip_id']
+        if cid not in result.get('changed', []) or cid in result.get('accepted', []) or counts.get(cid, 0) < generation_limit(directory, cid):
+            continue
+        a = accepted_clip_material(old.get(cid, {})); b = accepted_clip_material(clip)
+        a.pop('repair_take', None); b.pop('repair_take', None)
+        if a == b and before_notes.get(cid, '') == notes.get(cid, ''):
+            continue
+        grants[cid] = {'limit': counts[cid] + extra_takes,
+                       'reason': '用户授权的残留段处理：原文核验后请求已有实质修改，增加一次实际生成，历史次数保留'}
+        granted.append(cid)
+    if granted:
+        atomic_write_json(directory / 'repair_budget_grants.json', grants)
+    return granted
+
+
+def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
+    if kind == 'entities':
+        from story_identity import resolve_chapter, typed_entities
+        from repair_clips_thin import repair_episode
+        import repair_history as history
+        context = resolve_chapter(directory)
+        types = typed_entities(directory.parent, context)
+        before = read(directory / 'clip_plan.json', {})
+        notes = read(directory / 'review_feedback.json', {})
+        issues = {}
+        for clip in before.get('clips', []):
+            objects = {name: types[name] for name in clip.get('cast', []) if types.get(name, {}).get('kind') == 'object'}
+            if objects:
+                issues[clip['clip_id']] = ('原文确认以下是器物，不是人物：' + json.dumps(objects, ensure_ascii=False)
+                    + '。只修本段：保留器物及它参与的原文事件，移除错误人形外貌与人物卡绑定，不让器物扮演人。'
+                    '核对台词归属，保留真实人物的原有对白和事件；场景、服装等正确部分保持。')
+        if not issues:
+            return {'changed': [], 'skip_render': True}
+        result = repair_episode(directory.parent, int(directory.name.rsplit('_',1)[1]), False,
+                                use_history=False, reframe=True, source_issues=issues, return_proposal=True)
+        proposal = result.get('proposal')
+        if not proposal or set(issues) - set(result.get('changed', [])):
+            raise ValueError('entity repair incomplete: ' + result.get('why', 'no complete proposal'))
+        from clip_readiness import reference_issues
+        for c in proposal['plan']['clips']:
+            if c['clip_id'] in issues and any(r.startswith('entity:') for r in reference_issues(c, directory.parent)):
+                raise ValueError('object remains bound as a character')
+        trial = history.begin_trial(directory, set(result['changed']), 'entity_type_recovery',
+            after_plan=proposal['plan'], after_notes=proposal['notes'], changes=proposal['changes'])
+        rec = history.load(directory)
+        rec['trials'][-1]['managed'] = True
+        history.save(directory, rec)
+        atomic_write_json(directory / 'chapter_script.json', proposal['script'])
+        atomic_write_json(directory / 'clip_plan.json', proposal['plan'])
+        atomic_write_json(directory / 'review_feedback.json', proposal['notes'])
+        if extra_takes:
+            result['extra_take_grants'] = grant_changed_source_retry(directory, before, notes, result, extra_takes)
+        result.pop('proposal', None)
+        return {**result, 'skip_render': False}
     if kind == 'references':
         from single_card_plan import repair_missing_expressions
         result=repair_missing_expressions(directory)
@@ -143,12 +207,17 @@ def prepare(directory: Path, kind: str) -> dict:
         from source_recheck_thin import prepare_source_recheck
         import repair_history as history
         initial_count = len(history.load(directory)['trials'])
+        before = read(directory / 'clip_plan.json', {})
+        before_notes = read(directory / 'review_feedback.json', {})
         result = prepare_source_recheck(directory)
         record = history.load(directory)
         for trial in record['trials'][initial_count:]:
             trial['managed'] = True
         if len(record['trials']) > initial_count:
             history.save(directory, record)
+        if extra_takes:
+            result['extra_take_grants'] = grant_changed_source_retry(directory, before, before_notes, result, extra_takes)
+        result['skip_render'] = not result.get('needs_render', result.get('changed'))
         return result
     if kind == 'plan':
         from repair_blocked_plan import repair_episode
@@ -183,8 +252,10 @@ def prepare(directory: Path, kind: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--episode-dir', type=Path, required=True)
-    parser.add_argument('--kind', choices=['plan', 'references', 'technical', 'residual', 'identity', 'binding', 'speech', 'source','managed'], required=True)
+    parser.add_argument('--kind', choices=['plan', 'references', 'technical', 'residual', 'identity', 'binding', 'speech', 'source','managed','entities'], required=True)
     parser.add_argument('--job-id', required=True)
+    parser.add_argument('--extra-takes', type=int, choices=[0, 1], default=0,
+                        help='source recovery: one explicitly authorized extra take only after a substantive request change')
     args = parser.parse_args()
     directory = args.episode_dir.resolve()
     path = directory / 'repair_history' / f'preparation-{args.job_id}.json'
@@ -193,7 +264,7 @@ def main() -> int:
         print(json.dumps(old, ensure_ascii=False), flush=True)
         return 0
     try:
-        result = {'success': True, 'kind': args.kind, **prepare(directory, args.kind)}
+        result = {'success': True, 'kind': args.kind, **prepare(directory, args.kind, extra_takes=args.extra_takes)}
     except ValueError as error:
         result = {'success': False, 'kind': args.kind, 'error': str(error)}
     atomic_write_json(path, result)

@@ -14,14 +14,19 @@ from repair_history import accepted_clip_material, begin_trial
 
 
 class SourceVerifier(CurrentVerifier):
-    def __init__(self, *args, proposed_plan: dict, **kwargs):
+    def __init__(self, *args, proposed_plan: dict, current_videos: dict, **kwargs):
         self.proposed_plan = proposed_plan
+        self.current_videos = current_videos
         super().__init__(*args, repair_advice=False, **kwargs)
 
     def load(self, path: Path):
         if Path(path).name == 'clip_plan.json':
             return copy.deepcopy(self.proposed_plan)
         return super().load(path)
+
+    def video_of(self, ep_dir, cid, review_clip):
+        current = self.current_videos.get(cid)
+        return Path(current['video']) if current else None
 
     def prompt_for(self, clip, ep_dir, chapter, claim):
         cards, text = super().prompt_for(clip, ep_dir, chapter, '')
@@ -53,10 +58,15 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     by_index = {s.get('index', i):s for i,s in enumerate(script.get('shots', []),1)}
     segments = {str(s['segment_id']):s['text'] for s in read(directory / 'segments.json', [])}
     names_all = [c['name'] for c in bible.get('characters', [])]
-    load_entity_index(novel)
+    from story_identity import IdentityCatalog, resolve_chapter
+    identity_reading = resolve_chapter(directory)
+    from dialogue_binding import apply_confirmed_speakers
+    protected_bindings = apply_confirmed_speakers(directory, script['shots'])
+    catalog = IdentityCatalog(novel)
+    load_entity_index(novel, episode)
     present = ledger_cast(novel, episode)
     contracts = read(directory / 'source_speaker_contract.json', [])
-    merged = {(r['stage'],r['turn']):r for r in contracts}
+    merged = {**{(r['stage'],r['turn']):r for r in contracts}, **protected_bindings}
     source_issues, resolved = {}, {}
     for clip in before.get('clips', []):
         cid = clip['clip_id']
@@ -65,15 +75,17 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
         # Speaker identity may be established well before a late split part.
         # Keep the full chapter for attribution; picture rewriting stays local.
         passage = '\n'.join(segments.values())
-        names = list(dict.fromkeys([*mentioned_characters(passage, names_all),
+        resolved_names = [identity_reading['entities'].get(m['entity_id']) for m in identity_reading['mentions']
+                          if m.get('presence') in {'on_stage','voice'} and m['entity_id'] != 'UNKNOWN']
+        names = list(dict.fromkeys([*(n for n in resolved_names if n in names_all), *mentioned_characters(passage, names_all),
                                     *(n for n,p in present.items() if p in {'on_stage','voice'} and n in names_all),
                                     *(n for n in clip.get('cast',[]) if n in names_all)]))
         if any(t.get('speaker_name')=='无名群声' and t.get('delivery_mode')=='offscreen_dialogue' for t in clip.get('lines',[])):
             names = list(dict.fromkeys([*names,'无名群声']))
-        identities = source_identities(names,bible,passage)
+        identities = source_identities(names,bible,passage,context=identity_reading,catalog=catalog)
         shots = [{**by_index[i], 'origin_index':i} for i in dict.fromkeys(clip.get('shot_indexes',[])) if i in by_index]
         evidence = []
-        speakers = speaker_contract(passage,shots,names,identities,list(merged.values()),evidence)
+        speakers = speaker_contract(passage,shots,names,identities,list(merged.values()),evidence,identity_context=identity_reading)
         required = {(s['origin_index'],i) for s in shots for i,t in enumerate(s.get('turns',[]),1)
                     if t.get('delivery_mode') in {'visible_dialogue','offscreen_dialogue'} and t.get('text')}
         if required - speakers.keys():
@@ -97,9 +109,11 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     # An already correct request still needs source-based review: a no-op
     # picture rewrite is not a failed preparation or evidence the video is bad.
     checked = sorted(wanted)
-    if set(plan_issues(plan,proposal['script'])) & set(result['changed']):
+    structural = proposal.get('structural_repair') or {}
+    if structural or set(plan_issues(plan,proposal['script'])) & set(result['changed']):
         from repair_blocked_plan import repack
-        plan, structural = repack(directory, plan, proposal['script'])
+        if not structural:
+            plan, structural = repack(directory, plan, proposal['script'])
         changed = list(dict.fromkeys([*result['changed'], *(cid for g in structural['groups'] for cid in [*g['old'], *g['new']])]))
         notes = {cid:note for cid,note in notes.items() if cid not in changed}
         # A changed cut cannot reuse a source verdict about the old clip ID.
@@ -130,10 +144,11 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
             raise ValueError(f'{cid}: corrected English request not ready')
         print(f'{cid}: English request prepared; reviewing existing video',flush=True)
     state = novel / 'repair_manager'
-    verifier = SourceVerifier(novel,state/'source_recheck'/'records.jsonl','source_recheck',1,proposed_plan=plan,max_tokens=2200)
     media = read(directory / 'thin_media_report.json', {})
     selected = {c['clip_id']:c.get('selected') or {} for c in media.get('clips', [])}
     actual = current_takes(directory,before,read(directory/'episode_review.json',{}))
+    verifier = SourceVerifier(novel,state/'source_recheck'/'records.jsonl','source_recheck',1,
+                              proposed_plan=plan,current_videos=actual,max_tokens=2200)
     acceptances = read(directory / 'source_acceptances.json', {})
     records, accepted = [], []
     for cid in checked:

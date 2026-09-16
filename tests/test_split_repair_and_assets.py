@@ -69,12 +69,60 @@ def test_no_op_rebuild_preserves_english_prompt_and_does_not_request_a_retake(sp
     assert not changed and updated == plan
 
 
+def test_later_location_change_recuts_only_affected_range(split_episode):
+    from clip_readiness import plan_issues
+    from repair_blocked_plan import turn_stream
+    episode, script, plan = split_episode
+    bible = json.loads((episode.parent / 'story_bible.json').read_text())
+    bible['locations'].append('卧室：床')
+    (episode.parent / 'story_bible.json').write_text(json.dumps(bible))
+    first = script['shots'][0]
+    first['turns'] = [{'speaker_name': '林凡', 'delivery_mode': 'visible_dialogue', 'text': '第一句。'}]
+    second = {**copy.deepcopy(first), 'index': 2}
+    second['turns'][0]['text'] = '第二句。'
+    script['shots'] = [first, second]
+    ctx = packer.context_for_plan(episode, episode.parent / 'story_bible.json', plan)
+    packed = packer.pack(copy.deepcopy(script['shots']))
+    assert len(packed) == 1
+    plan['clips'] = [packer.clip_entry(packed[0], 'clip_01', ctx)]
+    # Unrelated entries and cached translations must survive even if they
+    # need an independent source-address repair later.
+    unrelated = {**copy.deepcopy(plan['clips'][0]), 'clip_id': 'clip_09', 'shot_indexes': [99],
+                 'shot_parts': [], 'prompt_h3': 'keep exactly'}
+    plan['clips'].append(unrelated)
+    second['location'] = '卧室'
+    assert any(r.startswith('location:') for r in plan_issues(plan, script)['clip_01'])
+    report = {}
+    updated, changed = repair.rebuild_clips(episode, episode.parent / 'story_bible.json', script, plan,
+                                           {'clip_01'}, repack_report=report)
+    assert changed == ['clip_01', 'clip_10']
+    assert updated['clips'][-1] == unrelated
+    assert [c['location'] for c in updated['clips'][:-1]] == ['大厅', '卧室']
+    assert [next(r['name'] for r in c['references'] if r['role'] == 'location')
+            for c in updated['clips'][:-1]] == ['大厅', '卧室']
+    assert report['groups'] == [{'old': ['clip_01'], 'new': ['clip_01', 'clip_10'], 'source_indexes': [1, 2]}]
+    rebuilt = packer.shots_for_plan(updated, script['shots'], set(changed))
+    assert turn_stream(script['shots']) == turn_stream([s for cid in changed for s in rebuilt[cid]])
+    assert not set(plan_issues(updated, script)) & set(changed)
+
+
+def test_legacy_location_label_with_correct_rebound_reference_does_not_retake():
+    from clip_readiness import location_issues
+    shots = {1: {'location': '公安局旁边巷子'}}
+    clip = {'location': '老街后巷', 'shot_indexes': [1],
+            'references': [{'role': 'location', 'name': '公安局旁边巷子'}]}
+    assert not location_issues(clip, shots)
+    shots[1]['location'] = '卧室'
+    assert location_issues(clip, shots)
+
+
 def test_story_repair_addresses_plan_index_and_preserves_source_index(split_episode, monkeypatch):
     episode, script, plan = split_episode
     (episode / "chapter_script.json").write_text(json.dumps(script))
     (episode / "clip_plan.json").write_text(json.dumps(plan))
     (episode / "episode_review.json").write_text(json.dumps({"clips": {"clip_02": {"tier": "must_fix", "story_ok": False}}}))
     monkeypatch.setattr(repair, "ledger_cast", lambda *a: {})
+    monkeypatch.setattr('story_identity.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     def answer(content, schema, **kwargs):
         assert schema["properties"]["stages"]["items"]["properties"]["origin_index"]["enum"] == [1]
         return {"stages": [{"origin_index": 1, "in_frame": ["林凡"], "actions": [], "extras": ["持灯的侍者"], "event": "林凡转身说话"}]}
@@ -85,6 +133,47 @@ def test_story_repair_addresses_plan_index_and_preserves_source_index(split_epis
     actual = json.loads((episode / "clip_plan.json").read_text())["clips"]
     assert actual[1]["spoken_text"] == "乙" * 48
     assert actual[0] == plan["clips"][0] and actual[2] == plan["clips"][2]
+
+
+@pytest.mark.parametrize('legacy_address', [False, True])
+def test_source_body_conflict_rolls_back_candidate_before_saving(split_episode, monkeypatch, legacy_address):
+    episode, script, plan = split_episode
+    if legacy_address:
+        script['shots'][0].pop('index')
+    quote = '林凡此时已经变成一只白狐。'
+    for name, value in [('chapter_script.json', script), ('clip_plan.json', plan),
+                        ('segments.json', [{'segment_id': 'seg_1', 'text': quote}])]:
+        (episode / name).write_text(json.dumps(value))
+    before = {name: (episode / name).read_bytes() for name in ['chapter_script.json', 'clip_plan.json']}
+    context = {'entities': {'e1': '林凡'}, 'mentions': [], 'appearances': [
+        {'entity_id': 'e1', 'source_quote': quote, 'description': '白狐'}]}
+    monkeypatch.setattr('story_identity.resolve_chapter', lambda *a, **k: context)
+    monkeypatch.setattr(repair, 'ledger_cast', lambda *a: {})
+    def ask(*a, **k):
+        if k['name'] == 'repair_source_appearance':
+            assert k['name'] == 'repair_source_appearance'
+            assert '"stage": 1' in a[0][0]['text']
+            return {'issues': [{'stage': 1, 'source_quote': quote, 'candidate_quote': '人类男子', 'reason': '当前身体为白狐'}]}
+        return {'stages': [{'origin_index': 1, 'in_frame': ['林凡'], 'actions': [], 'extras': [],
+                            'event': '人类男子林凡转头'}]}
+    monkeypatch.setattr(repair, 'ask_json', ask)
+    result = repair.repair_episode(episode.parent, 1, True, source_issues={'clip_02': '形态不符'})
+    assert result['clips'] == 0 and 'source appearance conflict' in result['why']
+    assert {name: (episode / name).read_bytes() for name in before} == before
+
+
+def test_appearance_check_skips_unknown_and_rejects_invented_evidence(monkeypatch):
+    shot = {'index': 1, 'characters': ['甲'], 'visual_prompt': '男子甲站在窗边。'}
+    context = {'entities': {'e1': '甲'}, 'appearances': []}
+    monkeypatch.setattr(repair, 'ask_json', lambda *a, **k: pytest.fail('no source body evidence'))
+    assert not repair.source_appearance_check('甲看向窗外。', [shot], context)['checked']
+    context['appearances'] = [{'entity_id': 'e1', 'source_quote': '甲看向窗外。', 'description': '旧抽取猜测为女性'}]
+    def ask(content, *a, **k):
+        assert '旧抽取猜测为女性' not in str(content)
+        return {'issues': [{'stage': 1, 'source_quote': '甲是女子', 'candidate_quote': '男子', 'reason': '猜测'}]}
+    monkeypatch.setattr(repair, 'ask_json', ask)
+    with pytest.raises(ValueError, match='unsupported evidence'):
+        repair.source_appearance_check('甲看向窗外。', [shot], context)
 
 
 @pytest.mark.parametrize("repeated_index", [False, True])

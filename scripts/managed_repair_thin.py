@@ -30,7 +30,12 @@ def source_state(directory: Path, clip: dict) -> dict:
     paths=[directory.parent/name for name in ['entity_index.json','bible_aliases.json']]
     paths += [directory.parent/r['path'] for r in clip.get('references',[]) if r.get('path') and r.get('role')!='voice']
     assets={str(p):[p.stat().st_mtime_ns,p.stat().st_size] if p.is_file() else None for p in paths}
-    return {'stages':[s for i,s in enumerate(script.get('shots',[]),1)
+    from story_identity import current_context
+    identity_context = current_context(directory)
+    source_identity = {k: [{field:value for field,value in row.items() if field!='source_quote'}
+                          for row in identity_context.get(k, [])] for k in ['mentions','relations','appearances']}
+    from dialogue_binding import POLICY as BINDING_POLICY
+    return {'binding_policy': BINDING_POLICY, 'identity_reading': source_identity, 'stages':[s for i,s in enumerate(script.get('shots',[]),1)
                       if s.get('index',i) in clip.get('shot_indexes',[])],
             'segments':read(directory/'segments.json',[]),
             'cast':clip.get('cast',[]),'references':clip.get('references',[]),'crowd_roles':clip.get('crowd_roles',{}),
@@ -99,11 +104,14 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
     changed,accepted = [],[]
     if wanted:
         structural = repack_episode(directory,apply=True)
-        changed.extend(structural['changed'])
+        changed.extend(dict.fromkeys([*structural['changed'],
+                                     *(cid for group in structural.get('groups', []) for cid in group['new'])]))
         # A recut clip ID no longer denotes the picture the old judge saw.
         # Render/review the corrected ranges before deciding its next repair.
         wanted = [cid for cid in wanted if cid not in changed]
     for cid in wanted:
+        if cid in changed:
+            continue  # a previous repair recut this source-connected range
         plan = read(directory/'clip_plan.json',{});review = read(directory/'episode_review.json',{})
         clip = next((c for c in plan['clips'] if c['clip_id']==cid),None)
         if clip is None:
@@ -149,20 +157,26 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
                         continue
                     raise ValueError('reframe made no effective correction: '+str(result.get('why','')))
                 proposal=result['proposal'];updated=proposal['plan']
-                entry = next(c for c in updated['clips'] if c['clip_id']==cid)
-                note = proposal['notes'].get(cid,'')
-                convert(entry,note=note)
-                if h3_prompt_outdated(entry,note) or request_issues(entry):
-                    raise ValueError('reframed English request still needs correction')
-                if (history.accepted_clip_material(entry)==history.accepted_clip_material(clip)
-                        and note==read(directory/'review_feedback.json',{}).get(cid,'')):
+                affected = set(result['changed'])
+                for entry in updated['clips']:
+                    if entry['clip_id'] not in affected:
+                        continue
+                    note = proposal['notes'].get(entry['clip_id'],'')
+                    convert(entry,note=note)
+                    if h3_prompt_outdated(entry,note) or request_issues(entry):
+                        raise ValueError('reframed English request still needs correction')
+                entry = next((c for c in updated['clips'] if c['clip_id']==cid), None)
+                if (not proposal.get('structural_repair') and entry is not None
+                        and history.accepted_clip_material(entry)==history.accepted_clip_material(clip)
+                        and proposal['notes'].get(cid,'')==read(directory/'review_feedback.json',{}).get(cid,'')):
                     raise ValueError('reframe did not change the failing request')
-                entry['repair_take']=int(clip.get('repair_take',0))+1
-                history.begin_trial(directory,{cid},'reframe',after_plan=updated,after_notes=proposal['notes'],changes=proposal['changes'])
+                if entry is not None:
+                    entry['repair_take']=int(clip.get('repair_take',0))+1
+                history.begin_trial(directory,affected,'reframe',after_plan=updated,after_notes=proposal['notes'],changes=proposal['changes'])
                 atomic_write_json(directory/'chapter_script.json',proposal['script'])
                 atomic_write_json(directory/'clip_plan.json',updated)
                 atomic_write_json(directory/'review_feedback.json',proposal['notes'])
-                changed.append(cid)
+                changed.extend(result['changed'])
             else:
                 # A new seed is a real generation attempt without a spoken
                 # director tail, nor accidental reuse of the already bad take.
@@ -174,9 +188,9 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
                 atomic_write_json(directory/'clip_plan.json',updated)
                 changed.append(cid)
             after_plan = read(directory/'clip_plan.json',{})
-            after_clip = next(c for c in after_plan['clips'] if c['clip_id']==cid)
+            after_clip = next((c for c in after_plan['clips'] if c['clip_id']==cid), None)
             decisions[cid]={'at':time.strftime('%F %T'),'action':action,'diagnosis':diagnosis,'status':'prepared',
-                            'inputs':before,**({'source_checked':source_state(directory,after_clip)} if action=='source' or verified_source else {})}
+                            'inputs':before,**({'source_checked':source_state(directory,after_clip)} if after_clip is not None and (action=='source' or verified_source) else {})}
         except Exception as error:
             reason = str(error)[:350] if isinstance(error,ValueError) else type(error).__name__
             blocked[cid]=reason

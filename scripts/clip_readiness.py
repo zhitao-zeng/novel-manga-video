@@ -45,9 +45,23 @@ def collapsed_source_addresses(plan: dict, script: dict) -> dict[str, list[int]]
     return repaired
 
 
+def location_issues(clip: dict, shots: dict) -> list[str]:
+    locations = {shots[i].get('location') for i in clip.get('shot_indexes', []) if i in shots}
+    locations.discard(None)
+    locations.discard('')
+    if len(locations) > 1:
+        return ['location: source stages cross locations; recut required']
+    bound_locations = {r.get('name') for r in clip.get('references', []) if r.get('role') == 'location'}
+    # Older location rebinding updated the reference and request but retained
+    # the old display label. That alone must not cause a new video generation.
+    if locations and clip.get('location') not in locations and bound_locations != locations:
+        return ['location: clip location differs from its source stages']
+    return []
+
+
 def plan_issues(plan: dict, script: dict | None = None) -> dict[str, list[str]]:
     issues = defaultdict(list)
-    sources = {s.get("index", i) for i, s in enumerate(script.get("shots", []), 1)} if script is not None else None
+    sources = {s.get("index", i): s for i, s in enumerate(script.get("shots", []), 1)} if script is not None else None
     by_source = defaultdict(list)
     cap = float((plan.get("limits") or {}).get("max_clip_seconds") or 0)
     for clip in plan.get("clips", []):
@@ -61,8 +75,12 @@ def plan_issues(plan: dict, script: dict | None = None) -> dict[str, list[str]]:
         elif estimate > seconds + 1e-6:
             issues[cid].append(f"duration: planned {estimate:g}s exceeds request {seconds:g}s")
         indexes = clip.get("shot_indexes") or []
-        if sources is not None and set(indexes) - sources:
-            issues[cid].append(f"source: missing stages {sorted(set(indexes) - sources)}")
+        if sources is not None:
+            if set(indexes) - sources.keys():
+                issues[cid].append(f"source: missing stages {sorted(set(indexes) - sources.keys())}")
+            problems = location_issues(clip, sources)
+            if problems:
+                issues[cid].extend(problems)
         parts = clip.get("shot_parts") or []
         if parts and [p.get("index") for p in parts] != indexes:
             issues[cid].append("ranges: shot_parts do not match shot_indexes")
@@ -94,9 +112,19 @@ def plan_issues(plan: dict, script: dict | None = None) -> dict[str, list[str]]:
 
 
 def reference_issues(clip: dict, novel_dir: Path) -> list[str]:
-    return [f"asset: missing required image {ref.get('path') or '(no path)'}"
+    reasons = [f"asset: missing required image {ref.get('path') or '(no path)'}"
             for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}
             and (not ref.get("path") or not (novel_dir / ref["path"]).is_file())]
+    types = read(novel_dir / 'entity/types.json', {})
+    for ref in clip.get('references', []):
+        if ref.get('role') not in {'character', 'location'}:
+            continue
+        if ref['role'] == 'character' and types.get(ref.get('name'), {}).get('kind') == 'object':
+            reasons.append(f"entity: object {ref['name']} is bound as a character")
+        # Old card reviews compare against design data (including guessed sex,
+        # clothing or day/night). They are diagnostics, not source-confirmed
+        # identity blockers. Explicit book type corrections above are binding.
+    return reasons
 
 
 def may_reuse_duration_cache(directory: Path, cid: str, reasons: list[str]) -> bool:
@@ -132,6 +160,9 @@ def input_state(directory: Path, plan: dict) -> dict:
     for key, path in paths.items():
         stat = path.stat() if path.is_file() else None
         result[key] = [stat.st_mtime_ns, stat.st_size] if stat else None
+    # Another chapter judging an unrelated card must not reopen this blocker.
+    result['asset_admission'] = {c['clip_id']: [r for r in reference_issues(c, directory.parent) if r.startswith('entity:')]
+                                 for c in plan.get('clips', [])}
     return result
 
 

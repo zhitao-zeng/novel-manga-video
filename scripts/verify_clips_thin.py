@@ -40,6 +40,7 @@ if "QWEN38_LOCAL_BASE_URL" not in os.environ:
             break
 import thin_review as tr  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
+from story_identity import prompt_block as identity_prompt_block
 
 SCHEMA = tr.VERIFY_SCHEMA
 JUDGE_KEYS = ("QWEN38_LOCAL_BASE_URL", "QWEN38_LOCAL_MODEL", "QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_STREAM")
@@ -105,7 +106,7 @@ class Verifier:
         crowds=clip.get('crowd_roles',{})
         cast = [n for n in clip.get("cast", []) if n in by_name and n not in crowds]
         extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for s in clip.get("shots", []) for e in (s.get("extras") or []))]))
-        extras.extend(f"{v['count']}名不同的{name}（服装可以相同，脸和发型必须能区分；参考图只提供制服）" for name,v in crowds.items())
+        extras.extend(f"{v['count'] or '多'}名不同的{name}（服装可以相同，脸和发型必须能区分；参考图只提供制服）" for name,v in crowds.items())
         listeners = list(dict.fromkeys(l for l in [*(clip.get("listeners") or []), *(l for s in clip.get("shots", []) for l in (s.get("listeners") or []))] if l in by_name))
         offscreen = list(dict.fromkeys(str(r.get("speaker_name") or "") for r in clip.get("lines", []) if r.get("delivery_mode") == "offscreen_dialogue" and r.get("speaker_name")))
         background = [n for n in clip.get("background_only", []) if n in by_name]
@@ -129,6 +130,7 @@ class Verifier:
                 + tr.story_block(clip, segments) + tr.snapshot_block(clip, ep_dir)
                 + tr.source_contract_block(clip, ep_dir)
                 + tr.review_world_context(self.novel)
+                + identity_prompt_block(ep_dir, cast)
                 + f"\n预期台词：{lines or '无'}\n"
                 + (f"\n上一位审片员的意见（待核实；他有时会夸大，例如把几个戴同款帽子的人说成克隆、把画外说话的人说成缺席、把背景里的路人说成多出的角色）：{claim}\n" if claim else "")
                 + tr.VERIFY_QUESTIONS.replace("evidence：一句话", "claim_confirmed：上一位审片员说的问题在帧里确实看得到（没有给意见时填 false）；\nevidence：一句话"))

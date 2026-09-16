@@ -43,20 +43,23 @@ def turn_stream(shots: list[dict]) -> list[tuple]:
     return result
 
 
-def repack(directory: Path, plan: dict, script: dict) -> tuple[dict, dict]:
+def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | None = None) -> tuple[dict, dict]:
+    scope = targets
     addresses = collapsed_source_addresses(plan, script)
+    if scope is not None:
+        addresses = {cid: indexes for cid, indexes in addresses.items() if cid in scope}
     if addresses:
         plan = copy.deepcopy(plan)
         for clip in plan['clips']:
             if clip['clip_id'] in addresses:
                 clip['shot_indexes'] = addresses[clip['clip_id']]
-    targets = set(plan_issues(plan, script)) | set(addresses)
+    targets = (set(plan_issues(plan, script)) | set(addresses)) if scope is None else set(scope)
     ctx = packer.context_for_plan(directory, directory.parent / 'story_bible.json', plan)
     shots = packer.prepared_shots(copy.deepcopy(script), directory)
     # Explicit part numbers can be internally consistent yet no longer match
     # the shortened source stage (e.g. 359 / stage 6). Check reconstruction too.
     for clip in plan.get('clips', []):
-        if clip.get('kind') == 'video' and clip.get('shot_indexes'):
+        if clip.get('kind') == 'video' and clip.get('shot_indexes') and (scope is None or clip['clip_id'] in scope):
             try:
                 packer.shots_for_plan(plan, shots, {clip['clip_id']})
             except ValueError:
@@ -99,6 +102,9 @@ def repack(directory: Path, plan: dict, script: dict) -> tuple[dict, dict]:
         legacy['split'] = {k: v for k, v in legacy.get('split', {}).items() if not set(v) & set(changed)}
         updated['split_long_stages'] = legacy
     remaining = plan_issues(updated, script)
+    if scope is not None:
+        replacement_ids = {cid for group in groups for cid in group['new']}
+        remaining = {cid: reasons for cid, reasons in remaining.items() if cid in replacement_ids}
     if remaining:
         raise ValueError(f'repacked plan still blocked: {remaining}')
     return updated, {'changed': changed, 'groups': groups, 'source_addresses': addresses,

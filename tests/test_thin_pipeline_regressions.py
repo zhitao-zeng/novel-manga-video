@@ -41,6 +41,19 @@ def test_short_clip_still_merges_when_six_stages_fit():
     assert [s["index"] for s in clips[0]["shots"]] == list(range(1, 7))
 
 
+@pytest.mark.parametrize('description', [
+    '三头龙共用一个身体，分别向三个方向咆哮',
+    '三头雪铠共用一个身体，分别观察洞口',
+    '三个独立个体在庭院分别站立，互相交谈',
+])
+def test_packer_does_not_guess_anatomy_from_species_words(description):
+    shot = {**_shot(1), 'visual_prompt': description}
+    clip = packer.pack([shot])[0]
+    clip['request_seconds'] = int(clip['seconds'])
+    prompt = packer.compile_prompt(clip, SimpleNamespace(visual_style='国漫'), [], [], '庭院')
+    assert description in prompt
+
+
 def _mock_model(monkeypatch, handler):
     client_type = httpx.Client
     monkeypatch.setattr(thin_review.httpx, "Client", lambda **kw: client_type(transport=httpx.MockTransport(handler), **kw))
@@ -143,6 +156,7 @@ def test_chapter_repair_budget_survives_full_draft_retries(monkeypatch, tmp_path
         raise TimeoutError("simulated slow repair")
 
     monkeypatch.setattr(planner, "call_model", draft)
+    monkeypatch.setattr('story_identity.resolve_chapter', lambda *a, **k: {})
     monkeypatch.setattr(planner, "validate_and_normalize", lambda *args: (["clip_1 stage 1: missing speaker"], [], []))
     monkeypatch.setattr(planner, "patch_plan", failed_patch)
     monkeypatch.setattr(planner.sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo",

@@ -47,7 +47,10 @@ def test_collective_offscreen_voice_and_named_duchess_can_be_grounded(monkeypatc
     monkeypatch.setattr(planner,'_usable_forms',lambda names:{n:[n] for n in names})
     names=['无名群声','西米尔公爵夫人']
     bible={'characters':[{'name':'西米尔公爵夫人','gender':'女'}]}
-    rows=source_identities(names,bible,'姑娘们都在倒数。西米尔公爵的夫人点了点头。')
+    context={'entities':{'e1':'无名群声','e2':'西米尔公爵夫人'},'mentions':[
+        {'form':'姑娘们','entity_id':'e1','presence':'voice'},
+        {'form':'西米尔公爵的夫人','entity_id':'e2','presence':'on_stage'}]}
+    rows=source_identities(names,bible,'姑娘们都在倒数。西米尔公爵的夫人点了点头。',context=context)
     assert {r['name'] for r in rows if r['source_names']}==set(names)
 
 

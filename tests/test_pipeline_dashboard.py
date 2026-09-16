@@ -172,3 +172,34 @@ def test_first_board_load_can_show_current_progress_before_history_is_ready(tmp_
     write(tmp_path/'outputs/book/repair_manager/state.json',{'summary':{'total':20,'deliverable_precise':12},'jobs':[]})
     result=server.board_snapshot()
     assert result['building'] and result['novels'][0]['pipeline']['deliverable']==12
+
+
+def test_cold_live_page_never_waits_for_full_book_validation_or_remote_h3(tmp_path,monkeypatch):
+    import status_server as server
+    import pytest
+    monkeypatch.setattr(server,'ROOT',tmp_path)
+    monkeypatch.setattr(server,'NOVELS',[{'id':'book','title':'book'}])
+    monkeypatch.setattr(server,'_board_cache',{'at':0,'data':None,'building':True})
+    monkeypatch.setattr(server,'_cache',{'at':0,'data':None})
+    monkeypatch.setattr(server,'_LOCAL_CACHE',{'at':0,'rows':[]})
+    for name in ['_novel_status','_episode_inventory','_plan_modes','_local_video']:
+        monkeypatch.setattr(server,name,lambda *a,**k:pytest.fail('slow work on HTTP request path'))
+    for name in ['_lanes','_workers','_inflight','_warnings']:
+        monkeypatch.setattr(server,name,lambda:[])
+    monkeypatch.setattr(server,'_processes',lambda:{'conductors':2})
+    background=[]
+    class Thread:
+        def __init__(self,**kw):background.append(kw['target'])
+        def start(self):pass
+    monkeypatch.setattr(server.threading,'Thread',Thread)
+    state={'summary':{'total':20,'deliverable_precise':12},'jobs':[]}
+    path=tmp_path/'outputs/book/repair_manager/state.json'
+    write(path,state)
+    first=server.cached_snapshot()
+    assert first['novels'][0]['pipeline']['deliverable']==12
+    assert first['novels'][0]['history_loading'] and not background
+    state['summary']['deliverable_precise']=13
+    write(path,state)
+    server._cache['at']=0
+    second=server.cached_snapshot()
+    assert second['novels'][0]['pipeline']['deliverable']==13 and len(background)==1

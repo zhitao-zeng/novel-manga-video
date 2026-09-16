@@ -34,7 +34,10 @@ def test_descriptive_source_names_are_scene_local_and_ambiguous_roles_are_not_bo
     monkeypatch.setattr(planner,'_usable_forms',lambda names:{n:[n] for n in names})
     names=['黑袍身影','拿玩具木刀的男孩']
     bible={'characters':[{'name':n} for n in names]}
-    identities=repair.source_identities(names,bible,'黑袍人点头，男孩问故事名字。')
+    context={'entities':{'e1':names[0],'e2':names[1]},'mentions':[
+        {'form':'黑袍人','entity_id':'e1','presence':'on_stage'},
+        {'form':'男孩','entity_id':'e2','presence':'on_stage'}]}
+    identities=repair.source_identities(names,bible,'黑袍人点头，男孩问故事名字。',context=context)
     assert identities[0]['source_names']==['黑袍人']
     assert identities[1]['source_names']==['男孩']
     names.append('抱着玩具熊的男孩');bible['characters'].append({'name':names[-1]})
@@ -44,9 +47,9 @@ def test_descriptive_source_names_are_scene_local_and_ambiguous_roles_are_not_bo
 
 def test_literal_quote_cannot_assign_latter_speech_to_the_first_person(monkeypatch):
     quote='莱恩将视线投向神明，后者拍拍手：“不错的故事。”'
-    row={'stage':1,'turn':1,'speaker':'莱恩','source_quote':quote,'relation':'verbatim','adapted_text':'不错的故事。'}
+    row={'stage':1,'turn':1,'speaker':'莱恩','source_quote':quote,'source_speaker_phrase':'后者','relation':'verbatim','adapted_text':'不错的故事。'}
     shots=[{'origin_index':1,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'莱恩','text':'不错的故事。'}]}]
-    identities=[{'name':'莱恩','source_names':['莱恩']},{'name':'神明','source_names':['神明']}]
+    identities=[{'name':'莱恩','source_names':['莱恩']},{'name':'神明','source_names':['神明','后者']}]
     monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[row]})
     assert not repair.speaker_contract(quote,shots,['莱恩','神明'],identities,[row])
     row={**row,'speaker':'神明'}
@@ -201,3 +204,29 @@ def test_one_render_is_recorded_for_every_prepared_clip_and_counted_once(tmp_pat
     for clip in media['clips']:clip['selected']['generated_this_run']=True
     history.record_render(d,media);history.record_render(d,media)
     assert managed.generated_counts(history.load(d))=={'a':1,'b':1}
+
+
+def test_reframe_recut_translates_and_tracks_every_replacement(tmp_path, monkeypatch):
+    import build_h3_prompts
+    import diagnose_clip_repair
+    import repair_blocked_plan
+    d, clips, reviews = fixture_episode(tmp_path)
+    monkeypatch.setattr(repair_blocked_plan, 'repair_episode', lambda *a, **k: {'changed': []})
+    monkeypatch.setattr(diagnose_clip_repair, 'clip_context', lambda *a: {})
+    monkeypatch.setattr(diagnose_clip_repair, 'diagnose_numbered', lambda *a: {'cause': 'generation_mismatch'})
+    monkeypatch.setattr(history, 'repeated_errors', lambda *a: ['same_person_twice'])
+    updated = {'clips': [dict(clips[0], prompt='first location'),
+                         dict(clips[0], clip_id='c', prompt='second location'), clips[1]]}
+    monkeypatch.setattr(repair, 'repair_episode', lambda *a, **k: {'changed': ['a', 'c'], 'proposal': {
+        'plan': updated, 'script': {'shots': []}, 'notes': {}, 'changes': {},
+        'structural_repair': {'groups': [{'old': ['a'], 'new': ['a', 'c']}]}}})
+    translated = []
+    def convert(entry, **kwargs):
+        from thin_profile import h3_source_digest
+        translated.append(entry['clip_id'])
+        entry.update(prompt_h3='safe request', prompt_h3_of=h3_source_digest(entry['prompt']))
+    monkeypatch.setattr(build_h3_prompts, 'convert', convert)
+    result = managed.prepare(d, ['a'])
+    assert result['changed'] == ['a', 'c'] and not result['blocked']
+    assert translated == ['a', 'c']
+    assert history.load(d)['trials'][0]['clips'] == ['a', 'c']

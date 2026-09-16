@@ -152,6 +152,60 @@ def test_lane_progress_and_worker_cache_use_current_plan(workspace, monkeypatch)
     assert monitor._workers()[0]["detail"] == "缓存 1/1 段（未计质检）"
 
 
+def test_processes_include_current_pipeline_without_counting_wrappers(monkeypatch):
+    commands = [
+        'python scripts/manage_repair_thin.py run --novel-dir outputs/zhutian-card',
+        'python scripts/manage_repair_thin.py status --novel-dir outputs/zhutian-card',
+        'python scripts/prepare_h3_book.py --novel-dir outputs/zhutian-card --workers 6',
+        'python scripts/prepare_h3_book.py --novel-dir outputs/zhutian-card --episode 2001',
+        'python scripts/prepare_recovery_thin.py --episode-dir outputs/zhutian-card/zhutian-card_2058 --kind entities',
+        'python scripts/repair_review_thin.py --novel-dir outputs/zhutian-card --episodes 2058',
+        'python scripts/verify_clips_thin.py --novel-dir outputs/xinghai',
+        'python scripts/render_clips_thin.py --novel-dir outputs/zhutian-card --episode zhutian-card_2058',
+        'python scripts/run_repair_step.py --result receipt.json -- python scripts/repair_review_thin.py --episodes 2058',
+        "bash -c 'python scripts/prepare_h3_book.py --episode 2001'",
+    ]
+    monkeypatch.setattr(monitor, '_ps_output', lambda: '\n'.join(commands))
+    result = monitor._processes()
+    assert result['conductors'] == 2
+    assert result['preparations'] == result['repairs'] == result['runners'] == 1
+    assert result['reviews'] == 2 and result['planners'] == 0
+
+
+def test_shared_locks_are_attributed_to_hyphenated_book_names(tmp_path, monkeypatch):
+    pool = tmp_path/'pool';pool.mkdir()
+    one=pool/'slot_00.lock';two=pool/'slot_01.lock';one.touch();two.touch()
+    (tmp_path/'locks').write_text(f'1: FLOCK ADVISORY WRITE 100 00:11:{one.stat().st_ino} 0 EOF\n'
+                                f'2: FLOCK ADVISORY WRITE 101 00:11:{two.stat().st_ino} 0 EOF\n')
+    (tmp_path/'cmd100').write_bytes(b'python\0scripts/render_clips_thin.py\0--novel-dir\0/outputs/zhutian-card\0--episode\0zhutian-card_2058\0')
+    (tmp_path/'cmd101').write_bytes(b'python\0scripts/render_clips_thin.py\0--episode\0other_book_4\0')
+    original = Path
+    mapped = {'/proc/locks':tmp_path/'locks','/proc/100/cmdline':tmp_path/'cmd100','/proc/101/cmdline':tmp_path/'cmd101'}
+    monkeypatch.setattr(monitor, 'Path', lambda value: mapped.get(str(value), original(value)))
+    assert monitor._held_by_novel(pool) == {'zhutian-card':1,'other_book':1}
+
+
+def test_runtime_panel_updates_while_book_history_request_is_still_loading():
+    script = r'''
+const vm=require('vm'),fs=require('fs'),assert=require('assert');
+(async()=>{
+ const html=fs.readFileSync(0,'utf8');
+ const elements=Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(m=>[m[1],{style:{},innerHTML:'',textContent:'',querySelectorAll:()=>[]}]));
+ const runtime={now:'2026-09-16 11:30:00',processes:{conductors:2,preparations:6,reviews:3},
+   inflight:[{novel:'诸天万象录',pool:'本地H3 · h3pool',slots:24,limit:24}]};
+ const ctx=vm.createContext({document:{getElementById:id=>elements[id],addEventListener:()=>{}},
+   fetch:url=>url==='runtime.json'?Promise.resolve({json:async()=>runtime}):new Promise(()=>{}),
+   setInterval:()=>{},setTimeout:()=>{}});
+ for(const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g))vm.runInContext(m[1],ctx);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert(elements.procs.innerHTML.includes('调度器')&&elements.procs.innerHTML.includes('开拍准备'));
+ assert(elements.inflight.innerHTML.includes('24 / 24'));
+ assert.strictEqual(elements['runtime-stamp'].textContent,runtime.now);
+})().catch(e=>{console.error(e);process.exit(1)});
+'''
+    subprocess.run(['node','-e',script],input=monitor.PAGE,text=True,check=True)
+
+
 def test_live_and_board_javascript_render_the_status_payload(workspace):
     node = shutil.which("node")
     if not node:
@@ -183,6 +237,9 @@ def test_live_and_board_javascript_render_the_status_payload(workspace):
               'net_delivery':{'since':live['now'],'rates':{'15':None,'60':None}}}
     for original in list(pages):
         page=copy.deepcopy(original);page['data']['novels'][0]['pipeline']=pipeline;pages.append(page)
+    cold=copy.deepcopy(pages[2])
+    cold['data']['novels']=[{'id':'nov','title':'测试小说','history_loading':True,'attention':[], 'pipeline':pipeline}]
+    pages.append(cold)
     for original in list(pages[:2]):
         page=copy.deepcopy(original)
         page['data']['novels'][0]['pipeline']={'mode':'audit','audit':{

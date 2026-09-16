@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -31,7 +32,8 @@ sys.meta_path.insert(0, Retired())
 import build_bible_thin, plan_chapter_thin, render_clips_thin, status_server
 assert 'experiments.legacy.planner' not in sys.modules
 '''
-    subprocess.run([sys.executable, '-c', code], cwd=ROOT, check=True)
+    subprocess.run([sys.executable, '-c', code], cwd=ROOT, check=True,
+                   env={**os.environ, 'PYTHONPATH': f'{ROOT / "src"}:{ROOT / "scripts"}'})
 
 
 def test_scene_extra_precedes_global_alias():

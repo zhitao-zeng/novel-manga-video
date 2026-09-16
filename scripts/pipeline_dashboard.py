@@ -14,6 +14,8 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+from novel_manga.batch_control import flow_snapshot
+
 _DETAILS = {}
 _EPISODES = {}
 _NET = {}
@@ -55,6 +57,40 @@ def net_rates(samples: list[dict]) -> dict:
     return result
 
 
+def net_windows(samples: list[dict]) -> dict:
+    """Observed count changes per time bucket; missing history is not zero.
+
+    Adjacent full buckets share their boundary observation. An incomplete
+    bucket reports only its measured interval and is explicitly marked partial.
+    Nothing before the first sample is reconstructed from file creation times.
+    """
+    if not samples:
+        return {}
+    result = {}
+    latest = samples[-1]['at']
+    for hours in (1, 6, 24):
+        step = hours * 3600 / 12
+        end = (latest // step + 1) * step
+        rows = []
+        for i in range(12):
+            left = end - hours * 3600 + i * step
+            right = left + step
+            within = [s for s in samples if left < s['at'] <= right]
+            previous = next((s for s in reversed(samples) if s['at'] <= left), None)
+            observed = ([previous] if previous and left - previous['at'] <= 180 else []) + within
+            valid = len(observed) >= 2
+            complete = (valid and observed[0]['at'] <= left and right <= latest
+                        and right - observed[-1]['at'] <= 180
+                        and all(b['at'] - a['at'] <= 180 for a, b in zip(observed, observed[1:])))
+            rows.append({'start': left, 'end': right,
+                         'value': observed[-1]['passed'] - observed[0]['passed'] if valid else None,
+                         'partial': not complete,
+                         'observed_start': observed[0]['at'] if valid else None,
+                         'observed_end': observed[-1]['at'] if valid else None})
+        result[str(hours)] = {'hours': hours, 'step_minutes': int(step / 60), 'buckets': rows}
+    return result
+
+
 def sample_delivery(novel: Path, state: dict):
     at=stamp(state.get('updated_at'))
     passed=state.get('summary',{}).get('deliverable_precise')
@@ -70,7 +106,7 @@ def sample_delivery(novel: Path, state: dict):
         temp.write_text(json.dumps(samples),encoding='utf-8')
         temp.replace(path)
     _NET[str(novel)]={'since':time.strftime('%F %T',time.localtime(samples[0]['at'])) if samples else None,
-                      'sampled_at':state.get('updated_at'),'rates':net_rates(samples)}
+                      'sampled_at':state.get('updated_at'),'rates':net_rates(samples),'windows':net_windows(samples)}
 
 
 def take_of(path: str | None):
@@ -279,10 +315,18 @@ def audit_metrics(novel: Path, directory: Path | None = None) -> dict | None:
             'reused':sum(launch['reused_results'].values()) if launch.get('reused_results') else launch.get('reused_h3_results',launch.get('reused_pilot_records',0))}
 
 
+def operation_metrics(novel: Path, repair_state=None):
+    root = Path(__file__).resolve().parent.parent
+    config = read(root / 'configs/pipeline.json', {})
+    spec = next((n for n in config.get('novels', []) if n['id'] == novel.name), {'id': novel.name})
+    return flow_snapshot(root, {**spec, 'novel_dir': str(novel)}, repair_state=repair_state)
+
+
 def pipeline_metrics(novel: Path) -> dict | None:
     novel=novel.resolve()
     state=read(novel/'repair_manager/state.json',{})
     summary=state.get('summary',{})
+    flows=operation_metrics(novel, state)
     try:
         audit=audit_metrics(novel)
     except (OSError,ValueError,sqlite3.Error) as error:
@@ -293,7 +337,10 @@ def pipeline_metrics(novel: Path) -> dict | None:
         sd_audit={'error':type(error).__name__,'sampled_at':time.strftime('%F %T')}
     if 'deliverable_precise' not in summary:
         primary=audit or sd_audit
-        return {'mode':'audit','audit':primary,'status':primary.get('status'),'updated_at':primary.get('updated_at')} if primary else None
+        if primary:
+            return {'mode':'audit','audit':primary,'status':primary.get('status'),
+                    'updated_at':primary.get('updated_at'),'flows':flows}
+        return {'mode':'operations','flows':flows} if any(r['status'] != 'not_started' for r in flows.values()) else None
     requests=None
     if state.get('legacy_dir'):
         directory=Path(state['legacy_dir']).parent/'inflight/h3pool'
@@ -316,13 +363,23 @@ def pipeline_metrics(novel: Path) -> dict | None:
         jobs.append({'id':job['id'],'episodes':job.get('episodes',[]),'status':job['status'],'stage':stage,
                      'started_at':job.get('started_at'),'kind':job.get('recovery_kind') or job['kind']})
     at=stamp(state.get('updated_at'));details=_DETAILS.get(str(novel))
+    net = _NET.get(str(novel))
+    if net is None:
+        # Existing observations can draw the first page while the monitor is
+        # still warming its more expensive repair-detail cache. Read only.
+        samples = read(novel / 'monitor_metrics/net_delivery.json', [])
+        if samples:
+            net = {'since': time.strftime('%F %T', time.localtime(samples[0]['at'])),
+                   'sampled_at': time.strftime('%F %T', time.localtime(samples[-1]['at'])),
+                   'rates': net_rates(samples), 'windows': net_windows(samples)}
     resources=_DETAILS.get('_resources')
     if resources and resources.get('gpu_sample_age') is not None:
         resources={**resources,'gpu_sample_age':round(resources['gpu_sample_age']+time.time()-resources.get('sampled_at',time.time()))}
-    return {'mode':'repair','updated_at':state.get('updated_at'),'age_seconds':round(time.time()-at) if at else None,
-            'controller_alive':process_alive(state.get('pid')),'audit':audit,'sd_audit':sd_audit,
-            'status':state.get('status'),'total':summary.get('total'), 'deliverable':summary['deliverable_precise'],
+    return {'mode':'repair','flows':flows,'updated_at':state.get('updated_at'),'age_seconds':round(time.time()-at) if at else None,
+            'controller_alive':flows['repair']['controller_alive'],'audit':audit,'sd_audit':sd_audit,
+            'status':flows['repair']['status'],'total':summary.get('total'), 'deliverable':summary['deliverable_precise'],
             'scope_label':(state.get('scope') or {}).get('label'),
+            'preparation':summary.get('preparation'),
             'speech_gate':(state.get('scope') or {}).get('speech_gate',read(novel/'profile.json',{}).get('speech_gate','enforce')),
             'modelscope_upload':read(novel/'modelscope_upload.json',None),
             'remaining':summary.get('total',0)-summary['deliverable_precise'], 'inspection':summary.get('inspection',{}),
@@ -330,7 +387,7 @@ def pipeline_metrics(novel: Path) -> dict | None:
             'blocked_clips':summary.get('repair_blocked_clips'),'plan_blocked_clips':summary.get('plan_blocked_clips'),
             'held_episodes':summary.get('held_episodes',[]),'legacy_residual_episodes':summary.get('residual_episodes',[]),
             'shared_audit':summary.get('shared_audit',{}),'stages':dict(stages),'jobs':jobs,
-            'capacity':state.get('dispatch_policy',{}),'repair':details,'net_delivery':_NET.get(str(novel)),
+            'capacity':state.get('dispatch_policy',{}),'repair':details,'net_delivery':net,
             'resources':resources,'requests':requests}
 
 
@@ -340,7 +397,7 @@ def start_monitor(root: Path, novel_ids: list[str]):
         if str(root) in _STARTED:return
         _STARTED.add(str(root))
     def run():
-        last_details=0
+        last_details=time.time()  # publish lightweight delivery/GPU samples first
         while True:
             for nid in novel_ids:
                 novel=root/'outputs'/nid;state=read(novel/'repair_manager/state.json',{})

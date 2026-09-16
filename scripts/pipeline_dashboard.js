@@ -3,6 +3,101 @@ function pipelineNumber(value){return value == null ? '—' : Number(value).toLo
 function pipelineTile(label,value,unit,hint){return `<div class="pipeline-metric"><div class="pk">${pipelineEscape(label)}</div><div class="pv">${pipelineNumber(value)}<span class="pu">${pipelineEscape(unit||'')}</span></div>${hint?`<div class="ph">${pipelineEscape(hint)}</div>`:''}</div>`;}
 function pipelineLines(rows){return `<div class="pipeline-list">${rows.map(r=>`<div class="pipeline-line"><span>${pipelineEscape(r[0])}</span><span>${pipelineEscape(r[1])}</span></div>`).join('')}</div>`;}
 function pipelineSection(title,body){return `<section class="pipeline-section"><div class="pipeline-title">${pipelineEscape(title)}</div>${body}</section>`;}
+const PIPELINE_COLORS={passed:'#20966b',review:'#e7a23a',repair:'#d96869',finishing:'#5195d5',preparing:'#b6c2d2',active:'#7774ce'};
+const PIPELINE_CHART_WINDOWS={},PIPELINE_CHART_DATA={};
+function pipelinePct(value,total){return total>0?(100*value/total).toFixed(1):'0.0';}
+function pipelineTime(at){return new Date(at*1000).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false});}
+function pipelineDeliveryRows(p){
+  const b=(p.inspection||{}).episode_buckets||{};
+  const unchecked=(b.not_fully_checked||0)+(b.flash_confirmation||0)+(b.unreadable||0);
+  const preparing=b.awaiting_preparation||0,failed=b.checked_with_errors||0;
+  return [
+    {label:'可交付',value:p.deliverable||0,color:PIPELINE_COLORS.passed},
+    {label:'待生成／复审',value:unchecked,color:PIPELINE_COLORS.review},
+    {label:'内容待修复',value:failed,color:PIPELINE_COLORS.repair},
+    {label:'技术／发布收尾',value:Math.max(0,(p.total||0)-(p.deliverable||0)-unchecked-failed-preparing),color:PIPELINE_COLORS.finishing},
+    ...(p.preparation?[{label:'开拍准备中',value:preparing,color:PIPELINE_COLORS.preparing}]:[])
+  ];
+}
+function pipelineStack(rows,total,unit){
+  const summary=rows.map(r=>`${r.label} ${r.value} ${unit}`).join('，');
+  return `<div class="pc-stack" role="img" aria-label="${pipelineEscape(summary)}">${rows.filter(r=>r.value>0).map(r=>
+    `<span style="width:${total>0?100*r.value/total:0}%;background:${r.color}" title="${pipelineEscape(r.label)}：${pipelineNumber(r.value)} ${unit}（${pipelinePct(r.value,total)}%）"></span>`).join('')}</div>`+
+    `<div class="pc-legend">${rows.map(r=>`<span><i style="background:${r.color}"></i>${pipelineEscape(r.label)} <b>${pipelineNumber(r.value)}</b><small>${unit}</small></span>`).join('')}</div>`;
+}
+function pipelineDeliveryProgress(p){
+  const rows=pipelineDeliveryRows(p),pc=pipelinePct(p.deliverable||0,p.total);
+  return `<section class="pc-progress"><div class="pc-progress-head"><div><span class="pc-eyebrow">交付进度</span><strong>${pc}<small>%</small></strong></div>`+
+    `<div class="pc-progress-count"><b>${pipelineNumber(p.deliverable)}</b> / ${pipelineNumber(p.total)} 集<span>还差 ${pipelineNumber(p.remaining)} 集</span></div></div>`+
+    pipelineStack(rows,p.total,'集')+
+    `<div class="pc-caption">${p.preparation?`准备通过自动开拍 · 已准入 ${pipelineNumber(p.preparation.admitted)} 集。`:'按当前成片和审查结果统计。'} 各状态互不重叠，绿色部分才是可交付。</div></section>`;
+}
+function pipelineColumns(rows,unit){
+  const values=rows.filter(r=>r.value!=null).map(r=>r.value);
+  const ceiling=v=>{if(v<=5)return Math.ceil(v);const step=Math.pow(10,Math.floor(Math.log10(v)))/2;return Math.ceil(v/step)*step;};
+  const high=ceiling(Math.max(1,...values)*1.2),low=-ceiling(Math.max(0,...values.map(v=>-v))*1.2),span=high-low;
+  const zero=100*(-low)/span;
+  const ticks=[high,0,...(low<0?[low]:[])];
+  const grid=ticks.map(v=>`<div class="pc-gridline" style="bottom:${100*(v-low)/span}%"><span>${v}</span></div>`).join('');
+  const bars=rows.map((r,i)=>{
+    const missing=r.value==null,value=missing?0:r.value,height=100*Math.abs(value)/span;
+    const bottom=value<0?zero-height:zero;
+    const tip=r.detail||`${r.label}：${missing?'未采样':pipelineNumber(value)+' '+unit}`;
+    const labelBottom=value<0?Math.max(0,bottom-10):bottom+height;
+    return `<button type="button" class="pc-column ${missing?'pc-missing':''} ${r.partial&&!missing?'pc-partial':''}" title="${pipelineEscape(tip)}" aria-label="${pipelineEscape(tip)}" data-chart-detail="${pipelineEscape(tip)}">`+
+      `<span class="pc-bar" style="bottom:${bottom}%;height:${height}%;--bar-color:${value<0?PIPELINE_COLORS.repair:(r.color||PIPELINE_COLORS.passed)}"></span>`+
+      `<span class="pc-bar-value" style="bottom:${missing?zero:labelBottom}%">${missing?'—':pipelineNumber(value)}</span>`+
+      `<span class="pc-x-label">${pipelineEscape(r.tick===false?'':r.label)}</span></button>`;
+  }).join('');
+  return `<div class="pc-plot"><span class="pc-axis-unit">${unit}</span><div class="pc-plot-area">${grid}<div class="pc-columns">${bars}</div></div></div>`;
+}
+function pipelineTrendChart(key,net){
+  PIPELINE_CHART_DATA[key]=net;
+  const windows=(net||{}).windows||{};
+  const six=windows['6'];
+  const hours=PIPELINE_CHART_WINDOWS[key]||(six&&six.buckets.filter(b=>b.value!=null).length>=3?6:1);
+  const window=windows[String(hours)],buckets=window?window.buckets:[];
+  const buttons=[1,6,24].map(h=>`<button type="button" data-net-window="${h}" data-net-key="${pipelineEscape(key)}" aria-pressed="${hours===h}">${h}小时</button>`).join('');
+  const rows=buckets.map((b,i)=>({value:b.value,partial:b.partial,label:pipelineTime(b.start),tick:i%2===0,
+    detail:`${pipelineTime(b.start)}–${pipelineTime(b.end)}：${b.value==null?'暂无足够采样':(b.value>0?'+':'')+b.value+' 集净增'+(b.partial?'（仅覆盖部分时段）':'')}`+
+      (b.observed_start!=null?`；实际采样 ${pipelineTime(b.observed_start)}–${pipelineTime(b.observed_end)}`:'')}));
+  return `<section class="pc-chart pc-trend" id="pipeline-trend-${pipelineEscape(key)}"><div class="pc-chart-head"><div><h3>交付净增</h3><span>${window?'每柱 '+window.step_minutes+' 分钟':'等待采样'}</span></div><div class="pc-range" aria-label="净增图时间范围">${buttons}</div></div>`+
+    (rows.length?pipelineColumns(rows,'集'):'<div class="pc-chart-empty">正在读取历史采样<br><small>有连续采样后显示柱状图，不补写历史产量。</small></div>')+
+    `<div class="pc-detail" aria-live="polite">悬停或点击柱子查看具体时段</div><div class="pc-caption">绿色为净增，红色为回退；浅色虚线柱为不完整采样，— 表示缺数据。${net&&net.sampled_at?'最后采样 '+pipelineEscape(net.sampled_at):''}</div></section>`;
+}
+function pipelineWorkChart(p){
+  const s=p.stages||{},c=(p.preparation||{}).counts||{};
+  const prep=['auditing','repairing','replanning','building_cards','translating'].reduce((sum,k)=>sum+(c[k]||0),0);
+  const rows=[...(p.preparation?[{label:'开拍准备',value:prep,color:PIPELINE_COLORS.active}]:[]),
+    {label:'修复准备',value:s['running:prepare']||0,color:PIPELINE_COLORS.repair},
+    {label:'生成合成',value:s['running:render']||0,color:PIPELINE_COLORS.finishing},
+    {label:'内容复审',value:s['running:review']||0,color:PIPELINE_COLORS.review}];
+  const q=p.status==='complete'?null:p.requests;
+  const pool=q?`<div class="pc-pool"><span>共享 H3 请求池</span><b>${pipelineNumber(q.held)} / ${pipelineNumber(q.limit)}</b><div class="pc-pool-track"><i style="width:${Math.min(100,q.limit?100*q.held/q.limit:0)}%"></i></div></div>`:'';
+  return `<section class="pc-chart"><div class="pc-chart-head"><div><h3>现在在做什么</h3><span>运行中的单集任务</span></div><b class="pc-live-count">${rows.reduce((sum,r)=>sum+r.value,0)} 个</b></div>`+
+    pipelineColumns(rows,'集')+`<div class="pc-detail" aria-live="polite">${p.status==='complete'?'本轮已经完成。':'各步骤并行推进，完成一集就接下一集。'}</div>`+pool+
+    '<div class="pc-caption">柱子表示单集任务数。H3 请求池由各本书共享。</div></section>';
+}
+function pipelineAuditMeter(label,a){
+  const total=a.total||0,passed=a.passed||0,flagged=a.flagged||0;
+  return `<div class="pc-audit-meter"><div class="pc-meter-head"><b>${pipelineEscape(label)}</b><span>已审 ${pipelineNumber(a.checked)} / ${pipelineNumber(total)} 段 <strong>${pipelinePct(a.checked||0,total)}%</strong></span></div>`+
+    pipelineStack([{label:'通过',value:passed,color:PIPELINE_COLORS.passed},{label:'有问题',value:flagged,color:PIPELINE_COLORS.repair},
+      {label:'待完成',value:Math.max(0,total-passed-flagged),color:PIPELINE_COLORS.preparing}],total,'段')+'</div>';
+}
+if(typeof document!=='undefined'){
+  document.addEventListener('click',event=>{
+    const button=event.target.closest('[data-net-window]');
+    if(!button)return;
+    const key=button.dataset.netKey,hours=Number(button.dataset.netWindow);
+    PIPELINE_CHART_WINDOWS[key]=hours;
+    document.getElementById('pipeline-trend-'+key).outerHTML=pipelineTrendChart(key,PIPELINE_CHART_DATA[key]);
+    document.getElementById('pipeline-trend-'+key).querySelector(`[data-net-window="${hours}"]`).focus({preventScroll:true});
+  });
+  for(const type of ['mouseover','focusin','click'])document.addEventListener(type,event=>{
+    const bar=event.target.closest('[data-chart-detail]');
+    if(bar){const detail=bar.closest('.pc-chart').querySelector('.pc-detail');if(detail)detail.textContent=bar.dataset.chartDetail;}
+  });
+}
 function pipelineRender(id,html){
   const root=document.getElementById(id);
   const opened=new Set(Array.from(root.querySelectorAll('details[data-panel][open]'),d=>d.getAttribute('data-panel')));
@@ -10,10 +105,11 @@ function pipelineRender(id,html){
   for(const d of root.querySelectorAll('details[data-panel]'))if(opened.has(d.getAttribute('data-panel')))d.open=true;
 }
 function pipelineStage(stage){return ({check:'确认待修问题',repair:'修复准备',recover:'修复准备',note1:'再次修复准备',note2:'再次修复准备',render:'生成与合成',render1:'生成与合成',render2:'生成与合成',review:'当前成片复审',review1:'当前成片复审',review2:'当前成片复审',audit:'补充审查',confirm:'争议复核',shared_qwen:'Qwen 共同补查',shared_flash:'Flash 共同补查'})[stage]||stage;}
-function pipelineStatus(status){return ({running:'运行中',pending:'排队中',waiting_plan:'等待计划修复',held:'已挂起',needs_attention:'需要处理',complete:'已结束',complete_with_errors:'已结束，有执行异常',stopped:'已停止',starting:'正在启动',paused:'已暂停',monitoring_shared_audit:'等待补查新结果'})[status]||status||'状态待确认';}
+function pipelineStatus(status){return ({running:'运行中',pending:'排队中',waiting_plan:'等待计划修复',waiting_preparation:'等待后续章节准备完成',held:'已挂起',needs_attention:'需要处理',complete:'已结束',complete_with_errors:'已结束，有执行异常',stopped:'已停止',starting:'正在启动',paused:'已暂停',pausing:'停止派单，在途收尾',draining:'在途收尾',not_started:'未启动',monitoring_shared_audit:'等待补查新结果'})[status]||status||'状态待确认';}
 
 function pipelineHeadline(n){
   const p=n.pipeline;
+  if(p.mode==='operations')return '批量产线状态';
   if(p.mode==='audit'){
     const a=p.audit||{};
     return `${a.scope||'片段审查'} · 已审 ${pipelineNumber(a.checked)} / ${pipelineNumber(a.total)} 段`;
@@ -23,12 +119,19 @@ function pipelineHeadline(n){
 
 function pipelineHealth(n){
   const p=n.pipeline;
+  if(p.mode==='operations')return Object.values(p.flows||{}).some(r=>r.blocked)?'warn':'ok';
   if(p.mode==='audit'){
     const a=p.audit||{};
     return a.error||a.alive===false&&a.status==='stopped'?'bad':a.counts&&a.counts.error||a.age_seconds>180?'warn':'ok';
   }
-  if(p.status==='complete')return 'ok';
+  if(['complete','paused','not_started'].includes(p.status))return 'ok';
   return p.controller_alive===false&&p.status==='running'?'bad':p.age_seconds>180||(p.held_episodes||[]).length||p.blocked_clips?'warn':'ok';
+}
+
+function pipelineBookOverview(novels){
+  const repairs=novels.filter(n=>n.pipeline&&n.pipeline.mode!=='audit');
+  return repairs.length?`<div class="pc-book-overview">${repairs.map(n=>`<a class="pc-book-link" href="#novel-${pipelineEscape(n.id)}"><div><span>${pipelineEscape(n.title)}</span><strong>${pipelinePct(n.pipeline.deliverable,n.pipeline.total)}%</strong></div>`+
+    pipelineStack(pipelineDeliveryRows(n.pipeline),n.pipeline.total,'集')+`<div class="pc-book-scope" title="${pipelineEscape(n.pipeline.scope_label||'全书')}">${pipelineNumber(n.pipeline.deliverable)} / ${pipelineNumber(n.pipeline.total)} 集 · ${pipelineEscape(n.pipeline.scope_label||'全书')}</div></a>`).join('')}</div>`:'';
 }
 
 function pipelineOverview(novels){
@@ -38,11 +141,10 @@ function pipelineOverview(novels){
   const passed=sum(repairs,n=>n.pipeline.deliverable), left=sum(repairs,n=>n.pipeline.remaining);
   const running=sum(repairs,n=>Object.entries(n.pipeline.stages||{}).filter(([k])=>['running:prepare','running:render','running:review'].includes(k)).reduce((s,[,v])=>s+v,0));
   const checked=sum(audits,a=>a.checked), total=sum(audits,a=>a.total);
-  const names=repairs.map(n=>n.title+(n.pipeline.scope_label?'（'+n.pipeline.scope_label+'）':'')).join('、')||'尚无已接入的交付产线';
-  return `<div class="stat"><div class="k">当前主线可交付</div><b>${pipelineNumber(passed)}</b><span class="u">集</span><div class="sub">${pipelineEscape(names)}</div></div>`+
+  return `<div class="stat"><div class="k">当前主线可交付</div><b>${pipelineNumber(passed)}</b><span class="u">集</span><div class="sub">按各书本轮生产范围统计</div></div>`+
     `<div class="stat"><div class="k">当前主线未交付</div><b>${pipelineNumber(left)}</b><span class="u">集</span><div class="sub">技术、内容审查和发布均需通过</div></div>`+
     `<div class="stat"><div class="k">正在修复处理</div><b>${pipelineNumber(running)}</b><span class="u">集</span><div class="sub">含准备、生成合成和复审</div></div>`+
-    `<div class="stat"><div class="k">独立审片已完成</div><b>${pipelineNumber(checked)}</b><span class="u">段</span><div class="sub">本轮范围 ${pipelineNumber(total)} 段；不折算为交付集数</div></div>`;
+    `<div class="stat"><div class="k">独立审片已完成</div><b>${pipelineNumber(checked)}</b><span class="u">段</span><div class="sub">本轮范围 ${pipelineNumber(total)} 段；不折算为交付集数</div></div>`+pipelineBookOverview(novels);
 }
 
 function pipelineAuditSummary(n){
@@ -57,7 +159,7 @@ function pipelineAuditSummary(n){
   const kinds=Object.entries(a.issues||{}).map(([k,v])=>[labels[k]||k,`${pipelineNumber(v)} 段`]);
   const excluded=Object.entries(a.excluded_models||{}).map(([k,v])=>`${k.replace('sd2_','SD2.')} ${pipelineNumber(v)} 段`).join('、');
   return `<div class="pipeline pipeline-audit"><div class="pipeline-head"><span>${pipelineEscape(a.scope)} · ${pipelineEscape(pipelineStatus(a.status))}</span><span>队列读取 ${pipelineEscape(a.sampled_at)}</span></div>`+
-    `<div class="pipeline-primary">${tiles}</div><div class="pipeline-grid">`+
+    pipelineAuditMeter('本轮审查进度',a)+`<div class="pipeline-primary">${tiles}</div><div class="pipeline-grid">`+
     pipelineSection('当前审查队列',pipelineLines([['审片并发',`${pipelineNumber(a.workers)} 路 Qwen`],['待领取 / 在审',`${pipelineNumber(c.pending||0)} / ${pipelineNumber(c.running||0)} 段`],
       ['执行异常 / 结果不完整',`${pipelineNumber(c.error||0)} / ${pipelineNumber(a.unclassified||0)} 段`],['旧视频换版，任务淘汰',`${pipelineNumber(c.superseded||0)} 段`],['复用之前已审结果',`${pipelineNumber(a.reused)} 段`]])+
       `<div class="pipeline-note">任务状态更新 ${pipelineEscape(a.updated_at)}。${a.age_seconds>180?'状态更新已超过 3 分钟，请核对进程。':''}</div>`)+
@@ -81,30 +183,36 @@ function pipelineAlerts(novels){
     }else{
       if((p.held_episodes||[]).length)rows.push([n.title,`暂停的章节：${p.held_episodes.join('、')}`]);
       if(p.blocked_clips)rows.push([n.title,`${p.blocked_clips} 段暂时无法继续自动修复，原因见修复明细`]);
-      if(p.controller_alive===false&&p.status==='running'||p.status!=='complete'&&p.age_seconds>180)rows.push([n.title,'总控进程或数据更新需要检查']);
+      if(p.controller_alive===false&&p.status==='running'||!['complete','paused','not_started'].includes(p.status)&&p.age_seconds>180)rows.push([n.title,'总控进程或数据更新需要检查']);
     }
   }
   return rows.length?pipelineLines(rows):'<div class="dim">当前产线暂无运行阻塞告警。</div>';
 }
 
+function pipelineFlowStatus(p){
+  if(!p.flows)return '';
+  const names={production:'生产',prepare:'开拍准备',repair:'审查修复'};
+  const body=Object.entries(p.flows).map(([name,r])=>{
+    const counts=`在途 ${pipelineNumber(r.in_flight)} 个进程 · 待办 ${r.pending==null?'未统计':r.pending+' 集'} · 阻塞 ${pipelineNumber(r.blocked)} 集`;
+    const reasons=(r.blocked_reasons||[]).slice(0,5).map(reason=>`<div class="pipeline-note warn-t">${pipelineEscape(reason)}</div>`).join('');
+    return `<div class="pipeline-head"><b>${names[name]||pipelineEscape(name)} · ${pipelineEscape(pipelineStatus(r.status))}</b><span>${r.controller_alive?'管理器存活':'管理器未运行'}</span></div>`+
+      `<div class="pipeline-note">${pipelineEscape(counts)} · 状态更新 ${pipelineEscape(r.updated_at||'无记录')}</div>`+reasons;
+  }).join('');
+  return pipelineSection('运行状态',body);
+}
+
 function pipelineSummary(n){
-  if(n.pipeline.mode==='audit')return pipelineAuditSummary(n);
+  if(n.pipeline.mode==='operations')return pipelineFlowStatus(n.pipeline);
+  if(n.pipeline.mode==='audit')return pipelineFlowStatus(n.pipeline)+pipelineAuditSummary(n);
   const p=n.pipeline, inspection=p.inspection||{}, buckets=inspection.episode_buckets||{}, clips=inspection.clips||{};
   const tech=p.technical||{}, stats=p.repair, audit=p.shared_audit||{}, ac=audit.counts||{}, cap=p.capacity||{};
   const checked=(clips.passed||0)+(clips.failed||0);
   const phases=p.stages||{}, net=p.net_delivery, resources=p.resources;
-  const extraBuckets=(buckets.flash_confirmation||0)+(buckets.unreadable||0);
-  const unchecked=(buckets.not_fully_checked||0)+extraBuckets;
-  const finishing=Math.max(0,p.total-p.deliverable-(buckets.checked_with_errors||0)-unchecked);
-  const split=pipelineTile('可交付',p.deliverable,'集',`${p.scope_label||'全书'} ${pipelineNumber(p.total)} 集 · 未交付 ${pipelineNumber(p.remaining)} 集`)+
-    pipelineTile('已查完整，仍有问题',buckets.checked_with_errors,'集','这部分每段都已有审查结论')+
-    pipelineTile('当前版本尚未查完整',unchecked,'集','包括重生成待复审、待确认或状态不明')+
-    pipelineTile('技术或发布收尾',finishing,'集','含技术检查与修复结果待发布');
   const technical=pipelineSection('技术状态',pipelineLines([
     ['语音检查',p.speech_gate==='observe'?'只观察，不阻挡交付':'参与交付检查'],
     ['技术质检合格',`${pipelineNumber(tech.done)} 集`],['未过技术检查',`${pipelineNumber(tech.done_with_warnings||0)} 集`],
     ['计划已更新，成片待重做',`${pipelineNumber(tech.stale||0)} 集`],['生成失败',`${pipelineNumber(tech.clips_failed||0)} 集`],
-    ['请求结构阻塞',`${pipelineNumber(p.plan_blocked_clips)} 段`],p.scope_label?['本轮修复范围',`${pipelineNumber(p.total)} 集`]:['已有视频文件 / 已规划',`${pipelineNumber(n.files)} / ${pipelineNumber(n.planned)} 集`]])+
+    ['请求结构阻塞',`${pipelineNumber(p.plan_blocked_clips)} 段`],p.scope_label?['本轮生产范围',`${pipelineNumber(p.total)} 集`]:['已有视频文件 / 已规划',`${pipelineNumber(n.files)} / ${pipelineNumber(n.planned)} 集`]])+
     `<div class="pipeline-note">${p.speech_gate==='observe'?'语音问题保留记录，暂不触发重拍或阻挡交付；文件完整性、黑屏等技术检查继续执行。':'技术合格表示音视频和台词完整度等过关，内容审查另外计算。'}</div>`);
   const review=pipelineSection('当前片段审查',`<div class="pipeline-primary">`+
     pipelineTile('当前片段总数',clips.total,'段')+pipelineTile('当前审查通过',clips.passed,'段')+
@@ -170,7 +278,10 @@ function pipelineSummary(n){
       ['旧交付汇总',`${pipelineNumber(d.deliverable)} 集 · ${d.generated_at||'未计算'}`],
       ['审查执行异常（看板读取）',`${pipelineNumber(n.review_errors)} 集；不代表内容未过的总集数`]])+'</details>';
   const upload=p.modelscope_upload;
-  const uploadHtml=upload?pipelineSection('ModelScope 上传',pipelineLines([
+  const uploadProgress=upload&&upload.episode_count>0&&Number.isFinite(upload.remote_episodes)?pipelineStack([
+    {label:'远端已提交',value:upload.remote_episodes,color:PIPELINE_COLORS.finishing},
+    {label:'尚未提交',value:Math.max(0,upload.episode_count-upload.remote_episodes),color:PIPELINE_COLORS.preparing}],upload.episode_count,'集'):'';
+  const uploadHtml=upload?pipelineSection('ModelScope 上传',uploadProgress+pipelineLines([
     ['状态',({starting:'准备中',uploading:'上传中',complete:'已上传并核验',error:'上传中断，等待续传',verification_failed:'远端核验未通过'})[upload.status]||upload.status],
     ['已传输视频',`${pipelineNumber(upload.transferred_episodes)} / ${pipelineNumber(upload.episode_count)} 集`],
     ['远端已提交视频',`${pipelineNumber(upload.remote_episodes)} / ${pipelineNumber(upload.episode_count)} 集`],
@@ -178,10 +289,10 @@ function pipelineSummary(n){
     `<div class="pipeline-note">数量按远端已提交文件计数，成批更新。<a href="${pipelineEscape(upload.url||'https://modelscope.cn')}" target="_blank" rel="noopener">查看 ModelScope 数据集</a></div>`):'';
   const sd=p.sd_audit;
   const sdHtml=sd?pipelineSection('SD2.0 / SD2.5 片段审查',sd.error?'<div>审查状态暂不可用</div>':
-    `<div class="pipeline-scroll"><table class="pipeline-table"><thead><tr><th>来源</th><th>已审 / 总数</th><th>审查通过</th><th>确认有问题</th><th>待出结论</th></tr></thead><tbody>${Object.entries(sd.models||{}).map(([model,row])=>`<tr><td>${pipelineEscape(model.toUpperCase())}</td><td>${pipelineNumber(row.checked)} / ${pipelineNumber(row.total)}</td><td>${pipelineNumber(row.passed)}</td><td>${pipelineNumber(row.flagged)}</td><td>${pipelineNumber(row.total-row.checked)}</td></tr>`).join('')}</tbody></table></div>`+
+    Object.entries(sd.models||{}).map(([model,row])=>pipelineAuditMeter(model.toUpperCase(),row)).join('')+
     pipelineLines([['当前状态',pipelineStatus(sd.status)],['范围',`${pipelineNumber(sd.total)} 段 · ${pipelineNumber(sd.episodes)} 集`],['审查工位 / 正在审',`${pipelineNumber(sd.workers)} / ${pipelineNumber((sd.counts||{}).running||0)}`],['复用已有结果',`${pipelineNumber(sd.reused)} 段`],['审查执行异常',`${pipelineNumber((sd.counts||{}).error||0)} 段`]])+
     `<div class="pipeline-note">本轮审查已有 SD 视频，结果逐段保存；只审查，不自动重拍。H3 修复继续单独推进。更新于 ${pipelineEscape(sd.updated_at)}。</div>`):'';
-  return `<div class="pipeline"><div class="pipeline-head"><span>统一产线 · ${pipelineEscape(pipelineStatus(p.status))}</span><span class="${p.status!=='complete'&&p.age_seconds>180?'warn-t':''}">${p.status==='complete'?'完成时间':'总控更新'} ${pipelineEscape(p.updated_at)}${p.status==='complete'?'':' · '+pipelineNumber(p.age_seconds)+' 秒前'}</span></div>`+
-    `<div class="pipeline-primary">${split}</div><div class="pipeline-note">四项互不重叠，合计 ${pipelineNumber(p.total)} 集。${extraBuckets?`待查项中含 ${pipelineNumber(buckets.flash_confirmation||0)} 集待确认、${pipelineNumber(buckets.unreadable||0)} 集状态无法读取。`:''}</div>`+
-    `${uploadHtml}${sdHtml}<div class="pipeline-grid">${technical}${review}${repair}${speed}${auditBody}${workers}</div>${diagnostics}</div>`;
+  return pipelineFlowStatus(p)+`<div class="pipeline"><div class="pipeline-head"><span>统一产线 · ${pipelineEscape(pipelineStatus(p.status))}</span><span class="${!['complete','paused','not_started'].includes(p.status)&&p.age_seconds>180?'warn-t':''}">${p.status==='complete'?'完成时间':'总控更新'} ${pipelineEscape(p.updated_at)}${p.status==='complete'?'':' · '+pipelineNumber(p.age_seconds)+' 秒前'}</span></div>`+
+    pipelineDeliveryProgress(p)+`<div class="pc-charts">${pipelineTrendChart(n.id,net)}${pipelineWorkChart(p)}</div>`+
+    `${uploadHtml}${sdHtml}<details class="pc-more" data-panel="${pipelineEscape(n.id)}-metrics"><summary>查看技术检查、修复明细与资源详情</summary><div class="pipeline-grid">${technical}${review}${repair}${speed}${auditBody}${workers}</div>${diagnostics}</details></div>`;
 }

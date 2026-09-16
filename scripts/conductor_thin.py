@@ -202,6 +202,7 @@ class Conductor:
                       and c["runs"] < RENDER_RUNS_PER_PLAN and c["mode"] == int(r.get("plan_mode", 30))]
         return {"total": len(chapters), "planned": sum(c["planned"] for c in chapters), "done": sum(c["done"] for c in chapters),
                 "blocked": [c["n"] for c in chapters if c["blocked"]], "renderable": renderable,
+                "pending": [c["n"] for c in chapters if not c["done"]],
                 "unreviewed": [c["n"] for c in chapters if c["unreviewed"]]}
 
     def held_slots(self, key: dict) -> int:
@@ -615,8 +616,11 @@ class Conductor:
                              for r, s in ((r, stats[id(r)]) for r in self.ranges))
         pools = " ".join(f"{name}={self.held_slots(k)}/{self.lanes[name]['limit']}" for name, k in self.keys.items())
         self.log(f"tick: {summary} | inflight {pools} | qwen waiting {waiting} card waits {card_waits}{' CONGESTED' if congested else ''}")
-        state = {"lanes": self.lanes, "blocks": [{k: v for k, v in b.items()} for b in self.blocks], "time": time.time()}
-        (self.tmp / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        state = {"lanes": self.lanes, "blocks": [{k: v for k, v in b.items()} for b in self.blocks], "time": time.time(),
+                 "pid": os.getpid(), "status": "running",
+                 "workers": {name: proc.pid for name, proc in self.procs.items() if proc.poll() is None},
+                 "work": {"pending": len({n for row in stats.values() for n in row['pending']}),
+                          "blocked": len({n for row in stats.values() for n in row['blocked']})}}
         if self.plan_only:
             all_done = all(b["done"] for b in self.blocks) and not any(self.alive(n) for n in self.procs if n.startswith("prepass_"))
         else:
@@ -625,6 +629,8 @@ class Conductor:
         # running - left them for nobody, the re-review of judge errors included.
         if self.alive("review") or any(stats[id(r)]["unreviewed"] for r in self.ranges):
             all_done = False
+        state["status"] = "complete" if all_done else "running"
+        (self.tmp / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
         return not all_done
 
     def run(self, once: bool) -> None:
