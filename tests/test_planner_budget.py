@@ -5,33 +5,31 @@ import json
 
 import pytest
 
-import plan_chapter_thin as planner
+import novel_manga.planning.budget as pc_budget
+import novel_manga.planning.prompts as pc_prompts
+import novel_manga.planning.text as pc_text
+import novel_manga.planning.validation as pc_validation
+import plan_chapter_thin as plan_chapter
+import planner_requests_thin as planner_requests
+import sys
+from novel_manga.planning.context import PlannerContext
 from novel_manga.models import Character, StoryBible
-
-
-@pytest.fixture(autouse=True)
-def restore_budget(monkeypatch):
-    for name in (
-        "CLIP_SECONDS_MAX", "SHORT_CLIPS", "MAX_CLIP_SECONDS", "CLIP_RANGE", "STAGE_RANGE", "SPOKEN_RANGE",
-        "EPISODE_SECONDS_TARGET", "EPISODE_SECONDS_MIN", "EPISODE_SECONDS_MAX",
-        "SYSTEM_PROMPT", "FAST_TIER", "ANONYMOUS_SPEAKERS", "TEXT_ON_PROPS_GATE",
-    ):
-        monkeypatch.setattr(planner, name, getattr(planner, name))
 
 
 @pytest.mark.parametrize("cap", [15, 30])
 @pytest.mark.parametrize("fast,chars,target", [(False, 3000, 90), (True, 2500, 75), (True, 6000, 150)])
 def test_every_prompt_budget_matches_lane_and_episode(monkeypatch, cap, fast, chars, target):
-    monkeypatch.setattr(planner, "CLIP_SECONDS_MAX", float(cap))
-    monkeypatch.setattr(planner, "SHORT_CLIPS", cap == 15)
-    budget = planner.configure_budget(chars, fast=fast)
-    requirements = planner.budget_requirements()
-    brief = planner.render_brief(planner.SYSTEM_PROMPT)
+    planner_ctx = PlannerContext.from_env()
+    monkeypatch.setattr(planner_ctx, 'clip_seconds_max', float(cap))
+    monkeypatch.setattr(planner_ctx, 'short_clips', cap == 15)
+    budget = pc_budget.configure_budget(chars, fast=fast, ctx=planner_ctx)
+    requirements = pc_budget.budget_requirements(ctx=planner_ctx)
+    brief = pc_prompts.render_brief(planner_ctx.system_prompt, ctx=planner_ctx)
 
     assert budget["episode_target_seconds"] == target
     assert budget["clip_count"][1] * cap >= target
     assert target <= budget["episode_max_seconds"] <= budget["clip_count"][1] * cap
-    assert planner.MAX_CLIP_SECONDS == cap
+    assert planner_ctx.max_clip_seconds == cap
     assert requirements["clip_seconds"] == f"{10 if cap == 15 else 20}-{cap}"
     assert f"约{target}秒" in brief
     assert f"规划上限{budget['episode_max_seconds']:g}秒" in brief
@@ -43,13 +41,15 @@ def test_every_prompt_budget_matches_lane_and_episode(monkeypatch, cap, fast, ch
 
 
 def test_floor_is_not_promised_beyond_schema_capacity(monkeypatch):
-    monkeypatch.setattr(planner, "CLIP_SECONDS_MAX", 15.0)
-    monkeypatch.setattr(planner, "SHORT_CLIPS", True)
+    planner_ctx = PlannerContext.from_env()
+    monkeypatch.setattr(planner_ctx, 'clip_seconds_max', 15.0)
+    monkeypatch.setattr(planner_ctx, 'short_clips', True)
     with pytest.raises(ValueError, match="规划容量"):
-        planner.configure_budget(3000, fast=True, min_seconds=160)
+        pc_budget.configure_budget(3000, fast=True, min_seconds=160, ctx=planner_ctx)
 
 
 def test_subsecond_floor_shortfall_does_not_trigger_a_full_rewrite(monkeypatch):
+    planner_ctx = PlannerContext.from_env()
     text = "主角站在庭院门口说：“门已经打开请跟我来。”"
     bible = StoryBible(novel_title="测试", genre="通用", visual_style="国漫", palette="青色", style_fingerprint="test",
                        characters=[Character(name="主角", role="主角", appearance="黑发", wardrobe="青衣")], locations=["庭院：空旷的院落"])
@@ -59,20 +59,21 @@ def test_subsecond_floor_shortfall_does_not_trigger_a_full_rewrite(monkeypatch):
              "turns": [{"speaker_name": "主角", "delivery_mode": "visible_dialogue", "text": "门已经打开请跟我来。", "emotion": "平静", "chat_target": ""}]}
     raw = {"clips": [{"clip_id": "clip_1", "location": "庭院", "characters": ["主角"], "stages": [stage], "avoid": ""}], "skipped_segments": []}
     args = (raw, [{"segment_id": "seg_1", "text": text}], bible, {"庭院": bible.locations[0]}, text)
-    seconds = planner.stage_seconds(stage["turns"])
-    monkeypatch.setattr(planner, "EPISODE_SECONDS_MIN", seconds + 0.25)
-    errors, warnings, _ = planner.validate_and_normalize(*args)
+    seconds = pc_text.stage_seconds(stage["turns"], ctx=planner_ctx)
+    monkeypatch.setattr(planner_ctx, 'episode_seconds_min', seconds + 0.25)
+    errors, warnings, _ = pc_validation.validate_and_normalize(*args, ctx=planner_ctx)
     assert not errors
     assert any("估时容差内，不重写" in warning for warning in warnings)
-    monkeypatch.setattr(planner, "EPISODE_SECONDS_MIN", seconds + 2.25)
-    errors, _, _ = planner.validate_and_normalize(*args)
+    monkeypatch.setattr(planner_ctx, 'episode_seconds_min', seconds + 2.25)
+    errors, _, _ = pc_validation.validate_and_normalize(*args, ctx=planner_ctx)
     assert any("低于本次要求的下限" in error for error in errors)
 
 
 def test_ab_has_same_limits_and_each_complete_outline_reaches_pass_two(monkeypatch):
-    monkeypatch.setattr(planner, "CLIP_SECONDS_MAX", 15.0)
-    monkeypatch.setattr(planner, "SHORT_CLIPS", True)
-    planner.configure_budget(4000, fast=True)
+    planner_ctx = PlannerContext.from_env()
+    monkeypatch.setattr(planner_ctx, 'clip_seconds_max', 15.0)
+    monkeypatch.setattr(planner_ctx, 'short_clips', True)
+    pc_budget.configure_budget(4000, fast=True, ctx=planner_ctx)
     requests = []
     outlines = []
 
@@ -88,12 +89,12 @@ def test_ab_has_same_limits_and_each_complete_outline_reaches_pass_two(monkeypat
             content = '{"clips": []}'
         return {"choices": [{"message": {"content": content}, "finish_reason": "stop"}], "usage": {}}
 
-    monkeypatch.setattr(planner, "_post_any", response)
-    monkeypatch.setattr(planner, "_post", response)
-    kwargs = dict(base_url="http://model.invalid/v1", model="same-model", payload={"requirements": planner.budget_requirements(), "segments": [{"segment_id": "seg_1", "text": "原文"}]},
+    monkeypatch.setattr(planner_requests, "_post_any", response)
+    monkeypatch.setattr(planner_requests, "_post", response)
+    kwargs = dict(base_url="http://model.invalid/v1", model="same-model", payload={"requirements": pc_budget.budget_requirements(ctx=planner_ctx), "segments": [{"segment_id": "seg_1", "text": "原文"}]},
                   schema={"type": "object"}, max_tokens=12000, timeout=5, fast=True, seed=37)
-    planner.call_model(**kwargs)  # production default remains coverage
-    planner.call_model(**kwargs, outline_mode="story")
+    planner_requests.call_model(**kwargs, ctx=planner_ctx)  # production default remains coverage
+    planner_requests.call_model(**kwargs, outline_mode="story", ctx=planner_ctx)
     a_first, a_final, b_first, b_final = requests
     assert a_final["messages"][:2] == b_final["messages"][:2]
     assert a_final["messages"][-1]["content"].split("完整提纲：", 1)[1] == outlines[0]
@@ -110,8 +111,9 @@ def test_ab_has_same_limits_and_each_complete_outline_reaches_pass_two(monkeypat
 
 
 def test_cli_dry_run_carries_the_actual_long_episode_budget(monkeypatch, tmp_path):
-    monkeypatch.setattr(planner, "CLIP_SECONDS_MAX", 15.0)
-    monkeypatch.setattr(planner, "SHORT_CLIPS", True)
+    planner_ctx = PlannerContext.from_env()
+    monkeypatch.setattr(planner_ctx, 'clip_seconds_max', 15.0)
+    monkeypatch.setattr(planner_ctx, 'short_clips', True)
     source = tmp_path / "novel.txt"
     source.write_text("第一章 庭院\n" + "主角走入庭院，看见院门紧闭。\n" * 500)
     bible = tmp_path / "bible.json"
@@ -120,9 +122,9 @@ def test_cli_dry_run_carries_the_actual_long_episode_budget(monkeypatch, tmp_pat
         "characters": [{"name": "主角", "role": "主角", "appearance": "黑发", "wardrobe": "青衣"}],
         "locations": ["庭院：空旷的院落"],
     }))
-    monkeypatch.setattr(planner.sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo", "--bible", str(bible),
+    monkeypatch.setattr(sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo", "--bible", str(bible),
                                               "--output-root", str(tmp_path / "out"), "--tier", "fast", "--dry-run"])
-    assert planner.main() == 0
+    assert plan_chapter.main(context=planner_ctx) == 0
     request = json.loads((tmp_path / "out/demo/demo_1/request_dry_run.json").read_text())
     assert request["planning_budget"]["episode_target_seconds"] == 150
     assert request["requirements"]["clip_count"] == "6-10"

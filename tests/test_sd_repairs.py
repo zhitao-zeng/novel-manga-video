@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import build_clip_plan_thin as packer  # noqa: E402
 import conductor_thin  # noqa: E402
-import plan_chapter_thin  # noqa: E402
+import planner_context_thin as planner_context  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
 import thin_batch  # noqa: E402
 from novel_manga.config import DEFAULT_FONT_PATH  # noqa: E402
@@ -204,9 +204,9 @@ def test_thin_batch_cache_only_rebuilds_without_cards_or_a_run(tmp_path, monkeyp
 def test_a_replanned_chapter_replaces_its_appearances(tmp_path):
     novel = tmp_path / NOVEL
     novel.mkdir()
-    plan_chapter_thin.record_cast(novel, 5, ["林凡", "苏清"], ["大殿"])
-    plan_chapter_thin.record_cast(novel, 6, ["苏清"], ["山门"])
-    plan_chapter_thin.record_cast(novel, 5, ["林凡"], ["山门"])  # chapter 5 re-written without 苏清 and the hall
+    planner_context.record_cast(novel, 5, ["林凡", "苏清"], ["大殿"])
+    planner_context.record_cast(novel, 6, ["苏清"], ["山门"])
+    planner_context.record_cast(novel, 5, ["林凡"], ["山门"])  # chapter 5 re-written without 苏清 and the hall
     index = json.loads((novel / "cast_index.json").read_text(encoding="utf-8"))
     assert index["characters"] == {"林凡": [5], "苏清": [6]}
     assert index["locations"] == {"山门": [5, 6]}

@@ -1,5 +1,6 @@
 """Correct source attribution, then review existing footage before ordering a retake."""
 from __future__ import annotations
+from novel_manga.planning.context import PlannerContext
 
 import copy
 import fcntl
@@ -42,7 +43,9 @@ class SourceVerifier(CurrentVerifier):
 
 
 def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *, instructions: dict | None = None) -> dict:
-    from plan_chapter_thin import load_entity_index, mentioned_characters, ledger_cast
+    planner_ctx = PlannerContext.from_env()
+    from planner_context_thin import load_entity_index, ledger_cast
+    from novel_manga.planning.cast import mentioned_characters
     from repair_flow_thin import speaker_contract, repair_episode, source_identities, source_passage
     from build_h3_prompts import convert
     from thin_profile import h3_prompt_outdated
@@ -67,7 +70,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     from dialogue_binding import apply_confirmed_speakers
     protected_bindings = apply_confirmed_speakers(directory, script['shots'])
     catalog = IdentityCatalog(novel)
-    load_entity_index(novel, episode)
+    load_entity_index(novel, episode, ctx=planner_ctx)
     present = ledger_cast(novel, episode)
     contracts = read(directory / 'source_speaker_contract.json', [])
     merged = {**{(r['stage'],r['turn']):r for r in contracts}, **protected_bindings}
@@ -81,7 +84,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
         passage = '\n'.join(segments.values())
         resolved_names = [identity_reading['entities'].get(m['entity_id']) for m in identity_reading['mentions']
                           if m.get('presence') in {'on_stage','voice'} and m['entity_id'] != 'UNKNOWN']
-        names = list(dict.fromkeys([*(n for n in resolved_names if n in names_all), *mentioned_characters(passage, names_all),
+        names = list(dict.fromkeys([*(n for n in resolved_names if n in names_all), *mentioned_characters(passage, names_all, ctx=planner_ctx),
                                     *(n for n,p in present.items() if p in {'on_stage','voice'} and n in names_all),
                                     *(n for n in clip.get('cast',[]) if n in names_all)]))
         if any(t.get('speaker_name')=='无名群声' and t.get('delivery_mode')=='offscreen_dialogue' for t in clip.get('lines',[])):

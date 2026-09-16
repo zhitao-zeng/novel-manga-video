@@ -67,7 +67,7 @@ def judge_json(parts, schema, *, name, max_tokens=2200, timeout=240):
     with JUDGE_SLOT, httpx.Client(trust_env=False, timeout=timeout) as client:
         result = stream_completion(client, config['QWEN38_LOCAL_BASE_URL'] + '/chat/completions',
                                    {'Authorization': 'Bearer ' + key} if key else {}, payload, timeout=timeout)
-    from plan_chapter_thin import extract_json
+    from planner_requests_thin import extract_json
     choice = result['choices'][0]
     if choice.get('finish_reason') != 'stop' or not choice['message'].get('content'):
         raise ValueError('independent judge did not finish: ' + str(choice.get('finish_reason')))
@@ -318,7 +318,8 @@ def init_book(source, old_book, directory, excluded):
         if saved['source'] != str(source.resolve()) or saved['excluded'] != sorted(excluded):
             raise ValueError('existing rebuild uses different source or scope')
         return saved
-    from plan_chapter_thin import split_segments, SEGMENT_COUNT
+    from novel_manga.planning.text import split_segments
+    from novel_manga.planning.constants import SEGMENT_COUNT
     novel = read_novel(source, novel_id=directory.name, title='诸天万象录')
     directory.mkdir(parents=True, exist_ok=True)
     source_stat = source.stat()

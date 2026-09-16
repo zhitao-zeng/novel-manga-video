@@ -10,7 +10,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import plan_chapter_thin as pc  # noqa: E402
+import novel_manga.planning.outputs as pc_outputs
+import novel_manga.planning.validation as pc_validation
+import planner_context_thin as planner_context
+from novel_manga.planning.context import PlannerContext  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 
 TEXT = "薇奥拉站起身绕过桌子，伸手双臂环住莱恩的脖子，微微踮起脚尖吻住了他。但莱恩向后仰头想要避开：“塞西娅还在楼上。”"
@@ -25,6 +28,7 @@ def bible() -> StoryBible:
 
 
 def test_in_frame_and_actions_lead_the_event_line():
+    planner_ctx = PlannerContext.from_env()
     raw = {"clips": [{"clip_id": "clip_01", "location": "夜莺广场", "characters": ["莱恩·格雷", "薇奥拉公主", "塞西娅"], "avoid": "", "stages": [
         {"segment_id": "seg_1", "source_quote": "伸手双臂环住莱恩的脖子，微微踮起脚尖吻住了他", "start_state": "薇奥拉站起身", "event": "薇奥拉吻莱恩，莱恩避开",
          "end_state": "莱恩仰头", "camera": "桌边", "light": "灯", "sfx": "无", "shot_scale": "中近景",
@@ -34,13 +38,13 @@ def test_in_frame_and_actions_lead_the_event_line():
            "skipped_segments": []}
     segments = [{"segment_id": "seg_1", "text": TEXT}]
     b = bible()
-    errors, warnings, shots = pc.validate_and_normalize(raw, segments, b, {"夜莺广场": b.locations[0]}, TEXT)
+    errors, warnings, shots = pc_validation.validate_and_normalize(raw, segments, b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     assert not [e for e in errors if "seg_1" not in e], errors
     shot = shots[0]
     assert shot["characters"] == ["薇奥拉公主", "莱恩·格雷"]          # 塞西娅 is upstairs: in the clip, not in this frame
     # ... even though the event line names her: with in_frame given, the picture-text scan adds nobody
     raw["clips"][0]["stages"][0]["event"] = "薇奥拉吻莱恩，莱恩避开说塞西娅还在楼上"
-    _, warnings2, shots2 = pc.validate_and_normalize(raw, segments, b, {"夜莺广场": b.locations[0]}, TEXT)
+    _, warnings2, shots2 = pc_validation.validate_and_normalize(raw, segments, b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     assert shots2[0]["characters"] == ["薇奥拉公主", "莱恩·格雷"] and not any("补上" in w for w in warnings2)
     assert shot["motion_prompt"].startswith("薇奥拉公主环住脖子踮脚吻住莱恩·格雷；莱恩·格雷向后仰头避开。")
     assert shot["actions"] == [{"actor": "薇奥拉公主", "action": "环住脖子踮脚吻住", "target": "莱恩·格雷"}, {"actor": "莱恩·格雷", "action": "向后仰头避开", "target": ""}]
@@ -49,26 +53,28 @@ def test_in_frame_and_actions_lead_the_event_line():
 def test_one_visible_speaker_keeps_only_the_speaker_in_frame():
     """Shot / reverse shot: with 莱恩 speaking and no action involving 塞西娅, she becomes a listener (back to camera or
     off frame) and the prompt says so; when the stage's action reaches her, both stay in frame."""
+    planner_ctx = PlannerContext.from_env()
     import build_clip_plan_thin as bcp
     stage = {"segment_id": "seg_1", "source_quote": "伸手双臂环住莱恩的脖子，微微踮起脚尖吻住了他", "start_state": "两人对坐", "event": "莱恩说话",
              "end_state": "塞西娅沉默", "camera": "桌边", "light": "灯", "sfx": "无", "shot_scale": "中近景", "in_frame": ["莱恩·格雷", "塞西娅"],
              "actions": [], "extras": [], "turns": [{"speaker_name": "莱恩·格雷", "delivery_mode": "visible_dialogue", "text": "塞西娅还在楼上。", "emotion": "", "chat_target": ""}]}
     raw = {"clips": [{"clip_id": "clip_01", "location": "夜莺广场", "characters": ["莱恩·格雷", "塞西娅"], "avoid": "", "stages": [stage]}], "skipped_segments": []}
     b = bible()
-    _, warnings, shots = pc.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT)
+    _, warnings, shots = pc_validation.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     assert shots[0]["characters"] == ["莱恩·格雷"] and shots[0]["listeners"] == ["塞西娅"] and any("转为听者" in w for w in warnings)
-    plan = pc.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章")
+    plan = pc_outputs.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章", ctx=planner_ctx)
     assert plan.shots[0].listeners == ["塞西娅"]
     clip = {"request_seconds": 15, "shots": [{**shots[0], "visual_prompt": "莱恩说话", "motion_prompt": "莱恩说话", "end_state": "塞西娅沉默"}]}
     assert "本阶段只有莱恩·格雷正脸入镜；塞西娅只露背影或在画外，不入近景、嘴不动" in bcp.compile_prompt(clip, b, ["莱恩·格雷"], [], "夜莺广场：河边的小广场")
     stage["actions"] = [{"actor": "莱恩·格雷", "action": "握住手腕", "target": "塞西娅"}]
-    _, _, shots2 = pc.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT)
+    _, _, shots2 = pc_validation.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     assert shots2[0]["characters"] == ["莱恩·格雷", "塞西娅"] and shots2[0]["listeners"] == []
 
 
 def test_uncarded_extras_are_kept_by_description_and_reach_the_prompt():
     """An unnamed neighbour in the passage is an extra drawn from her description; a named character written as an
     extra is dropped; the packer's headcount line and the stage line carry the extras."""
+    planner_ctx = PlannerContext.from_env()
     import build_clip_plan_thin as bcp
     raw = {"clips": [{"clip_id": "clip_01", "location": "夜莺广场", "characters": ["莱恩·格雷"], "avoid": "", "stages": [
         {"segment_id": "seg_1", "source_quote": "伸手双臂环住莱恩的脖子，微微踮起脚尖吻住了他", "start_state": "莱恩站着", "event": "老妇人递信",
@@ -76,9 +82,9 @@ def test_uncarded_extras_are_kept_by_description_and_reach_the_prompt():
          "actions": [], "extras": ["戴眼镜的灰发老妇人", "薇奥拉公主", "  "],
          "turns": [{"speaker_name": "", "delivery_mode": "silent_action", "text": "递信", "emotion": "", "chat_target": ""}]}]}], "skipped_segments": []}
     b = bible()
-    _, _, shots = pc.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT)
+    _, _, shots = pc_validation.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     assert shots[0]["extras"] == ["戴眼镜的灰发老妇人"]
-    plan = pc.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章")
+    plan = pc_outputs.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章", ctx=planner_ctx)
     assert plan.shots[0].extras == ["戴眼镜的灰发老妇人"]
     clip = {"request_seconds": 15, "shots": [{**shots[0], "visual_prompt": "莱恩站在门口", "motion_prompt": "老妇人递信", "end_state": "莱恩接信"}]}
     prompt = bcp.compile_prompt(clip, b, ["莱恩·格雷"], [], "夜莺广场：河边的小广场")
@@ -101,10 +107,10 @@ def test_ledger_cast_and_snapshot_come_from_the_ledger_files(tmp_path):
         {"form": "塞西娅", "entity": "e003", "kind": "proper", "presence": "mentioned"}]), encoding="utf-8")
     (novel / "entity" / "claims.json").write_text(json.dumps([
         {"chapter": 900, "type": "occupies_body", "subject": "e003", "object": "e002", "hidden_from_reader": True}]), encoding="utf-8")
-    cast = pc.ledger_cast(novel, 761)
+    cast = planner_context.ledger_cast(novel, 761)
     assert cast == {"莱恩·格雷": "on_stage", "薇奥拉公主": "on_stage", "塞西娅": "mentioned"}
-    assert pc.ledger_cast(novel, 762) == {}                                   # not read: the old candidates apply
-    snap = pc.ledger_snapshot_for(novel, 761, [{"segment_id": "seg_4", "text": TEXT}, {"segment_id": "seg_5", "text": "作家小姐笑了。"}], cast,
+    assert planner_context.ledger_cast(novel, 762) == {}                                   # not read: the old candidates apply
+    snap = planner_context.ledger_snapshot_for(novel, 761, [{"segment_id": "seg_4", "text": TEXT}, {"segment_id": "seg_5", "text": "作家小姐笑了。"}], cast,
                                   ["莱恩·格雷", "薇奥拉公主", "塞西娅"])
     assert snap["segments"]["seg_4"]["named_here"] == ["莱恩·格雷", "薇奥拉公主", "塞西娅"]
     assert snap["segments"]["seg_5"]["named_here"] == ["薇奥拉公主"]        # a merged record's form names the survivor

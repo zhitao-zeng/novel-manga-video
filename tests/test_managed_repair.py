@@ -32,8 +32,8 @@ def fixture_episode(tmp_path):
 
 
 def test_descriptive_source_names_are_scene_local_and_ambiguous_roles_are_not_bound(monkeypatch):
-    import plan_chapter_thin as planner
-    monkeypatch.setattr(planner,'_usable_forms',lambda names:{n:[n] for n in names})
+    import novel_manga.planning.cast as pc_cast
+    monkeypatch.setattr(pc_cast,'_usable_forms',lambda names:{n:[n] for n in names})
     names=['黑袍身影','拿玩具木刀的男孩']
     bible={'characters':[{'name':n} for n in names]}
     context={'entities':{'e1':names[0],'e2':names[1]},'mentions':[

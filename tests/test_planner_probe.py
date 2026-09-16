@@ -4,7 +4,8 @@ import pytest
 
 from benchmark_planner_outline import audit_outline_trace, write
 from judge_planner_outline import judge_one, shot_view
-import plan_chapter_thin as planner
+import novel_manga.planning.constants as pc_constants
+import novel_manga.planning.contracts as pc_contracts
 
 
 def test_blind_review_cannot_count_summary_or_source_quotes_as_filmed_information():
@@ -32,7 +33,7 @@ def test_changed_planning_context_is_not_sent_for_a_blind_comparison(tmp_path):
 
 def test_real_trace_rejects_cropped_outline_even_when_both_responses_stop(tmp_path):
     import json
-    outline = json.dumps({"sections": {key: "concrete source event and allocation " * 100 for key in planner.OUTLINE_SECTIONS["coverage"]},
+    outline = json.dumps({"sections": {key: "concrete source event and allocation " * 100 for key in pc_constants.OUTLINE_SECTIONS["coverage"]},
                           "coverage": [{"segment_id": "seg_1", "placement": "clip one"}]})
     first = {"response_format": {"json_schema": {"name": "chapter_outline"}},
              "messages": [{"role": "system", "content": "outline"}, {"role": "user", "content": json.dumps({"segments": [{"segment_id": "seg_1"}]})}]}
@@ -42,9 +43,9 @@ def test_real_trace_rejects_cropped_outline_even_when_both_responses_stop(tmp_pa
     write(tmp_path / "http/001-response.json", {"choices": [{"finish_reason": "stop", "message": {"content": outline}}]})
     write(tmp_path / "http/002-request.json", second)
     write(tmp_path / "http/002-response.json", {"choices": [{"finish_reason": "stop", "message": {"content": '{"clips": []}'}}]})
-    assert not audit_outline_trace(tmp_path, "coverage", planner.validate_outline)["valid"]
+    assert not audit_outline_trace(tmp_path, "coverage", pc_contracts.validate_outline)["valid"]
     second["messages"][0]["content"] = "完整提纲：" + outline
     write(tmp_path / "http/002-request.json", second)
-    assert audit_outline_trace(tmp_path, "coverage", planner.validate_outline)["valid"]
+    assert audit_outline_trace(tmp_path, "coverage", pc_contracts.validate_outline)["valid"]
     write(tmp_path / "http/001-response.json", {"choices": [{"finish_reason": "length", "message": {"content": "", "reasoning": outline}}]})
-    assert not audit_outline_trace(tmp_path, "coverage", planner.validate_outline)["valid"]
+    assert not audit_outline_trace(tmp_path, "coverage", pc_contracts.validate_outline)["valid"]

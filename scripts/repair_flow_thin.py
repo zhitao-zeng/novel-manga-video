@@ -32,7 +32,8 @@ from novel_manga.repair.proposal import RepairProposal
 from novel_manga.repair.execution import action_owners, apply_stage, framing_signature, repair_prompt, stage_view
 from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
 from novel_manga.util import atomic_write_json  # noqa: E402
-from plan_chapter_thin import ledger_cast, ledger_snapshot_for  # noqa: E402
+from novel_manga.planning.context import PlannerContext
+from planner_context_thin import ledger_cast, ledger_snapshot_for  # noqa: E402
 from novel_manga.model_client import ask_json  # noqa: E402
 
 LANE_FIELDS = ("prompt_h3", "prompt_h3_of")
@@ -344,6 +345,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
 
 
 def _proposal_data(novel_dir: Path, index: int, *, record_evidence=None, use_history: bool = True, reframe: bool = False, identity: bool = False, source_issues: dict | None = None, require_structure: bool = False) -> dict:
+    planner_ctx = PlannerContext.from_env()
     episode_dir = novel_dir / f"{novel_dir.name}_{index}"
     review = read(episode_dir / "episode_review.json", {})
     failing = source_issues if source_issues is not None else failing_clips(review)
@@ -370,14 +372,15 @@ def _proposal_data(novel_dir: Path, index: int, *, record_evidence=None, use_his
         resolved_old = {old for mapping in identities.values() for old in mapping} - set(in_script)
         present = [name for name in present if name not in resolved_old]
     leads = [c["name"] for c in bible.get("characters", []) if "主角" in str(c.get("role", ""))]
-    from plan_chapter_thin import load_entity_index, mentioned_characters
+    from planner_context_thin import load_entity_index
+    from novel_manga.planning.cast import mentioned_characters
     from story_identity import IdentityCatalog, resolve_chapter, prompt_block
     identity_reading = resolve_chapter(episode_dir)
     from dialogue_binding import apply_confirmed_speakers
     protected_bindings = apply_confirmed_speakers(episode_dir, script['shots'])
     catalog = IdentityCatalog(novel_dir)
-    load_entity_index(novel_dir, index)
-    source_names = mentioned_characters('\n'.join(segments.values()), bible_names)
+    load_entity_index(novel_dir, index, ctx=planner_ctx)
+    source_names = mentioned_characters('\n'.join(segments.values()), bible_names, ctx=planner_ctx)
     resolved_names = [identity_reading['entities'].get(m['entity_id']) for m in identity_reading['mentions']
                       if m.get('presence') in {'on_stage','voice'} and m['entity_id'] != 'UNKNOWN']
     names = list(dict.fromkeys([*(n for n in resolved_names if n in bible_names), *leads, *source_names, *present, *in_script]))[:40]

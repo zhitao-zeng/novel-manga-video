@@ -3,7 +3,8 @@ import copy
 import pytest
 
 from novel_manga.models import Character, StoryBible
-import plan_chapter_thin as planner
+import novel_manga.planning.validation as pc_validation
+from novel_manga.planning.context import PlannerContext
 import repair_flow_thin as repair
 import build_clip_plan_thin as packer
 
@@ -16,7 +17,8 @@ import build_clip_plan_thin as packer
     ('沈行舟', '木门', '推开'),
 ])
 def test_scene_action_survives_normalization_and_packing(monkeypatch, actor, target, verb):
-    monkeypatch.setattr(planner, 'EPISODE_SECONDS_MIN', 0)
+    planner_ctx = PlannerContext.from_env()
+    monkeypatch.setattr(planner_ctx, 'episode_seconds_min', 0)
     source = '沈行舟在溪边遇到灰色野山羊，挥起铲子迎击，山羊随后摔进溪水里。'
     bible = StoryBible(novel_title='测试', genre='generic', visual_style='国漫', palette='青', style_fingerprint='test',
                        characters=[Character(name='沈行舟', appearance='黑发', wardrobe='长衫')], locations=['溪边：草地溪水'])
@@ -28,8 +30,8 @@ def test_scene_action_survives_normalization_and_packing(monkeypatch, actor, tar
              'turns': [{'speaker_name': '', 'delivery_mode': 'silent_action', 'text': '挥铲迎击', 'emotion': '惊恐', 'chat_target': ''}]}
     raw = {'clips': [{'clip_id': 'c', 'location': '溪边', 'characters': ['沈行舟'], 'avoid': '', 'stages': [stage]}],
            'skipped_segments': []}
-    errors, _, shots = planner.validate_and_normalize(raw, [{'segment_id': 'seg_1', 'text': source}],
-                                                      bible, {'溪边': bible.locations[0]}, source)
+    errors, _, shots = pc_validation.validate_and_normalize(raw, [{'segment_id': 'seg_1', 'text': source}],
+                                                      bible, {'溪边': bible.locations[0]}, source, ctx=planner_ctx)
     assert not errors
     assert shots[0]['actions'] == stage['actions']
     assert shots[0]['characters'] == ['沈行舟']

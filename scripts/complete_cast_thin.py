@@ -31,7 +31,9 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import plan_chapter_thin  # noqa: E402
+import novel_manga.planning.cast as pc_cast
+import planner_context_thin as planner_context
+from novel_manga.planning.context import PlannerContext  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
 
@@ -126,6 +128,7 @@ def plan_mode(episode_dir: Path) -> str:
 
 
 def main() -> int:
+    planner_ctx = PlannerContext.from_env()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--chapters", help="episode indexes, e.g. 12,48-60 (default: every episode with a storyboard)")
@@ -142,8 +145,8 @@ def main() -> int:
     bible_path = novel_dir / "story_bible.json"
     everyone = [c.name for c in StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8")).characters]
     aliases = novel_dir / "bible_aliases.json"
-    plan_chapter_thin.ALIASES.update(json.loads(aliases.read_text(encoding="utf-8")) if aliases.is_file() else {})
-    plan_chapter_thin.load_entity_index(novel_dir)
+    planner_ctx.aliases.update(json.loads(aliases.read_text(encoding="utf-8")) if aliases.is_file() else {})
+    planner_context.load_entity_index(novel_dir, ctx=planner_ctx)
     wanted = set(parse_chapters(args.chapters)) if args.chapters else None
 
     # In-place rebuilding needs build_clip_plan_thin imported under the plan's clip length: one worker per length.
@@ -174,7 +177,7 @@ def main() -> int:
         original = copy.deepcopy(script)
         touched = 0
         for shot in script.get("shots", []):
-            cast, added = plan_chapter_thin.complete_characters(list(shot.get("characters") or []), shot, everyone)
+            cast, added = pc_cast.complete_characters(list(shot.get("characters") or []), shot, everyone, ctx=planner_ctx)
             if added:
                 shot["characters"] = cast
                 touched += 1

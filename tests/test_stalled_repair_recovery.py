@@ -69,13 +69,13 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
     if changed_words == 'recut':
         plan['clips'].insert(1, {**copy.deepcopy(plan['clips'][0]), 'clip_id': 'c'})
         structural = {'groups': [{'old': ['a'], 'new': ['a', 'c']}]}
-    import plan_chapter_thin as planner
+    import planner_context_thin as planner_context
     import build_h3_prompts as h3
     import thin_profile
     import novel_manga.review.policy as review_policy
-    monkeypatch.setattr(planner,'load_entity_index',lambda *a:None)
+    monkeypatch.setattr(planner_context,'load_entity_index',lambda *a,**k:None)
     monkeypatch.setattr('story_identity.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
-    monkeypatch.setattr(planner,'ledger_cast',lambda *a:{})
+    monkeypatch.setattr(planner_context,'ledger_cast',lambda *a:{})
     monkeypatch.setattr(repair,'speaker_contract',lambda *a,**k:{})
     monkeypatch.setattr(repair,'repair_episode',lambda *a,**k:{'changed':['a','c'] if structural else [],
         'proposal':{'plan':plan,'script':{'shots':[]},'notes':{},'changes':{},'structural_repair':structural}})

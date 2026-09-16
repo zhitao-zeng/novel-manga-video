@@ -5,6 +5,7 @@ One subprocess owns one unrendered episode. Existing footage is never rewritten
 by this preparation queue. Reports are text checks, not video-review verdicts.
 """
 from __future__ import annotations
+from novel_manga.planning.context import PlannerContext
 
 import argparse
 from collections import Counter
@@ -111,8 +112,10 @@ def grounded_issues(answer, script, segments):
 
 
 def audit(directory):
+    planner_ctx = PlannerContext.from_env()
     from novel_manga.model_client import ask_json
-    from plan_chapter_thin import load_entity_index, mentioned_characters
+    from planner_context_thin import load_entity_index
+    from novel_manga.planning.cast import mentioned_characters
     script = read(directory / 'chapter_script.json', {})
     segments = read(directory / 'segments.json', [])
     if not script.get('shots') or not segments:
@@ -123,8 +126,8 @@ def audit(directory):
     passage = '\n'.join(s['text'] for s in segments)
     from story_identity import resolve_chapter, prompt_context, reading_segments
     identity_reading = resolve_chapter(directory)
-    load_entity_index(directory.parent, int(directory.name.rsplit('_', 1)[1]))
-    names = set(mentioned_characters(passage, [c['name'] for c in bible['characters']]))
+    load_entity_index(directory.parent, int(directory.name.rsplit('_', 1)[1]), ctx=planner_ctx)
+    names = set(mentioned_characters(passage, [c['name'] for c in bible['characters']], ctx=planner_ctx))
     names.update(n for shot in script['shots'] for n in shot.get('characters', []))
     identity_context = prompt_context(directory, names, context=identity_reading)
     source_view = reading_segments(directory, identity_reading)

@@ -43,8 +43,8 @@ def test_current_source_binding_reaches_review_but_stale_or_wrong_binding_does_n
 
 
 def test_collective_offscreen_voice_and_named_duchess_can_be_grounded(monkeypatch):
-    import plan_chapter_thin as planner
-    monkeypatch.setattr(planner,'_usable_forms',lambda names:{n:[n] for n in names})
+    import novel_manga.planning.cast as pc_cast
+    monkeypatch.setattr(pc_cast,'_usable_forms',lambda names:{n:[n] for n in names})
     names=['无名群声','西米尔公爵夫人']
     bible={'characters':[{'name':'西米尔公爵夫人','gender':'女'}]}
     context={'entities':{'e1':'无名群声','e2':'西米尔公爵夫人'},'mentions':[

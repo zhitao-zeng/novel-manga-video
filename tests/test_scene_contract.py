@@ -1,12 +1,14 @@
 import copy
 
 from novel_manga.story import fields
-import plan_chapter_thin as planner
+import novel_manga.planning.contracts as pc_contracts
+from novel_manga.planning.context import PlannerContext
 import repair_flow_thin as repair
 
 
 def stage_schemas(names):
-    full = planner.build_schema(names, ['庭院'], ['seg_1'])['properties']['clips']['items']['properties']['stages']['items']
+    planner_ctx = PlannerContext.from_env()
+    full = pc_contracts.build_schema(names, ['庭院'], ['seg_1'], ctx=planner_ctx)['properties']['clips']['items']['properties']['stages']['items']
     patch = repair.schema_for(names, [1])['properties']['stages']['items']
     return full, patch
 

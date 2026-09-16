@@ -9,7 +9,12 @@ import pytest
 from scripts import build_clip_plan_thin as packer
 
 # The standalone scripts import their siblings from the scripts directory.
-import plan_chapter_thin as planner
+import novel_manga.planning.validation as pc_validation
+import plan_chapter_thin as plan_chapter
+import planner_requests_thin as planner_requests
+import sys
+import time
+from novel_manga.planning.context import PlannerContext
 from novel_manga import model_client
 
 
@@ -114,6 +119,7 @@ def test_no_model_retry_after_time_budget_is_spent(monkeypatch):
 
 
 def test_plan_patch_does_not_retry_truncated_json(monkeypatch):
+    planner_ctx = PlannerContext.from_env()
     requests = []
 
     def model(request):
@@ -123,13 +129,14 @@ def test_plan_patch_does_not_retry_truncated_json(monkeypatch):
     _mock_model(monkeypatch, model)
     raw = {"clips": [{"clip_id": "clip_1", "stages": [{"segment_id": "seg_01"}]}]}
     with pytest.raises(ValueError, match="JSON truncated"):
-        planner.patch_plan(raw, [], {"clip_1 stage 1": ["missing speaker"]},
-                           [{"segment_id": "seg_01", "text": "原文中的一句对白。"}], ["主角"], ["庭院"], timeout=9)
+        planner_requests.patch_plan(raw, [], {"clip_1 stage 1": ["missing speaker"]},
+                           [{"segment_id": "seg_01", "text": "原文中的一句对白。"}], ["主角"], ["庭院"], timeout=9, ctx=planner_ctx)
     assert len(requests) == 1
     assert 0 < requests[0].extensions["timeout"]["read"] <= 9
 
 
 def test_chapter_repair_budget_survives_full_draft_retries(monkeypatch, tmp_path):
+    planner_ctx = PlannerContext.from_env()
     source = tmp_path / "novel.txt"
     source.write_text("第一章 庭院\n" + "主角走入庭院，看见院门紧闭。\n" * 40, encoding="utf-8")
     bible = tmp_path / "bible.json"
@@ -141,10 +148,7 @@ def test_chapter_repair_budget_survives_full_draft_retries(monkeypatch, tmp_path
     clock = [0.0]
     patch_timeouts = []
     drafts = []
-    monkeypatch.setattr(planner.time, "monotonic", lambda: clock[0])
-    # main changes these module settings; restore them after this test.
-    for name in ("EPISODE_SECONDS_MIN", "ANONYMOUS_SPEAKERS", "TEXT_ON_PROPS_GATE", "FAST_TIER"):
-        monkeypatch.setattr(planner, name, getattr(planner, name))
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
 
     def draft(**kwargs):
         drafts.append(kwargs)
@@ -155,13 +159,13 @@ def test_chapter_repair_budget_survives_full_draft_retries(monkeypatch, tmp_path
         clock[0] += timeout
         raise TimeoutError("simulated slow repair")
 
-    monkeypatch.setattr(planner, "call_model", draft)
+    monkeypatch.setattr(planner_requests, "call_model", draft)
     monkeypatch.setattr('story_identity.resolve_chapter', lambda *a, **k: {})
-    monkeypatch.setattr(planner, "validate_and_normalize", lambda *args: (["clip_1 stage 1: missing speaker"], [], []))
-    monkeypatch.setattr(planner, "patch_plan", failed_patch)
-    monkeypatch.setattr(planner.sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo",
+    monkeypatch.setattr(pc_validation, "validate_and_normalize", lambda *args, **kwargs: (["clip_1 stage 1: missing speaker"], [], []))
+    monkeypatch.setattr(planner_requests, "patch_plan", failed_patch)
+    monkeypatch.setattr(sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo",
                         "--bible", str(bible), "--output-root", str(tmp_path / "out"), "--max-redo", "2"])
-    assert planner.main() == 2
+    assert plan_chapter.main(context=planner_ctx) == 2
     assert len(drafts) == 3
     assert patch_timeouts == [120, 60]  # the third draft gets no fresh repair allowance
     report = json.loads((tmp_path / "out/demo/demo_1/planning_failed.json").read_text())

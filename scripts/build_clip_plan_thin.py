@@ -31,7 +31,10 @@ from novel_manga.story.dialogue import merged_turns, nonverbal_sound
 from novel_manga.story.compilation import (CompilerOptions, ClipCompiler,
     ABSTRACT, CAMERA_MOVE, CLAUSE_END, EXECUTION_RULES, LIGHT_NOUNS, NO_SUBTITLES, ORDINALS, READABLE_TEXT, SENTENCE_END, STAGE_LABELS, STRIP_PUNCT, anchor_of, chat_turns, compact, is_title_card, lint_stage, plan_totals, spoken_chars, text_chunks)
 from novel_manga.models import StoryBible
-from plan_chapter_thin import ALIASES as PLAN_ALIASES, load_entity_index, mentioned_characters  # noqa: E402
+from novel_manga.planning.context import PlannerContext
+from novel_manga.planning.context import PlannerContext
+from planner_context_thin import load_entity_index
+from novel_manga.planning.cast import mentioned_characters  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_for, phase_labels, phased  # noqa: E402
 from novel_manga.util import atomic_write_json
 
@@ -60,14 +63,14 @@ DEFAULT_ANON_VOICE = {
 ANON_VOICE = dict(DEFAULT_ANON_VOICE)
 
 
-def compiler_options(frame=None):
-    from plan_chapter_thin import ENTITY_FORMS, ENTITY_GENERIC
+def compiler_options(frame=None, *, planning_context=None):
+    entities = planning_context or PlannerContext.from_env()
     return CompilerOptions(max_clip_seconds=MAX_CLIP_SECONDS, soft_cut_seconds=SOFT_CUT_SECONDS,
         max_stages=MAX_STAGES, pack_mode=PACK_MODE, min_standalone_seconds=MIN_STANDALONE_SECONDS,
         chat_screen=copy.deepcopy(CHAT_SCREEN), anon_voice=copy.deepcopy(ANON_VOICE),
         genre_rejects=list(GENRE_REJECTS), genre_crowd=GENRE_CROWD,
-        entity_forms=copy.deepcopy(ENTITY_FORMS), entity_generic=copy.deepcopy(ENTITY_GENERIC),
-        aliases=dict(PLAN_ALIASES), frame=frame or frame_spec({'frame':'9:16'}),
+        entity_forms=copy.deepcopy(entities.entity_forms), entity_generic=copy.deepcopy(entities.entity_generic),
+        aliases=dict(entities.aliases), frame=frame or frame_spec({'frame':'9:16'}),
         voices=dict(VOICES), two_view_cast_limit=TWO_VIEW_CAST_LIMIT)
 
 
@@ -317,12 +320,13 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
                  frame: str | None = None, tier: str | None = None) -> dict:
     """Everything an episode's clip entries are built from besides the shots - and the module settings the packer
     reads (genre rejects, crowd line, anonymous voices, chat screen, voice bank, cards per character)."""
+    planner_ctx = PlannerContext.from_env()
     global GENRE_REJECTS, GENRE_CROWD, TWO_VIEW_CAST_LIMIT
     bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     grammar = load_grammar(grammar_path, episode_dir)
     load_chat_screen(episode_dir.parent)
     load_voices(episode_dir.parent)
-    load_entity_index(episode_dir.parent, chapter_of(episode_dir))
+    load_entity_index(episode_dir.parent, chapter_of(episode_dir), ctx=planner_ctx)
     profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
     genre = load_genre(profile)
     GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]
@@ -334,7 +338,7 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     overrides_path = episode_dir / "clip_overrides.json"
     return {
         "episode_dir": episode_dir, "bible": bible, "grammar": grammar, "profile": profile, "frame": frame_spec(profile),
-        "compiler_options": compiler_options(frame_spec(profile)),
+        "compiler_options": compiler_options(frame_spec(profile), planning_context=planner_ctx),
         "location_map": {full.split("：", 1)[0].strip(): full for full in bible.locations},
         "overrides": json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {},
     }

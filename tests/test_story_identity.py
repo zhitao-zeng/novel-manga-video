@@ -1,3 +1,4 @@
+from novel_manga.planning.context import PlannerContext
 import json
 from pathlib import Path
 
@@ -28,15 +29,17 @@ def test_alias_file_and_index_are_both_used(tmp_path):
 
 
 def test_book_switch_clears_previous_aliases(tmp_path):
-    import plan_chapter_thin as planner
+    planner_ctx = PlannerContext.from_env()
+    import novel_manga.planning.cast as pc_cast
+    import planner_context_thin as planner_context
     a = tmp_path / 'a'; b = tmp_path / 'b'
     a.mkdir(); b.mkdir()
     atomic_write_json(a / 'bible_aliases.json', {'同一称谓': '甲'})
     atomic_write_json(b / 'bible_aliases.json', {'另一个称谓': '乙'})
-    planner.load_entity_index(a)
-    assert planner.ALIASES['同一称谓'] == '甲'
-    planner.load_entity_index(b)
-    assert planner.ALIASES == {'另一个称谓': '乙'}
+    planner_context.load_entity_index(a, ctx=planner_ctx)
+    assert planner_ctx.aliases['同一称谓'] == '甲'
+    planner_context.load_entity_index(b, ctx=planner_ctx)
+    assert planner_ctx.aliases == {'另一个称谓': '乙'}
 
 
 def test_ledger_merge_keeps_one_identity_and_both_names(tmp_path):
@@ -164,7 +167,9 @@ def test_design_body_is_not_exposed_as_source_truth(tmp_path):
 
 
 def test_planner_and_packer_share_the_same_scoped_identity(tmp_path):
-    import plan_chapter_thin as planner
+    planner_ctx = PlannerContext.from_env()
+    import novel_manga.planning.cast as pc_cast
+    import planner_context_thin as planner_context
     import build_clip_plan_thin as packer
     novel=book(tmp_path,('正式名', '旧名字'))
     directory=novel/'book_1'
@@ -173,8 +178,8 @@ def test_planner_and_packer_share_the_same_scoped_identity(tmp_path):
         {'form':'旧名字','entity_id':'e001','presence':'on_stage','kind':'proper'}])
     ctx['inputs']=identity.chapter_inputs(directory)
     atomic_write_json(directory/'identity_context.json',ctx)
-    planner.load_entity_index(novel,1)
-    assert planner.canonical('旧名字')=='正式名'
+    planner_context.load_entity_index(novel,1, ctx=planner_ctx)
+    assert pc_cast.canonical('旧名字', ctx=planner_ctx)=='正式名'
     script={'shots':[{'index':1,'segment_id':'seg_1','characters':['旧名字'],
         'turns':[{'speaker_name':'旧名字','chat_target':'旧名字','text':'原话。'}],
         'actions':[{'actor':'旧名字','target':'旧名字','action':'递出物品'}]}]}
@@ -324,8 +329,9 @@ def test_unmatched_actor_blocks_instead_of_borrowing_unrelated_cast():
 
 
 def test_actorless_planner_schema_has_no_empty_enum():
-    from plan_chapter_thin import build_schema
-    schema = build_schema([], ['山顶'], ['s'])
+    planner_ctx = PlannerContext.from_env()
+    from novel_manga.planning.contracts import build_schema
+    schema = build_schema([], ['山顶'], ['s'], ctx=planner_ctx)
     clip = schema['properties']['clips']['items']['properties']
     assert clip['characters']['maxItems'] == 0
     assert clip['stages']['items']['properties']['in_frame']['maxItems'] == 0

@@ -151,7 +151,8 @@ def worker(job_path: Path) -> int:
     # Use exactly the captured implementation, even if production is edited during the probe.
     sys.path[:0] = [str(root / "code/scripts"), str(root / "code/src")]
     import httpx
-    import plan_chapter_thin as planner
+    import novel_manga.planning.contracts as pc_contracts
+    import plan_chapter_thin as plan_chapter
 
     requests = []
     original_send = httpx.Client.send
@@ -192,7 +193,7 @@ def worker(job_path: Path) -> int:
     started = time.monotonic()
     result = {**job, "pid": os.getpid(), "model": manifest["model"], "started_at": time.strftime("%Y-%m-%d %H:%M:%S %z")}
     try:
-        result["exit_code"] = planner.main()
+        result["exit_code"] = plan_chapter.main()
     except Exception as error:
         result.update(status="planning_exception", exit_code=1, error=f"{type(error).__name__}: {error}")
     result["wall_seconds"] = round(time.monotonic() - started, 3)
@@ -212,7 +213,7 @@ def worker(job_path: Path) -> int:
     result["usage"] = {k: sum((r.get("usage") or {}).get(k, 0) or 0 for r in requests)
                        for k in ("prompt_tokens", "completion_tokens", "total_tokens")}
     result["requests_with_usage"] = sum(bool(r.get("usage")) for r in requests)
-    result["outline_trace"] = audit_outline_trace(run_dir, job["arm"], planner.validate_outline)
+    result["outline_trace"] = audit_outline_trace(run_dir, job["arm"], pc_contracts.validate_outline)
     if result.get("status") == "passed" and not result["outline_trace"]["valid"]:
         result.update(status="invalid_outline_trace", exit_code=3)
     result["completed_at"] = time.strftime("%Y-%m-%d %H:%M:%S %z")

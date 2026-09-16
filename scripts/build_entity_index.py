@@ -26,7 +26,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from plan_chapter_thin import scan_mentions, short_forms  # noqa: E402
+from novel_manga.story.identity import scan_mentions, short_forms  # noqa: E402
 
 INDEX_POLICY = "entity-index-v1"
 GENERIC = re.compile(r"^(醉汉|酒保|国王|王后|侍者|议长|船长|医生|护卫|文员|店员|守夜人|学生|教授|神父|修女|士兵|骑士|男仆|女仆|女佣|管家|车夫|"

@@ -20,7 +20,9 @@ import build_clip_plan_thin as packer  # noqa: E402
 import complete_cast_thin as completion  # noqa: E402
 import conductor_thin  # noqa: E402
 import delivery_gate_thin  # noqa: E402
-import plan_chapter_thin as planner  # noqa: E402
+import novel_manga.planning.cast as pc_cast
+import planner_context_thin as planner_context
+from novel_manga.planning.context import PlannerContext  # noqa: E402
 import retier_reviews  # noqa: E402
 import status_server  # noqa: E402
 import thin_batch  # noqa: E402
@@ -37,10 +39,11 @@ from thin_runs import REVIEW_POLICY  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def isolate_packer(monkeypatch):
+    planner_ctx = PlannerContext.from_env()
     for key in ("MAX_CLIP_SECONDS", "MAX_STAGES", "SOFT_CUT_SECONDS", "TWO_VIEW_CAST_LIMIT"):
         monkeypatch.setattr(packer, key, getattr(packer, key))
     for key in ("ENTITY_FORMS", "ENTITY_TIERS", "ENTITY_GENERIC", "_FORMS_INDEX"):
-        monkeypatch.setattr(planner, key, {})
+        monkeypatch.setattr(planner_ctx, key.lower().lstrip('_'), {})
 
 
 def write(path: Path, data):
@@ -169,16 +172,17 @@ def test_targeted_story_repair_rebuilds_only_the_selected_part(tmp_path, monkeyp
 
 
 def test_index_recognizes_two_character_people_but_not_generic_nouns(tmp_path):
+    planner_ctx = PlannerContext.from_env()
     write(tmp_path / "entity_index.json", {"characters": [
         {"name": "洛恩", "forms": {"洛恩": 10}, "generic": False},
         {"name": "娜芙", "forms": {"娜芙": 10}, "generic": False},
         {"name": "酒保", "forms": {"酒保": 10}, "generic": True},
         {"name": "神", "forms": {"神": 10}, "generic": True}]})
-    assert planner.load_entity_index(tmp_path)
+    assert planner_context.load_entity_index(tmp_path, ctx=planner_ctx)
     shot = {"visual_prompt": "娜芙站在洛恩身旁，酒保在门口，神在上方", "motion_prompt": ""}
-    assert planner.complete_characters(["洛恩"], shot, ["洛恩", "娜芙", "酒保", "神"])[1] == ["娜芙"]
-    assert not planner.load_entity_index(tmp_path / "missing")
-    assert not planner.ENTITY_GENERIC
+    assert pc_cast.complete_characters(["洛恩"], shot, ["洛恩", "娜芙", "酒保", "神"], ctx=planner_ctx)[1] == ["娜芙"]
+    assert not planner_context.load_entity_index(tmp_path / "missing", ctx=planner_ctx)
+    assert not planner_ctx.entity_generic
 
 
 def conductor(novel, tmp_path):

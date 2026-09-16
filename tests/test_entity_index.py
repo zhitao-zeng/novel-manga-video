@@ -7,7 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build_entity_index  # noqa: E402
-import plan_chapter_thin  # noqa: E402
+import novel_manga.planning.cast as pc_cast
+import planner_context_thin as planner_context
+from novel_manga.planning.context import PlannerContext  # noqa: E402
 
 
 def novel(tmp_path: Path) -> Path:
@@ -42,18 +44,19 @@ def test_index_keeps_only_forms_the_book_uses_and_that_point_at_one_person(tmp_p
 
 
 def test_name_lookups_go_through_the_index_when_present(tmp_path, monkeypatch):
+    planner_ctx = PlannerContext.from_env()
     root = novel(tmp_path)
     index = build_entity_index.build(root)
     (root / "entity_index.json").write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
-    assert plan_chapter_thin.load_entity_index(root)
+    assert planner_context.load_entity_index(root, ctx=planner_ctx)
     try:
-        assert plan_chapter_thin.name_forms("薇奥拉公主") == {"薇奥拉公主", "薇奥拉", "作家小姐"}
+        assert pc_cast.name_forms("薇奥拉公主", ctx=planner_ctx) == {"薇奥拉公主", "薇奥拉", "作家小姐"}
         text = "作家小姐环着莱恩的脖子，小琥珀在窗台上，约翰在门外"
         everyone = [c["name"] for c in index["characters"]]
-        assert plan_chapter_thin.mentioned_characters(text, everyone) == ["薇奥拉公主", "莱恩·格雷", "琥珀·高德"]
+        assert pc_cast.mentioned_characters(text, everyone, ctx=planner_ctx) == ["薇奥拉公主", "莱恩·格雷", "琥珀·高德"]
     finally:
-        plan_chapter_thin.ENTITY_FORMS.clear()
-        plan_chapter_thin.ENTITY_TIERS.clear()
-        plan_chapter_thin._FORMS_INDEX.clear()
-    assert not plan_chapter_thin.load_entity_index(tmp_path / "nowhere")
-    assert "小薇奥拉" in plan_chapter_thin.name_forms("薇奥拉公主")  # back to derived forms without an index
+        planner_ctx.entity_forms.clear()
+        planner_ctx.entity_tiers.clear()
+        planner_ctx.forms_index.clear()
+    assert not planner_context.load_entity_index(tmp_path / "nowhere", ctx=planner_ctx)
+    assert "小薇奥拉" in pc_cast.name_forms("薇奥拉公主", ctx=planner_ctx)  # back to derived forms without an index
