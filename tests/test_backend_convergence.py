@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from novel_manga.api import ApiConfig, JobManager
 from novel_manga.config import Settings
 from novel_manga.models import Character, StoryBible
 from novel_manga.production import SeriesAssetFactory

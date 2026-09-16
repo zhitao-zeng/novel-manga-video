@@ -1,8 +1,0 @@
-.git
-.venv*
-.codex
-outputs
-*.log
-*.partial
-docker/wheels
-vendor/Wan2.2

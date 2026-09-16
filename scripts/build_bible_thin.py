@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Set up a new novel for the thin pipeline: story bible + profile + grammar.
 
-One LLM call (the repository's own ``OpenAICompatiblePlanner.build_bible``,
+One LLM call (the repository's own ``BibleBuilder.build_bible``,
 configured by ``NOVEL_LLM_*`` in ``.env``) extracts the reusable characters
 and locations from the novel.  This script then writes everything the three
 thin scripts read from ``outputs/<novel-id>/``:
@@ -32,6 +32,7 @@ from thin_profile import DEFAULTS, STYLE_NAME, STYLE_VISUAL, detect_genre, load_
 
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.ingest import read_novel  # noqa: E402
+from novel_manga.bible import BibleBuilder, _fingerprint as fingerprint
 from novel_manga.models import StoryBible  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
 
@@ -51,22 +52,13 @@ def load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip().removeprefix("export ").strip(), value.strip().strip("'\""))
 
 
-def fingerprint(title: str, style: str, characters) -> str:
-    try:
-        from novel_manga.planner import _fingerprint  # same digest the v5 planner uses
-        return _fingerprint(title, style, characters)
-    except Exception:  # noqa: BLE001 - private helper; fall back to a plain digest
-        return hashlib.sha256(f"{title}|{style}|{[c.name for c in characters]}".encode("utf-8")).hexdigest()[:16]
-
-
 def build_bible(novel, style: str) -> StoryBible:
     os.environ["NOVEL_PLANNER_BACKEND"] = "openai-compatible"
     settings = Settings.from_env(provider="phanrouter", output_root="outputs", admission_mode="preview")
     if not (settings.llm_base_url and settings.llm_api_key):
         raise SystemExit("NOVEL_LLM_BASE_URL / NOVEL_LLM_API_KEY are not set; run `set -a; source .env; set +a` first")
-    from novel_manga.planner import OpenAICompatiblePlanner
     print(json.dumps({"bible_model": settings.llm_model, "base_url": settings.llm_base_url}, ensure_ascii=False), flush=True)
-    bible = OpenAICompatiblePlanner(settings).build_bible(novel)
+    bible = BibleBuilder(settings).build_bible(novel)
     style_text = STYLE_VISUAL[style]
     return bible.model_copy(update={"visual_style": style_text, "style_fingerprint": fingerprint(novel.title, style_text, bible.characters)})
 

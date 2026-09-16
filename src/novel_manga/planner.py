@@ -19,6 +19,9 @@ import httpx
 from pydantic import ValidationError
 
 from .config import NATIVE_DIALOGUE_POLICY, Settings
+from .bible import (
+    _bounded_validate, _compact_excerpt, _fingerprint, _loads_json_object, _validate_story_bible, _validation_feedback, _validation_retry
+)
 from .creative_direction import (
     SHORT_DRAMA_PROFILE,
     apply_creative_direction,
@@ -162,123 +165,14 @@ def _check_planning_deadline(owner: object, stage: str) -> None:
     )
 
 
-def _loads_json_object(value: str) -> dict:
-    """Parse model JSON with bounded repairs for punctuation-only defects."""
-
-    match = re.search(r"\{.*\}", value, re.S)
-    if not match:
-        raise ValueError("LLM did not return a JSON object")
-    candidate = match.group(0)
-    for _ in range(12):
-        try:
-            data = json.loads(candidate)
-            if not isinstance(data, dict):
-                raise ValueError("LLM JSON root must be an object")
-            return data
-        except json.JSONDecodeError as error:
-            if error.msg == "Expecting ',' delimiter":
-                previous = candidate[: error.pos].rstrip()
-                following = candidate[error.pos :].lstrip()
-                if previous and following and previous[-1] in '}\"]0123456789e' and following[0] in '{[\"':
-                    candidate = candidate[: error.pos] + "," + candidate[error.pos :]
-                    continue
-            if error.msg == "Expecting property name enclosed in double quotes":
-                previous = candidate[: error.pos].rstrip()
-                if previous.endswith(","):
-                    comma = candidate.rfind(",", 0, error.pos)
-                    candidate = candidate[:comma] + candidate[comma + 1 :]
-                    continue
-            raise
-    raise ValueError("LLM JSON exceeded the bounded punctuation repair budget")
 
 
-def _validation_feedback(error: ValueError) -> list[dict[str, object]]:
-    if isinstance(error, ValidationError):
-        return [
-            {
-                "location": [str(item) for item in row["loc"]],
-                "type": row["type"],
-                "message": row["msg"],
-            }
-            for row in error.errors(include_url=False)
-        ]
-    return [{"type": type(error).__name__, "message": str(error)[:3000]}]
 
 
-def _validation_retry(
-    revision: int,
-    data: dict | None,
-    error: ValidationError | ValueError,
-    previous_retry: dict | None,
-) -> dict[str, object]:
-    """Build one bounded repair or independent-resample request."""
-
-    # Structural feedback can repair a malformed draft, but repeatedly showing
-    # a thin draft to the model anchors later attempts to the same writing.
-    # Alternate one repair with one clean sample so every fresh candidate gets
-    # a chance to fix mechanical schema errors without monopolising the budget.
-    retry: dict[str, object] = {
-        "revision": revision + 1,
-        "validation_errors": _validation_feedback(error),
-    }
-    if revision == 0 or (previous_retry and previous_retry.get("resample")):
-        retry["previous_response"] = data
-    else:
-        retry["resample"] = True
-    return retry
 
 
-def _bounded_validate(
-    operation: str,
-    max_revisions: int,
-    request: Callable[[dict | None], dict],
-    validate: Callable[[dict], ValidatedT],
-) -> ValidatedT:
-    """Ask a planner to repair only invalid structured output, with a hard limit."""
-
-    repair: dict | None = None
-    last_error: ValueError | None = None
-    for revision in range(max_revisions + 1):
-        data: dict | None = None
-        try:
-            data = request(repair)
-            return validate(data)
-        except (ValidationError, ValueError) as error:
-            last_error = error
-            if revision >= max_revisions:
-                break
-            repair = _validation_retry(revision, data, error, repair)
-    assert last_error is not None
-    details = json.dumps(_validation_feedback(last_error), ensure_ascii=False)
-    raise ValueError(
-        f"planner operation {operation} remained invalid after "
-        f"{max_revisions + 1} attempt(s): {details}"
-    ) from last_error
 
 
-def _validate_story_bible(data: dict, novel: NovelDocument) -> StoryBible:
-    bible = StoryBible.model_validate(data)
-    issues: list[dict[str, object]] = []
-    if re.sub(r"\s+", "", bible.novel_title) != re.sub(r"\s+", "", novel.title):
-        issues.append({"field": "novel_title", "message": "must equal the requested novel title"})
-    if not bible.characters:
-        issues.append({"field": "characters", "message": "at least one reusable character is required"})
-    if not bible.locations:
-        issues.append({"field": "locations", "message": "at least one reusable location is required"})
-    names = [character.name.strip() for character in bible.characters]
-    if len(set(names)) != len(names):
-        issues.append({"field": "characters", "message": "character names must be unique"})
-    for index, character in enumerate(bible.characters):
-        if not character.name.strip() or not character.appearance.strip() or not character.wardrobe.strip():
-            issues.append({
-                "field": f"characters.{index}",
-                "message": "name, appearance, and wardrobe must be non-empty",
-            })
-    if issues:
-        raise ValueError(json.dumps({"domain_errors": issues}, ensure_ascii=False))
-    return bible.model_copy(
-        update={"style_fingerprint": _fingerprint(novel.title, bible.visual_style, bible.characters)}
-    )
 
 
 def _validate_retention_beat_script(
@@ -1910,12 +1804,6 @@ def _sentences(text: str) -> list[str]:
     return merged
 
 
-def _compact_excerpt(text: str, limit: int = 12000) -> str:
-    if len(text) <= limit:
-        return text
-    third = limit // 3
-    middle = len(text) // 2
-    return text[:third] + "\n[中段抽样]\n" + text[middle - third // 2:middle + third // 2] + "\n[结尾]\n" + text[-third:]
 
 
 def _short_beats(sentences: list[str], limit: int = 80) -> list[str]:
@@ -1942,9 +1830,6 @@ def _short_beats(sentences: list[str], limit: int = 80) -> list[str]:
     return beats
 
 
-def _fingerprint(title: str, style: str, characters: list[Character]) -> str:
-    payload = title + style + "|".join(f"{c.name}:{c.appearance}:{c.wardrobe}" for c in characters)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _script_turns(sentence: str, character_names: list[str]) -> list[ScriptTurn]:
