@@ -1,3 +1,4 @@
+import repair_judges_thin as repair_judges
 """Frozen source-reading and speaker request cases; every model response is simulated."""
 import json
 import copy
@@ -9,7 +10,7 @@ from novel_manga import model_client
 from novel_manga.util import atomic_write_json
 import identity_flow_thin as flow
 import identity_context_thin as views
-import repair_flow_thin as judges
+import repair_judges_thin as judges
 
 
 def service_contracts():
@@ -54,7 +55,7 @@ def service_contracts():
       calls.append({'parts':parts,'schema':schema,'options':kwargs})
       return {'speakers':[{'stage':1,'turn':1,'source_quote':passage,'source_speaker_phrase':'甲','relation':'verbatim','speaker':'甲'}]}
      with patch.object(judges,'ask_json',ask):
-      value=judges.speaker_contract(passage,shots,['甲','乙'],identities,evidence_out=evidence,identity_context={'policy':'test'})
-      repeat=judges.speaker_contract(passage,shots,['甲','乙'],identities,fixed=evidence,identity_context={'policy':'test'})
+      value=repair_judges.speaker_contract(passage,shots,['甲','乙'],identities,evidence_out=evidence,identity_context={'policy':'test'})
+      repeat=repair_judges.speaker_contract(passage,shots,['甲','乙'],identities,fixed=evidence,identity_context={'policy':'test'})
      results['speaker']={'value':[[*k,v] for k,v in value.items()],'repeat':[[*k,v] for k,v in repeat.items()],'calls':calls,'evidence':evidence}
     return results

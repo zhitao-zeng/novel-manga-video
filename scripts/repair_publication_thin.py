@@ -27,20 +27,33 @@ def publish_rewrite(episode_dir: Path, proposal: RepairProposal, *, use_history=
         backup = episode_dir / f"{name}.bak-repair-0914"
         if not backup.is_file():
             backup.write_text((episode_dir / name).read_text(encoding="utf-8"), encoding="utf-8")
-    (episode_dir / "chapter_script.json").write_text(json.dumps(script, ensure_ascii=False, indent=1), encoding="utf-8")
-    atomic_write_json(episode_dir / "clip_plan.json", new_plan)
-    if appearance_checks:
-        atomic_write_json(episode_dir / 'repair_appearance_checks.json', appearance_checks)
-    if new_notes != old_notes:
-        atomic_write_json(episode_dir / 'review_feedback.json', new_notes)
+    write_artifacts(episode_dir, proposal, atomic_script=False, appearance_checks=appearance_checks,
+                    write_notes=new_notes != old_notes)
 
 
 def publish_candidate(directory, proposal, method, clip_ids, *, changes=None):
     history.begin_trial(directory, set(clip_ids), method, after_plan=proposal.plan,
                         after_notes=proposal.notes, changes=proposal.changes if changes is None else changes)
-    atomic_write_json(directory / 'chapter_script.json', proposal.script)
+    write_artifacts(directory, proposal)
+
+
+def write_artifacts(directory: Path, proposal: RepairProposal, *, atomic_script=True,
+                    appearance_checks=None, write_notes=True):
+    """Write already accepted artifacts in the established order, without charging a generation."""
+    if atomic_script:
+        atomic_write_json(directory / 'chapter_script.json', proposal.script)
+    else:
+        (directory / 'chapter_script.json').write_text(json.dumps(proposal.script, ensure_ascii=False, indent=1), encoding='utf-8')
     atomic_write_json(directory / 'clip_plan.json', proposal.plan)
-    atomic_write_json(directory / 'review_feedback.json', proposal.notes)
+    if appearance_checks:
+        atomic_write_json(directory / 'repair_appearance_checks.json', appearance_checks)
+    if write_notes:
+        atomic_write_json(directory / 'review_feedback.json', proposal.notes)
+
+
+def publish_preparation(directory: Path, proposal: RepairProposal):
+    """Pre-render preparation has no repair trial or rendering budget debit."""
+    write_artifacts(directory, proposal)
 
 
 def publish_retake(directory, proposal):

@@ -182,9 +182,9 @@ def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
         rec = history.load(directory)
         rec['trials'][-1]['managed'] = True
         history.save(directory, rec)
-        atomic_write_json(directory / 'chapter_script.json', proposal['script'])
-        atomic_write_json(directory / 'clip_plan.json', proposal['plan'])
-        atomic_write_json(directory / 'review_feedback.json', proposal['notes'])
+        from novel_manga.repair.proposal import RepairProposal
+        from repair_publication_thin import write_artifacts
+        write_artifacts(directory, RepairProposal.from_result(result))
         if extra_takes:
             result['extra_take_grants'] = grant_changed_source_retry(directory, before, notes, result, extra_takes)
         result.pop('proposal', None)

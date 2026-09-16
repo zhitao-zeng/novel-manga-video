@@ -253,9 +253,9 @@ def prepare_one(directory):
             proposal = result.get('proposal')
             if not proposal or set(targets) - set(result.get('changed', [])):
                 return record(directory, 'needs_repair', reason=result.get('why', 'incomplete local repair'))
-            atomic_write_json(directory / 'chapter_script.json', proposal['script'])
-            atomic_write_json(plan_path, proposal['plan'])
-            atomic_write_json(directory / 'review_feedback.json', proposal['notes'])
+            from novel_manga.repair.proposal import RepairProposal
+            from repair_publication_thin import publish_preparation
+            publish_preparation(directory, RepairProposal.from_result(result))
         # A rewritten script must be checked again; success is never inferred
         # from the rewriting model or the presence of the new files.
         after = audit(directory)

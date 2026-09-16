@@ -1,3 +1,4 @@
+import novel_manga.repair.execution as repair_execution
 import copy
 
 import pytest
@@ -47,7 +48,7 @@ def test_repair_removes_old_generated_prefix_and_keeps_extra_target():
     shot = {'characters': ['沈行舟'], 'turns': [], 'extras': ['灰色野山羊'],
             'actions': [{'actor': '沈行舟', 'action': '挥铲砍', 'target': '沈行舟'}],
             'motion_prompt': '沈行舟挥铲砍沈行舟。沈行舟本能地挥铲砍向山羊。'}
-    repair.apply_stage(shot, {'in_frame': ['沈行舟'], 'extras': ['灰色野山羊'],
+    repair_execution.apply_stage(shot, {'in_frame': ['沈行舟'], 'extras': ['灰色野山羊'],
                              'actions': [{'actor': '沈行舟', 'action': '挥铲砍', 'target': '灰色野山羊'}]}, ['沈行舟'])
     assert shot['actions'][0]['target'] == '灰色野山羊'
     assert shot['characters'] == ['沈行舟']
@@ -67,7 +68,7 @@ def test_extra_actor_does_not_turn_into_a_named_bystander_in_blocking():
 
 def test_extra_only_scene_does_not_keep_an_old_named_character():
     shot = {'characters': ['沈行舟'], 'turns': [], 'motion_prompt': '山羊低头喝水'}
-    repair.apply_stage(shot, {'in_frame': [], 'extras': ['灰色野山羊'],
+    repair_execution.apply_stage(shot, {'in_frame': [], 'extras': ['灰色野山羊'],
                              'actions': [{'actor': '灰色野山羊', 'action': '喝水', 'target': ''}],
                              'event': '山羊低头喝水'}, ['沈行舟'])
     assert shot['characters'] == [] and shot['actions'][0]['actor'] == '灰色野山羊'
@@ -75,13 +76,13 @@ def test_extra_only_scene_does_not_keep_an_old_named_character():
 
 def test_visible_speaker_still_has_a_character_binding():
     shot = {'characters': ['沈行舟'], 'turns': [{'speaker_name': '沈行舟', 'delivery_mode': 'visible_dialogue', 'text': '过来。'}]}
-    repair.apply_stage(shot, {'in_frame': [], 'extras': ['灰色野山羊'], 'actions': [], 'event': '沈行舟开口'}, ['沈行舟'])
+    repair_execution.apply_stage(shot, {'in_frame': [], 'extras': ['灰色野山羊'], 'actions': [], 'event': '沈行舟开口'}, ['沈行舟'])
     assert shot['characters'] == ['沈行舟']
 
 
 def test_named_offscreen_target_is_not_forced_into_the_picture():
     shot = {'characters': ['甲'], 'turns': [], 'motion_prompt': '甲朝门外的乙挥手'}
-    repair.apply_stage(shot, {'in_frame': ['甲'], 'extras': [],
+    repair_execution.apply_stage(shot, {'in_frame': ['甲'], 'extras': [],
                              'actions': [{'actor': '甲', 'action': '向门外挥手示意', 'target': '乙'}],
                              'event': '甲朝门外的乙挥手'}, ['甲', '乙'])
     assert shot['characters'] == ['甲'] and shot['actions'][0]['target'] == '乙'

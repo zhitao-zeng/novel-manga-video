@@ -1,3 +1,6 @@
+import novel_manga.repair.execution as repair_execution
+import novel_manga.story.source_identity as source_identity_rules
+import repair_judges_thin as repair_judges
 
 from render_context_support import uninitialized_runner
 import copy
@@ -49,7 +52,7 @@ def test_bad_legacy_alias_uses_the_passages_explicit_name_and_existing_card(tmp_
 
 def test_speaker_repair_preserves_exact_dialogue_and_delivery_mode():
     s = shot('甲');before = copy.deepcopy(s['turns'])
-    repair.apply_stage(s, {'in_frame': ['乙'], 'actions': [], 'event': '乙说话', 'speakers': [{'turn_index': 1, 'speaker_name': '乙'}]}, ['甲','乙'], reframe=True)
+    repair_execution.apply_stage(s, {'in_frame': ['乙'], 'actions': [], 'event': '乙说话', 'speakers': [{'turn_index': 1, 'speaker_name': '乙'}]}, ['甲','乙'], reframe=True)
     assert s['turns'][0]['speaker_name'] == '乙'
     assert s['turns'][0]['text'] == before[0]['text'] and s['turns'][0]['delivery_mode'] == before[0]['delivery_mode']
 
@@ -74,22 +77,22 @@ def test_name_normalization_does_not_hide_spoken_director_instructions(tmp_path)
 def test_disputed_speaker_needs_a_source_quote_containing_the_line(monkeypatch):
     shots=[{'origin_index':1, 'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'甲','text':'快走。'}]}]
     passage='乙喊道：“快走。”'
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':passage}]})
-    assert repair.speaker_contract(passage,shots,['甲','乙'],[])=={(1,1):'乙'}
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙喊道： “快走。”'}]})
-    assert repair.speaker_contract('乙喊道：\n“快走。”',shots,['甲','乙'],[])=={(1,1):'乙'}
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙是说话者。'}]})
-    assert repair.speaker_contract(passage,shots,['甲','乙'],[])=={}
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':passage}]})
+    assert repair_judges.speaker_contract(passage,shots,['甲','乙'],[])=={(1,1):'乙'}
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙喊道： “快走。”'}]})
+    assert repair_judges.speaker_contract('乙喊道：\n“快走。”',shots,['甲','乙'],[])=={(1,1):'乙'}
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙是说话者。'}]})
+    assert repair_judges.speaker_contract(passage,shots,['甲','乙'],[])=={}
 
 
 def test_picture_repair_does_not_reuse_old_renderer_reference_numbers():
     s=shot('甲')
-    repair.apply_stage(s,{'in_frame':['甲'],'event':'甲（@图片3）转身','visual_prompt':'甲靠窗，<Subject 2>','end_state':'甲看向门外'},['甲'],reframe=True)
+    repair_execution.apply_stage(s,{'in_frame':['甲'],'event':'甲（@图片3）转身','visual_prompt':'甲靠窗，<Subject 2>','end_state':'甲看向门外'},['甲'],reframe=True)
     assert '@图片' not in s['motion_prompt'] and '<Subject' not in s['visual_prompt']
 
 
 def test_source_attribution_does_not_treat_a_design_gender_as_source_evidence():
-    rows=repair.source_identities(['某人'],{'characters':[{'name':'某人','gender':'女','appearance':'设计外形'}]},'某人开口。')
+    rows=source_identity_rules.identity_rows(['某人'],{'characters':[{'name':'某人','gender':'女','appearance':'设计外形'}]},'某人开口。')
     assert 'gender' not in rows[0] and rows[0]['source_names']==['某人']
 
 
@@ -99,8 +102,8 @@ def test_disputed_speaker_cannot_choose_a_name_without_source_grounding(monkeypa
     def answer(content,schema,**kw):
         assert schema['properties']['speakers']['items']['properties']['speaker']['enum']==['薇奥拉']
         return {'speakers':[{'stage':1,'turn':1,'speaker':'艾蕾娅','source_quote':passage}]}
-    monkeypatch.setattr(repair,'ask_json',answer)
-    assert repair.speaker_contract(passage,shots,['薇奥拉','艾蕾娅'],[
+    monkeypatch.setattr(repair_judges,'ask_json',answer)
+    assert repair_judges.speaker_contract(passage,shots,['薇奥拉','艾蕾娅'],[
         {'name':'薇奥拉','source_names':['路易斯小姐']},{'name':'艾蕾娅','source_names':[]}])=={}
 
 
@@ -109,8 +112,8 @@ def test_verified_source_attribution_is_reused_without_asking_again(monkeypatch)
     source='乙喊道：“快走。”'
     def unexpected(*a,**k):
         raise AssertionError('a verified source fact must not be guessed again')
-    monkeypatch.setattr(repair,'ask_json',unexpected)
-    assert repair.speaker_contract(source,shots,['甲','乙'],[],[
+    monkeypatch.setattr(repair_judges,'ask_json',unexpected)
+    assert repair_judges.speaker_contract(source,shots,['甲','乙'],[],[
         {'stage':1,'turn':1,'speaker':'乙','source_quote':source}])=={(1,1):'乙'}
 
 
@@ -119,14 +122,14 @@ def test_named_source_speaker_cannot_be_replaced_by_a_different_available_charac
     shots=[{'origin_index':6,'turns':[{'delivery_mode':'offscreen_dialogue','speaker_name':'赤岚','text':'我承认我找不到了。'}]}]
     row={'stage':6,'turn':1,'speaker':'赤岚','source_speaker_phrase':'星垣',
          'source_quote':source,'relation':'verbatim','adapted_text':'我承认我找不到了。'}
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[row]})
-    assert repair.speaker_contract(source,shots,['赤岚'],[{'name':'赤岚','source_names':['赤岚']}],[row])=={}
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
+    assert repair_judges.speaker_contract(source,shots,['赤岚'],[{'name':'赤岚','source_names':['赤岚']}],[row])=={}
 
 
 def test_short_name_uses_chapter_semantics_without_a_special_introduction_pattern():
     bible={'characters':[{'name':'霜','role':'霜痕之龙，青年巨龙'}]}
     context={'entities':{'e1':'霜'},'mentions':[{'form':'霜','entity_id':'e1','presence':'on_stage'}]}
-    identities=repair.source_identities(['霜'],bible,'霜转身离开。',context=context)
+    identities=source_identity_rules.identity_rows(['霜'],bible,'霜转身离开。',context=context)
     assert identities[0]['source_names']==['霜']
 
 
@@ -135,7 +138,7 @@ def test_split_sentence_can_use_a_program_located_continuous_source_quote(monkey
     shots=[{'origin_index':23,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'澜歌','text':'睡觉便是我们的锻炼方式！看来，'}]}]
     rows=iter([{'speakers':[]},{'speakers':[{'stage':23,'turn':1,'speaker':'澜歌',
                 'source_speaker_phrase':'澜歌','relation':'verbatim','source_quote':''}]}])
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:next(rows))
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:next(rows))
     evidence=[]
-    assert repair.speaker_contract(source,shots,['澜歌'],[{'name':'澜歌','source_names':['澜歌']}],evidence_out=evidence)=={(23,1):'澜歌'}
+    assert repair_judges.speaker_contract(source,shots,['澜歌'],[{'name':'澜歌','source_names':['澜歌']}],evidence_out=evidence)=={(23,1):'澜歌'}
     assert evidence[0]['source_quote']==source

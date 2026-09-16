@@ -1,5 +1,6 @@
 """Regressions for the September 14 review: preserve cuts/tier and enforce current review semantics."""
 from __future__ import annotations
+import repair_judges_thin as repair_judges
 import conductor_state_thin as conductor_state
 import conductor_workers_thin as conductor_workers
 
@@ -169,7 +170,7 @@ def test_targeted_story_repair_rebuilds_only_the_selected_part(tmp_path, monkeyp
     # Importing the existing repair CLI selects a judge; keep that environment change inside this test.
     with patch.dict(os.environ, dict(os.environ), clear=True):
         import repair_flow_thin
-    monkeypatch.setattr(repair_flow_thin, "ask_json", lambda *a, **k: pytest.fail("rebuilding must not call a model"))
+    monkeypatch.setattr(repair_judges, 'ask_json', lambda *a, **k: pytest.fail("rebuilding must not call a model"))
     novel, episode, old, new, plan = packed_episode(tmp_path)
     merged, changed = repair_flow_thin.rebuild_clips(episode, novel / "story_bible.json", new, plan, {"clip_02"})
     assert changed == ["clip_02"]

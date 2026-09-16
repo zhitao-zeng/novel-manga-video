@@ -1,3 +1,5 @@
+import repair_context_thin as repair_context
+import repair_judges_thin as repair_judges
 import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
@@ -124,12 +126,12 @@ def test_story_repair_addresses_plan_index_and_preserves_source_index(split_epis
     (episode / "chapter_script.json").write_text(json.dumps(script))
     (episode / "clip_plan.json").write_text(json.dumps(plan))
     (episode / "episode_review.json").write_text(json.dumps({"clips": {"clip_02": {"tier": "must_fix", "story_ok": False}}}))
-    monkeypatch.setattr(repair, "ledger_cast", lambda *a: {})
+    monkeypatch.setattr(repair_context, 'ledger_cast', lambda *a: {})
     monkeypatch.setattr('identity_flow_thin.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     def answer(content, schema, **kwargs):
         assert schema["properties"]["stages"]["items"]["properties"]["origin_index"]["enum"] == [1]
         return {"stages": [{"origin_index": 1, "in_frame": ["林凡"], "actions": [], "extras": ["持灯的侍者"], "event": "林凡转身说话"}]}
-    monkeypatch.setattr(repair, "ask_json", answer)
+    monkeypatch.setattr(repair_judges, 'ask_json', answer)
     result = repair.repair_episode(episode.parent, 1, True)
     assert result["changed"] == ["clip_02"]
     assert json.loads((episode / "chapter_script.json").read_text())["shots"][0]["origin_index"] == 9
@@ -151,7 +153,7 @@ def test_source_body_conflict_rolls_back_candidate_before_saving(split_episode, 
     context = {'entities': {'e1': '林凡'}, 'mentions': [], 'appearances': [
         {'entity_id': 'e1', 'source_quote': quote, 'description': '白狐'}]}
     monkeypatch.setattr('identity_flow_thin.resolve_chapter', lambda *a, **k: context)
-    monkeypatch.setattr(repair, 'ledger_cast', lambda *a: {})
+    monkeypatch.setattr(repair_context, 'ledger_cast', lambda *a: {})
     def ask(*a, **k):
         if k['name'] == 'repair_source_appearance':
             assert k['name'] == 'repair_source_appearance'
@@ -159,7 +161,7 @@ def test_source_body_conflict_rolls_back_candidate_before_saving(split_episode, 
             return {'issues': [{'stage': 1, 'source_quote': quote, 'candidate_quote': '人类男子', 'reason': '当前身体为白狐'}]}
         return {'stages': [{'origin_index': 1, 'in_frame': ['林凡'], 'actions': [], 'extras': [],
                             'event': '人类男子林凡转头'}]}
-    monkeypatch.setattr(repair, 'ask_json', ask)
+    monkeypatch.setattr(repair_judges, 'ask_json', ask)
     result = repair.repair_episode(episode.parent, 1, True, source_issues={'clip_02': '形态不符'})
     assert result['clips'] == 0 and 'source appearance conflict' in result['why']
     assert {name: (episode / name).read_bytes() for name in before} == before
@@ -168,15 +170,15 @@ def test_source_body_conflict_rolls_back_candidate_before_saving(split_episode, 
 def test_appearance_check_skips_unknown_and_rejects_invented_evidence(monkeypatch):
     shot = {'index': 1, 'characters': ['甲'], 'visual_prompt': '男子甲站在窗边。'}
     context = {'entities': {'e1': '甲'}, 'appearances': []}
-    monkeypatch.setattr(repair, 'ask_json', lambda *a, **k: pytest.fail('no source body evidence'))
-    assert not repair.source_appearance_check('甲看向窗外。', [shot], context)['checked']
+    monkeypatch.setattr(repair_judges, 'ask_json', lambda *a, **k: pytest.fail('no source body evidence'))
+    assert not repair_judges.source_appearance_check('甲看向窗外。', [shot], context)['checked']
     context['appearances'] = [{'entity_id': 'e1', 'source_quote': '甲看向窗外。', 'description': '旧抽取猜测为女性'}]
     def ask(content, *a, **k):
         assert '旧抽取猜测为女性' not in str(content)
         return {'issues': [{'stage': 1, 'source_quote': '甲是女子', 'candidate_quote': '男子', 'reason': '猜测'}]}
-    monkeypatch.setattr(repair, 'ask_json', ask)
+    monkeypatch.setattr(repair_judges, 'ask_json', ask)
     with pytest.raises(ValueError, match='unsupported evidence'):
-        repair.source_appearance_check('甲看向窗外。', [shot], context)
+        repair_judges.source_appearance_check('甲看向窗外。', [shot], context)
 
 
 @pytest.mark.parametrize("repeated_index", [False, True])

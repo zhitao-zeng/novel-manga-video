@@ -69,7 +69,7 @@ def test_split_long_line_keeps_its_confirmed_owner(monkeypatch):
 
 
 def test_word_changes_are_not_framing_changes_and_actor_swap_is_detected():
-    from repair_flow_thin import framing_signature,action_owners
+    from novel_manga.repair.execution import framing_signature, action_owners
     old=[{'characters':['甲','乙'],'shot_scale':'中景','actions':[{'actor':'甲','target':'甲'}],'visual_prompt':'甲给自己处理伤口'}]
     new=copy.deepcopy(old);new[0]['visual_prompt']='甲认真地给自己处理伤口'
     assert framing_signature(old)==framing_signature(new)

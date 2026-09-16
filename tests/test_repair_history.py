@@ -1,3 +1,4 @@
+import novel_manga.repair.execution as repair_execution
 import copy
 import json
 from pathlib import Path
@@ -213,7 +214,7 @@ def test_explicit_repair_participants_keep_their_cards_when_only_one_person_spea
     shot = {"characters": names[:], "visual_prompt": "三人被污泥雨包围", "motion_prompt": "暖光笼罩三人", "end_state": "三人受到保护",
             "turns": [{"speaker_name": "塞西娅", "delivery_mode": "visible_dialogue", "text": "地脉恩赐！"}]}
     fix = {"in_frame": names, "actions": [{"actor": "塞西娅", "action": "施法", "target": ""}], "extras": [], "event": "暖光保护三人"}
-    repair.apply_stage(shot, fix, names)
+    repair_execution.apply_stage(shot, fix, names)
     assert shot["in_frame"] == names
     # The other two may be listeners, but are still explicit participants with
     # distinct identities; missing their cards produced two identical men.

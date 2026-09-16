@@ -1,3 +1,5 @@
+import novel_manga.repair.evidence as repair_evidence
+import repair_judges_thin as repair_judges
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import copy
 import json
@@ -34,8 +36,8 @@ def test_ellipsis_quote_gets_one_corrected_literal_quote(monkeypatch):
     def ask(*a, **k):
         calls.append(k['name'])
         return {'speakers': [{**row,'source_quote':passage} if len(calls)>1 else row]}
-    monkeypatch.setattr(repair,'ask_json',ask)
-    assert repair.speaker_contract(passage,shots,['甲'],[]) == {(1,1):'甲'}
+    monkeypatch.setattr(repair_judges,'ask_json',ask)
+    assert repair_judges.speaker_contract(passage,shots,['甲'],[]) == {(1,1):'甲'}
     assert len(calls) == 2
 
 
@@ -43,15 +45,15 @@ def test_narrative_adaptation_cannot_invent_a_new_speaker(monkeypatch):
     passage = '甲和乙都在门边，大家准备出发。'
     shots = [{'origin_index':1,'turns':[{'delivery_mode':'visible_dialogue','text':'出发了。','speaker_name':'甲'}]}]
     row = dict(stage=1,turn=1,speaker='乙',relation='narrated',source_quote=passage)
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[row]})
-    assert not repair.speaker_contract(passage,shots,['甲','乙'],[])
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
+    assert not repair_judges.speaker_contract(passage,shots,['甲','乙'],[])
     row['speaker'] = '甲'
-    assert repair.speaker_contract(passage,shots,['甲','乙'],[]) == {(1,1):'甲'}
+    assert repair_judges.speaker_contract(passage,shots,['甲','乙'],[]) == {(1,1):'甲'}
 
 
 def test_adjacent_prose_keeps_the_speaker_across_a_segment_boundary():
     segments = {'a':'甲走近门口，开口问道：','b':'“怎么了？”','c':'乙回过头。','d':'远处另一个场景。'}
-    passage = repair.source_passage(segments,['b'])
+    passage = repair_evidence.source_passage(segments,['b'])
     assert segments['a'] in passage and segments['b'] in passage
     assert segments['d'] not in passage
 
@@ -77,7 +79,7 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
     monkeypatch.setattr(planner_context,'load_entity_index',lambda *a,**k:None)
     monkeypatch.setattr('identity_flow_thin.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     monkeypatch.setattr(planner_context,'ledger_cast',lambda *a:{})
-    monkeypatch.setattr(repair,'speaker_contract',lambda *a,**k:{})
+    monkeypatch.setattr(repair_judges,'speaker_contract',lambda *a,**k:{})
     monkeypatch.setattr(repair,'repair_episode',lambda *a,**k:{'changed':['a','c'] if structural else [],
         'proposal':{'plan':plan,'script':{'shots':[]},'notes':{},'changes':{},'structural_repair':structural}})
     monkeypatch.setattr(h3,'convert',lambda *a,**k:False)
@@ -109,9 +111,9 @@ def test_source_paragraph_ids_preserve_the_actual_original_typo(monkeypatch):
     passage='“看来是莪赢了。”\n莱恩看着他。'
     shots=[{'origin_index':1,'turns':[{'speaker_name':'莱恩','delivery_mode':'visible_dialogue','text':'看来是我赢了。'}]}]
     row={'stage':1,'turn':1,'speaker':'莱恩','relation':'verbatim','source_quote':'','source_paragraphs':[1,2]}
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[row]})
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
     facts=[]
-    assert repair.speaker_contract(passage,shots,['莱恩'],[],evidence_out=facts)=={(1,1):'莱恩'}
+    assert repair_judges.speaker_contract(passage,shots,['莱恩'],[],evidence_out=facts)=={(1,1):'莱恩'}
     assert facts[0]['source_quote']==passage
 
 
@@ -119,8 +121,8 @@ def test_narrated_line_can_follow_an_explicitly_named_source_actor(monkeypatch):
     passage='梅根确定了墙壁上没有侦查陷阱。'
     shots=[{'origin_index':1,'turns':[{'speaker_name':'女术士','delivery_mode':'visible_dialogue','text':'没有陷阱。'}]}]
     row={'stage':1,'turn':1,'speaker':'梅根','relation':'narrated','source_quote':passage,'source_speaker_phrase':'梅根'}
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[row]})
-    assert repair.speaker_contract(passage,shots,['梅根','女术士'],[{'name':'梅根','source_names':['梅根']}])=={(1,1):'梅根'}
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
+    assert repair_judges.speaker_contract(passage,shots,['梅根','女术士'],[{'name':'梅根','source_names':['梅根']}])=={(1,1):'梅根'}
 
 
 def test_extra_take_is_scoped_to_the_explicitly_corrected_clip(tmp_path):

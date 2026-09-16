@@ -2,9 +2,13 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from novel_manga.util import read_json as read
+from novel_manga.util import read_json
 from novel_manga.story.catalog import IdentityCatalog
 from novel_manga.story.source_identity import POLICY, usable_reading
+
+def read(path, default=None):
+    return read_json(Path(path), default)
+
 
 def data_files(novel):
     novel = Path(novel).resolve()

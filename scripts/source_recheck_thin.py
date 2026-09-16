@@ -46,7 +46,10 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     planner_ctx = PlannerContext.from_env()
     from planner_context_thin import load_entity_index, ledger_cast
     from novel_manga.planning.cast import mentioned_characters
-    from repair_flow_thin import speaker_contract, repair_episode, source_identities, source_passage
+    from repair_judges_thin import speaker_contract
+    from repair_flow_thin import repair_episode
+    from novel_manga.story.source_identity import identity_rows as source_identities
+    from novel_manga.repair.evidence import source_passage
     from build_h3_prompts import convert
     from thin_profile import h3_prompt_outdated
     from clip_readiness import plan_issues
@@ -65,13 +68,14 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     by_index = {s.get('index', i):s for i,s in enumerate(script.get('shots', []),1)}
     segments = {str(s['segment_id']):s['text'] for s in read(directory / 'segments.json', [])}
     names_all = [c['name'] for c in bible.get('characters', [])]
-    from identity_store_thin import load_catalog
+    from identity_store_thin import load_chapter
     from identity_flow_thin import resolve_chapter
-    identity_reading = resolve_chapter(directory)
+    identity_data = load_chapter(directory)
+    identity_reading = resolve_chapter(directory, data=identity_data)
     from dialogue_binding import apply_confirmed_speakers
     protected_bindings = apply_confirmed_speakers(directory, script['shots'])
-    catalog = load_catalog(novel)
-    load_entity_index(novel, episode, ctx=planner_ctx)
+    catalog = identity_data.catalog
+    load_entity_index(novel, episode, ctx=planner_ctx, identity_data=identity_data)
     present = ledger_cast(novel, episode)
     contracts = read(directory / 'source_speaker_contract.json', [])
     merged = {**{(r['stage'],r['turn']):r for r in contracts}, **protected_bindings}

@@ -5,7 +5,7 @@ import json
 
 from thin_profile import speech_gate_result, blocking_clip_failures
 from review_evidence_thin import source_contract_block
-from repair_flow_thin import source_identities
+from novel_manga.story.source_identity import identity_rows as source_identities
 
 
 def test_speech_observation_keeps_other_gates_and_can_be_reenabled(tmp_path):

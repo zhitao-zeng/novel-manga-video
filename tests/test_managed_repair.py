@@ -1,3 +1,5 @@
+import novel_manga.story.source_identity as source_identity_rules
+import repair_judges_thin as repair_judges
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_workers_thin as repair_manager_workers
 
@@ -42,11 +44,11 @@ def test_descriptive_source_names_are_scene_local_and_ambiguous_roles_are_not_bo
     context={'entities':{'e1':names[0],'e2':names[1]},'mentions':[
         {'form':'黑袍人','entity_id':'e1','presence':'on_stage'},
         {'form':'男孩','entity_id':'e2','presence':'on_stage'}]}
-    identities=repair.source_identities(names,bible,'黑袍人点头，男孩问故事名字。',context=context)
+    identities=source_identity_rules.identity_rows(names,bible,'黑袍人点头，男孩问故事名字。',context=context)
     assert identities[0]['source_names']==['黑袍人']
     assert identities[1]['source_names']==['男孩']
     names.append('抱着玩具熊的男孩');bible['characters'].append({'name':names[-1]})
-    identities=repair.source_identities(names,bible,'男孩说话。')
+    identities=source_identity_rules.identity_rows(names,bible,'男孩说话。')
     assert not any(row['source_names'] for row in identities)
 
 
@@ -55,10 +57,10 @@ def test_literal_quote_cannot_assign_latter_speech_to_the_first_person(monkeypat
     row={'stage':1,'turn':1,'speaker':'莱恩','source_quote':quote,'source_speaker_phrase':'后者','relation':'verbatim','adapted_text':'不错的故事。'}
     shots=[{'origin_index':1,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'莱恩','text':'不错的故事。'}]}]
     identities=[{'name':'莱恩','source_names':['莱恩']},{'name':'神明','source_names':['神明','后者']}]
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[row]})
-    assert not repair.speaker_contract(quote,shots,['莱恩','神明'],identities,[row])
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
+    assert not repair_judges.speaker_contract(quote,shots,['莱恩','神明'],identities,[row])
     row={**row,'speaker':'神明'}
-    assert repair.speaker_contract(quote,shots,['莱恩','神明'],identities)=={(1,1):'神明'}
+    assert repair_judges.speaker_contract(quote,shots,['莱恩','神明'],identities)=={(1,1):'神明'}
 
 
 @pytest.mark.parametrize('text', ['two <Subject 2> stand','Two identical <Subject 2> stand','2 instances of <Subject 2>'])

@@ -1,3 +1,4 @@
+import repair_judges_thin as repair_judges
 
 from render_context_support import uninitialized_runner
 import copy
@@ -58,18 +59,18 @@ def test_adapted_dialogue_uses_real_source_evidence_without_exact_line_match(mon
     line='今晚伯爵宴请王子，举办宴会。'
     shots=[{'origin_index':3,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'秘女','text':line}]}]
     answer={'speakers':[{'stage':3,'turn':1,'speaker':'贝纳妮丝','source_quote':source,'relation':'condensed'}]}
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:answer)
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:answer)
     evidence=[]
-    assert repair.speaker_contract(source,shots,['贝纳妮丝','秘女'],[{'name':'贝纳妮丝','source_names':['贝纳妮丝']}],evidence_out=evidence)=={(3,1):'贝纳妮丝'}
+    assert repair_judges.speaker_contract(source,shots,['贝纳妮丝','秘女'],[{'name':'贝纳妮丝','source_names':['贝纳妮丝']}],evidence_out=evidence)=={(3,1):'贝纳妮丝'}
     assert evidence[0]['adapted_text']==line
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k: (_ for _ in ()).throw(AssertionError('should reuse verified fact')))
-    assert repair.speaker_contract(source,shots,['贝纳妮丝'],[{'name':'贝纳妮丝','source_names':['贝纳妮丝']}],fixed=evidence)=={(3,1):'贝纳妮丝'}
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k: (_ for _ in ()).throw(AssertionError('should reuse verified fact')))
+    assert repair_judges.speaker_contract(source,shots,['贝纳妮丝'],[{'name':'贝纳妮丝','source_names':['贝纳妮丝']}],fixed=evidence)=={(3,1):'贝纳妮丝'}
 
 
 def test_paraphrase_still_rejects_fabricated_source_quotes(monkeypatch):
     source='乙说：“走吧。”';shots=[{'origin_index':1,'turns':[{'delivery_mode':'visible_dialogue','text':'快走。'}]}]
-    monkeypatch.setattr(repair,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙说：“我们快走。”','relation':'paraphrased'}]})
-    assert not repair.speaker_contract(source,shots,['乙'],[])
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙说：“我们快走。”','relation':'paraphrased'}]})
+    assert not repair_judges.speaker_contract(source,shots,['乙'],[])
 
 
 def test_source_confirmation_can_replace_old_script_based_confirmation():
