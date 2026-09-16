@@ -156,10 +156,10 @@ def test_an_unrelated_old_uncut_stage_does_not_change_or_block_split_repair(tmp_
 def test_targeted_story_repair_rebuilds_only_the_selected_part(tmp_path, monkeypatch):
     # Importing the existing repair CLI selects a judge; keep that environment change inside this test.
     with patch.dict(os.environ, dict(os.environ), clear=True):
-        import repair_clips_thin
-    monkeypatch.setattr(repair_clips_thin, "ask_json", lambda *a, **k: pytest.fail("rebuilding must not call a model"))
+        import repair_flow_thin
+    monkeypatch.setattr(repair_flow_thin, "ask_json", lambda *a, **k: pytest.fail("rebuilding must not call a model"))
     novel, episode, old, new, plan = packed_episode(tmp_path)
-    merged, changed = repair_clips_thin.rebuild_clips(episode, novel / "story_bible.json", new, plan, {"clip_02"})
+    merged, changed = repair_flow_thin.rebuild_clips(episode, novel / "story_bible.json", new, plan, {"clip_02"})
     assert changed == ["clip_02"]
     assert merged["clips"][0] == plan["clips"][0] and merged["clips"][2] == plan["clips"][2]
     assert merged["clips"][1]["spoken_text"] == "乙" * 48

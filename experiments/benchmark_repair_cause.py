@@ -156,7 +156,7 @@ def clone_case(frozen: Path, destination: Path, case: dict) -> tuple[Path, Path]
 
 
 def prepare_arm(output: Path, case: dict, arm: str) -> dict:
-    from repair_clips_thin import repair_episode
+    from repair_flow_thin import repair_episode
     import build_h3_prompts as h3
     manifest = read(output / "manifest.json", {})
     frozen = Path(manifest["frozen_novel"])

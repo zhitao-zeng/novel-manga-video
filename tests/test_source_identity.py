@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 import source_identity_thin as identity
-import repair_clips_thin as repair
+import repair_flow_thin as repair
 import render_clips_thin as renderer
 import prepare_recovery_thin as recovery
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 import manage_repair_thin as manager
-import repair_clips_thin as repair
+import repair_flow_thin as repair
 import source_recheck_thin as source
 from test_managed_repair import fixture_episode
 

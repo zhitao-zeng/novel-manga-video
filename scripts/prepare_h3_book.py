@@ -238,7 +238,7 @@ def prepare_one(directory):
         if full:
             replan(directory, answer['issues'])
         else:
-            from repair_clips_thin import repair_episode
+            from repair_flow_thin import repair_episode
             targets = {}
             for clip in plan['clips']:
                 found = [i for i in answer['issues'] if i['stage'] in clip.get('shot_indexes', [])]
@@ -262,7 +262,7 @@ def prepare_one(directory):
         answer = after
     # Rebind current source entity types before translating legacy requests.
     from story_identity import current_context, typed_entities
-    from repair_clips_thin import rebuild_clips
+    from repair_flow_thin import rebuild_clips
     plan = read(plan_path, {})
     types = typed_entities(directory.parent, current_context(directory))
     targets = {c['clip_id'] for c in plan.get('clips', []) if set(c.get('cast', [])) & set(types)}

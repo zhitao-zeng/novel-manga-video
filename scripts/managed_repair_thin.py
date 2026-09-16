@@ -9,6 +9,10 @@ import copy
 from pathlib import Path
 import time
 
+from novel_manga.repair.policy import source_decision, diagnosed_decision
+from novel_manga.repair.proposal import RepairProposal
+from novel_manga.repair.execution import retake_proposal
+from repair_publication_thin import publish_candidate, publish_retake
 from novel_manga.util import atomic_write_json
 from repair_review_thin import read, current_takes
 import repair_history as history
@@ -91,7 +95,7 @@ def candidates(directory: Path, review: dict | None = None) -> tuple[list[str],d
 
 def prepare(directory: Path, targets: list[str] | None = None) -> dict:
     from diagnose_clip_repair import clip_context, diagnose_numbered
-    from repair_clips_thin import repair_episode
+    from repair_flow_thin import repair_episode
     from source_recheck_thin import prepare_source_recheck
     from build_h3_prompts import convert
     from thin_profile import plan_fingerprint, h3_prompt_outdated
@@ -122,18 +126,13 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
         previous = decisions.get(cid,{})
         verified_source = previous.get('source_checked')==source_state(directory,clip)
         problem = request_issues(clip)
-        attribution = any(precise.get(k) for k in ['action_by_wrong_person','actor_missing','species_or_gender_wrong','lead_face_swapped'])
         try:
-            if problem or (attribution and not verified_source):
-                action = 'source'
-                diagnosis = {'cause':'request_mismatch' if problem else 'source_attribution',
-                             'reason':correction(clip) if problem else 'check source attribution before acting on the old verdict'}
-            else:
+            decision = source_decision(problem, precise, verified_source, correction(clip) if problem else '')
+            if decision is None:
                 diagnosis = diagnose_numbered(clip_context(directory.parent,int(directory.name.rsplit('_',1)[1]),cid))
-                action = 'retake' if diagnosis.get('cause')=='generation_mismatch' else 'source'
-            # A repeated failure gets a new scene expression before another take.
-            if action=='retake' and history.repeated_errors(directory,cid):
-                action='reframe'
+                repeated = diagnosis.get('cause') == 'generation_mismatch' and history.repeated_errors(directory,cid)
+                decision = diagnosed_decision(diagnosis, repeated)
+            action, diagnosis = decision.action, decision.diagnosis
             print(f'{cid}: route={action}; {diagnosis.get("cause")}',flush=True)
             if action=='source':
                 result = prepare_source_recheck(directory,[cid],instructions={cid:correction(clip)})
@@ -156,7 +155,9 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
                         atomic_write_json(directory/'repair_routing.json',decisions)
                         continue
                     raise ValueError('reframe made no effective correction: '+str(result.get('why','')))
-                proposal=result['proposal'];updated=proposal['plan']
+                candidate = RepairProposal.from_result(result)
+                proposal = candidate.payload
+                updated = candidate.plan
                 affected = set(result['changed'])
                 for entry in updated['clips']:
                     if entry['clip_id'] not in affected:
@@ -172,20 +173,13 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
                     raise ValueError('reframe did not change the failing request')
                 if entry is not None:
                     entry['repair_take']=int(clip.get('repair_take',0))+1
-                history.begin_trial(directory,affected,'reframe',after_plan=updated,after_notes=proposal['notes'],changes=proposal['changes'])
-                atomic_write_json(directory/'chapter_script.json',proposal['script'])
-                atomic_write_json(directory/'clip_plan.json',updated)
-                atomic_write_json(directory/'review_feedback.json',proposal['notes'])
+                publish_candidate(directory, candidate, 'reframe', affected)
                 changed.extend(result['changed'])
             else:
                 # A new seed is a real generation attempt without a spoken
                 # director tail, nor accidental reuse of the already bad take.
-                updated = copy.deepcopy(plan)
-                entry = next(c for c in updated['clips'] if c['clip_id']==cid)
-                entry['repair_take']=int(entry.get('repair_take',0))+1
-                history.begin_trial(directory,{cid},'generation_retry',after_plan=updated,
-                                    changes={cid:diagnosis})
-                atomic_write_json(directory/'clip_plan.json',updated)
+                candidate = retake_proposal(plan, cid, diagnosis)
+                publish_retake(directory, candidate)
                 changed.append(cid)
             after_plan = read(directory/'clip_plan.json',{})
             after_clip = next((c for c in after_plan['clips'] if c['clip_id']==cid), None)

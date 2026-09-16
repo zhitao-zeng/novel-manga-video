@@ -97,7 +97,7 @@ def prepare_technical(directory: Path) -> dict:
     nonverbal = {cid: sounds for cid, sounds in nonverbal.items() if sounds}
     updated_plan = plan
     if nonverbal:
-        from repair_clips_thin import rebuild_clips
+        from repair_flow_thin import rebuild_clips
         updated_plan, changed = rebuild_clips(directory, directory.parent / 'story_bible.json',
                                              read(directory / 'chapter_script.json', {}), plan, set(nonverbal))
         if not set(nonverbal).issubset(changed):
@@ -152,7 +152,7 @@ def grant_changed_source_retry(directory: Path, before: dict, before_notes: dict
 def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
     if kind == 'entities':
         from story_identity import resolve_chapter, typed_entities
-        from repair_clips_thin import repair_episode
+        from repair_flow_thin import repair_episode
         import repair_history as history
         context = resolve_chapter(directory)
         types = typed_entities(directory.parent, context)
@@ -239,7 +239,7 @@ def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
         technical['speech_clips'] = sorted(set(technical.get('speech_clips', [])) | ids)
         atomic_write_json(directory / 'technical_repair.json', technical)
         return {'changed': sorted(ids)}
-    from repair_clips_thin import repair_episode
+    from repair_flow_thin import repair_episode
     source_issues = read(directory / 'source_binding_issues.json') if kind == 'binding' else None
     result = repair_episode(directory.parent, int(directory.name.rsplit('_', 1)[1]), True, reframe=True, identity=kind == 'identity', source_issues=source_issues)
     if kind in {'identity','residual'} and result.get('why') == 'nothing to repair':

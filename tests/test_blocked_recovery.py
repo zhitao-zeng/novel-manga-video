@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 import clip_readiness as readiness
-import repair_clips_thin as repair
+import repair_flow_thin as repair
 import repair_history as history
 import render_clips_thin as render
 import repair_review_thin as review

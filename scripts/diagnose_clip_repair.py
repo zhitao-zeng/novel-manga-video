@@ -6,7 +6,7 @@ import re
 import time
 from pathlib import Path
 
-from repair_clips_thin import read
+from repair_flow_thin import read
 from thin_review import ask_json, snapshot_block
 
 CAUSES = ["script_mismatch", "request_mismatch", "generation_mismatch", "uncertain"]

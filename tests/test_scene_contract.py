@@ -2,7 +2,7 @@ import copy
 
 from novel_manga.story import fields
 import plan_chapter_thin as planner
-import repair_clips_thin as repair
+import repair_flow_thin as repair
 
 
 def stage_schemas(names):

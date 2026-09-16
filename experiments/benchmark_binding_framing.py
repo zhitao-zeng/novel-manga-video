@@ -124,7 +124,7 @@ def evaluate(output, case, arm, video):
 
 
 def prepare(output, case, arm):
-    from repair_clips_thin import repair_episode,framing_signature
+    from repair_flow_thin import repair_episode,framing_signature
     from dialogue_binding import apply_confirmed_speakers
     from build_h3_prompts import convert
     from h3_request_checks import request_issues

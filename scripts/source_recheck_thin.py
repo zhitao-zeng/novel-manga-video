@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import time
 
+from novel_manga.repair.proposal import RepairProposal
+from repair_publication_thin import publish_candidate, publish_source_review
 from novel_manga.util import atomic_write_json
 from novel_manga.runtime_backends import normalize_text
 from repair_review_thin import CurrentVerifier, current_takes, read
@@ -39,7 +41,7 @@ class SourceVerifier(CurrentVerifier):
 
 def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *, instructions: dict | None = None) -> dict:
     from plan_chapter_thin import load_entity_index, mentioned_characters, ledger_cast
-    from repair_clips_thin import speaker_contract, repair_episode, source_identities, source_passage
+    from repair_flow_thin import speaker_contract, repair_episode, source_identities, source_passage
     from build_h3_prompts import convert
     from thin_profile import h3_prompt_outdated
     from clip_readiness import plan_issues
@@ -100,7 +102,8 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
         return {'changed': [], 'accepted': [], 'why':'no current source targets'}
     atomic_write_json(directory / 'source_speaker_contract.json',list(merged.values()))
     result = repair_episode(novel,episode,False,reframe=True,source_issues=source_issues,return_proposal=True)
-    proposal = result.get('proposal')
+    candidate = RepairProposal.from_result(result)
+    proposal = candidate.payload if candidate.available else None
     if not proposal:
         raise ValueError(f'source plan proposal incomplete: {result.get("why")}')
     plan, notes = proposal['plan'], proposal['notes']
@@ -118,10 +121,8 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
         notes = {cid:note for cid,note in notes.items() if cid not in changed}
         # A changed cut cannot reuse a source verdict about the old clip ID.
         # Its dialogue is preserved by repack; its new footage must be reviewed.
-        begin_trial(directory,set(changed),'source_repack',after_plan=plan,after_notes=notes,changes=structural)
-        atomic_write_json(directory/'chapter_script.json',proposal['script'])
-        atomic_write_json(directory/'clip_plan.json',plan)
-        atomic_write_json(directory/'review_feedback.json',notes)
+        candidate.plan, candidate.notes = plan, notes
+        publish_candidate(directory, candidate, 'source_repack', changed, changes=structural)
         report={'changed':changed,'accepted':[],'needs_render':changed,'source_attribution':resolved,'structural_repair':structural}
         atomic_write_json(directory/'source_recheck_report.json',report)
         return report
@@ -174,17 +175,8 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
             accepted.append(cid)
         else:
             clips[cid]['repair_take']=int(old_clips[cid].get('repair_take',0))+1
-    begin_trial(directory,set(checked),'source_recheck',after_plan=plan,after_notes=notes,changes=proposal['changes'])
-    atomic_write_json(directory / 'chapter_script.json',proposal['script'])
-    atomic_write_json(directory / 'clip_plan.json',plan)
-    atomic_write_json(directory / 'review_feedback.json',notes)
-    atomic_write_json(directory / 'source_acceptances.json',acceptances)
-    with (state/'verified.jsonl').open('a') as stream:
-        fcntl.flock(stream,fcntl.LOCK_EX)
-        for record in records:
-            stream.write(json.dumps(record,ensure_ascii=False)+'\n')
-        stream.flush()
+    candidate.plan, candidate.notes = plan, notes
     report={'changed':checked,'accepted':accepted,'needs_render':[cid for cid in checked if cid not in accepted],
             'source_attribution':resolved,'reviews':records}
-    atomic_write_json(directory / 'source_recheck_report.json',report)
+    publish_source_review(directory, candidate, checked, acceptances, records, report)
     return report

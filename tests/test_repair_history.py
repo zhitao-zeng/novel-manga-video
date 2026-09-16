@@ -201,7 +201,7 @@ def test_managed_verifier_adds_advice_without_old_failure_labels(episode, monkey
 
 
 def test_explicit_repair_participants_keep_their_cards_when_only_one_person_speaks():
-    import repair_clips_thin as repair
+    import repair_flow_thin as repair
     import build_clip_plan_thin as packer
     names = ["塞西娅", "莱恩·格雷", "贝纳妮丝"]
     shot = {"characters": names[:], "visual_prompt": "三人被污泥雨包围", "motion_prompt": "暖光笼罩三人", "end_state": "三人受到保护",

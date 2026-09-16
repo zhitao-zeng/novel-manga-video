@@ -4,7 +4,7 @@ import pytest
 
 from novel_manga.models import Character, StoryBible
 import plan_chapter_thin as planner
-import repair_clips_thin as repair
+import repair_flow_thin as repair
 import build_clip_plan_thin as packer
 
 

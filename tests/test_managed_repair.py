@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import managed_repair_thin as managed
 import repair_history as history
-import repair_clips_thin as repair
+import repair_flow_thin as repair
 import manage_repair_thin as manager
 from h3_request_checks import request_issues
 from thin_profile import plan_fingerprint

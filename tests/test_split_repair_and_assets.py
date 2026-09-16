@@ -18,7 +18,7 @@ from novel_manga.models import Character, StoryBible
 from novel_manga.config import Settings
 
 with patch.dict(os.environ):
-    import repair_clips_thin as repair
+    import repair_flow_thin as repair
 
 
 @pytest.fixture
