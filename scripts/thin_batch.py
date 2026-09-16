@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from novel_manga.util import load_dotenv
 import argparse
+import sys
 import json
 import os
 import production_common_thin as production_common
