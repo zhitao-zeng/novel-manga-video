@@ -36,7 +36,7 @@ import httpx
 
 from novel_manga.ingest import read_novel
 from novel_manga.story.fields import cast_field, turn_field, actions_field, extras_field, field_instructions
-from novel_manga.story.identity import canonical_name
+from novel_manga.story.identity import canonical_name, scan_mentions, unique_forms
 from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
 from novel_manga.models import (
     EpisodePlan,
@@ -1066,27 +1066,11 @@ def _usable_forms(everyone: tuple[str, ...]) -> dict[str, list[str]]:
     if key in _FORMS_INDEX:
         return _FORMS_INDEX[key]
     forms = {name: {f for f in name_forms(name) if len(f) >= 2} for name in everyone}
-    owners: dict[str, set[str]] = {}
-    for name, own in forms.items():
-        for form in own:
-            owners.setdefault(form, set()).add(name)
-    usable: dict[str, list[str]] = {}
-    for name, own in forms.items():
-        keep = [form for form in own if form == name or owners[form] == {name}]
-        usable[name] = sorted(keep, key=len, reverse=True)
+    usable = unique_forms(forms)
     _FORMS_INDEX[key] = usable
     return usable
 
 
-def scan_mentions(text: str, forms_by_name: dict[str, list[str]]) -> list[tuple[int, str, str]]:
-    """(position, name, form) for every mention in the text, longest form first at each position and
-    never overlapping: 赫尔曼 is 赫尔曼, not 赫尔男爵's 赫尔; 莱恩·诺克斯·格雷 is one mention, not three."""
-    forms = sorted(((form, name) for name, own in forms_by_name.items() for form in own if form), key=lambda fn: -len(fn[0]))
-    if not forms:
-        return []
-    pattern = re.compile("|".join(re.escape(form) for form, _ in forms))
-    owner = {form: name for form, name in forms}
-    return [(m.start(), owner[m.group(0)], m.group(0)) for m in pattern.finditer(text)]
 
 
 def mentioned_characters(text: str, everyone: list[str]) -> list[str]:

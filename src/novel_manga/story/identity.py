@@ -54,3 +54,23 @@ def resolved_aliases(context, legacy_aliases):
             if alias in names and target in names:
                 aliases.pop(alias)
     return {a:b for a,b in aliases.items() if a != b}
+
+
+def scan_mentions(text: str, forms_by_name: dict[str, list[str]]) -> list[tuple[int, str, str]]:
+    """(position, name, form) for every mention in the text, longest form first at each position and
+    never overlapping: 赫尔曼 is 赫尔曼, not 赫尔男爵's 赫尔; 莱恩·诺克斯·格雷 is one mention, not three."""
+    forms = sorted(((form, name) for name, own in forms_by_name.items() for form in own if form), key=lambda fn: -len(fn[0]))
+    if not forms:
+        return []
+    pattern = re.compile("|".join(re.escape(form) for form, _ in forms))
+    owner = {form: name for form, name in forms}
+    return [(m.start(), owner[m.group(0)], m.group(0)) for m in pattern.finditer(text)]
+
+
+def unique_forms(forms):
+    owners = {}
+    for name, own in forms.items():
+        for form in own:
+            owners.setdefault(form, set()).add(name)
+    return {name: sorted([form for form in own if form == name or owners[form] == {name}], key=len, reverse=True)
+            for name, own in forms.items()}

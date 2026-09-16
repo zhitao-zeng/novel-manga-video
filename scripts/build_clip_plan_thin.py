@@ -669,49 +669,8 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
 
 
 def prepared_shots(script: dict, episode_dir: Path) -> list[dict]:
-    """The script's shots as the packer reads them: nicknames resolved to canonical names, "同上" camera and light
-    filled in from the last concrete value, and every shot numbered."""
-    shots = script["shots"]
-    segments_path = episode_dir / 'segments.json'
-    if segments_path.is_file():
-        from source_identity_thin import resolve_script
-        resolve_script(script, episode_dir.parent, json.loads(segments_path.read_text()), chapter=chapter_of(episode_dir))
-    from story_identity import effective_aliases
-    aliases = effective_aliases(episode_dir.parent, chapter_of(episode_dir))
-    from story_identity import current_context, typed_entities
-    types = typed_entities(episode_dir.parent, current_context(episode_dir))
-    objects = {name for name, row in types.items() if row['kind'] == 'object'}
-    for shot in shots:
-        for field in ['characters', 'in_frame', 'listeners']:
-            if field in shot:
-                shot[field] = [name for name in shot[field] if name not in objects]
-    if aliases:  # a nickname in the script must resolve to the canonical card
-        for shot in shots:
-            shot["characters"] = list(dict.fromkeys(aliases.get(n, n) for n in shot.get("characters", [])))
-            if "in_frame" in shot:
-                shot["in_frame"] = list(dict.fromkeys(aliases.get(n, n) for n in (shot.get("in_frame") or [])))
-            for turn in shot.get("turns", []):
-                turn["speaker_name"] = aliases.get(turn.get("speaker_name", ""), turn.get("speaker_name", ""))
-                if turn.get('chat_target'):
-                    turn['chat_target'] = aliases.get(turn['chat_target'], turn['chat_target'])
-            if 'actions' in shot:
-                shot['actions'] = normalize_actions(shot['actions'], aliases=aliases, extras=shot.get('extras', []))
-    from dialogue_binding import apply_confirmed_speakers
-    apply_confirmed_speakers(episode_dir, shots)
-    # "同上" is only meaningful inside one prompt.  Resolve it (and blanks)
-    # from the last concrete value in reading order so that the first stage of
-    # every clip states its light and camera explicitly.
-    last: dict[str, str] = {}
-    for shot in shots:
-        for field in ("camera", "light"):
-            value = compact(shot.get(field, ""))
-            if value and value != "同上":
-                last[field] = value
-            elif last.get(field):
-                shot[field] = last[field]
-    for index, shot in enumerate(shots, start=1):
-        shot.setdefault("index", index)
-    return shots
+    from scene_context_thin import prepare_scene
+    return prepare_scene(script, episode_dir).shots
 
 
 def context_for_plan(episode_dir: Path, bible_path: Path, plan: dict) -> dict:
