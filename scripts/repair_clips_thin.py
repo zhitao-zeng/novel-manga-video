@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "src")]
 os.environ.setdefault("SECOND_REVIEW_JUDGE", "local")
 import second_review  # noqa: E402,F401
+from novel_manga.story.fields import cast_field, actions_field, extras_field, field_instructions
 from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
 from novel_manga.util import atomic_write_json  # noqa: E402
 from plan_chapter_thin import ledger_cast, ledger_snapshot_for  # noqa: E402
@@ -34,14 +35,7 @@ from thin_review import ask_json  # noqa: E402
 
 LANE_FIELDS = ("prompt_h3", "prompt_h3_of")
 RULES = (
-    "你在修一段动画短剧的分镜。判官对照原文发现这段画面把动作或台词安错了人，或漏了人。下面给你：这段原文、现有分镜的各阶段、"
-    "原著账本记的这段谁在场、判官的意见。只输出 JSON。对每个阶段（按 origin_index）重写：\n"
-    "in_frame：这一阶段画面里真正出现的具名人物（只能从候选名单选；原文里只被提起、在别处、或只有声音的人不进）。\n"
-    "涉及个体与头数时，按原文写清独立身体的数量及各自动作；一个身体多颗头或融合形态另写头数，不能由物种名称或量词猜测。\n"
-    "actions：这一阶段谁对谁做了什么。actor/target 可以是具名角色、extras描述，或原文明示的动物、道具、环境对象，不受 in_frame 名单限制。action 是谓语短语（如“环住脖子吻住”“递过信封”）。无动作就空数组，无受事或目标不明确则 target 留空；不能随便挑已有角色补位或默认填自己。\n"
-    "extras：原文里在场、有动作或台词、但没有专属角色卡的无名人物、动物等，用简短描述（如“戴眼镜的灰发老妇人”“灰色野山羊”），没有就空数组。具名角色仍须核对其身份。\n"
-    "event：改写后的事件句，一句话写清谁做什么，先写动作再写其余。\n"
-    "有可见说话者的阶段，in_frame 只放说话的人和这一阶段与他有动作往来的人（听的人不进）。判官说缺席的人若原文这段确实在场，必须进 in_frame。"
+    field_instructions("repair")
 )
 
 
@@ -63,14 +57,9 @@ def schema_for(names: list[str], indexes: list[int]) -> dict:
                                                                   "required": ["origin_index", "in_frame", "actions", "extras", "event"],
                                                                   "properties": {
                                                                       "origin_index": {"type": "integer", "enum": indexes},
-                                                                      "in_frame": {"type": "array", "maxItems": 6 if names else 0,
-                                                                                   "items": {"type": "string", **({"enum": names} if names else {})}},
-                                                                      "actions": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": False,
-                                                                                                                            "required": ["actor", "action", "target"],
-                                                                                                                            "properties": {"actor": {"type": "string", "maxLength": 80},
-                                                                                                                                           "action": {"type": "string"},
-                                                                                                                                           "target": {"type": "string", "maxLength": 80}}}},
-                                                                      "extras": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
+                                                                      "in_frame": cast_field(names),
+                                                                      "actions": actions_field(),
+                                                                      "extras": extras_field(),
                                                                       "event": {"type": "string"}}}}}}
 
 

@@ -35,6 +35,7 @@ from pathlib import Path
 import httpx
 
 from novel_manga.ingest import read_novel
+from novel_manga.story.fields import cast_field, turn_field, actions_field, extras_field, field_instructions
 from novel_manga.story.identity import canonical_name
 from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
 from novel_manga.models import (
@@ -155,9 +156,9 @@ SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧兼分镜�
    每段clip写avoid：本段具体不要出现的东西，用名词，例如"灵碑上不要出现可读文字""大厅不要出现现代家具""不要给楚焱红色发光的眼睛"；不写"低质量"这类空泛负面词。clip_id只写clip_1这样的短编号。
 7. 画面描述不得出现血液、伤口、破皮、流血。灵碑、石碑、牌匾、纸张上不得出现可读文字或数字，一律写成"无字的发光纹路"；唯一允许的可读文字是手机或电脑屏幕上的聊天消息（用 chat_message 给出内容）。
 8. clip.characters只填该段画面中出现的StoryBible具名角色；location只填给定地点名。speaker_name是具名角色，或"无名测验员""无名族人"这类无名画外角色；无名角色只能用offscreen_dialogue。silent_action和title_card的speaker_name留空字符串。
-8b. 每个阶段的in_frame只填这一阶段画面里真正出现的具名角色，是clip.characters的子集；原文里只被提起、在别处、或只有声音的人不进in_frame，他们的话用offscreen_dialogue。actions写这一阶段谁对谁做了什么：actor和target可以是具名角色、extras里的描述，或原文中明确的动物、道具、环境对象；它们不局限于in_frame名单。action是谓语短语（如"环住脖子吻住"、"向后仰头避开"），不含主体名字。没有动作就留空数组；无受事或无法确定目标时target=""，不得挑一个已有角色补位，也不得默认填动作发起者自己。例如主角砍山羊，target写"灰色野山羊"，不是主角的名字。原文里在这一段有动作或台词、但没有专属角色卡的无名人物、动物等写进extras，用不超过24字的简短描述（如"戴眼镜的灰发老妇人"、"灰色野山羊"），按描述呈现；具名角色不能靠写进extras替代其身份绑定。有可见说话者的阶段，in_frame只放说话的人和这一阶段与他有动作往来的人，听的人不进in_frame（相邻阶段轮流给两人正脸，像正反打）；两张脸同框时视频模型常把口型安错人。
+{scene_fields}
 8c. 如果给了ledger_snapshot：它是原著逐段的出场记录，chapter_cast是本章在场/只有声音/只被提及的人，segments里是每个区段原文点到名的人。只让原文这一段在场的人进in_frame；segments里没点到、chapter_cast里又不在场的人不要出现；must_not_reveal里的关系此时读者还不知道，台词和画面都不得点破。
-9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。"""
+9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。""".replace("{scene_fields}", field_instructions("planning"))
 
 
 def configure_budget(text_count: int, *, fast: bool, min_seconds: float = 0.0) -> dict:
@@ -489,20 +490,8 @@ def split_turn_text(text: str) -> list[str]:
 
 
 def build_schema(character_names: list[str], location_names: list[str], segment_ids: list[str]) -> dict:
-    cast_array = {"type": "array", "maxItems": 6 if character_names else 0,
-                  "items": {"type": "string", **({"enum": character_names} if character_names else {})}}
-    turn = {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["speaker_name", "delivery_mode", "text", "emotion", "chat_target"],
-        "properties": {
-            "speaker_name": {"type": "string", "enum": [*character_names, *ANONYMOUS_SPEAKERS, ""]},
-            "delivery_mode": {"type": "string", "enum": DELIVERY_MODES},
-            "text": {"type": "string"},
-            "emotion": {"type": "string"},
-            "chat_target": {"type": "string", "enum": [*character_names, ""]},  # chat_message only: empty = group chat, a name = a one-to-one chat
-        },
-    }
+    cast_array = cast_field(character_names)
+    turn = turn_field(character_names, ANONYMOUS_SPEAKERS, DELIVERY_MODES)
     stage = {
         "type": "object",
         "additionalProperties": False,
@@ -523,12 +512,8 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             # picked two of them to kiss (雾月 761)
             "in_frame": cast_array,
             # unnamed people the passage puts in the picture, by a short description; they have no card
-            "extras": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
-            "actions": {"type": "array", "maxItems": 3, "items": {"type": "object", "additionalProperties": False,
-                                                                "required": ["actor", "action", "target"],
-                                                                "properties": {"actor": {"type": "string", "maxLength": 80},
-                                                                               "action": {"type": "string"},
-                                                                               "target": {"type": "string", "maxLength": 80}}}},
+            "extras": extras_field(),
+            "actions": actions_field(),
         },
     }
     clip = {
