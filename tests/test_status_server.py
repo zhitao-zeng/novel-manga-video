@@ -30,7 +30,9 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(dashboard_config, 'ROOT', tmp_path)
     monkeypatch.setattr(dashboard_config, '_lane_keys', lambda: {"nov": [{"base_url": "pool"}]})
     monkeypatch.setattr(dashboard_inventory, '_EPISODE_CACHE', {})
-    monkeypatch.setattr(dashboard_history, '_FILE_CACHE', {})
+    import dashboard_store_thin
+    from novel_manga.dashboard.files import DashboardFiles
+    monkeypatch.setattr(dashboard_store_thin, 'files', DashboardFiles())
     monkeypatch.setattr(dashboard_inventory, '_MODE_CACHE', {})
     return tmp_path / "outputs" / "nov"
 

@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlsplit
 
 from novel_manga.batch_control import flow_snapshot
+from dashboard_store_thin import scan_book
 
 _DETAILS = {}
 _EPISODES = {}
@@ -126,20 +127,21 @@ def block_label(reason: str) -> str:
     return '其他准备问题'
 
 
-def episode_details(directory: Path) -> dict:
+def episode_details(directory: Path, *, scan=None) -> dict:
     directory=directory.resolve()
+    scan = scan if scan is not None else scan_book(directory.parent)
     names=['repair_history/history.json','repair_routing.json','source_acceptances.json',
            'episode_review.json','thin_media_report.json','clip_plan.json','review_feedback.json','chapter_script.json','segments.json',
            'source_speaker_contract.json']
-    signature=tuple((directory/n).stat().st_mtime_ns if (directory/n).is_file() else 0 for n in names)
+    signature=tuple(scan.stat(directory/n).st_mtime_ns if scan.stat(directory/n) else 0 for n in names)
     cached=_EPISODES.get(str(directory))
     def video_signature(paths):
-        return tuple((path,tuple(take_of(path) or [])) for path in paths)
+        return tuple((path,tuple(scan.take(path) or [])) for path in paths)
     if cached and cached[0]==(signature,video_signature(cached[2])):
         return cached[1]
-    h=read(directory/names[0],{});routing=read(directory/names[1],{})
-    review=read(directory/'episode_review.json',{});media=read(directory/'thin_media_report.json',{})
-    plan=read(directory/'clip_plan.json',{});notes=read(directory/'review_feedback.json',{})
+    h=scan.read(directory/names[0],{});routing=scan.read(directory/names[1],{})
+    review=scan.read(directory/'episode_review.json',{});media=scan.read(directory/'thin_media_report.json',{})
+    plan=scan.read(directory/'clip_plan.json',{});notes=scan.read(directory/'review_feedback.json',{})
     current={c['clip_id']:c.get('selected') or {} for c in media.get('clips',[])}
     clips={c['clip_id']:c for c in plan.get('clips',[])}
     generations={};tracked=set();changed_methods=Counter()
@@ -154,16 +156,16 @@ def episode_details(directory: Path) -> dict:
     for cid in tracked:
         row=review.get('clips',{}).get(cid,{})
         video=current.get(cid,{}).get('video') or row.get('video')
-        if (video and row.get('video')==video and row.get('take')==take_of(video)
+        if (video and row.get('video')==video and row.get('take')==scan.take(video)
                 and row.get('verify') and row.get('story_ok') is True
                 and not row.get('flash_pending') and not row.get('technical')):
             successful.add(cid)
     accepted=0
     from repair_history import source_accepted_take
-    for cid,row in read(directory/'source_acceptances.json',{}).items():
+    for cid,row in scan.read(directory/'source_acceptances.json',{}).items():
         clip=clips.get(cid,{})
         if (cid in successful and row.get('video')==(current.get(cid) or {}).get('video')
-                and row.get('take')==take_of(row.get('video')) and row.get('note','')==notes.get(cid,'')
+                and row.get('take')==scan.take(row.get('video')) and row.get('note','')==notes.get(cid,'')
                 and all(clip.get(k)==v for k,v in row.get('clip',{}).items())
                 and source_accepted_take(directory,clip,notes.get(cid,'')) is not None):
             accepted+=1
@@ -189,9 +191,9 @@ def episode_details(directory: Path) -> dict:
 def repair_details(novel: Path) -> dict:
     result={'tracked':0,'passed':0,'generated':0,'passed_generated':0,'retained':0}
     actions=Counter();methods=Counter();blocks=[]
-    for directory in novel.glob(novel.name+'_*'):
-        if not directory.is_dir() or not directory.name.rsplit('_',1)[-1].isdigit():continue
-        row=episode_details(directory)
+    scan = scan_book(novel)
+    for directory in scan.directories:
+        row=episode_details(directory, scan=scan)
         for key in result:result[key]+=row[key]
         actions.update(row['actions']);methods.update(row['methods']);blocks.extend(row['blocks'])
     return {**result,'actions':dict(actions),'methods':dict(methods),'blocks':blocks,

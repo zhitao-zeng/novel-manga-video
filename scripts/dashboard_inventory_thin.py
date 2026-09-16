@@ -11,6 +11,7 @@ import json
 import os
 import time
 import dashboard_config_thin as dashboard_config
+from dashboard_store_thin import scan_book
 
 def _read_tail(path: Path, lines: int = 400) -> list[str]:
     try:
@@ -40,18 +41,23 @@ _MODE_CACHE: dict[str, tuple[float, str]] = {}
 _DELIVERY_CACHE: dict[str, tuple[float, dict | None]] = {}
 
 
-def _episode_state(directory: Path, h3_lane: bool) -> dict:
+def _episode_state(directory: Path, h3_lane: bool, *, scan=None) -> dict:
     """Read the same completion/gate state as the production lane; cache until an input changes.
 
     A video left by an earlier plan or a failed quality check is still watchable, but is not a completed episode.
     Review status is separate: a model error is unjudged work, not a verdict about video quality.
     """
+    scan = scan if scan is not None else scan_book(directory.parent)
+    memo_key = (directory, h3_lane)
+    if memo_key in scan.states:
+        return scan.states[memo_key]
     names = ("clip_plan.json", "thin_media_report.json", "review_feedback.json", f"{directory.name}.mp4",
              ".render_runs", "episode_review.json")
-    stamps = tuple(_mtime(directory / name) for name in names)
+    stamps = tuple(scan.mtime(directory / name) for name in names)
     key = (str(directory), h3_lane)
     hit = _EPISODE_CACHE.get(key)
     if hit and hit[0] == stamps:
+        scan.states[memo_key] = hit[1]
         return hit[1]
     unreadable = False
     try:
@@ -59,7 +65,7 @@ def _episode_state(directory: Path, h3_lane: bool) -> dict:
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         status, unreadable = "pending", True
     try:
-        report = json.loads((directory / "thin_media_report.json").read_text(encoding="utf-8"))
+        report = scan.read(directory / "thin_media_report.json", {})
     except (OSError, ValueError):
         report = {}
     runs = render_runs(directory)
@@ -73,9 +79,9 @@ def _episode_state(directory: Path, h3_lane: bool) -> dict:
         review_state = "pending"
         if stamps[5] >= stamps[3]:
             try:
-                review = json.loads((directory / "episode_review.json").read_text(encoding="utf-8"))
+                review = scan.read(directory / "episode_review.json", {})
                 reviews = review.get("clips", {}) if review.get("policy") == REVIEW_POLICY else {}
-                plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
+                plan = scan.read(directory / "clip_plan.json", {})
                 expected = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
                 if any(c.get("severity") == "review_error" for c in reviews.values()):
                     review_state = "error"
@@ -85,24 +91,21 @@ def _episode_state(directory: Path, h3_lane: bool) -> dict:
                 pass
     value = {"status": status, "planned": bool(stamps[0]), "final_mtime": stamps[3], "blocked": blocked,
              "uncertain": uncertain, "unreadable": unreadable, "review": review_state, "runs": runs}
+    scan.states[memo_key] = value
     _EPISODE_CACHE[key] = (stamps, value)
     return value
 
 
-def _episode_inventory(novel_id: str) -> dict:
+def _episode_inventory(novel_id: str, *, scan=None) -> dict:
     """Counts and qualified-final mtimes, shared by the live page and analytics board."""
     result = {"finals": [], "planned": 0, "files": 0, "states": {}, "blocked": 0, "uncertain": 0,
               "review_pending": 0, "review_errors": 0, "attention": []}
     keys = dashboard_config._lane_keys().get(novel_id, [])
     h3_lane = bool(keys) and all(k.get("base_url") for k in keys)
     base = dashboard_config.ROOT / "outputs" / novel_id
-    try:
-        entries = sorted((e for e in os.scandir(base) if e.is_dir() and e.name.startswith(f"{novel_id}_")
-                          and e.name.rsplit("_", 1)[-1].isdigit()), key=lambda e: int(e.name.rsplit("_", 1)[-1]))
-    except OSError:
-        return result
-    for entry in entries:
-        state = _episode_state(Path(entry.path), h3_lane)
+    scan = scan if scan is not None else scan_book(base)
+    for directory in sorted(scan.directories, key=lambda p: int(p.name.rsplit('_', 1)[-1])):
+        state = _episode_state(directory, h3_lane, scan=scan)
         status = state["status"]
         result["planned"] += state["planned"]
         result["files"] += bool(state["final_mtime"])
@@ -122,7 +125,7 @@ def _episode_inventory(novel_id: str) -> dict:
                   else "旧视频待重新验证" if state["final_mtime"] and status in {"pending", "no_plan"}
                   else "审查失败，仍未审完" if state["review"] == "error" else "")
         if reason:
-            result["attention"].append({"chapter": int(entry.name.rsplit("_", 1)[-1]), "reason": reason})
+            result["attention"].append({"chapter": int(directory.name.rsplit("_", 1)[-1]), "reason": reason})
     return result
 
 
@@ -219,7 +222,8 @@ def _delivery(novel_id: str) -> dict | None:
 
 
 def _novel_status(novel: dict) -> dict:
-    inventory = _episode_inventory(novel["id"])
+    scan = scan_book(dashboard_config.ROOT / "outputs" / novel["id"])
+    inventory = _episode_inventory(novel["id"], scan=scan)
     finals, planned = inventory["finals"], inventory["planned"]
     chapters = _chapters(novel["id"])
     per_hour = _rate(finals, 3600)

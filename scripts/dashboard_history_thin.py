@@ -5,28 +5,10 @@ from pipeline_dashboard import pipeline_metrics
 from review_progress_thin import viewer_progress
 from thin_runs import REVIEW_POLICY
 import json
-import os
 import time
 import dashboard_config_thin as dashboard_config
 import dashboard_inventory_thin as dashboard_inventory
-
-_FILE_CACHE: dict[str, tuple[float, object]] = {}
-
-
-def _cached(path: Path, parser):
-    """Parse a per-episode file, re-parsing only when its mtime changed."""
-    try:
-        stamp = path.stat().st_mtime
-    except OSError:
-        return None
-    key = str(path)
-    hit = _FILE_CACHE.get(key)
-    if hit and hit[0] == stamp:
-        return hit[1]
-    data = parser(path)
-    _FILE_CACHE[key] = (stamp, data)
-    return data
-
+from dashboard_store_thin import scan_book
 
 def _parse_review(path: Path):
     try:
@@ -73,7 +55,8 @@ def _parse_render_model(path: Path):
 
 def _board_novel(novel: dict) -> dict:
     nid = novel["id"]
-    inventory = dashboard_inventory._episode_inventory(nid)
+    scan = scan_book(dashboard_config.ROOT / "outputs" / nid)
+    inventory = dashboard_inventory._episode_inventory(nid, scan=scan)
     finals, planned = inventory["finals"], inventory["planned"]
     keys = dashboard_config._lane_keys().get(nid, [])
     h3_lane = bool(keys) and all(k.get("base_url") for k in keys)
@@ -106,19 +89,13 @@ def _board_novel(novel: dict) -> dict:
     must_all = recent_must = 0
     lanes: dict[str, dict] = {}
     base = dashboard_config.ROOT / "outputs" / nid
-    try:
-        entries = [e for e in os.scandir(base)
-                   if e.is_dir() and e.name.startswith(f"{nid}_") and e.name.rsplit("_", 1)[-1].isdigit()]
-    except OSError:
-        entries = []
-    for entry in entries:
-        directory = Path(entry.path)
-        state = dashboard_inventory._episode_state(directory, h3_lane)
-        review = _cached(directory / "episode_review.json", _parse_review)
-        if state["review"] == "not_ready" or dashboard_inventory._mtime(directory / "episode_review.json") < state["final_mtime"]:
-            review = None  # verdicts on an earlier cut do not describe the current episode
-        media = _cached(directory / "thin_media_report.json", _parse_media)
-        model = _cached(directory / "render.log", _parse_render_model)
+    for directory in scan.directories:
+        state = dashboard_inventory._episode_state(directory, h3_lane, scan=scan)
+        review = scan.parsed(directory / "episode_review.json", _parse_review)
+        if state["review"] == "not_ready" or scan.mtime(directory / "episode_review.json") < state["final_mtime"]:
+            review = None
+        media = scan.parsed(directory / "thin_media_report.json", _parse_media)
+        model = scan.parsed(directory / "render.log", _parse_render_model)
         if not (review or media):
             continue
         lane = lanes.setdefault(model or "未知",
@@ -137,7 +114,7 @@ def _board_novel(novel: dict) -> dict:
         for key, value in review["cats"].items():
             cats[key] = cats.get(key, 0) + value
         try:
-            reviewed_at = (directory / "episode_review.json").stat().st_mtime
+            reviewed_at = scan.mtime(directory / "episode_review.json")
         except OSError:
             reviewed_at = 0
         if reviewed_at >= week_ago:
