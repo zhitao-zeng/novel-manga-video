@@ -11,6 +11,7 @@ card, like build_cards_thin.py.
 """
 from __future__ import annotations
 
+from novel_manga.media.asset_prompts import character_prompt
 import argparse
 import json
 import os
@@ -20,7 +21,10 @@ from dataclasses import replace as dc_replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from novel_manga.media.assets import CARD_STYLE_SUFFIX_3D, FramedAssetFactory, ModerationRejected, apply_genre
+from novel_manga.media.asset_style import CARD_STYLE_SUFFIX_3D
+from novel_manga.media.asset_builder import FramedAssetFactory
+from novel_manga.media.asset_policy import ModerationRejected
+from novel_manga.media.asset_style import AssetStyle
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
 from thin_phases import load_phases, phased  # noqa: E402
@@ -69,15 +73,14 @@ def main() -> int:
 
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
-    apply_genre(load_genre(profile))
+    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"])
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     settings = dc_replace(settings, width=frame["width"], height=frame["height"])
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     if (novel_dir / "profile.json").is_file():
         bible = styled_bible(bible, profile)
     provider = FramedPhanRouter(settings, frame)
-    factory = FramedAssetFactory(settings, provider)
-    factory.frame_text = frame["text"]
+    factory = FramedAssetFactory(settings, provider, style=asset_style)
     style_master = settings.style_master_path
     guard = STYLE_MASTER_GUARD if style_master is not None else ""
     index = {character.name: position for position, character in enumerate(bible.characters, start=1)}
@@ -105,7 +108,7 @@ def main() -> int:
                 print(json.dumps({"name": name, "asset_id": asset_id, "status": "kept"}, ensure_ascii=False), flush=True)
                 continue
             look = phased(character, phase)
-            prompt = factory._character_prompt(
+            prompt = character_prompt(
                 bible, look.name, look.appearance, look.base_costume or look.wardrobe,
                 visual_archetype=look.visual_archetype, face_anchors=look.face_anchors, silhouette=look.silhouette,
                 hair=look.hair, palette=look.palette, motion_signature=look.motion_signature,

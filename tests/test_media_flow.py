@@ -44,8 +44,8 @@ def test_alternating_operations_do_not_share_profiles_frame_or_mutable_state(tmp
     first = build_request(a.context, clip(), 1)[0]
     b = runner(tmp_path / 'b', frame='9:16')
     assert a.context.frame_spec['width'] == 1920 and b.context.frame_spec['width'] == 1080
-    assert a.context.asset_style['card_style_suffix_3d'] == 'A-style'
-    assert b.context.asset_style['card_style_suffix_3d'] == 'B-style'
+    assert a.context.asset_style.card_style_suffix_3d == 'A-style'
+    assert b.context.asset_style.card_style_suffix_3d == 'B-style'
     assert len(a.context.softening_rules) == len(b.context.softening_rules) + 1
     b.context.feedback['a'] = '乙的新备注'
     b.context._blocked_clips['a'] = ['missing image']

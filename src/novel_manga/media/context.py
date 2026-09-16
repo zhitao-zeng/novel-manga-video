@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 from ..config import Settings
 from ..models import StoryBible
+from .asset_style import AssetStyle
 
 
 @dataclass
@@ -17,7 +18,7 @@ class RenderContext:
     aliases: dict = field(default_factory=dict)
     asr_helper: Path | None = None
     asr_python: str = ""
-    asset_style: dict = field(default_factory=dict)
+    asset_style: AssetStyle = field(default_factory=AssetStyle)
     bible: StoryBible | None = None
     black_checks: set = field(default_factory=set)
     cache_only: bool = False

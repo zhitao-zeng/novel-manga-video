@@ -2,6 +2,7 @@
 Seedance rejects a clip, not by the card remediation, and the backfill records the cards existing
 renders used."""
 from __future__ import annotations
+import novel_manga.media.asset_repair as asset_repair
 
 import json
 import sys
@@ -31,30 +32,30 @@ def ref(card: str) -> dict:
 def test_privacy_repair_leaves_proven_cards_alone(tmp_path, monkeypatch):
     root = novel(tmp_path)
     redrawn = []
-    monkeypatch.setattr(media_assets, "stylize_card", lambda provider, path: redrawn.append(path.parent.name))
+    monkeypatch.setattr(asset_repair, 'stylize_card', lambda provider, path: redrawn.append(path.parent.name))
     render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
     runner = SimpleNamespace(novel_dir=root, provider=None, _ok_assets=set())
     clip = {"clip_id": "clip_01", "references": [ref("character_001"), ref("character_002")]}
     # one card unproven: only that one is restyled
-    assert media_assets.repair_privacy_cards(runner, clip) == ["character_002/turnaround.jpeg"]
+    assert asset_repair.repair_privacy_cards(runner, clip) == ["character_002/turnaround.jpeg"]
     assert redrawn == ["character_002"]
     # every card proven: nothing is restyled, the rejection stands
     render_flow_thin.record_privacy_ok(root, [ref("character_002")["path"]])
     redrawn.clear()
-    assert media_assets.repair_privacy_cards(runner, clip) == []
+    assert asset_repair.repair_privacy_cards(runner, clip) == []
     assert redrawn == []
 
 
 def test_named_rejected_reference_is_not_redrawn_when_proven(tmp_path, monkeypatch):
     root = novel(tmp_path)
     redrawn = []
-    monkeypatch.setattr(media_assets, "stylize_card", lambda provider, path: redrawn.append(path.parent.name))
+    monkeypatch.setattr(asset_repair, 'stylize_card', lambda provider, path: redrawn.append(path.parent.name))
     render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
     runner = SimpleNamespace(novel_dir=root, provider=None, _ok_assets=set())
     clip = {"clip_id": "clip_01", "references": [ref("character_001"), ref("character_002")]}
-    assert media_assets.repair_rejected_reference(runner, clip, 0) == []
+    assert asset_repair.repair_rejected_reference(runner, clip, 0) == []
     assert redrawn == [] and (root / "series_assets/characters/character_001/turnaround.jpeg").is_file()
-    assert media_assets.repair_rejected_reference(runner, clip, 1) == ["character_002/turnaround.jpeg"]
+    assert asset_repair.repair_rejected_reference(runner, clip, 1) == ["character_002/turnaround.jpeg"]
     assert redrawn == ["character_002"]
 
 

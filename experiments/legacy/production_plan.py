@@ -9,7 +9,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from novel_manga.media.asset_factory import SeriesAssetFactory, sha256_text, sha256_file, _archive_stale
+from novel_manga.media.asset_factory import SeriesAssetFactory
+from novel_manga.media.common import sha256_text, sha256_file
+from novel_manga.media.asset_images import _archive_stale
 from novel_manga.config import Settings
 from novel_manga.models import (
     CameraBeat,

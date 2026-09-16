@@ -21,7 +21,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.media.policy import RATE_LIMIT_RE
-from novel_manga.media.assets import FramedAssetFactory, ModerationRejected, apply_genre
+from novel_manga.media.asset_builder import FramedAssetFactory
+from novel_manga.media.asset_policy import ModerationRejected
+from novel_manga.media.asset_style import AssetStyle
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, styled_bible  # noqa: E402
@@ -59,15 +61,14 @@ def main() -> int:
     novel_dir = args.novel_dir.resolve()
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
-    apply_genre(load_genre(profile))
+    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"])
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     settings = dc_replace(settings, width=frame["width"], height=frame["height"])
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     if (novel_dir / "profile.json").is_file():
         bible = styled_bible(bible, profile)
     provider = FramedPhanRouter(settings, frame)
-    factory = FramedAssetFactory(settings, provider)
-    factory.frame_text = frame["text"]
+    factory = FramedAssetFactory(settings, provider, style=asset_style)
     root = novel_dir / "series_assets"
     (root / ".locks").mkdir(parents=True, exist_ok=True)
 

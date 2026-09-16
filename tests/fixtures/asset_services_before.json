@@ -1,0 +1,851 @@
+[
+  {
+    "calls": [
+      {
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。角色资产：甲；固定外貌：黑发；固定服装：蓝衣。只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。双手自然放松，不拿食物、纸袋、武器或任何剧情道具。纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。",
+        "output": "series_assets/characters/character_001/turnaround.jpeg",
+        "reference": null
+      },
+      {
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
+        "output": "series_assets/locations/location_001/establishing.jpeg",
+        "reference": null
+      }
+    ],
+    "cache_reused": true,
+    "manifest": {
+      "schema_version": 1,
+      "style_fingerprint": "fixed",
+      "characters": [
+        {
+          "asset_id": "character_001",
+          "kind": "character",
+          "name": "甲",
+          "version": "v001",
+          "approval_status": "approved",
+          "rights_status": "project-generated",
+          "identity_invariants": [
+            "黑发"
+          ],
+          "state_variables": {
+            "costume": "蓝衣",
+            "injury": "none unless changed by source events",
+            "carried_prop": "none"
+          },
+          "reference_scope": {
+            "inherit": [
+              "identity",
+              "hair",
+              "costume",
+              "2d_rendering"
+            ],
+            "exclude": [
+              "pose",
+              "composition",
+              "camera",
+              "background",
+              "lighting"
+            ]
+          },
+          "spec_path": "series_assets/characters/character_001/spec.json",
+          "primary_image": "series_assets/characters/character_001/turnaround.jpeg",
+          "secondary_image": null,
+          "prompt_sha256": "b8a3326e331dbef0f5bc054e56e755bf53102ace0a0bbe67e09addfdc94cc0af"
+        }
+      ],
+      "locations": [
+        {
+          "asset_id": "location_001",
+          "kind": "location",
+          "name": "厅堂",
+          "version": "v001",
+          "approval_status": "approved",
+          "rights_status": "project-generated",
+          "identity_invariants": [
+            "厅堂固定建筑、出入口和空间层级"
+          ],
+          "state_variables": {
+            "time_of_day": "approved_reference_state",
+            "weather": "approved_reference_state",
+            "damage": "none unless changed by source events"
+          },
+          "reference_scope": {
+            "inherit": [
+              "architecture",
+              "space",
+              "color",
+              "lighting",
+              "2d_rendering"
+            ],
+            "exclude": [
+              "composition",
+              "camera",
+              "temporary_people",
+              "text"
+            ]
+          },
+          "spec_path": "series_assets/locations/location_001/spec.json",
+          "primary_image": "series_assets/locations/location_001/establishing.jpeg",
+          "secondary_image": null,
+          "prompt_sha256": "3c3ee5be5845f1d55434cce328cb87cca80859abafcb853469934837a589149f"
+        }
+      ],
+      "voice_assignments": {
+        "narrator": "native:narrator",
+        "甲": "native:character_001"
+      }
+    },
+    "files": {
+      "series_assets/characters/character_001/spec.json": {
+        "asset_id": "character_001",
+        "name": "甲",
+        "role": "配角",
+        "gender": "未知",
+        "age": "成年",
+        "appearance": "黑发",
+        "wardrobe": "蓝衣",
+        "visual_archetype": "",
+        "face_anchors": [],
+        "silhouette": "",
+        "hair": "",
+        "palette": "",
+        "base_costume": "",
+        "episode_costumes": [],
+        "signature_prop": "",
+        "expression_profile": "",
+        "motion_signature": "",
+        "voice_profile_id": "",
+        "version": "v001",
+        "identity_invariants": [
+          "黑发"
+        ],
+        "state_variables": {
+          "costume": "蓝衣",
+          "injury": "none unless changed by source events",
+          "carried_prop": "none"
+        },
+        "reference_scope": {
+          "inherit": [
+            "identity",
+            "hair",
+            "costume",
+            "2d_rendering"
+          ],
+          "exclude": [
+            "pose",
+            "composition",
+            "camera",
+            "background",
+            "lighting"
+          ]
+        },
+        "style_fingerprint": "fixed",
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。角色资产：甲；固定外貌：黑发；固定服装：蓝衣。只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。双手自然放松，不拿食物、纸袋、武器或任何剧情道具。纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。"
+      },
+      "series_assets/characters/character_001/turnaround.jpeg.request.json": {
+        "prompt_sha256": "4bd13ff731de27a235265552140f5e51f5410bbd041ff765fcfdb68724c80a88",
+        "reference_sha256": null,
+        "additional_reference_sha256s": [],
+        "provider": "mock",
+        "image_model": "gpt-image-2",
+        "image_transport": "mock",
+        "image_command_sha256": null,
+        "request_sha256": "440fb6f29cbd96b31c269522ad394fcb7f33f5880c91561f8a5c9243153c6ac1"
+      },
+      "series_assets/locations/location_001/establishing.jpeg.request.json": {
+        "prompt_sha256": "3c3ee5be5845f1d55434cce328cb87cca80859abafcb853469934837a589149f",
+        "reference_sha256": null,
+        "additional_reference_sha256s": [],
+        "provider": "mock",
+        "image_model": "gpt-image-2",
+        "image_transport": "mock",
+        "image_command_sha256": null,
+        "request_sha256": "77b518f59d841417590829e150a07333c388ff085e0ac3c9805ad14d502cb0ef"
+      },
+      "series_assets/locations/location_001/spec.json": {
+        "asset_id": "location_001",
+        "name": "厅堂",
+        "style_fingerprint": "fixed",
+        "continuity": "固定空间布局、物品锚点、天气、时间、光线方向",
+        "version": "v001",
+        "identity_invariants": [
+          "厅堂固定建筑、出入口和空间层级"
+        ],
+        "state_variables": {
+          "time_of_day": "approved_reference_state",
+          "weather": "approved_reference_state",
+          "damage": "none unless changed by source events"
+        },
+        "reference_scope": {
+          "inherit": [
+            "architecture",
+            "space",
+            "color",
+            "lighting",
+            "2d_rendering"
+          ],
+          "exclude": [
+            "composition",
+            "camera",
+            "temporary_people",
+            "text"
+          ]
+        },
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
+      },
+      "series_assets/manifest.json": {
+        "schema_version": 1,
+        "style_fingerprint": "fixed",
+        "characters": [
+          {
+            "asset_id": "character_001",
+            "kind": "character",
+            "name": "甲",
+            "version": "v001",
+            "approval_status": "approved",
+            "rights_status": "project-generated",
+            "identity_invariants": [
+              "黑发"
+            ],
+            "state_variables": {
+              "costume": "蓝衣",
+              "injury": "none unless changed by source events",
+              "carried_prop": "none"
+            },
+            "reference_scope": {
+              "inherit": [
+                "identity",
+                "hair",
+                "costume",
+                "2d_rendering"
+              ],
+              "exclude": [
+                "pose",
+                "composition",
+                "camera",
+                "background",
+                "lighting"
+              ]
+            },
+            "spec_path": "series_assets/characters/character_001/spec.json",
+            "primary_image": "series_assets/characters/character_001/turnaround.jpeg",
+            "secondary_image": null,
+            "prompt_sha256": "b8a3326e331dbef0f5bc054e56e755bf53102ace0a0bbe67e09addfdc94cc0af"
+          }
+        ],
+        "locations": [
+          {
+            "asset_id": "location_001",
+            "kind": "location",
+            "name": "厅堂",
+            "version": "v001",
+            "approval_status": "approved",
+            "rights_status": "project-generated",
+            "identity_invariants": [
+              "厅堂固定建筑、出入口和空间层级"
+            ],
+            "state_variables": {
+              "time_of_day": "approved_reference_state",
+              "weather": "approved_reference_state",
+              "damage": "none unless changed by source events"
+            },
+            "reference_scope": {
+              "inherit": [
+                "architecture",
+                "space",
+                "color",
+                "lighting",
+                "2d_rendering"
+              ],
+              "exclude": [
+                "composition",
+                "camera",
+                "temporary_people",
+                "text"
+              ]
+            },
+            "spec_path": "series_assets/locations/location_001/spec.json",
+            "primary_image": "series_assets/locations/location_001/establishing.jpeg",
+            "secondary_image": null,
+            "prompt_sha256": "3c3ee5be5845f1d55434cce328cb87cca80859abafcb853469934837a589149f"
+          }
+        ],
+        "voice_assignments": {
+          "narrator": "native:narrator",
+          "甲": "native:character_001"
+        }
+      }
+    }
+  },
+  {
+    "calls": [
+      {
+        "prompt": "3D国漫。系列风格指纹 fixed。蓝。角色资产：甲；固定外貌：黑发；固定服装：蓝衣。只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。双手自然放松，不拿食物、纸袋、武器或任何剧情道具。纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。整体必须是一眼可辨的风格化三维动画角色（国漫/皮克斯式概括造型）：眼睛略大、五官简化、皮肤光滑无毛孔、干净的三维建模材质与柔和体积光；绝不是真人照片、真实人物肖像或写实渲染",
+        "output": "series_assets/characters/character_001/turnaround.jpeg",
+        "reference": null
+      },
+      {
+        "prompt": "3D国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
+        "output": "series_assets/locations/location_001/establishing.jpeg",
+        "reference": null
+      }
+    ],
+    "cache_reused": true,
+    "manifest": {
+      "schema_version": 1,
+      "style_fingerprint": "fixed",
+      "characters": [
+        {
+          "asset_id": "character_001",
+          "kind": "character",
+          "name": "甲",
+          "version": "v001",
+          "approval_status": "approved",
+          "rights_status": "project-generated",
+          "identity_invariants": [
+            "黑发"
+          ],
+          "state_variables": {
+            "costume": "蓝衣",
+            "injury": "none unless changed by source events",
+            "carried_prop": "none"
+          },
+          "reference_scope": {
+            "inherit": [
+              "identity",
+              "hair",
+              "costume",
+              "2d_rendering"
+            ],
+            "exclude": [
+              "pose",
+              "composition",
+              "camera",
+              "background",
+              "lighting"
+            ]
+          },
+          "spec_path": "series_assets/characters/character_001/spec.json",
+          "primary_image": "series_assets/characters/character_001/turnaround.jpeg",
+          "secondary_image": null,
+          "prompt_sha256": "61a91b330b90decc9442a799b22888c61ebfc52a39ca4b90a9c74aace38775b5"
+        }
+      ],
+      "locations": [
+        {
+          "asset_id": "location_001",
+          "kind": "location",
+          "name": "厅堂",
+          "version": "v001",
+          "approval_status": "approved",
+          "rights_status": "project-generated",
+          "identity_invariants": [
+            "厅堂固定建筑、出入口和空间层级"
+          ],
+          "state_variables": {
+            "time_of_day": "approved_reference_state",
+            "weather": "approved_reference_state",
+            "damage": "none unless changed by source events"
+          },
+          "reference_scope": {
+            "inherit": [
+              "architecture",
+              "space",
+              "color",
+              "lighting",
+              "2d_rendering"
+            ],
+            "exclude": [
+              "composition",
+              "camera",
+              "temporary_people",
+              "text"
+            ]
+          },
+          "spec_path": "series_assets/locations/location_001/spec.json",
+          "primary_image": "series_assets/locations/location_001/establishing.jpeg",
+          "secondary_image": null,
+          "prompt_sha256": "cba0e6576a170a73cf309bf010be40cd428943c0a4ca356ecf846796243ad295"
+        }
+      ],
+      "voice_assignments": {
+        "narrator": "native:narrator",
+        "甲": "native:character_001"
+      }
+    },
+    "files": {
+      "series_assets/characters/character_001/spec.json": {
+        "asset_id": "character_001",
+        "name": "甲",
+        "role": "配角",
+        "gender": "未知",
+        "age": "成年",
+        "appearance": "黑发",
+        "wardrobe": "蓝衣",
+        "visual_archetype": "",
+        "face_anchors": [],
+        "silhouette": "",
+        "hair": "",
+        "palette": "",
+        "base_costume": "",
+        "episode_costumes": [],
+        "signature_prop": "",
+        "expression_profile": "",
+        "motion_signature": "",
+        "voice_profile_id": "",
+        "version": "v001",
+        "identity_invariants": [
+          "黑发"
+        ],
+        "state_variables": {
+          "costume": "蓝衣",
+          "injury": "none unless changed by source events",
+          "carried_prop": "none"
+        },
+        "reference_scope": {
+          "inherit": [
+            "identity",
+            "hair",
+            "costume",
+            "2d_rendering"
+          ],
+          "exclude": [
+            "pose",
+            "composition",
+            "camera",
+            "background",
+            "lighting"
+          ]
+        },
+        "style_fingerprint": "fixed",
+        "prompt": "3D国漫。系列风格指纹 fixed。蓝。角色资产：甲；固定外貌：黑发；固定服装：蓝衣。只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。双手自然放松，不拿食物、纸袋、武器或任何剧情道具。纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。整体必须是一眼可辨的风格化三维动画角色（国漫/皮克斯式概括造型）：眼睛略大、五官简化、皮肤光滑无毛孔、干净的三维建模材质与柔和体积光；绝不是真人照片、真实人物肖像或写实渲染"
+      },
+      "series_assets/characters/character_001/turnaround.jpeg.request.json": {
+        "prompt_sha256": "04758bd89ceb21c2a42988d1f604979fe388be03a2ceff937b0b9c66b360077d",
+        "reference_sha256": null,
+        "additional_reference_sha256s": [],
+        "provider": "mock",
+        "image_model": "gpt-image-2",
+        "image_transport": "mock",
+        "image_command_sha256": null,
+        "request_sha256": "8f203641d16378bd2816d485bb8936fbba2c9268dc109bbe49e8649f61de85a8"
+      },
+      "series_assets/locations/location_001/establishing.jpeg.request.json": {
+        "prompt_sha256": "cba0e6576a170a73cf309bf010be40cd428943c0a4ca356ecf846796243ad295",
+        "reference_sha256": null,
+        "additional_reference_sha256s": [],
+        "provider": "mock",
+        "image_model": "gpt-image-2",
+        "image_transport": "mock",
+        "image_command_sha256": null,
+        "request_sha256": "b0ef42519a71e81f642af66dc692fa46e674ae841830daffda7d14f24f2b73b3"
+      },
+      "series_assets/locations/location_001/spec.json": {
+        "asset_id": "location_001",
+        "name": "厅堂",
+        "style_fingerprint": "fixed",
+        "continuity": "固定空间布局、物品锚点、天气、时间、光线方向",
+        "version": "v001",
+        "identity_invariants": [
+          "厅堂固定建筑、出入口和空间层级"
+        ],
+        "state_variables": {
+          "time_of_day": "approved_reference_state",
+          "weather": "approved_reference_state",
+          "damage": "none unless changed by source events"
+        },
+        "reference_scope": {
+          "inherit": [
+            "architecture",
+            "space",
+            "color",
+            "lighting",
+            "2d_rendering"
+          ],
+          "exclude": [
+            "composition",
+            "camera",
+            "temporary_people",
+            "text"
+          ]
+        },
+        "prompt": "3D国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
+      },
+      "series_assets/manifest.json": {
+        "schema_version": 1,
+        "style_fingerprint": "fixed",
+        "characters": [
+          {
+            "asset_id": "character_001",
+            "kind": "character",
+            "name": "甲",
+            "version": "v001",
+            "approval_status": "approved",
+            "rights_status": "project-generated",
+            "identity_invariants": [
+              "黑发"
+            ],
+            "state_variables": {
+              "costume": "蓝衣",
+              "injury": "none unless changed by source events",
+              "carried_prop": "none"
+            },
+            "reference_scope": {
+              "inherit": [
+                "identity",
+                "hair",
+                "costume",
+                "2d_rendering"
+              ],
+              "exclude": [
+                "pose",
+                "composition",
+                "camera",
+                "background",
+                "lighting"
+              ]
+            },
+            "spec_path": "series_assets/characters/character_001/spec.json",
+            "primary_image": "series_assets/characters/character_001/turnaround.jpeg",
+            "secondary_image": null,
+            "prompt_sha256": "61a91b330b90decc9442a799b22888c61ebfc52a39ca4b90a9c74aace38775b5"
+          }
+        ],
+        "locations": [
+          {
+            "asset_id": "location_001",
+            "kind": "location",
+            "name": "厅堂",
+            "version": "v001",
+            "approval_status": "approved",
+            "rights_status": "project-generated",
+            "identity_invariants": [
+              "厅堂固定建筑、出入口和空间层级"
+            ],
+            "state_variables": {
+              "time_of_day": "approved_reference_state",
+              "weather": "approved_reference_state",
+              "damage": "none unless changed by source events"
+            },
+            "reference_scope": {
+              "inherit": [
+                "architecture",
+                "space",
+                "color",
+                "lighting",
+                "2d_rendering"
+              ],
+              "exclude": [
+                "composition",
+                "camera",
+                "temporary_people",
+                "text"
+              ]
+            },
+            "spec_path": "series_assets/locations/location_001/spec.json",
+            "primary_image": "series_assets/locations/location_001/establishing.jpeg",
+            "secondary_image": null,
+            "prompt_sha256": "cba0e6576a170a73cf309bf010be40cd428943c0a4ca356ecf846796243ad295"
+          }
+        ],
+        "voice_assignments": {
+          "narrator": "native:narrator",
+          "甲": "native:character_001"
+        }
+      }
+    }
+  },
+  {
+    "calls": [
+      {
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。角色资产：甲；固定外貌：黑发；固定服装：蓝衣。只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。双手自然放松，不拿食物、纸袋、武器或任何剧情道具。纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。",
+        "output": "series_assets/characters/character_001/turnaround.jpeg",
+        "reference": null
+      },
+      {
+        "prompt": "保持参考图中甲的脸型、年龄、发型、服装和fixed风格完全一致。只画这个人物且只出现一次，生成四分之三正面单人胸像身份与表情锚点；角色表情幅度：克制自然、以眼神和眉形为主。选择该角色最有辨识度、但尚未到剧情高潮的基础表情，眼睛、眉形和嘴部清晰无遮挡，肩颈与服装领口完整。不要表情九宫格、多头像、分身、拼贴；双手不持任何物品，简单背景，二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。",
+        "output": "series_assets/characters/character_001/expressions.jpeg",
+        "reference": "series_assets/characters/character_001/turnaround.jpeg"
+      },
+      {
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
+        "output": "series_assets/locations/location_001/establishing.jpeg",
+        "reference": null
+      }
+    ],
+    "cache_reused": true,
+    "manifest": {
+      "schema_version": 1,
+      "style_fingerprint": "fixed",
+      "characters": [
+        {
+          "asset_id": "character_001",
+          "kind": "character",
+          "name": "甲",
+          "version": "v001",
+          "approval_status": "approved",
+          "rights_status": "project-generated",
+          "identity_invariants": [
+            "黑发"
+          ],
+          "state_variables": {
+            "costume": "蓝衣",
+            "injury": "none unless changed by source events",
+            "carried_prop": "none"
+          },
+          "reference_scope": {
+            "inherit": [
+              "identity",
+              "hair",
+              "costume",
+              "2d_rendering"
+            ],
+            "exclude": [
+              "pose",
+              "composition",
+              "camera",
+              "background",
+              "lighting"
+            ]
+          },
+          "spec_path": "series_assets/characters/character_001/spec.json",
+          "primary_image": "series_assets/characters/character_001/turnaround.jpeg",
+          "secondary_image": "series_assets/characters/character_001/expressions.jpeg",
+          "prompt_sha256": "b8a3326e331dbef0f5bc054e56e755bf53102ace0a0bbe67e09addfdc94cc0af"
+        }
+      ],
+      "locations": [
+        {
+          "asset_id": "location_001",
+          "kind": "location",
+          "name": "厅堂",
+          "version": "v001",
+          "approval_status": "approved",
+          "rights_status": "project-generated",
+          "identity_invariants": [
+            "厅堂固定建筑、出入口和空间层级"
+          ],
+          "state_variables": {
+            "time_of_day": "approved_reference_state",
+            "weather": "approved_reference_state",
+            "damage": "none unless changed by source events"
+          },
+          "reference_scope": {
+            "inherit": [
+              "architecture",
+              "space",
+              "color",
+              "lighting",
+              "2d_rendering"
+            ],
+            "exclude": [
+              "composition",
+              "camera",
+              "temporary_people",
+              "text"
+            ]
+          },
+          "spec_path": "series_assets/locations/location_001/spec.json",
+          "primary_image": "series_assets/locations/location_001/establishing.jpeg",
+          "secondary_image": null,
+          "prompt_sha256": "fde65a5f8451ec81002fba67e22f3873a83a6b3a68c01133f10cb52faa850702"
+        }
+      ],
+      "voice_assignments": {
+        "narrator": "native:narrator",
+        "甲": "native:character_001"
+      }
+    },
+    "files": {
+      "series_assets/characters/character_001/expressions.jpeg.request.json": {
+        "prompt_sha256": "c8f1847bb291881043a1b992f5696aa524c2929675a725568014fe7ed331db03",
+        "reference_sha256": "ce096aec5389ce94ef07944fbd54861d30e398c32134f4c600b83f89bf1269a9",
+        "additional_reference_sha256s": [],
+        "provider": "mock",
+        "image_model": "gpt-image-2",
+        "image_transport": "mock",
+        "image_command_sha256": null,
+        "request_sha256": "08434402ce31b5b03649952a22f5ea9a8b838edb377a8a94db071d2d61b1d750"
+      },
+      "series_assets/characters/character_001/spec.json": {
+        "asset_id": "character_001",
+        "name": "甲",
+        "role": "配角",
+        "gender": "未知",
+        "age": "成年",
+        "appearance": "黑发",
+        "wardrobe": "蓝衣",
+        "visual_archetype": "",
+        "face_anchors": [],
+        "silhouette": "",
+        "hair": "",
+        "palette": "",
+        "base_costume": "",
+        "episode_costumes": [],
+        "signature_prop": "",
+        "expression_profile": "",
+        "motion_signature": "",
+        "voice_profile_id": "",
+        "version": "v001",
+        "identity_invariants": [
+          "黑发"
+        ],
+        "state_variables": {
+          "costume": "蓝衣",
+          "injury": "none unless changed by source events",
+          "carried_prop": "none"
+        },
+        "reference_scope": {
+          "inherit": [
+            "identity",
+            "hair",
+            "costume",
+            "2d_rendering"
+          ],
+          "exclude": [
+            "pose",
+            "composition",
+            "camera",
+            "background",
+            "lighting"
+          ]
+        },
+        "style_fingerprint": "fixed",
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。角色资产：甲；固定外貌：黑发；固定服装：蓝衣。只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。双手自然放松，不拿食物、纸袋、武器或任何剧情道具。纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。"
+      },
+      "series_assets/characters/character_001/turnaround.jpeg.request.json": {
+        "prompt_sha256": "4bd13ff731de27a235265552140f5e51f5410bbd041ff765fcfdb68724c80a88",
+        "reference_sha256": null,
+        "additional_reference_sha256s": [],
+        "provider": "mock",
+        "image_model": "gpt-image-2",
+        "image_transport": "mock",
+        "image_command_sha256": null,
+        "request_sha256": "440fb6f29cbd96b31c269522ad394fcb7f33f5880c91561f8a5c9243153c6ac1"
+      },
+      "series_assets/locations/location_001/establishing.jpeg.request.json": {
+        "prompt_sha256": "fde65a5f8451ec81002fba67e22f3873a83a6b3a68c01133f10cb52faa850702",
+        "reference_sha256": null,
+        "additional_reference_sha256s": [],
+        "provider": "mock",
+        "image_model": "gpt-image-2",
+        "image_transport": "mock",
+        "image_command_sha256": null,
+        "request_sha256": "5e379d42a0ad146174bce7d0fce8c9fd2d1ca75e39a92f92f1958bc5d7421f37"
+      },
+      "series_assets/locations/location_001/spec.json": {
+        "asset_id": "location_001",
+        "name": "厅堂",
+        "style_fingerprint": "fixed",
+        "continuity": "固定空间布局、物品锚点、天气、时间、光线方向",
+        "version": "v001",
+        "identity_invariants": [
+          "厅堂固定建筑、出入口和空间层级"
+        ],
+        "state_variables": {
+          "time_of_day": "approved_reference_state",
+          "weather": "approved_reference_state",
+          "damage": "none unless changed by source events"
+        },
+        "reference_scope": {
+          "inherit": [
+            "architecture",
+            "space",
+            "color",
+            "lighting",
+            "2d_rendering"
+          ],
+          "exclude": [
+            "composition",
+            "camera",
+            "temporary_people",
+            "text"
+          ]
+        },
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
+      },
+      "series_assets/manifest.json": {
+        "schema_version": 1,
+        "style_fingerprint": "fixed",
+        "characters": [
+          {
+            "asset_id": "character_001",
+            "kind": "character",
+            "name": "甲",
+            "version": "v001",
+            "approval_status": "approved",
+            "rights_status": "project-generated",
+            "identity_invariants": [
+              "黑发"
+            ],
+            "state_variables": {
+              "costume": "蓝衣",
+              "injury": "none unless changed by source events",
+              "carried_prop": "none"
+            },
+            "reference_scope": {
+              "inherit": [
+                "identity",
+                "hair",
+                "costume",
+                "2d_rendering"
+              ],
+              "exclude": [
+                "pose",
+                "composition",
+                "camera",
+                "background",
+                "lighting"
+              ]
+            },
+            "spec_path": "series_assets/characters/character_001/spec.json",
+            "primary_image": "series_assets/characters/character_001/turnaround.jpeg",
+            "secondary_image": "series_assets/characters/character_001/expressions.jpeg",
+            "prompt_sha256": "b8a3326e331dbef0f5bc054e56e755bf53102ace0a0bbe67e09addfdc94cc0af"
+          }
+        ],
+        "locations": [
+          {
+            "asset_id": "location_001",
+            "kind": "location",
+            "name": "厅堂",
+            "version": "v001",
+            "approval_status": "approved",
+            "rights_status": "project-generated",
+            "identity_invariants": [
+              "厅堂固定建筑、出入口和空间层级"
+            ],
+            "state_variables": {
+              "time_of_day": "approved_reference_state",
+              "weather": "approved_reference_state",
+              "damage": "none unless changed by source events"
+            },
+            "reference_scope": {
+              "inherit": [
+                "architecture",
+                "space",
+                "color",
+                "lighting",
+                "2d_rendering"
+              ],
+              "exclude": [
+                "composition",
+                "camera",
+                "temporary_people",
+                "text"
+              ]
+            },
+            "spec_path": "series_assets/locations/location_001/spec.json",
+            "primary_image": "series_assets/locations/location_001/establishing.jpeg",
+            "secondary_image": null,
+            "prompt_sha256": "fde65a5f8451ec81002fba67e22f3873a83a6b3a68c01133f10cb52faa850702"
+          }
+        ],
+        "voice_assignments": {
+          "narrator": "native:narrator",
+          "甲": "native:character_001"
+        }
+      }
+    }
+  }
+]

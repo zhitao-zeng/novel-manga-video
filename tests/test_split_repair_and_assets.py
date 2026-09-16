@@ -304,7 +304,7 @@ def test_build_assets_checks_only_used_images_and_rebuilds_a_bad_used_card(tmp_p
         return manifest
     monkeypatch.setattr(renderer.FramedAssetFactory, "build_selected", build)
     waits, opened = [], []
-    monkeypatch.setattr("novel_manga.media.assets.wait_for_inflight_redraws", lambda paths: waits.extend(paths))
+    monkeypatch.setattr('novel_manga.media.asset_repair.wait_for_inflight_redraws', lambda paths: waits.extend(paths))
     original_open = Image.open
     def observe(path, *args, **kwargs):
         opened.append(path)

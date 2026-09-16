@@ -141,7 +141,8 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
     fix was already tried and the flag stays for the delivery report."""
     from novel_manga.config import Settings
     from novel_manga.media.adapters import FramedPhanRouter
-    from novel_manga.media.assets import load_privacy_ok, stylize_card
+    from novel_manga.media.asset_records import load_privacy_ok
+    from novel_manga.media.asset_repair import stylize_card
     from thin_profile import frame_spec, load_profile
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     provider = FramedPhanRouter(settings, frame_spec(load_profile(novel_dir)))

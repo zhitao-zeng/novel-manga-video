@@ -13,6 +13,8 @@ Every remote task keeps its .task.json sidecar and every step skips work whose
 output already exists, so a rerun resumes instead of paying again.
 """
 from __future__ import annotations
+import novel_manga.media.asset_inspection as asset_inspection
+import novel_manga.media.asset_repair as asset_repair
 
 import json
 import copy
@@ -30,8 +32,12 @@ from novel_manga.config import Settings
 from novel_manga.models import StoryBible
 from novel_manga.media.common import log, reference_digests
 from novel_manga.media.adapters import FramedPhanRouter, FramedLocalH3
-from novel_manga.media.assets import FramedAssetFactory, cards_sheet, load_privacy_ok, record_privacy_ok, wait_for_inflight_redraws
+from novel_manga.media.asset_builder import FramedAssetFactory
+from novel_manga.media.asset_inspection import cards_sheet
+from novel_manga.media.asset_records import load_privacy_ok, record_privacy_ok
+from novel_manga.media.asset_repair import wait_for_inflight_redraws
 from novel_manga.media import assets as media_assets
+from novel_manga.media.asset_style import AssetStyle
 from novel_manga.media.context import RenderContext, ClipResult, AssemblyResult
 from novel_manga.media.resources import acquire_inflight_slot, release_inflight_slot
 from novel_manga.media.policy import COMPLIANCE_SUFFIX, INPUT_TEXT_MARKER, MAX_ATTEMPTS_FREE, OUTPUT_MODERATION_MARKERS, PRESCREEN_RISK, RETRY_SUFFIX, RETRY_SUFFIX_H3, SUBMIT_BACKOFF_SECONDS
@@ -183,7 +189,7 @@ class ThinMediaRunner:
         self.context.bible = styled_bible(bible, self.context.profile) if (novel_dir / "profile.json").is_file() else bible
         self.context.fast = is_fast(self.context.profile)
         genre = load_genre(self.context.profile)
-        self.context.asset_style = media_assets.style_for_genre(genre)
+        self.context.asset_style = AssetStyle.for_genre(genre, frame_text=self.context.frame_spec["text"])
         self.context.softening_rules = [*media_policy.SOFTEN, *((re.compile(pattern), replacement) for pattern, replacement in genre.get('soften', []))]
         self.context.voice_budget = generation.voice_budget_seconds()
         self.context._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)
@@ -239,10 +245,10 @@ class ThinMediaRunner:
 
     @staticmethod
     def purge_unreadable(root: Path, *, paths=None) -> list[Path]:
-        return media_assets.purge_unreadable(root, paths=paths)
+        return asset_inspection.purge_unreadable(root, paths=paths)
 
     def broken_assets(self, manifest, *, paths=None) -> list[Path]:
-        return media_assets.broken_assets(self.context, manifest, paths=paths)
+        return asset_inspection.broken_assets(self.context, manifest, paths=paths)
 
     def save_clip_plan(self) -> None:
         """Write the plan back without the runner's own bookkeeping keys."""
@@ -468,10 +474,10 @@ class ThinMediaRunner:
         return result
 
     def repair_rejected_reference(self, clip: dict, index: int) -> list[str]:
-        return media_assets.repair_rejected_reference(self.context, clip, index)
+        return asset_repair.repair_rejected_reference(self.context, clip, index)
 
     def repair_privacy_cards(self, clip: dict) -> list[str]:
-        return media_assets.repair_privacy_cards(self.context, clip)
+        return asset_repair.repair_privacy_cards(self.context, clip)
 
     def process_clip(self, clip: dict) -> ClipResult:
         """Generate, gate and regenerate one clip: once - or, on a free lane, twice per run past its cached takes.

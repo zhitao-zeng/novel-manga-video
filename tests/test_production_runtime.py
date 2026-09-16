@@ -1,3 +1,4 @@
+from novel_manga.media import asset_prompts
 import hashlib
 import json
 import subprocess
@@ -1399,11 +1400,11 @@ def test_series_asset_prompts_follow_3d_story_bible_without_2d_conflict() -> Non
         update={"visual_style": "高精度半写实3D国漫CG，PBR材质，仙侠游戏过场动画"}
     )
 
-    character_prompt = SeriesAssetFactory._character_prompt(
+    character_prompt = asset_prompts.character_prompt(
         bible, "林晚", "黑发东方面孔", "蓝色丝绸古装"
     )
-    expression_prompt = SeriesAssetFactory._expression_prompt(bible, "林晚")
-    location_prompt = SeriesAssetFactory._location_prompt(bible, "旧书店")
+    expression_prompt = asset_prompts.expression_prompt(bible, "林晚")
+    location_prompt = asset_prompts.location_prompt(bible, "旧书店")
 
     for prompt in (character_prompt, expression_prompt, location_prompt):
         assert "半写实3D国漫CG" in prompt
@@ -1418,10 +1419,10 @@ def test_series_asset_prompts_support_25d_without_falling_into_full_3d() -> None
         update={"visual_style": "国风2.5D半写实动态漫，手绘轮廓与电影体积光"}
     )
 
-    character_prompt = SeriesAssetFactory._character_prompt(
+    character_prompt = asset_prompts.character_prompt(
         bible, "林晚", "黑发东方面孔", "蓝色丝绸古装"
     )
-    location_prompt = SeriesAssetFactory._location_prompt(bible, "旧书店")
+    location_prompt = asset_prompts.location_prompt(bible, "旧书店")
 
     for prompt in (character_prompt, location_prompt):
         assert "国风2.5D半写实动态漫" in prompt
@@ -1441,7 +1442,7 @@ def test_cartoon_style_exclusion_does_not_select_2_5d_rendering() -> None:
         }
     )
 
-    prompt = SeriesAssetFactory._character_prompt(
+    prompt = asset_prompts.character_prompt(
         bible, "林晚", "黑发东方面孔", "蓝色风衣"
     )
 

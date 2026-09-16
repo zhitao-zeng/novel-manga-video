@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from novel_manga.media.assets import load_privacy_ok, record_privacy_ok
+from novel_manga.media.asset_records import load_privacy_ok, record_privacy_ok
 
 
 def referenced_paths(novel_dir: Path) -> set[str]:
