@@ -25,7 +25,8 @@ import conductor_state_thin as conductor_state
 import thin_runs as thin_runs  # noqa: E402
 import production_flow_thin as production_flow  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
-from novel_manga.providers.phanrouter import PhanRouterMediaProvider, SubmissionUncertain  # noqa: E402
+from novel_manga.providers.phanrouter import PhanRouterMediaProvider
+from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from thin_profile import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint  # noqa: E402
 
 NOVEL = "nov"
@@ -143,7 +144,7 @@ def test_an_unconfirmed_video_submission_stays_held_until_someone_allows_it(tmp_
             return httpx.Response(200, content=b"mp4")
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
-    monkeypatch.setattr("novel_manga.providers.phanrouter.time.sleep", lambda _: None)
+    monkeypatch.setattr("novel_manga.providers.phanrouter_tasks.time.sleep", lambda _: None)
     monkeypatch.delenv("NOVEL_RESUBMIT_UNCONFIRMED", raising=False)
     provider = provider_with(handle)
     frame = ImageResult(path=tmp_path / "frame.jpeg", public_url="https://media.test/frame.jpeg")
@@ -169,7 +170,7 @@ def test_an_unconfirmed_image_submission_is_recorded_and_held(tmp_path, monkeypa
         posts.append(1)
         raise httpx.ReadTimeout("answer lost", request=request)
 
-    monkeypatch.setattr("novel_manga.providers.phanrouter.time.sleep", lambda _: None)
+    monkeypatch.setattr("novel_manga.providers.phanrouter_tasks.time.sleep", lambda _: None)
     monkeypatch.delenv("NOVEL_RESUBMIT_UNCONFIRMED", raising=False)
     provider = provider_with(handle)
     for _ in range(2):

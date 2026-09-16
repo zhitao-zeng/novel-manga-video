@@ -84,4 +84,6 @@ uv run pytest
 
 身份资料、局部修复和打包服务的进一步拆分见 [职责与回归对照](docs/identity-repair-packing-20260917.md)。
 
+看板采集、资产处理、开拍准备和供应商接口的最新分工见 [运行与供应商职责说明](docs/operations-assets-providers-20260917.md)。
+
 早期上传/生成/下载 HTTP API、`novel-manga` 命令、旧整集控制器及专用 API 容器已移除，不提供兼容入口。已有剧本、人物库、视频和任务历史保留。

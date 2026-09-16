@@ -2,6 +2,7 @@
 missed their own takes, English (H3) prompts that carried Chinese the model read out, split parts that lost their
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
+from novel_manga.providers import phanrouter_tasks
 import packing_context_thin as packing_context
 import packing_service_thin as packing_service
 from dataclasses import replace
@@ -38,7 +39,8 @@ import review_judges_thin as review_judges  # noqa: E402
 from novel_manga.providers import phanrouter  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.h3_pool import PoolUnavailable  # noqa: E402
-from novel_manga.providers.phanrouter import PhanRouterMediaProvider, SubmissionUncertain  # noqa: E402
+from novel_manga.providers.phanrouter import PhanRouterMediaProvider
+from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
 from thin_runs import count_run, render_runs  # noqa: E402
 
@@ -47,7 +49,7 @@ NOVEL = "nov"
 
 @pytest.fixture(autouse=True)
 def quiet(monkeypatch):
-    monkeypatch.setattr(phanrouter.time, "sleep", lambda _: None)
+    monkeypatch.setattr(phanrouter_tasks.time, "sleep", lambda _: None)
     monkeypatch.delenv("NOVEL_RESUBMIT_UNCONFIRMED", raising=False)
     for name in ("MAX_CLIP_SECONDS", "SOFT_CUT_SECONDS", "MAX_STAGES"):  # split_long_stages sets these per plan
         monkeypatch.setattr(packer, name, getattr(packer, name))
@@ -135,10 +137,10 @@ def test_a_hiccup_while_polling_an_image_keeps_its_task(tmp_path):
 def test_resubmitting_releases_only_what_went_unconfirmed_before_the_run(monkeypatch):
     started = time.time()
     monkeypatch.setenv("NOVEL_RESUBMIT_UNCONFIRMED", f"{started:.0f}")
-    assert not phanrouter.unconfirmed({"submit_uncertain_at": started - 3600})  # someone checked it: may go out again
-    assert phanrouter.unconfirmed({"submit_uncertain_at": started + 5})  # went unconfirmed during this run: held
+    assert not phanrouter_tasks.unconfirmed({"submit_uncertain_at": started - 3600})  # someone checked it: may go out again
+    assert phanrouter_tasks.unconfirmed({"submit_uncertain_at": started + 5})  # went unconfirmed during this run: held
     monkeypatch.delenv("NOVEL_RESUBMIT_UNCONFIRMED")
-    assert phanrouter.unconfirmed({"submit_uncertain_at": started - 3600})
+    assert phanrouter_tasks.unconfirmed({"submit_uncertain_at": started - 3600})
 
 
 # ---------------------------------------------------------------- thin_batch: retakes and held clips (2)

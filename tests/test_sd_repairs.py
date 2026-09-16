@@ -32,7 +32,8 @@ import render_flow_thin as rc  # noqa: E402
 import production_flow_thin as production_flow  # noqa: E402
 from novel_manga.config import DEFAULT_FONT_PATH  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
-from novel_manga.providers.phanrouter import PhanRouterMediaProvider, SubmissionUncertain  # noqa: E402
+from novel_manga.providers.phanrouter import PhanRouterMediaProvider
+from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from thin_profile import plan_fingerprint  # noqa: E402
 from thin_runs import render_runs  # noqa: E402
 
@@ -74,7 +75,7 @@ def test_a_submission_whose_answer_was_lost_is_not_sent_again(tmp_path, monkeypa
             raise httpx.ReadTimeout("answer lost", request=request)
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
-    monkeypatch.setattr("novel_manga.providers.phanrouter.time.sleep", lambda _: None)
+    monkeypatch.setattr("novel_manga.providers.phanrouter_tasks.time.sleep", lambda _: None)
     provider = provider_with(handle)
     with pytest.raises(SubmissionUncertain):
         submit_clip(provider, tmp_path)
@@ -103,7 +104,7 @@ def test_a_submission_that_never_connected_is_sent_again(tmp_path, monkeypatch):
             return httpx.Response(200, content=b"seedance-mp4")
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
-    monkeypatch.setattr("novel_manga.providers.phanrouter.time.sleep", lambda _: None)
+    monkeypatch.setattr("novel_manga.providers.phanrouter_tasks.time.sleep", lambda _: None)
     submit_clip(provider_with(handle), tmp_path)
     assert len(posts) == 2 and (tmp_path / "clip.mp4").read_bytes() == b"seedance-mp4"
 

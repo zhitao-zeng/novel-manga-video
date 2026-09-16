@@ -1,0 +1,285 @@
+{
+  "doubao-seedance-2-0": {
+    "requests": [
+      {
+        "method": "POST",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks",
+        "body": {
+          "model": "doubao-seedance-2-0",
+          "content": [
+            {
+              "type": "text",
+              "text": "角色开门"
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "http://reference.invalid/card.jpeg"
+              },
+              "role": "reference_image"
+            },
+            {
+              "type": "audio_url",
+              "audio_url": {
+                "url": "data:audio/wav;base64,Zml4ZWQgbW9ja2VkIHJlZmVyZW5jZSBhdWRpbw=="
+              },
+              "role": "reference_audio"
+            }
+          ],
+          "ratio": "9:16",
+          "resolution": "720p",
+          "duration": 22,
+          "generate_audio": true,
+          "watermark": false,
+          "output_format": "mp4"
+        }
+      },
+      {
+        "method": "GET",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks/fixed-task",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/result.mp4",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks/fixed-task",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/result.mp4",
+        "body": null
+      }
+    ],
+    "records": {
+      "video.mp4.task.json": {
+        "task_id": "fixed-task",
+        "kind": "video",
+        "model": "doubao-seedance-2-0",
+        "output_format": "mp4",
+        "request_sha256": "b13f5e5577744d1ab21f7d11f81153510d5046f018762f721f6dfcf8f7b7321c",
+        "additional_image_sha256s": [],
+        "generate_audio": true,
+        "reference_audio_sha256s": [
+          "eb10569bbc70e016c6a592a09a460d4b8211fb70c6906adfed7bc4fa85ae440d"
+        ],
+        "usage": {
+          "tokens": 123
+        }
+      }
+    }
+  },
+  "doubao-seedance-2-5": {
+    "requests": [
+      {
+        "method": "POST",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks",
+        "body": {
+          "model": "doubao-seedance-2-5",
+          "content": [
+            {
+              "type": "text",
+              "text": "角色开门"
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "http://reference.invalid/card.jpeg"
+              },
+              "role": "reference_image"
+            },
+            {
+              "type": "audio_url",
+              "audio_url": {
+                "url": "data:audio/wav;base64,Zml4ZWQgbW9ja2VkIHJlZmVyZW5jZSBhdWRpbw=="
+              },
+              "role": "reference_audio"
+            }
+          ],
+          "ratio": "9:16",
+          "resolution": "720p",
+          "duration": 22,
+          "generate_audio": true,
+          "watermark": false,
+          "output_format": "mp4"
+        }
+      },
+      {
+        "method": "GET",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks/fixed-task",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/result.mp4",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks/fixed-task",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/result.mp4",
+        "body": null
+      }
+    ],
+    "records": {
+      "video.mp4.task.json": {
+        "task_id": "fixed-task",
+        "kind": "video",
+        "model": "doubao-seedance-2-5",
+        "output_format": "mp4",
+        "request_sha256": "dd267321d5f53a69efab5d360953612447a2f03f0137da3d7a97a90386c08f9b",
+        "additional_image_sha256s": [],
+        "generate_audio": true,
+        "reference_audio_sha256s": [
+          "eb10569bbc70e016c6a592a09a460d4b8211fb70c6906adfed7bc4fa85ae440d"
+        ],
+        "usage": {
+          "tokens": 123
+        }
+      }
+    }
+  },
+  "MiniMax-H3": {
+    "requests": [
+      {
+        "method": "POST",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks",
+        "body": {
+          "model": "MiniMax-H3",
+          "content": [
+            {
+              "type": "text",
+              "text": "角色开门"
+            },
+            {
+              "type": "image_url",
+              "image_url": {
+                "url": "http://reference.invalid/card.jpeg"
+              },
+              "role": "reference_image"
+            },
+            {
+              "type": "audio_url",
+              "audio_url": {
+                "url": "data:audio/wav;base64,Zml4ZWQgbW9ja2VkIHJlZmVyZW5jZSBhdWRpbw=="
+              },
+              "role": "reference_audio"
+            }
+          ],
+          "ratio": "9:16",
+          "resolution": "768P",
+          "duration": 15,
+          "generate_audio": true,
+          "watermark": false,
+          "output_format": "mp4"
+        }
+      },
+      {
+        "method": "GET",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks/fixed-task",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/result.mp4",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://api.invalid/api/v3/contents/generations/tasks/fixed-task",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/result.mp4",
+        "body": null
+      }
+    ],
+    "records": {
+      "video.mp4.task.json": {
+        "task_id": "fixed-task",
+        "kind": "video",
+        "model": "MiniMax-H3",
+        "output_format": "mp4",
+        "request_sha256": "1936736db8b5ace677aac5b256ec95c63beddb30827e11f37f7760e2ce174a4e",
+        "additional_image_sha256s": [],
+        "generate_audio": true,
+        "reference_audio_sha256s": [
+          "eb10569bbc70e016c6a592a09a460d4b8211fb70c6906adfed7bc4fa85ae440d"
+        ],
+        "usage": {
+          "tokens": 123
+        }
+      }
+    }
+  },
+  "image": {
+    "requests": [
+      {
+        "method": "POST",
+        "url": "http://api.invalid/v3/images/generations",
+        "body": {
+          "model": "image-test",
+          "prompt": "角色画像",
+          "aspectRatio": "9:16",
+          "resolution": "2K",
+          "thinking": "high",
+          "base64File": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCABgAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDxyiiiv3E8wKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigD/9k="
+        }
+      },
+      {
+        "method": "GET",
+        "url": "http://api.invalid/v3/images/generations/fixed-task",
+        "body": null
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/result.mp4",
+        "body": null
+      }
+    ],
+    "records": {
+      "image.jpeg.task.json": {
+        "task_id": "fixed-task",
+        "kind": "image"
+      }
+    }
+  },
+  "doubao-seedream-5.0-lite": {
+    "requests": [
+      {
+        "method": "POST",
+        "url": "http://api.invalid/v1/images/generations",
+        "body": {
+          "model": "doubao-seedream-5.0-lite",
+          "prompt": "角色画像",
+          "n": 1,
+          "size": "1080x1920",
+          "watermark": false,
+          "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCABgAEADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAYJ/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AnuA1TQ4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//Z"
+        }
+      },
+      {
+        "method": "GET",
+        "url": "http://cdn.invalid/image.jpeg",
+        "body": null
+      }
+    ],
+    "records": {
+      "image.jpeg.task.json": {
+        "kind": "image",
+        "model": "doubao-seedream-5.0-lite",
+        "endpoint": "/v1/images/generations",
+        "request_sha256": "5f8208656b4fc2a70bae72b13ccd4a8360a1cf55d9201dd25f542e01a617a9a4"
+      }
+    }
+  }
+}

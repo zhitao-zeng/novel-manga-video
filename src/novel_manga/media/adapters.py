@@ -2,7 +2,8 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 from ..config import Settings
-from ..providers.phanrouter import PhanRouterMediaProvider, VIDEO_MODEL_LIMITS
+from ..providers.phanrouter import PhanRouterMediaProvider
+from ..providers.phanrouter_video import VIDEO_MODEL_LIMITS
 from ..providers.local_h3 import LocalH3MediaProvider
 
 class FramedPhanRouter(PhanRouterMediaProvider):

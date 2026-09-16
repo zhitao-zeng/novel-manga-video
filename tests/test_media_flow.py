@@ -12,7 +12,7 @@ import pytest
 from novel_manga.media.context import RenderContext
 from novel_manga.media.generation import build_request
 from novel_manga.media.cache import CacheMiss
-from novel_manga.providers.phanrouter import SubmissionUncertain
+from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from novel_manga.models import Character, StoryBible
 from novel_manga.config import Settings
 import render_flow_thin as flow

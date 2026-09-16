@@ -1,6 +1,6 @@
 """Existing submission and retry predicates; no scheduling."""
 import re
-from ..providers.phanrouter import SubmissionUncertain
+from ..providers.phanrouter_tasks import SubmissionUncertain
 from ..providers.h3_pool import PoolUnavailable
 
 RETRY_SUFFIX = "\n【质量重试】上一次生成的对白听不清或不完整。保持以上全部内容不变重新生成，每句台词都必须清晰完整地说出。"

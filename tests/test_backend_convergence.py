@@ -174,7 +174,7 @@ def test_command_pipeline_routes_gpt_image_2_without_loading_local_image_stage(
     ]
 
 
-def test_phanrouter_forwards_gpt_image_references_as_two_urls(tmp_path: Path) -> None:
+def test_phanrouter_forwards_gpt_image_references_as_two_urls(tmp_path: Path, monkeypatch) -> None:
     class Response:
         def raise_for_status(self) -> None:
             return None
@@ -198,8 +198,9 @@ def test_phanrouter_forwards_gpt_image_references_as_two_urls(tmp_path: Path) ->
     )
     provider.client = Client()
     provider.image_headers = {}
-    provider._poll_image_url = lambda task_id: f"https://images.invalid/{task_id}.jpeg"  # type: ignore[method-assign]
-    provider._download = lambda url, output, max_bytes: output.write_bytes(b"image")  # type: ignore[method-assign]
+    from novel_manga.providers import phanrouter_images
+    monkeypatch.setattr(phanrouter_images, "poll_image_url", lambda settings, client, headers, task_id: f"https://images.invalid/{task_id}.jpeg")
+    monkeypatch.setattr(phanrouter_images, "download_file", lambda client, url, output, max_bytes: output.write_bytes(b"image"))
     character = tmp_path / "character.jpeg"
     location = tmp_path / "location.jpeg"
     for path, task_id in ((character, "character-task"), (location, "location-task")):

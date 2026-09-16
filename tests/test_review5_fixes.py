@@ -40,7 +40,7 @@ import review_judges_thin as review_judges  # noqa: E402
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
-from novel_manga.providers.phanrouter import PhanRouterMediaProvider  # noqa: E402
+from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from thin_profile import plan_fingerprint  # noqa: E402
 from thin_runs import REVIEW_POLICY  # noqa: E402
 

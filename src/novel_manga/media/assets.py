@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from ..providers.phanrouter import SubmissionUncertain
+from ..providers.phanrouter_tasks import SubmissionUncertain
 from .asset_builder import FramedAssetFactory
 from .asset_inspection import purge_unreadable, broken_assets
 from . import asset_repair
