@@ -89,7 +89,7 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
     if len(shots) != len(old_script.get("shots") or []):
         return None, [], "shot count differs"
     try:
-        clip_shots = bcp.shots_for_plan(old_plan, shots)
+        clip_shots = bcp.shots_for_plan(old_plan, shots, settings=ctx.get("compiler_options"))
     except ValueError as error:
         return None, [], str(error)
     # The plan remembers which shots each clip covers; the clip is rebuilt from exactly those, so the cuts are
@@ -102,7 +102,7 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
             rebuilt.append(before)
             continue
         clip = {"kind": "video", "location": before.get("location") or pieces[0]["location"], "shots": pieces,
-                "seconds": round(sum(bcp.shot_seconds(p) for p in pieces), 2)}
+                "seconds": round(sum(bcp.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
         rebuilt.append(bcp.clip_entry(clip, before["clip_id"], ctx))
     merged, changed = splice_plans(old_plan, {"clips": rebuilt})
     if merged is None:

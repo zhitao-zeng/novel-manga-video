@@ -41,10 +41,10 @@ def recover(episode_dir: Path, plan: dict, script: dict) -> tuple[dict, list[str
             after = before
             if cid in targets:
                 try:
-                    pieces = packer.shots_for_plan(plan, shots, {cid})[cid]
+                    pieces = packer.shots_for_plan(plan, shots, {cid}, settings=ctx.get("compiler_options"))[cid]
                     if not any(p.get("split_part", [1, 1])[1] > 1 for p in pieces):
                         raise ValueError("no recoverable sibling ranges")
-                    seconds = round(sum(packer.shot_seconds(p) for p in pieces), 2)
+                    seconds = round(sum(packer.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)
                     if seconds > packer.MAX_CLIP_SECONDS:
                         raise ValueError("recovered range still exceeds clip limit")
                     raw = {"kind": "video", "location": before.get("location") or pieces[0]["location"],

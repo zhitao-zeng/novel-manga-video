@@ -1,5 +1,6 @@
 """Load the existing chapter evidence for the pure scene resolver. No model requests."""
 from pathlib import Path
+import re
 from novel_manga.story.scene import SceneContext, ResolvedScene, resolve_scene
 from novel_manga.story.identity import unique_forms
 from story_identity import read, current_context, effective_aliases, typed_entities
@@ -33,5 +34,7 @@ def load_scene_context(novel: Path, chapter=None, *, segments=None, compilation=
 
 
 def prepare_scene(script: dict | ResolvedScene, directory: Path, *, compilation=None) -> ResolvedScene:
-    context = load_scene_context(directory.parent, int(directory.name.rsplit('_', 1)[1]), compilation=compilation)
+    match = re.search(r'_(\d+)$', directory.name)
+    chapter = int(match[1]) if match else None
+    context = load_scene_context(directory.parent, chapter, compilation=compilation)
     return resolve_scene(script, context)

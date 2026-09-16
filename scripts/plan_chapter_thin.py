@@ -36,7 +36,7 @@ import httpx
 
 from novel_manga.ingest import read_novel
 from novel_manga.story.fields import cast_field, turn_field, actions_field, extras_field, field_instructions
-from novel_manga.story.identity import canonical_name, scan_mentions, unique_forms
+from novel_manga.story.identity import canonical_name, scan_mentions, unique_forms, short_forms, TITLE_SUFFIXES, name_forms_for
 from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
 from novel_manga.models import (
     EpisodePlan,
@@ -992,29 +992,8 @@ def canonical(name: str) -> str:
     return canonical_name(name, ALIASES)
 
 
-TITLE_SUFFIXES = ("公主", "殿下", "女士", "先生", "小姐", "夫人", "伯爵", "侯爵", "公爵", "男爵", "爵士", "王子", "国王", "王后",
-                  "陛下", "大人", "修女", "神父", "主教", "婆婆", "船长", "医生", "教授", "老师", "队长", "警长", "侦探", "管家")
 
 
-def short_forms(name: str) -> set[str]:
-    """How the prose refers to a bible character besides the full name: the given name before a
-    ·surname (琥珀·高德 → 琥珀), the name without its title (薇奥拉公主 → 薇奥拉), and 小 plus either
-    (小琥珀).  Nothing shorter than two characters, so 船长 or 神 never gain a form.  Two characters
-    sharing a form are both offered; the model picks."""
-    base = str(name).strip()
-    forms: set[str] = set()
-    if "·" in base:
-        given = base.split("·", 1)[0].strip()
-        if len(given) >= 2:
-            forms.add(given)
-    for suffix in TITLE_SUFFIXES:
-        if base.endswith(suffix) and len(base) - len(suffix) >= 2:
-            forms.add(base[: -len(suffix)])
-    for form in list(forms):
-        if not form.startswith("小"):
-            forms.add("小" + form)
-    forms.discard(base)
-    return forms
 
 
 ENTITY_FORMS: dict[str, list[str]] = {}  # name -> forms that occur in the book (entity_index.json), when built
@@ -1049,9 +1028,7 @@ def load_entity_index(novel_dir: Path, chapter: int | None = None) -> bool:
 def name_forms(name: str) -> set[str]:
     """Every string that names this character: from the entity index when the book has one, else the name,
     its aliases from bible_aliases.json and its derived short forms."""
-    if name in ENTITY_FORMS:
-        return {name, *ENTITY_FORMS[name], *(alias for alias, target in ALIASES.items() if target == name)}
-    return {name, *(alias for alias, target in ALIASES.items() if target == name), *short_forms(name)}
+    return name_forms_for(name, ENTITY_FORMS, ALIASES)
 
 
 _FORMS_INDEX: dict[tuple, dict[str, list[str]]] = {}

@@ -127,4 +127,3 @@ def resolve_scene(script: dict | ResolvedScene, context: SceneContext) -> Resolv
     for index, shot in enumerate(shots, start=1):
         shot.setdefault("index", index)
     return result
-

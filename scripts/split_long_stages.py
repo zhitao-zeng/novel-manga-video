@@ -43,7 +43,7 @@ def is_target(clip: dict, margin: float) -> bool:
             and float(clip.get("seconds_estimate") or 0) > float(clip.get("request_seconds") or 0) + margin)
 
 
-def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGIN_SECONDS) -> tuple[list[dict], dict, dict]:
+def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGIN_SECONDS, *, settings=None) -> tuple[list[dict], dict, dict]:
     """The plan's clips with every target replaced by its parts, numbered again in order.
 
     Returns (clips, {old id: new id} for the clips kept as they were, {old id: [part ids]} for the split ones);
@@ -54,12 +54,12 @@ def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGI
     for clip in plan["clips"]:
         parts = []
         if is_target(clip, margin) and clip["shot_indexes"][0] in shots_by_index:
-            parts = packer.split_long_shot(copy.deepcopy(shots_by_index[clip["shot_indexes"][0]]))
+            parts = packer.split_long_shot(copy.deepcopy(shots_by_index[clip["shot_indexes"][0]]), settings=settings)
         if len(parts) > 1:
             split[clip["clip_id"]] = []
             for part in parts:
                 new_id = f"clip_{len(clips) + 1:02d}"
-                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part), 2)}
+                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part, settings=settings), 2)}
                 clips.append(build_entry(raw, new_id, clip["clip_id"]))
                 split[clip["clip_id"]].append(new_id)
         else:
@@ -177,7 +177,8 @@ def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | Non
     shots = packer.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
     clips, moved, split = resplit(
         plan, {shot["index"]: shot for shot in shots},
-        lambda raw, new_id, old_id: packer.clip_entry(raw, new_id, ctx, override=ctx["overrides"].get(old_id, {})), margin)
+        lambda raw, new_id, old_id: packer.clip_entry(raw, new_id, ctx, override=ctx["overrides"].get(old_id, {})), margin,
+        settings=ctx.get('compiler_options'))
     summary = {"split": split, "new_clips": sum(len(ids) for ids in split.values()),
                "final": (episode_dir / f"{episode_dir.name}.mp4").is_file(), "mode": int(packer.MAX_CLIP_SECONDS)}
     if not split or not apply:
@@ -251,11 +252,11 @@ def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | No
     clips = list(plan["clips"])
     replaced = 0
     for old_id, part_ids in record["split"].items():
-        parts = packer.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]))
+        parts = packer.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]), settings=ctx.get("compiler_options"))
         if len(parts) != len(part_ids):
             return {"skipped": f"{old_id} splits into {len(parts)} parts now, not {len(part_ids)}"}
         for part_id, part in zip(part_ids, parts):
-            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part), 2)}
+            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part, settings=ctx.get("compiler_options")), 2)}
             entry = packer.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
             current = clips[position[part_id]]
             # Only a part whose pictures change - its cast or its reference cards - takes the new entry.  The others

@@ -74,3 +74,39 @@ def unique_forms(forms):
             owners.setdefault(form, set()).add(name)
     return {name: sorted([form for form in own if form == name or owners[form] == {name}], key=len, reverse=True)
             for name, own in forms.items()}
+
+
+TITLE_SUFFIXES = ("公主", "殿下", "女士", "先生", "小姐", "夫人", "伯爵", "侯爵", "公爵", "男爵", "爵士", "王子", "国王", "王后",
+                  "陛下", "大人", "修女", "神父", "主教", "婆婆", "船长", "医生", "教授", "老师", "队长", "警长", "侦探", "管家")
+
+def short_forms(name: str) -> set[str]:
+    """How the prose refers to a bible character besides the full name: the given name before a
+    ·surname (琥珀·高德 → 琥珀), the name without its title (薇奥拉公主 → 薇奥拉), and 小 plus either
+    (小琥珀).  Nothing shorter than two characters, so 船长 or 神 never gain a form.  Two characters
+    sharing a form are both offered; the model picks."""
+    base = str(name).strip()
+    forms: set[str] = set()
+    if "·" in base:
+        given = base.split("·", 1)[0].strip()
+        if len(given) >= 2:
+            forms.add(given)
+    for suffix in TITLE_SUFFIXES:
+        if base.endswith(suffix) and len(base) - len(suffix) >= 2:
+            forms.add(base[: -len(suffix)])
+    for form in list(forms):
+        if not form.startswith("小"):
+            forms.add("小" + form)
+    forms.discard(base)
+    return forms
+
+def name_forms_for(name, indexed, aliases):
+    if name in indexed:
+        return {name, *indexed[name], *(a for a, target in aliases.items() if target == name)}
+    return {name, *(a for a, target in aliases.items() if target == name), *short_forms(name)}
+
+
+def mentioned_names(text, names, indexed, aliases, generic):
+    usable = unique_forms({n: {f for f in name_forms_for(n, indexed, aliases) if len(f) >= 2} for n in names})
+    eligible = {n: usable.get(n, []) for n in names if len(n) >= 2
+                and (not generic[n] if n in indexed and n in generic else len(n) >= 3 or '·' in n)}
+    return list(dict.fromkeys(name for _, name, _ in scan_mentions(text, eligible)))

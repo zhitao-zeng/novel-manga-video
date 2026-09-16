@@ -392,7 +392,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 merged.append(before)
                 continue
             try:
-                pieces = bcp.shots_for_plan(plan, shots, {before["clip_id"]}).get(before["clip_id"], [])
+                pieces = bcp.shots_for_plan(plan, shots, {before["clip_id"]}, settings=ctx.get("compiler_options")).get(before["clip_id"], [])
             except ValueError as error:
                 skipped.append(f"{before['clip_id']}: {str(error)[:80]}")
                 pieces = []
@@ -400,7 +400,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 merged.append(before)
                 continue
             clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,
-                    "seconds": round(sum(bcp.shot_seconds(p) for p in pieces), 2)}
+                    "seconds": round(sum(bcp.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
             after = bcp.clip_entry(clip, before["clip_id"], ctx)
             from story_identity import current_context
             crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])), context=current_context(episode_dir))

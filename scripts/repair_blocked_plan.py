@@ -61,7 +61,7 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
     for clip in plan.get('clips', []):
         if clip.get('kind') == 'video' and clip.get('shot_indexes') and (scope is None or clip['clip_id'] in scope):
             try:
-                packer.shots_for_plan(plan, shots, {clip['clip_id']})
+                packer.shots_for_plan(plan, shots, {clip['clip_id']}, settings=ctx.get("compiler_options"))
             except ValueError:
                 targets.add(clip['clip_id'])
     if not targets:
@@ -79,7 +79,7 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
         if not indexes or indexes - set(by_index):
             raise ValueError(f'missing source stages: {sorted(indexes - set(by_index))}')
         selected = [copy.deepcopy(s) for s in shots if s['index'] in indexes]
-        packed = packer.pack(copy.deepcopy(selected))
+        packed = packer.pack(copy.deepcopy(selected), settings=ctx.get("compiler_options"))
         if turn_stream(selected) != turn_stream([s for c in packed for s in c['shots']]):
             raise ValueError('repack changed source dialogue or its order')
         ids = [c['clip_id'] for c in original]
