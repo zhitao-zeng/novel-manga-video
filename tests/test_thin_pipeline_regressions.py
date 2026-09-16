@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from scripts import build_clip_plan_thin as packer
+import packing_service_thin as packer
 
 # The standalone scripts import their siblings from the scripts directory.
 import novel_manga.planning.validation as pc_validation

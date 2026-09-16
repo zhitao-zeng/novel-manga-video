@@ -82,4 +82,6 @@ uv run pytest
 
 规划、账本、调度与看板的最新分工见 [架构收尾说明](docs/architecture-consolidation-20260917.md)。诸天现有内容的抽样结果见 [章节核对报告](docs/zhutian-content-audit-20260917.md)。
 
+身份资料、局部修复和打包服务的进一步拆分见 [职责与回归对照](docs/identity-repair-packing-20260917.md)。
+
 早期上传/生成/下载 HTTP API、`novel-manga` 命令、旧整集控制器及专用 API 容器已移除，不提供兼容入口。已有剧本、人物库、视频和任务历史保留。

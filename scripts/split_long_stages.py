@@ -19,6 +19,9 @@ for 星海 and 雾月 is quality, so their parts asked for expression cards the 
 stopped at "reference image missing"; --rebuild-parts builds the parts of episodes split earlier again.
 """
 from __future__ import annotations
+import novel_manga.story.compilation as compilation
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 
 import argparse
 import copy
@@ -31,7 +34,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 
-import build_clip_plan_thin as packer  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
 from production_common_thin import parse_chapters, pid_alive  # noqa: E402
 
@@ -54,12 +56,12 @@ def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGI
     for clip in plan["clips"]:
         parts = []
         if is_target(clip, margin) and clip["shot_indexes"][0] in shots_by_index:
-            parts = packer.split_long_shot(copy.deepcopy(shots_by_index[clip["shot_indexes"][0]]), settings=settings)
+            parts = packing_service.split_long_shot(copy.deepcopy(shots_by_index[clip["shot_indexes"][0]]), settings=settings)
         if len(parts) > 1:
             split[clip["clip_id"]] = []
             for part in parts:
                 new_id = f"clip_{len(clips) + 1:02d}"
-                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part, settings=settings), 2)}
+                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packing_service.shot_seconds(part, settings=settings), 2)}
                 clips.append(build_entry(raw, new_id, clip["clip_id"]))
                 split[clip["clip_id"]].append(new_id)
         else:
@@ -170,14 +172,14 @@ def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | Non
     if (episode_dir / "thin_media_report.h3zh.json").is_file():
         return {"skipped": "waiting for the H3 keep-check"}
     saved = plan.get("limits") or {}
-    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS),
-              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS),
-              "max_stages": int(saved.get("max_stages") or packer.MAX_STAGES)}
-    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
-    shots = packer.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
+    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packing_context.MAX_CLIP_SECONDS),
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packing_context.SOFT_CUT_SECONDS),
+              "max_stages": int(saved.get("max_stages") or packing_context.MAX_STAGES)}
+    ctx = packing_context.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
+    shots = packing_service.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir, identity_data=ctx.get("identity_data"))
     clips, moved, split = resplit(
         plan, {shot["index"]: shot for shot in shots},
-        lambda raw, new_id, old_id: packer.clip_entry(raw, new_id, ctx, override=ctx["overrides"].get(old_id, {})), margin,
+        lambda raw, new_id, old_id: packing_service.clip_entry(raw, new_id, ctx, override=ctx["overrides"].get(old_id, {})), margin,
         settings=ctx.get('compiler_options'))
     summary = {"split": split, "new_clips": sum(len(ids) for ids in split.values()),
                "final": (episode_dir / f"{episode_dir.name}.mp4").is_file(), "mode": int(limits["max_clip_seconds"])}
@@ -205,8 +207,8 @@ def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | Non
                 atomic_write_json(feedback_path, feedback)
             if overrides is not None:
                 atomic_write_json(overrides_path, overrides)
-            record = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "packer_version": packer.PACKER_VERSION, "tier": tier, "split": split, "renamed": moved}
-            atomic_write_json(plan_path, {**plan, "clips": clips, "totals": packer.plan_totals(clips, shots, ctx), "split_long_stages": record})
+            record = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "packer_version": packing_context.PACKER_VERSION, "tier": tier, "split": split, "renamed": moved}
+            atomic_write_json(plan_path, {**plan, "clips": clips, "totals": compilation.plan_totals(clips, shots, ctx), "split_long_stages": record})
             atomic_write_json(record_path, {**record, "dropped_corrections": dropped})
         except BaseException:
             # The takes go back under their old ids and the files as they were: the old plan still names them all.
@@ -242,22 +244,22 @@ def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | No
     if not record:
         return None
     saved = plan.get("limits") or {}
-    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS),
-              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS),
-              "max_stages": int(saved.get("max_stages") or packer.MAX_STAGES)}
-    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
-    shots = packer.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
+    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packing_context.MAX_CLIP_SECONDS),
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packing_context.SOFT_CUT_SECONDS),
+              "max_stages": int(saved.get("max_stages") or packing_context.MAX_STAGES)}
+    ctx = packing_context.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
+    shots = packing_service.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir, identity_data=ctx.get("identity_data"))
     by_index = {shot["index"]: shot for shot in shots}
     position = {clip["clip_id"]: n for n, clip in enumerate(plan["clips"])}
     clips = list(plan["clips"])
     replaced = 0
     for old_id, part_ids in record["split"].items():
-        parts = packer.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]), settings=ctx.get("compiler_options"))
+        parts = packing_service.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]), settings=ctx.get("compiler_options"))
         if len(parts) != len(part_ids):
             return {"skipped": f"{old_id} splits into {len(parts)} parts now, not {len(part_ids)}"}
         for part_id, part in zip(part_ids, parts):
-            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packer.shot_seconds(part, settings=ctx.get("compiler_options")), 2)}
-            entry = packer.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
+            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packing_service.shot_seconds(part, settings=ctx.get("compiler_options")), 2)}
+            entry = packing_service.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
             current = clips[position[part_id]]
             # Only a part whose pictures change - its cast or its reference cards - takes the new entry.  The others
             # keep theirs, English prompt and repaired wording included, and with it the takes rendered for them.
@@ -270,7 +272,7 @@ def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | No
     pid = locked(episode_dir)
     if pid:
         return {**summary, "skipped": f"being rendered (pid {pid})"}
-    atomic_write_json(plan_path, {**plan, "clips": clips, "totals": packer.plan_totals(clips, shots, ctx),
+    atomic_write_json(plan_path, {**plan, "clips": clips, "totals": compilation.plan_totals(clips, shots, ctx),
                                   "split_long_stages": {**record, "tier": tier, "parts_rebuilt_at": time.strftime("%Y-%m-%d %H:%M:%S")}})
     return summary
 

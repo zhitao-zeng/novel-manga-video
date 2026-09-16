@@ -1,3 +1,4 @@
+import packing_service_thin as packing_service
 import novel_manga.repair.execution as repair_execution
 import copy
 
@@ -7,7 +8,7 @@ from novel_manga.models import Character, StoryBible
 import novel_manga.planning.validation as pc_validation
 from novel_manga.planning.context import PlannerContext
 import repair_flow_thin as repair
-import build_clip_plan_thin as packer
+from novel_manga.story import framing
 
 
 @pytest.mark.parametrize('actor, target, verb', [
@@ -36,9 +37,9 @@ def test_scene_action_survives_normalization_and_packing(monkeypatch, actor, tar
     assert not errors
     assert shots[0]['actions'] == stage['actions']
     assert shots[0]['characters'] == ['沈行舟']
-    clip = packer.pack(copy.deepcopy(shots))[0]
+    clip = packing_service.pack(copy.deepcopy(shots))[0]
     clip['request_seconds'] = int(clip['seconds'])
-    prompt = packer.compile_prompt(clip, bible, ['沈行舟'], [], '溪边')
+    prompt = packing_service.compile_prompt(clip, bible, ['沈行舟'], [], '溪边')
     assert actor + verb + target in prompt
     if target == '灰色野山羊':
         assert '沈行舟挥铲砍沈行舟' not in prompt
@@ -59,11 +60,11 @@ def test_repair_removes_old_generated_prefix_and_keeps_extra_target():
 def test_extra_actor_does_not_turn_into_a_named_bystander_in_blocking():
     shot = {'characters': ['甲', '乙'], 'extras': ['灰色野山羊'],
             'actions': [{'actor': '灰色野山羊', 'action': '扑向', 'target': '甲'}]}
-    text = packer.blocking_note(shot)
+    text = framing.blocking_note(shot)
     assert '灰色野山羊在画面左侧前景，甲在右侧前景' in text
     assert '乙只在后景' in text
     shot['actions'][0]['actor'] = ''
-    assert packer.blocking_note(shot) == ''
+    assert framing.blocking_note(shot) == ''
 
 
 def test_extra_only_scene_does_not_keep_an_old_named_character():

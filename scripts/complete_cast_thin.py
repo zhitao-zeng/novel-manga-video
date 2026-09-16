@@ -19,6 +19,8 @@ Without --apply it only counts; --no-pack rewrites the storyboard but leaves the
 --rebuild-existing also checks plans whose storyboard was already completed by an earlier run.
 """
 from __future__ import annotations
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 
 import argparse
 import copy
@@ -85,13 +87,12 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
     Runs in a process whose NOVEL_CLIP_SECONDS_MAX matches the plan (build_clip_plan_thin reads it at
     import).  Returns (merged plan, changed clip ids, "") or (None, [], why) when the old cuts could
     not be reproduced."""
-    import build_clip_plan_thin as bcp
-    ctx = bcp.context_for_plan(episode_dir, bible_path, old_plan)
-    shots = bcp.prepared_shots(copy.deepcopy(new_script), episode_dir)
+    ctx = packing_context.context_for_plan(episode_dir, bible_path, old_plan)
+    shots = packing_service.prepared_shots(copy.deepcopy(new_script), episode_dir, identity_data=ctx.get("identity_data"))
     if len(shots) != len(old_script.get("shots") or []):
         return None, [], "shot count differs"
     try:
-        clip_shots = bcp.shots_for_plan(old_plan, shots, settings=ctx.get("compiler_options"))
+        clip_shots = packing_service.shots_for_plan(old_plan, shots, settings=ctx.get("compiler_options"))
     except ValueError as error:
         return None, [], str(error)
     # The plan remembers which shots each clip covers; the clip is rebuilt from exactly those, so the cuts are
@@ -104,8 +105,8 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
             rebuilt.append(before)
             continue
         clip = {"kind": "video", "location": before.get("location") or pieces[0]["location"], "shots": pieces,
-                "seconds": round(sum(bcp.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
-        rebuilt.append(bcp.clip_entry(clip, before["clip_id"], ctx))
+                "seconds": round(sum(packing_service.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
+        rebuilt.append(packing_service.clip_entry(clip, before["clip_id"], ctx))
     merged, changed = splice_plans(old_plan, {"clips": rebuilt})
     if merged is None:
         return None, [], "clip ids differ after rebuild"

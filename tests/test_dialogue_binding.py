@@ -1,3 +1,5 @@
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 import identity_store_thin as identity_store_thin
 import novel_manga.story.source_identity as source_identity
 import copy
@@ -59,10 +61,10 @@ def test_offscreen_binding_and_extra_unowned_speech():
 
 
 def test_split_long_line_keeps_its_confirmed_owner(monkeypatch):
-    import build_clip_plan_thin as packer
-    monkeypatch.setattr(packer,'MAX_CLIP_SECONDS',5)
+    pass
+    monkeypatch.setattr(packing_context,'MAX_CLIP_SECONDS',5)
     shot={'index':1,'characters':['乙'],'turns':[{'speaker_name':'乙','delivery_mode':'visible_dialogue','text':'这句话很长，需要分成多段来表达，但说话者始终是同一个人。'}]}
-    parts=packer.split_long_shot(shot)
+    parts=packing_service.split_long_shot(shot)
     bindings=binding.clip_bindings(parts)
     assert len(parts)>1 and all(r['speaker_name']=='乙' for r in bindings)
     assert ''.join(r['text'] for r in bindings)==shot['turns'][0]['text']

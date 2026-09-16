@@ -1,3 +1,5 @@
+import packing_assets_thin as packing_assets
+import packing_context_thin as packing_context
 """Legacy clips use one card per actor with correct picture tags and fresh H3 bindings."""
 import copy
 import json
@@ -83,8 +85,8 @@ def test_fast_factory_does_not_build_or_reuse_expression_sheet(tmp_path, monkeyp
 
 
 def test_fast_lead_does_not_get_an_extra_sheet_from_old_environment(tmp_path, monkeypatch):
-    import build_clip_plan_thin as planner
-    monkeypatch.setattr(planner, "TWO_VIEW_CAST_LIMIT", 0)
+    pass
+    monkeypatch.setattr(packing_context, 'TWO_VIEW_CAST_LIMIT', 0)
     monkeypatch.setenv("NOVEL_TWO_VIEWS", "1")
     bible = StoryBible(novel_title="测试", genre="奇幻", visual_style="2D", palette="蓝",
                        style_fingerprint="test", locations=["房间：木桌"],
@@ -92,7 +94,7 @@ def test_fast_lead_does_not_get_an_extra_sheet_from_old_environment(tmp_path, mo
     old = tmp_path / "series_assets/characters/character_001/expressions.jpeg"
     old.parent.mkdir(parents=True)
     old.write_bytes(b"old sheet")
-    refs, _, _ = planner.build_references(["甲"], "房间", bible, {"房间": "房间：木桌"}, novel_dir=tmp_path)
+    refs, _, _ = packing_assets.build_references(["甲"], "房间", bible, {"房间": "房间：木桌"}, novel_dir=tmp_path)
     assert [r["path"] for r in refs if r["role"] == "character"] == ["series_assets/characters/character_001/turnaround.jpeg"]
 
 

@@ -1,10 +1,12 @@
 """Repack only broken source-connected clip ranges, preserving other requests."""
 from __future__ import annotations
+import novel_manga.story.compilation as compilation
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 
 import copy
 from pathlib import Path
 
-import build_clip_plan_thin as packer
 from clip_readiness import plan_issues, read, save_check, collapsed_source_addresses
 from novel_manga.util import atomic_write_json
 
@@ -54,14 +56,14 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
             if clip['clip_id'] in addresses:
                 clip['shot_indexes'] = addresses[clip['clip_id']]
     targets = (set(plan_issues(plan, script)) | set(addresses)) if scope is None else set(scope)
-    ctx = packer.context_for_plan(directory, directory.parent / 'story_bible.json', plan)
-    shots = packer.prepared_shots(copy.deepcopy(script), directory)
+    ctx = packing_context.context_for_plan(directory, directory.parent / 'story_bible.json', plan)
+    shots = packing_service.prepared_shots(copy.deepcopy(script), directory, identity_data=ctx.get("identity_data"))
     # Explicit part numbers can be internally consistent yet no longer match
     # the shortened source stage (e.g. 359 / stage 6). Check reconstruction too.
     for clip in plan.get('clips', []):
         if clip.get('kind') == 'video' and clip.get('shot_indexes') and (scope is None or clip['clip_id'] in scope):
             try:
-                packer.shots_for_plan(plan, shots, {clip['clip_id']}, settings=ctx.get("compiler_options"))
+                packing_service.shots_for_plan(plan, shots, {clip['clip_id']}, settings=ctx.get("compiler_options"))
             except ValueError:
                 targets.add(clip['clip_id'])
     if not targets:
@@ -79,7 +81,7 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
         if not indexes or indexes - set(by_index):
             raise ValueError(f'missing source stages: {sorted(indexes - set(by_index))}')
         selected = [copy.deepcopy(s) for s in shots if s['index'] in indexes]
-        packed = packer.pack(copy.deepcopy(selected), settings=ctx.get("compiler_options"))
+        packed = packing_service.pack(copy.deepcopy(selected), settings=ctx.get("compiler_options"))
         if turn_stream(selected) != turn_stream([s for c in packed for s in c['shots']]):
             raise ValueError('repack changed source dialogue or its order')
         ids = [c['clip_id'] for c in original]
@@ -87,7 +89,7 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
             ids.append(f'clip_{next_id:02d}')
             next_id += 1
         # Old clip-specific cast restrictions do not apply to newly cut ranges.
-        replacement = [packer.clip_entry(c, cid, ctx, override={}) for c, cid in zip(packed, ids)]
+        replacement = [packing_service.clip_entry(c, cid, ctx, override={}) for c, cid in zip(packed, ids)]
         result.extend(clips[cursor:lo])
         result.extend(replacement)
         cursor = hi + 1
@@ -95,7 +97,7 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
         groups.append({'old': [c['clip_id'] for c in original],
                        'new': [c['clip_id'] for c in replacement], 'source_indexes': sorted(indexes)})
     result.extend(clips[cursor:])
-    updated = {**plan, 'clips': result, 'totals': packer.plan_totals(result, shots, ctx)}
+    updated = {**plan, 'clips': result, 'totals': compilation.plan_totals(result, shots, ctx)}
     # Explicit shot_parts now carry the cut; retire only superseded legacy hints.
     if plan.get('split_long_stages'):
         legacy = copy.deepcopy(plan['split_long_stages'])

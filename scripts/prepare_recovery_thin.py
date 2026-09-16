@@ -1,5 +1,6 @@
 """Prepare one owned episode for structural, technical or residual recovery."""
 from __future__ import annotations
+import novel_manga.story.dialogue as story_dialogue
 
 import argparse
 import json
@@ -88,11 +89,11 @@ def technical_targets(directory: Path) -> dict[str, str]:
 
 def prepare_technical(directory: Path) -> dict:
     from repair_history import begin_trial
-    import build_clip_plan_thin as packer
+    pass
     notes = technical_targets(directory)
     existing = read(directory / 'review_feedback.json', {})
     plan = read(directory / 'clip_plan.json', {})
-    nonverbal = {c['clip_id']: [packer.nonverbal_sound(t) for t in c.get('lines', []) if packer.nonverbal_sound(t)]
+    nonverbal = {c['clip_id']: [story_dialogue.nonverbal_sound(t) for t in c.get('lines', []) if story_dialogue.nonverbal_sound(t)]
                  for c in plan.get('clips', []) if c['clip_id'] in notes}
     nonverbal = {cid: sounds for cid, sounds in nonverbal.items() if sounds}
     updated_plan = plan

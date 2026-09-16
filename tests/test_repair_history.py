@@ -1,3 +1,4 @@
+import packing_service_thin as packing_service
 import novel_manga.repair.execution as repair_execution
 import copy
 import json
@@ -209,7 +210,7 @@ def test_managed_verifier_adds_advice_without_old_failure_labels(episode, monkey
 
 def test_explicit_repair_participants_keep_their_cards_when_only_one_person_speaks():
     import repair_flow_thin as repair
-    import build_clip_plan_thin as packer
+    pass
     names = ["塞西娅", "莱恩·格雷", "贝纳妮丝"]
     shot = {"characters": names[:], "visual_prompt": "三人被污泥雨包围", "motion_prompt": "暖光笼罩三人", "end_state": "三人受到保护",
             "turns": [{"speaker_name": "塞西娅", "delivery_mode": "visible_dialogue", "text": "地脉恩赐！"}]}
@@ -218,7 +219,7 @@ def test_explicit_repair_participants_keep_their_cards_when_only_one_person_spea
     assert shot["in_frame"] == names
     # The other two may be listeners, but are still explicit participants with
     # distinct identities; missing their cards produced two identical men.
-    assert packer.clip_cast({"shots": [shot]}) == names
+    assert packing_service.clip_cast({"shots": [shot]}) == names
 
 
 def test_positive_visual_flags_still_count_when_the_model_labels_the_verdict_fine(episode):

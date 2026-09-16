@@ -1,3 +1,4 @@
+import packing_service_thin as packing_service
 import ast
 import json
 import os
@@ -42,13 +43,13 @@ def test_scene_extra_precedes_global_alias():
 
 
 def test_packing_keeps_object_target_without_casting_its_portrait(tmp_path):
-    import build_clip_plan_thin as packer
+    pass
     novel = tmp_path / 'book'; directory = novel / 'book_1'
     directory.mkdir(parents=True)
     atomic_write_json(novel / 'story_bible.json', {'characters': [{'name': '甲'}, {'name': '木门'}]})
     atomic_write_json(novel / 'entity/types.json', {'木门': {'kind': 'object'}})
     script = {'shots': [{'characters': ['甲', '木门'], 'actions': [
         {'actor': '甲', 'action': '推开', 'target': '木门'}], 'turns': [], 'camera': '平视', 'light': '日光'}]}
-    shot = packer.prepared_shots(script, directory)[0]
+    shot = packing_service.prepared_shots(script, directory)[0]
     assert shot['characters'] == ['甲']
     assert shot['actions'][0]['target'] == '木门'

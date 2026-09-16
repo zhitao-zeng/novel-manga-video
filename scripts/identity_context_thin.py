@@ -6,7 +6,7 @@ import json
 import re
 from novel_manga.story.identity import canonical_entity, resolved_aliases
 from novel_manga.story.source_identity import POLICY
-from identity_store_thin import read, current_context, load_catalog, load_chapter, ChapterIdentityData
+from identity_store_thin import read, current_context, load_catalog, load_chapter
 from thin_phases import phase_for
 
 def prompt_rows(catalog, passage: str, chapter: int, names=()):

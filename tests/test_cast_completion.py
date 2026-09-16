@@ -1,6 +1,7 @@
 """A shot's cast is completed from its own description: the given name, the name without a title and
 小+name all count; two-character common-noun names never do; the repair script fixes storyboards on disk."""
 from __future__ import annotations
+import packing_service_thin as packing_service
 
 import json
 import sys
@@ -51,11 +52,11 @@ def test_shared_or_nested_short_forms_never_add_the_wrong_person():
 
 
 def test_clip_cast_keeps_people_the_picture_names_by_a_short_form():
-    import build_clip_plan_thin
+    pass
     shot = {"characters": ["莱恩·格雷", "琥珀·高德", "薇奥拉公主"], "visual_prompt": "薇奥拉环着莱恩的脖子，琥珀猫卧在窗台上",
             "motion_prompt": "", "end_state": "", "turns": []}
     clip = {"shots": [shot]}
-    assert build_clip_plan_thin.clip_cast(clip) == ["莱恩·格雷", "琥珀·高德", "薇奥拉公主"]
+    assert packing_service.clip_cast(clip) == ["莱恩·格雷", "琥珀·高德", "薇奥拉公主"]
     assert clip.get("background_only", []) == []
 
 

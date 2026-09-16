@@ -1,6 +1,6 @@
+import packing_context_thin as packing_context
 import json
 from concurrent.futures import ThreadPoolExecutor
-import build_clip_plan_thin as packer
 from novel_manga.models import StoryBible, Character
 
 
@@ -17,10 +17,10 @@ def test_packer_book_and_saved_lane_settings_are_independent(tmp_path):
             (voices/'voices.json').write_text('{"演员":{}}');(voices/'演员.wav').write_bytes(b'fixture')
         books.append((episode,bible,plan))
     def load(case):
-        option=packer.context_for_plan(*case)['compiler_options']
+        option=packing_context.context_for_plan(*case)['compiler_options']
         return (option.max_clip_seconds,option.max_stages,option.frame['width'],option.chat_screen['self_name'],option.voices,option.two_view_cast_limit)
     expected=[(15.,3,1920,'演员',{'演员':'series_assets/voices/演员.wav'},0),(30.,6,1080,'',{},2)]
     with ThreadPoolExecutor(max_workers=4) as pool:
         assert list(pool.map(load,books*6))==expected*6
-    assert packer.load_voices(books[1][0].parent)=={}
-    assert packer.load_chat_screen(books[1][0].parent)['group_name']==''
+    assert packing_context.load_voices(books[1][0].parent)=={}
+    assert packing_context.load_chat_screen(books[1][0].parent)['group_name']==''

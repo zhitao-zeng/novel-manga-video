@@ -11,23 +11,18 @@ One small model call per failed clip does that; the storyboard shots of that cli
 (cuts unchanged), the clip is rebuilt from its recorded shot indexes, and only its request changes.
 """
 from __future__ import annotations
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 
-import argparse
 import copy
 import json
-import os
-import re
 import sys
-import time
 import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "src")]
 from novel_manga.repair.proposal import RepairProposal
-from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
-from novel_manga.util import atomic_write_json  # noqa: E402
 from repair_context_thin import prepare_context
 from repair_clip_thin import repair_clip
 
@@ -46,18 +41,17 @@ def failing_clips(review: dict) -> dict[str, str]:
             if (v.get("tier") or v.get("fix_tier")) == "must_fix" and v.get("story_ok") is False}
 
 
-REBUILD_LOCK = threading.Lock()  # the packer's per-plan limits and name tables are module state
+REBUILD_LOCK = threading.Lock()  # retain the existing rebuild serialization during this refactor
 
 
 def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str], *, repack_report: dict | None = None) -> tuple[dict, list[str]]:
     """Rebuild only the named clips from their recorded shot indexes; every other clip keeps its entry (and request)."""
-    import build_clip_plan_thin as bcp
     with REBUILD_LOCK:
-        ctx = bcp.context_for_plan(episode_dir, bible_path, plan)
+        ctx = packing_context.context_for_plan(episode_dir, bible_path, plan)
         from h3_request_checks import source_crowds
-        bible_data=read(bible_path,{})
-        source_segments={str(s.get('segment_id')):s.get('text','') for s in read(episode_dir/'segments.json',[])}
-        shots = bcp.prepared_shots(copy.deepcopy(script), episode_dir)
+        bible_data=ctx['bible'].model_dump()
+        source_segments={str(s.get('segment_id')):s.get('text','') for s in ctx['identity_data'].segments}
+        shots = packing_service.prepared_shots(copy.deepcopy(script), episode_dir, identity_data=ctx.get("identity_data"))
         from clip_readiness import location_issues
         by_index = {s['index']: s for s in shots}
         recut = {c['clip_id'] for c in plan.get('clips', []) if c['clip_id'] in clip_ids
@@ -78,7 +72,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 merged.append(before)
                 continue
             try:
-                pieces = bcp.shots_for_plan(plan, shots, {before["clip_id"]}, settings=ctx.get("compiler_options")).get(before["clip_id"], [])
+                pieces = packing_service.shots_for_plan(plan, shots, {before["clip_id"]}, settings=ctx.get("compiler_options")).get(before["clip_id"], [])
             except ValueError as error:
                 skipped.append(f"{before['clip_id']}: {str(error)[:80]}")
                 pieces = []
@@ -86,10 +80,9 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 merged.append(before)
                 continue
             clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,
-                    "seconds": round(sum(bcp.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
-            after = bcp.clip_entry(clip, before["clip_id"], ctx)
-            from identity_store_thin import current_context
-            crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])), context=current_context(episode_dir))
+                    "seconds": round(sum(packing_service.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
+            after = packing_service.clip_entry(clip, before["clip_id"], ctx)
+            crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])), context=ctx["identity_data"].context)
             if crowds:
                 after['crowd_roles']=crowds
             # An unchanged request keeps its existing English rendering. A no-op

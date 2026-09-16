@@ -46,7 +46,6 @@ def repair_clip(clip, issue, chapter: RepairChapter, review, *, use_history=True
     original_stages = copy.deepcopy([by_index[i] for i in indexes])
     identity_legend = [{**row,'presence':cast_here.get(row['name'],'not_established')}
                        for row in identity_rows(names,bible,passage,context=identity_reading,catalog=catalog)]
-    by_name = {c['name']: c for c in bible.get('characters', [])}
     for shot in shots:
         corrected_names = set(identities.get(shot['origin_index'], {}).values()) if identity else set()
         if corrected_names:

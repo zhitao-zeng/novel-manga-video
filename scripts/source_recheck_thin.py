@@ -145,7 +145,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
         crowds=source_crowds(clip,bible,passage)
         if crowds:
             clip['crowd_roles']=crowds
-        from build_clip_plan_thin import nonverbal_sound
+        from novel_manga.story.dialogue import nonverbal_sound
         old_words = ''.join(t.get('text','') for t in old_clips[cid].get('lines',[]) if not nonverbal_sound(t))
         new_words = ''.join(t.get('text','') for t in clip.get('lines',[]) if not nonverbal_sound(t))
         if normalize_text(new_words) != normalize_text(old_words):

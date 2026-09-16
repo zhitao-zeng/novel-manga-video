@@ -2,6 +2,9 @@
 thin_batch and the conductor, reviews before the conductor stops, previews only a person can finish, unconfirmed
 submissions, the continuity of split stages, failed H3 rebuilds, corrections after a re-plan."""
 from __future__ import annotations
+import packing_context_thin as packing_context
+import packing_flow_thin as packing_flow
+import packing_service_thin as packing_service
 import production_render_thin as production_render
 
 import json
@@ -17,7 +20,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import build_clip_plan_thin as packer  # noqa: E402
 import conductor_flow_thin as conductor_flow
 import conductor_state_thin as conductor_state
 import thin_runs as thin_runs  # noqa: E402
@@ -179,11 +181,11 @@ def test_an_unconfirmed_image_submission_is_recorded_and_held(tmp_path, monkeypa
 
 # ---------------------------------------------------------------- 28: continuity of a split stage
 def test_the_later_parts_of_a_split_stage_carry_on_instead_of_repeating_its_action(monkeypatch):
-    monkeypatch.setattr(packer, "MAX_CLIP_SECONDS", 15.0)
+    monkeypatch.setattr(packing_context, 'MAX_CLIP_SECONDS', 15.0)
     shot = {"index": 5, "location": "屋内", "segment_id": "seg_01", "shot_scale": "中景", "visual_prompt": "林凡站在屋内门边",
             "motion_prompt": "林凡推门走出去", "end_state": "林凡站在门外台阶上",
             "turns": [{"delivery_mode": "visible_dialogue", "speaker_name": "林凡", "text": "我们走吧。" * 12}] * 3}
-    parts = packer.split_long_shot(shot)
+    parts = packing_service.split_long_shot(shot)
     assert len(parts) == 3 and parts[0]["motion_prompt"] == "林凡推门走出去" and parts[0]["visual_prompt"] == "林凡站在屋内门边"
     for part in parts[1:]:
         assert "推门" not in part["motion_prompt"] and "林凡站在门外台阶上" in part["visual_prompt"]
@@ -215,7 +217,7 @@ def test_corrections_follow_their_clip_through_a_new_plan(tmp_path):
     old = {"clips": [{"clip_id": "clip_01", "prompt": "拍甲"}, {"clip_id": "clip_02", "prompt": "拍乙"}]}
     new = {"clips": [{"clip_id": "clip_01", "prompt": "新的开场"}, {"clip_id": "clip_02", "prompt": "拍甲"},
                      {"clip_id": "clip_03", "prompt": "乙换了一种拍法"}]}
-    dropped = packer.carry_corrections(old, new, feedback)
+    dropped = packing_flow.carry_corrections(old, new, feedback)
     assert json.loads(feedback.read_text(encoding="utf-8")) == {"clip_02": "甲的修正"}
     assert dropped == {"clip_02": "乙穿红衣，不要出现甲"} and list(tmp_path.glob("review_feedback.set-aside-*.json"))
 

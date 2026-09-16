@@ -1,3 +1,4 @@
+import packing_service_thin as packing_service
 import identity_context_thin as identity_context_thin
 import identity_flow_thin as identity_flow_thin
 import identity_store_thin as identity_store_thin
@@ -173,7 +174,7 @@ def test_planner_and_packer_share_the_same_scoped_identity(tmp_path):
     planner_ctx = PlannerContext.from_env()
     import novel_manga.planning.cast as pc_cast
     import planner_context_thin as planner_context
-    import build_clip_plan_thin as packer
+    pass
     novel=book(tmp_path,('正式名', '旧名字'))
     directory=novel/'book_1'
     atomic_write_json(directory/'segments.json',[{'segment_id':'seg_1','text':'旧名字递出物品。'}])
@@ -186,7 +187,7 @@ def test_planner_and_packer_share_the_same_scoped_identity(tmp_path):
     script={'shots':[{'index':1,'segment_id':'seg_1','characters':['旧名字'],
         'turns':[{'speaker_name':'旧名字','chat_target':'旧名字','text':'原话。'}],
         'actions':[{'actor':'旧名字','target':'旧名字','action':'递出物品'}]}]}
-    shots=packer.prepared_shots(script,directory)
+    shots=packing_service.prepared_shots(script,directory)
     assert shots[0]['characters']==['正式名']
     assert shots[0]['turns'][0]['speaker_name']==shots[0]['actions'][0]['actor']=='正式名'
     assert shots[0]['actions'][0]['target']==shots[0]['turns'][0]['chat_target']=='正式名'
@@ -234,7 +235,7 @@ def test_bad_auxiliary_mention_does_not_discard_the_grounded_actor():
 
 
 def test_declared_prop_never_uses_a_character_card(tmp_path):
-    import build_clip_plan_thin as packer
+    pass
     novel = book(tmp_path, ('甲', '宝器'))
     directory = novel/'book_1'
     atomic_write_json(novel/'entity/types.json', {'宝器':{'kind':'object'}})
@@ -242,7 +243,7 @@ def test_declared_prop_never_uses_a_character_card(tmp_path):
     script={'shots':[{'index':1,'segment_id':'seg_1','characters':['甲','宝器'],
                      'in_frame':['甲','宝器'],'motion_prompt':'甲收起宝器。','turns':[],
                      'actions':[{'actor':'甲','target':'宝器','action':'收起'}]}]}
-    shot=packer.prepared_shots(script,directory)[0]
+    shot=packing_service.prepared_shots(script,directory)[0]
     assert shot['characters']==['甲'] and shot['in_frame']==['甲']
     assert '宝器' in shot['motion_prompt']
 

@@ -1,13 +1,14 @@
 """A character's look follows the chapter: the plan references the phase's card and says its anchor, the
 review describes the same phase, and a novel without phases.json behaves as before."""
 from __future__ import annotations
+import packing_assets_thin as packing_assets
+import packing_context_thin as packing_context
 
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import build_clip_plan_thin as planner  # noqa: E402
 from novel_manga.models import Character, StoryBible  # noqa: E402
 from thin_phases import chapter_of, load_phases, phase_card, phase_for, phase_labels, phased  # noqa: E402
 
@@ -56,7 +57,7 @@ def test_phased_lays_the_look_over_a_copy():
 
 
 def test_plan_references_follow_the_chapter(tmp_path, monkeypatch):
-    monkeypatch.setattr(planner, "TWO_VIEW_CAST_LIMIT", 2)
+    monkeypatch.setattr(packing_context, 'TWO_VIEW_CAST_LIMIT', 2)
     monkeypatch.setenv("NOVEL_TWO_VIEWS", "1")
     novel_dir = novel(tmp_path)
     sheet = novel_dir / "series_assets/characters/character_002/expressions.jpeg"
@@ -64,7 +65,7 @@ def test_plan_references_follow_the_chapter(tmp_path, monkeypatch):
     sheet.write_bytes(b"available expression sheet")
     b = bible()
     location_map = {"宿舍": "宿舍：床铺和书桌"}
-    later, bindings, _ = planner.build_references(["沈玄川", "苏清月"], "宿舍", b, location_map, novel_dir=novel_dir, chapter=2000)
+    later, bindings, _ = packing_assets.build_references(["沈玄川", "苏清月"], "宿舍", b, location_map, novel_dir=novel_dir, chapter=2000)
     lead = [ref for ref in later if ref["role"] == "character" and ref["name"] == "沈玄川"]
     assert lead and all(ref["asset_id"] == "character_001-p2" for ref in lead)
     assert lead[0]["path"] == "series_assets/characters/character_001-p2/turnaround.jpeg" and lead[0]["phase"] == "白发青年"
@@ -78,11 +79,11 @@ def test_plan_references_follow_the_chapter(tmp_path, monkeypatch):
     assert "只对应@图片1" in bindings[0]
     assert len(other) == 2 and other[1]["path"].endswith("character_002/expressions.jpeg")
 
-    early, bindings, _ = planner.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=novel_dir, chapter=100)
+    early, bindings, _ = packing_assets.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=novel_dir, chapter=100)
     assert early[0]["asset_id"] == "character_001" and "phase" not in early[0]
     assert "修长挺拔" in bindings[0] and "黑色短发" not in bindings[0]
 
-    none, bindings, _ = planner.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=None, chapter=2000)
+    none, bindings, _ = packing_assets.build_references(["沈玄川"], "宿舍", b, location_map, novel_dir=None, chapter=2000)
     assert none[0]["asset_id"] == "character_001" and "修长挺拔" in bindings[0]  # no novel dir: no phases, as before
 
 

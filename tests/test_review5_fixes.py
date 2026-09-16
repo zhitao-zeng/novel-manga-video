@@ -1,5 +1,7 @@
 """Regressions for the September 14 review: preserve cuts/tier and enforce current review semantics."""
 from __future__ import annotations
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 import repair_judges_thin as repair_judges
 import conductor_state_thin as conductor_state
 import conductor_workers_thin as conductor_workers
@@ -19,7 +21,7 @@ import pytest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import build_clip_plan_thin as packer  # noqa: E402
+import packing_context_thin as packer  # noqa: E402
 import complete_cast_thin as completion  # noqa: E402
 import conductor_flow_thin as conductor_flow
 import conductor_workers_thin as conductor_workers  # noqa: E402
@@ -85,9 +87,9 @@ def packed_episode(tmp_path: Path):
     new["shots"][0]["characters"] = ["林凡", "苏清"]
     plan = {"policy": "thin-15s", "limits": {"max_clip_seconds": 15, "max_stages": 3},
             "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d"}}}
-    ctx = packer.context_for_plan(episode, novel / "story_bible.json", plan)
-    plan["clips"] = [packer.clip_entry(c, f"clip_{i:02d}", ctx)
-                     for i, c in enumerate(packer.pack(packer.prepared_shots(copy.deepcopy(old), episode), settings=ctx["compiler_options"]), 1)]
+    ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
+    plan["clips"] = [packing_service.clip_entry(c, f"clip_{i:02d}", ctx)
+                     for i, c in enumerate(packing_service.pack(packing_service.prepared_shots(copy.deepcopy(old), episode), settings=ctx["compiler_options"]), 1)]
     return novel, episode, old, new, plan
 
 
@@ -143,10 +145,10 @@ def test_unrecoverable_cuts_are_left_unwritten(tmp_path, monkeypatch):
 
 def test_context_switch_back_to_quality_restores_two_views(tmp_path):
     novel, episode, old, new, plan = packed_episode(tmp_path)
-    fast = packer.context_for_plan(episode, novel / "story_bible.json", plan)["compiler_options"]
+    fast = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)["compiler_options"]
     assert fast.two_view_cast_limit == 0
     plan["totals"]["profile"]["tier"] = "quality"
-    ctx = packer.context_for_plan(episode, novel / "story_bible.json", plan)
+    ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
     assert ctx["profile"]["tier"] == "quality" and ctx["compiler_options"].two_view_cast_limit == 2
     assert fast.two_view_cast_limit == 0
 
@@ -158,8 +160,8 @@ def test_an_unrelated_old_uncut_stage_does_not_change_or_block_split_repair(tmp_
     old["shots"].append(copy.deepcopy(extra))
     new["shots"].append(copy.deepcopy(extra))
     # Build the legacy entry as one full stage, without repacking it into new clips.
-    ctx = packer.context_for_plan(episode, novel / "story_bible.json", plan)
-    kept = packer.clip_entry({"kind": "video", "location": "大殿", "shots": [extra], "seconds": packer.shot_seconds(extra, settings=ctx["compiler_options"])}, "clip_04", ctx)
+    ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
+    kept = packing_service.clip_entry({"kind": "video", "location": "大殿", "shots": [extra], "seconds": packing_service.shot_seconds(extra, settings=ctx["compiler_options"])}, "clip_04", ctx)
     kept.pop("shot_parts")
     plan["clips"].append(kept)
     merged, changed, why = completion.rebuild_in_place(episode, novel / "story_bible.json", old, new, plan)

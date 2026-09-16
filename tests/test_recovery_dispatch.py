@@ -1,3 +1,5 @@
+import novel_manga.story.dialogue as story_dialogue
+import packing_service_thin as packing_service
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_workers_thin as repair_manager_workers
 
@@ -116,14 +118,14 @@ def test_black_take_cannot_pass_on_cached_speech_result(tmp_path, monkeypatch):
 
 
 def test_nonverbal_events_remain_audible_without_becoming_recited_dialogue():
-    import build_clip_plan_thin as packer
+    pass
     shot = {'turns': [{'speaker_name': '甲', 'delivery_mode': 'visible_dialogue', 'text': '阿嚏~'},
                       {'speaker_name': '甲', 'delivery_mode': 'visible_dialogue', 'text': '我感冒了。'}]}
-    assert [t['text'] for t in packer.merged_turns(shot)] == ['我感冒了。']
-    assert '甲打喷嚏' in packer.sound_clause(shot)
+    assert [t['text'] for t in story_dialogue.merged_turns(shot)] == ['我感冒了。']
+    assert '甲打喷嚏' in packing_service.sound_clause(shot)
     assert shot['sfx'].count('甲打喷嚏') == 1
-    assert not packer.nonverbal_sound({'delivery_mode': 'visible_dialogue', 'text': '阿嚏，我感冒了。'})
-    assert not packer.nonverbal_sound({'delivery_mode': 'visible_dialogue', 'text': '艾蕾娅！'})
+    assert not story_dialogue.nonverbal_sound({'delivery_mode': 'visible_dialogue', 'text': '阿嚏，我感冒了。'})
+    assert not story_dialogue.nonverbal_sound({'delivery_mode': 'visible_dialogue', 'text': '艾蕾娅！'})
 
 
 def test_black_interval_also_flagged_as_freeze_is_still_repairable(tmp_path, monkeypatch):

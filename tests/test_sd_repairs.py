@@ -1,6 +1,8 @@
 """Regressions from the 2026-09-11 review of the Seedance lines and the packer (issues 16-21), and the
 cache-only rebuild that puts the dropped title cards back into finished episodes."""
 from __future__ import annotations
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 import conductor_dispatch_thin as conductor_dispatch
 import conductor_workers_thin as conductor_workers
 import production_render_thin as production_render
@@ -23,7 +25,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import build_clip_plan_thin as packer  # noqa: E402
+from novel_manga.story.compilation import ClipCompiler  # noqa: E402
 import conductor_flow_thin as conductor_flow  # noqa: E402
 import planner_context_thin as planner_context  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
@@ -114,23 +116,24 @@ def long_stage(turns: list[str]) -> dict:
 
 
 def test_a_stage_too_long_for_one_clip_is_split_between_its_lines(monkeypatch):
-    monkeypatch.setattr(packer, "MAX_CLIP_SECONDS", 15.0)
-    monkeypatch.setattr(packer, "MAX_STAGES", 3)
+    monkeypatch.setattr(packing_context, 'MAX_CLIP_SECONDS', 15.0)
+    monkeypatch.setattr(packing_context, 'MAX_STAGES', 3)
     shot = long_stage(["我们走吧。" * 12] * 6)
-    assert packer.shot_seconds(shot) > 60
-    clips = packer.pack([shot])
+    assert packing_service.shot_seconds(shot) > 60
+    compiler = ClipCompiler(packing_context.compiler_options())
+    clips = compiler.pack([shot])
     assert len(clips) == 6 and all(clip["seconds"] <= 15.0 for clip in clips)
     spoken = [turn["text"] for clip in clips for stage in clip["shots"] for turn in stage["turns"]]
     assert spoken == [turn["text"] for turn in shot["turns"]]  # every line, in order, none clamped away
-    assert any(d["kind"] == "split_stage" for d in packer.DECISIONS)
+    assert any(d["kind"] == "split_stage" for d in compiler.decisions)
     assert clips[1]["shots"][0]["visual_prompt"] == "承接上一段结束时的画面：林凡停下"
 
 
 def test_a_line_longer_than_a_clip_is_cut_at_sentence_ends(monkeypatch):
-    monkeypatch.setattr(packer, "MAX_CLIP_SECONDS", 15.0)
-    monkeypatch.setattr(packer, "MAX_STAGES", 3)
+    monkeypatch.setattr(packing_context, 'MAX_CLIP_SECONDS', 15.0)
+    monkeypatch.setattr(packing_context, 'MAX_STAGES', 3)
     text = "这一句话有十个字符吗。" * 20
-    clips = packer.pack([long_stage([text])])
+    clips = packing_service.pack([long_stage([text])])
     pieces = [turn["text"] for clip in clips for stage in clip["shots"] for turn in stage["turns"]]
     assert "".join(pieces) == text and all(piece.endswith("。") for piece in pieces)
     assert len(pieces) > 1 and all(clip["seconds"] <= 15.0 for clip in clips)

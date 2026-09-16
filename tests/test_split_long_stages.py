@@ -34,8 +34,8 @@ PLAN = {"clips": [
 
 
 def test_only_the_clamped_clip_is_replaced_and_the_others_are_renumbered(monkeypatch):
-    monkeypatch.setattr(tool.packer, "MAX_CLIP_SECONDS", 15.0)
-    monkeypatch.setattr(tool.packer, "MAX_STAGES", 3)
+    monkeypatch.setattr(tool.packing_context, "MAX_CLIP_SECONDS", 15.0)
+    monkeypatch.setattr(tool.packing_context, "MAX_STAGES", 3)
     built = []
 
     def build(raw, new_id, old_id):
@@ -190,10 +190,10 @@ def test_parts_are_packed_again_for_the_fast_tier_with_their_ids(tmp_path, monke
         "split_long_stages": {"split": {"clip_02": ["clip_02", "clip_03"]}}}
     (episode / "clip_plan.json").write_text(json.dumps(plan), encoding="utf-8")
     tiers = []
-    monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None, **kwargs: tiers.append(tier) or {"overrides": {}, "compiler_options": replace(tool.packer.compiler_options(), **kwargs.get("limits", {}))})
-    monkeypatch.setattr(tool.packer, "prepared_shots", lambda script, episode_dir: [long_stage(["我们走吧。" * 12] * 2)])
-    monkeypatch.setattr(tool.packer, "clip_entry", lambda raw, clip_id, ctx, override=None: {"clip_id": clip_id, "kind": "video", "prompt": f"{clip_id}, fast", "references": []})
-    monkeypatch.setattr(tool.packer, "plan_totals", lambda clips, shots, ctx: {})
+    monkeypatch.setattr(tool.packing_context, "load_context", lambda episode_dir, bible, tier=None, **kwargs: tiers.append(tier) or {"overrides": {}, "compiler_options": replace(tool.packing_context.compiler_options(), **kwargs.get("limits", {}))})
+    monkeypatch.setattr(tool.packing_service, "prepared_shots", lambda script, episode_dir, **kwargs: [long_stage(["我们走吧。" * 12] * 2)])
+    monkeypatch.setattr(tool.packing_service, "clip_entry", lambda raw, clip_id, ctx, override=None: {"clip_id": clip_id, "kind": "video", "prompt": f"{clip_id}, fast", "references": []})
+    monkeypatch.setattr(tool.compilation, "plan_totals", lambda clips, shots, ctx: {})
     assert tool.rebuild_parts(episode, "fast", apply=True) == {"rebuilt": 2}
     written = json.loads((episode / "clip_plan.json").read_text(encoding="utf-8"))
     assert tiers == ["fast"] and [c["prompt"] for c in written["clips"]] == ["kept", "clip_02, fast", "clip_03, fast"]

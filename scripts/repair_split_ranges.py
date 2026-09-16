@@ -6,6 +6,9 @@ Only legacy entries with repeated source indexes or oversized shared stages are 
 be recovered from the whole plan are left alone and reported.
 """
 from __future__ import annotations
+import novel_manga.story.compilation as compilation
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 
 import copy
 from collections import Counter
@@ -13,7 +16,6 @@ import json
 from pathlib import Path
 import threading
 
-import build_clip_plan_thin as packer
 from novel_manga.util import atomic_write_json
 
 LOCK = threading.Lock()  # retain the existing serialized recovery operation
@@ -33,30 +35,30 @@ def recover(episode_dir: Path, plan: dict, script: dict) -> tuple[dict, list[str
     if not targets:
         return plan, [], {}
     with LOCK:
-        ctx = packer.context_for_plan(episode_dir, episode_dir.parent / "story_bible.json", plan)
-        shots = packer.prepared_shots(copy.deepcopy(script), episode_dir)
+        ctx = packing_context.context_for_plan(episode_dir, episode_dir.parent / "story_bible.json", plan)
+        shots = packing_service.prepared_shots(copy.deepcopy(script), episode_dir)
         clips, changed, skipped = [], [], {}
         for before in plan["clips"]:
             cid = before["clip_id"]
             after = before
             if cid in targets:
                 try:
-                    pieces = packer.shots_for_plan(plan, shots, {cid}, settings=ctx.get("compiler_options"))[cid]
+                    pieces = packing_service.shots_for_plan(plan, shots, {cid}, settings=ctx.get("compiler_options"))[cid]
                     if not any(p.get("split_part", [1, 1])[1] > 1 for p in pieces):
                         raise ValueError("no recoverable sibling ranges")
-                    seconds = round(sum(packer.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)
+                    seconds = round(sum(packing_service.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)
                     if seconds > ctx["compiler_options"].max_clip_seconds:
                         raise ValueError("recovered range still exceeds clip limit")
                     raw = {"kind": "video", "location": before.get("location") or pieces[0]["location"],
                            "shots": pieces, "seconds": seconds}
-                    after = packer.clip_entry(raw, cid, ctx)
+                    after = packing_service.clip_entry(raw, cid, ctx)
                     changed.append(cid)
                 except ValueError as error:
                     skipped[cid] = str(error)
             clips.append(after)
         if not changed:
             return plan, [], skipped
-        return {**plan, "clips": clips, "totals": packer.plan_totals(clips, shots, ctx)}, changed, skipped
+        return {**plan, "clips": clips, "totals": compilation.plan_totals(clips, shots, ctx)}, changed, skipped
 
 
 def repair_episode(episode_dir: Path, *, apply: bool = False) -> dict:

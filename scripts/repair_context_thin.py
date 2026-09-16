@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from novel_manga.story.catalog import IdentityCatalog
 from pathlib import Path
 from novel_manga.planning.context import PlannerContext
-from novel_manga.util import read_json as read
 from planner_context_thin import ledger_cast, ledger_snapshot_for
 from identity_store_thin import load_chapter, ChapterIdentityData
 
@@ -20,7 +20,7 @@ class RepairChapter:
     identity_reading: dict
     identity_data: ChapterIdentityData
     protected_bindings: dict
-    catalog: object
+    catalog: IdentityCatalog
     identities: dict
 
 

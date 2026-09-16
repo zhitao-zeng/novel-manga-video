@@ -2,6 +2,8 @@
 missed their own takes, English (H3) prompts that carried Chinese the model read out, split parts that lost their
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
+import packing_context_thin as packing_context
+import packing_service_thin as packing_service
 from dataclasses import replace
 import production_render_thin as production_render
 
@@ -21,7 +23,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import build_clip_plan_thin as packer  # noqa: E402
+import packing_context_thin as packer  # noqa: E402
 import build_h3_prompts as h3prompts  # noqa: E402
 import render_flow_thin as rc  # noqa: E402
 import split_long_stages as tool  # noqa: E402
@@ -303,16 +305,16 @@ def test_a_correction_goes_into_the_english_prompt_in_english(tmp_path, monkeypa
 
 # ---------------------------------------------------------------- split parts keep their cast (11)
 def test_the_later_parts_of_a_split_stage_keep_the_characters_in_the_picture(monkeypatch):
-    monkeypatch.setattr(packer, "MAX_CLIP_SECONDS", 15.0)
-    monkeypatch.setattr(packer, "MAX_STAGES", 3)
+    monkeypatch.setattr(packing_context, 'MAX_CLIP_SECONDS', 15.0)
+    monkeypatch.setattr(packing_context, 'MAX_STAGES', 3)
     three = long_stage(["我们走吧。" * 12] * 3, characters=["林凡", "苏晴", "王长老"],
                        visual_prompt="林凡、苏晴和王长老围坐在桌边", motion_prompt="三人低声交谈")
-    parts = packer.split_long_shot(three)
+    parts = packing_service.split_long_shot(three)
     assert len(parts) == 3
     for part in parts:
         raw = {"kind": "video", "location": "大殿", "shots": [part], "seconds": 10}
-        assert packer.clip_cast(raw) == ["林凡", "苏晴", "王长老"]  # 苏晴 and 王长老 dropped to the background in parts 2-3
-    two = packer.split_long_shot(long_stage(["我们走吧。" * 12] * 3, characters=["林凡", "苏晴"], visual_prompt="林凡和苏晴站在门口"))
+        assert packing_service.clip_cast(raw) == ["林凡", "苏晴", "王长老"]  # 苏晴 and 王长老 dropped to the background in parts 2-3
+    two = packing_service.split_long_shot(long_stage(["我们走吧。" * 12] * 3, characters=["林凡", "苏晴"], visual_prompt="林凡和苏晴站在门口"))
     assert all("仍在画面中" not in part["visual_prompt"] for part in two)  # nobody would drop: the wording stays as it was
 
 
@@ -325,12 +327,12 @@ def test_rebuilding_parts_keeps_every_part_whose_pictures_stay_the_same(tmp_path
         {"clip_id": "clip_02", "kind": "video", "shot_indexes": [5], "cast": ["林凡"], "references": ["a"], "prompt": "part 2"}],
         "split_long_stages": {"split": {"clip_01": ["clip_01", "clip_02"]}}}
     (directory / "clip_plan.json").write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None, **kwargs: {"overrides": {}, "compiler_options": replace(tool.packer.compiler_options(), **kwargs.get("limits", {}))})
-    monkeypatch.setattr(tool.packer, "prepared_shots", lambda script, episode_dir: [long_stage(["我们走吧。" * 12] * 2)])
+    monkeypatch.setattr(tool.packing_context, "load_context", lambda episode_dir, bible, tier=None, **kwargs: {"overrides": {}, "compiler_options": replace(tool.packing_context.compiler_options(), **kwargs.get("limits", {}))})
+    monkeypatch.setattr(tool.packing_service, "prepared_shots", lambda script, episode_dir, **kwargs: [long_stage(["我们走吧。" * 12] * 2)])
     rebuilt = {"clip_01": (["林凡"], ["a"]), "clip_02": (["林凡", "苏晴"], ["a", "b"])}
-    monkeypatch.setattr(tool.packer, "clip_entry", lambda raw, clip_id, ctx, override=None: {
+    monkeypatch.setattr(tool.packing_service, "clip_entry", lambda raw, clip_id, ctx, override=None: {
         "clip_id": clip_id, "kind": "video", "cast": rebuilt[clip_id][0], "references": rebuilt[clip_id][1], "prompt": f"{clip_id} rebuilt"})
-    monkeypatch.setattr(tool.packer, "plan_totals", lambda clips, shots, ctx: {})
+    monkeypatch.setattr(tool.compilation, "plan_totals", lambda clips, shots, ctx: {})
     assert tool.rebuild_parts(directory, "fast", apply=True) == {"rebuilt": 1}
     written = {c["clip_id"]: c for c in json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))["clips"]}
     assert written["clip_01"]["prompt"] == "repaired wording" and written["clip_01"]["prompt_h3"] == "english"
