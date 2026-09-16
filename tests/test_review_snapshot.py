@@ -1,13 +1,15 @@
 """The clip judge gets the ledger's casting sheet for the clip's passage - and nothing at all when the novel has
 no ledger for that chapter."""
 from __future__ import annotations
+import ledger_resolution_thin as ledger_resolution
 
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import entity_ledger_thin as el  # noqa: E402
+import ledger_judges_thin as ledger_judges
+import ledger_store_thin as ledger_store  # noqa: E402
 import novel_manga.models as review_models
 import novel_manga.review.policy as review_policy
 import review_episode_thin as review_episode
@@ -26,8 +28,9 @@ def test_snapshot_block_names_the_cast_and_stays_silent_without_a_ledger(tmp_pat
                                                       ensure_ascii=False), encoding="utf-8")
     clip = {"segment_ids": ["seg_1"]}
     assert review_evidence.snapshot_block(clip, episode) == ""          # no ledger yet: the judge prompt is unchanged
-    monkeypatch.setattr(el, "judge_claim", lambda claim, s, o: {"verdict": "supports", "why": ""})
-    el.Ledger(root).resolve_chapter(7, CH7, {"chapter": 7, "mentions": [
+    monkeypatch.setattr(ledger_judges, 'judge_claim', lambda claim, s, o: {"verdict": "supports", "why": ""})
+    monkeypatch.setattr(ledger_judges, "judge_link", lambda form, evidence, assigned, options, forms: {"entity": assigned["id"], "why": "fixture: explicit source alias"})
+    ledger_resolution.resolve_chapter(ledger_store.Ledger(root), 7, CH7, {"chapter": 7, "mentions": [
         {"form": "薇奥拉公主", "entity": "e002", "kind": "proper", "presence": "on_stage", "evidence": "薇奥拉公主走进来"},
         {"form": "作家小姐", "entity": "e002", "kind": "proper", "presence": "on_stage", "evidence": "作家小姐笑着说"},
         {"form": "莱恩", "entity": "e001", "kind": "proper", "presence": "on_stage", "evidence": "莱恩点头"},

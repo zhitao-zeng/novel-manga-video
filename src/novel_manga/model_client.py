@@ -5,6 +5,7 @@ are the existing batch policies. Callers own their prompts and scheduling.
 """
 from __future__ import annotations
 import base64
+from dataclasses import dataclass, field
 import hashlib
 import io
 import itertools
@@ -22,10 +23,10 @@ def qwen_endpoints() -> list[str]:
     return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
 
 
-def endpoint_order(key: str) -> list[str]:
+def endpoint_order(key: str, endpoints: list[str] | None = None) -> list[str]:
     """Endpoints in the order to try for one request: a stable pick by key
     (spreads chapters over instances) followed by the others as fallbacks."""
-    endpoints = qwen_endpoints()
+    endpoints = qwen_endpoints() if endpoints is None else endpoints
     start = int(hashlib.sha256(key.encode("utf-8")).hexdigest(), 16) % len(endpoints)
     return endpoints[start:] + endpoints[:start]
 
@@ -54,7 +55,7 @@ def image_part(path: Path, max_side: int) -> dict:
 _CALL_COUNTER = itertools.count(os.getpid())  # episode workers must not all start at verify-0
 
 
-def stream_completion(client: httpx.Client, url: str, headers: dict, payload: dict, timeout: float | None = None) -> dict:
+def stream_completion(client: httpx.Client, url: str, headers: dict, payload: dict, timeout: float | None = None, *, settings: JsonEndpoint | None = None) -> dict:
     """POST with stream=True and rebuild the non-streaming response body.
 
     A platform behind a proxy cuts non-streaming requests at about 60 s, far
@@ -64,10 +65,10 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
     """
     request = {k: v for k, v in payload.items() if k != "chat_template_kwargs"}
     request.update({"stream": True, "stream_options": {"include_usage": True}})
-    request.setdefault("reasoning_effort", os.environ.get("QWEN38_LOCAL_REASONING", "low"))
+    request.setdefault("reasoning_effort", settings.reasoning if settings else os.environ.get("QWEN38_LOCAL_REASONING", "low"))
     # The callers' budgets fit the local model's context window; a platform
     # model has room to spare but counts its reasoning inside max_tokens.
-    floor = int(os.environ.get("QWEN38_LOCAL_MIN_MAX_TOKENS", "50000") or 0)
+    floor = settings.min_max_tokens if settings else int(os.environ.get("QWEN38_LOCAL_MIN_MAX_TOKENS", "50000") or 0)
     if floor > 0:
         request["max_tokens"] = max(int(request.get("max_tokens") or 0), floor)
     content, reasoning, finish, usage = [], [], None, None
@@ -98,11 +99,12 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
     return {"choices": [{"message": {"content": "".join(content), "reasoning": "".join(reasoning)}, "finish_reason": finish}], "usage": usage}
 
 
-def endpoint_key() -> str:
+def endpoint_key(environ=None) -> str:
     """The endpoint's key, read from the variable QWEN38_LOCAL_API_KEY_VAR names
     (default QWEN38_LOCAL_API_KEY); empty for the local vLLM."""
-    value = os.environ.get(os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY", "")
-    path = os.environ.get("QWEN38_LOCAL_API_KEY_FILE", "").strip()
+    environ = os.environ if environ is None else environ
+    value = environ.get(environ.get("QWEN38_LOCAL_API_KEY_VAR", "QWEN38_LOCAL_API_KEY") or "QWEN38_LOCAL_API_KEY", "")
+    path = environ.get("QWEN38_LOCAL_API_KEY_FILE", "").strip()
     if not value and path:
         try:
             value = Path(path).expanduser().read_text(encoding="utf-8").strip()
@@ -115,13 +117,33 @@ def streaming_wanted() -> bool:
     return os.environ.get("QWEN38_LOCAL_STREAM", "").strip() == "1"
 
 
-def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True) -> dict:
+@dataclass(frozen=True)
+class JsonEndpoint:
+    model: str
+    endpoints: tuple[str, ...]
+    key: str = field(default="", repr=False)
+    stream: bool = False
+    reasoning: str = "low"
+    min_max_tokens: int = 50000
+
+    @classmethod
+    def from_env(cls, overrides: dict | None = None) -> JsonEndpoint:
+        env = {**os.environ, **(overrides or {})}
+        bases = env.get("QWEN38_LOCAL_BASE_URL", "http://127.0.0.1:18120/v1")
+        return cls(env.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project"),
+                   tuple(item.strip().rstrip("/") for item in bases.split(",") if item.strip()),
+                   endpoint_key(env), env.get("QWEN38_LOCAL_STREAM", "").strip() == "1",
+                   env.get("QWEN38_LOCAL_REASONING", "low"), int(env.get("QWEN38_LOCAL_MIN_MAX_TOKENS", "50000") or 0))
+
+
+def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True, settings: JsonEndpoint | None = None) -> dict:
     """Ask a JSON question, sharing the timeout across endpoints and at most one length retry."""
     headers = {}
-    if endpoint_key():
-        headers["Authorization"] = "Bearer " + endpoint_key()
+    key = settings.key if settings else endpoint_key()
+    if key:
+        headers["Authorization"] = "Bearer " + key
     payload = {
-        "model": MODEL, "temperature": 0, "max_tokens": max_tokens,
+        "model": settings.model if settings else MODEL, "temperature": 0, "max_tokens": max_tokens,
         "chat_template_kwargs": {"enable_thinking": False},
         "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}},
         "messages": [{"role": "user", "content": parts}],
@@ -130,13 +152,15 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
     with httpx.Client(timeout=timeout, trust_env=False) as client:
         for retry in range(2 if retry_truncated else 1):
             last: Exception | None = None
-            for base_url in endpoint_order(f"{name}-{next(_CALL_COUNTER)}"):
+            request_key = f"{name}-{next(_CALL_COUNTER)}"
+            bases = endpoint_order(request_key, list(settings.endpoints)) if settings else endpoint_order(request_key)
+            for base_url in bases:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise TimeoutError(f"{name}: {timeout:g}s request budget exhausted")
                 try:
-                    if streaming_wanted():
-                        body = stream_completion(client, f"{base_url}/chat/completions", headers, payload, timeout=remaining)
+                    if settings.stream if settings else streaming_wanted():
+                        body = stream_completion(client, f"{base_url}/chat/completions", headers, payload, timeout=remaining, settings=settings)
                         break
                     response = client.post(f"{base_url}/chat/completions", json=payload, headers=headers, timeout=remaining)
                     response.raise_for_status()

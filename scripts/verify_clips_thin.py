@@ -61,7 +61,7 @@ class Verifier:
         self.workers = workers
         self.repair_advice = repair_advice
         self.max_tokens = max_tokens
-        self.judge_env = {k: os.environ[k] for k in JUDGE_KEYS if k in os.environ}
+        self.model_settings = model_client.JsonEndpoint.from_env()
         self.bible = StoryBible.model_validate_json((self.novel / "story_bible.json").read_text(encoding="utf-8"))
         self.phases = thin_phases.load_phases(self.novel)
         grammar = self.novel / "visual_grammar.json"
@@ -183,10 +183,7 @@ class Verifier:
                 parts.append(model_client.image_part(frame, review_contracts.FRAME_WIDTH))
                 legend.append(f"图{k}=视频第{k - len(cards)}帧")
             parts.append({"type": "text", "text": "，".join(legend) + "。\n" + text})
-            os.environ.update(self.judge_env)
-            if "QWEN38_LOCAL_MODEL" in self.judge_env:
-                model_client.MODEL = self.judge_env["QWEN38_LOCAL_MODEL"]
-            answer = model_client.ask_json(parts, schema, name="verify", max_tokens=getattr(self, 'max_tokens', None) or (1200 if advice else 900))
+            answer = model_client.ask_json(parts, schema, name="verify", max_tokens=getattr(self, 'max_tokens', None) or (1200 if advice else 900), settings=self.model_settings)
         except Exception as error:  # noqa: BLE001
             return {"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "error": f"{type(error).__name__}: {str(error)[:100]}"}
         answer.update({"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "claim": claim[:300],

@@ -52,3 +52,23 @@ def test_only_existing_failover_statuses_try_another_endpoint(monkeypatch, statu
     with pytest.raises(httpx.HTTPStatusError):
         client.ask_json([], {}, name='review')
     assert len(requests) == expected
+
+
+def test_explicit_judges_keep_endpoints_and_models_when_interleaved(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import os
+    monkeypatch.setenv('QWEN38_LOCAL_MODEL', 'unrelated-default')
+    monkeypatch.setenv('QWEN38_LOCAL_BASE_URL', 'http://unrelated.invalid/v1')
+    original = {k: os.environ[k] for k in ['QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_BASE_URL']}
+    settings = [client.JsonEndpoint('judge-a', ('http://a.invalid/v1',)),
+                client.JsonEndpoint('judge-b', ('http://b.invalid/v1',))]
+    def respond(request):
+        payload = json.loads(request.content)
+        assert payload['model'] == ('judge-a' if request.url.host == 'a.invalid' else 'judge-b')
+        return httpx.Response(200, json={'choices':[{'message':{'content':json.dumps({'model':payload['model']})},'finish_reason':'stop'}]})
+    real = httpx.Client
+    monkeypatch.setattr(client.httpx, 'Client', lambda **kw: real(transport=httpx.MockTransport(respond), **kw))
+    def ask(setting): return client.ask_json([], {}, name='isolation', settings=setting)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(ask, settings*4)) == [{'model':'judge-a'},{'model':'judge-b'}]*4
+    assert original == {k: os.environ[k] for k in original}

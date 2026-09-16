@@ -30,6 +30,8 @@ Resumable: a chapter whose growth is recorded in bible_growth.json and whose
 summary is in recap.json is skipped.
 """
 from __future__ import annotations
+import ledger_extraction_thin as ledger_extraction
+import ledger_resolution_thin as ledger_resolution
 
 import argparse
 import fcntl
@@ -40,7 +42,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from entity_ledger_thin import Ledger, build_index  # noqa: E402
+from ledger_store_thin import Ledger
+from ledger_views_thin import build_index  # noqa: E402
 from novel_manga.model_client import ask_json
 from review_bible_thin import grow_bible, scan_chapter, summarize_volume  # noqa: E402
 
@@ -163,7 +166,7 @@ def main() -> int:
             text = novel.episodes[index - 1].source_text
             out = {"scan": None, "raw": None}
             if index in ledger_set:
-                out["raw"] = ledger.extract(index, text)
+                out["raw"] = ledger_extraction.extract(ledger, index, text)
             if index in grow_set:
                 out["scan"] = scan_chapter(text, known_locations(novel_dir), names=ledger is None)
             return out
@@ -183,7 +186,7 @@ def main() -> int:
             scan = ahead["scan"]
             if index in ledger_set:
                 try:
-                    summary = ledger.resolve_chapter(index, novel.episodes[index - 1].source_text, ahead["raw"], workers=args.scan_workers)
+                    summary = ledger_resolution.resolve_chapter(ledger, index, novel.episodes[index - 1].source_text, ahead["raw"], workers=args.scan_workers)
                 except Exception as error:  # noqa: BLE001
                     summary, ahead["raw"] = None, None
                     log(f"ch{index}: ledger failed: {type(error).__name__}: {str(error)[:120]}")

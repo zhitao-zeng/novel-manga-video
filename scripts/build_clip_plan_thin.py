@@ -216,7 +216,7 @@ def bodies_for(novel_dir, chapter) -> dict[str, tuple[str, str]]:
         return _BODIES_CACHE[key]
     out: dict[str, tuple[str, str]] = {}
     try:
-        from entity_ledger_thin import snapshot
+        from ledger_views_thin import snapshot
         sheet = snapshot(Path(novel_dir), int(chapter))
         raw = json.loads((Path(novel_dir) / "entity" / "entities.json").read_text(encoding="utf-8"))
         entities = raw if isinstance(raw, dict) else {e["id"]: e for e in raw}

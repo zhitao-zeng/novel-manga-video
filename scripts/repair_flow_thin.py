@@ -11,6 +11,7 @@ One small model call per failed clip does that; the storyboard shots of that cli
 (cuts unchanged), the clip is rebuilt from its recorded shot indexes, and only its request changes.
 """
 from __future__ import annotations
+from novel_manga.review.endpoints import judge_settings
 
 import argparse
 import copy
@@ -25,8 +26,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "src")]
-os.environ.setdefault("SECOND_REVIEW_JUDGE", "local")
-import second_review  # noqa: E402,F401
 from novel_manga.story.fields import cast_field, actions_field, extras_field, field_instructions
 from novel_manga.repair.proposal import RepairProposal
 from novel_manga.repair.execution import action_owners, apply_stage, framing_signature, repair_prompt, stage_view
@@ -116,7 +115,7 @@ def source_appearance_check(passage: str, shots: list[dict], context: dict) -> d
                      'entities': {eid: name for eid, name in context.get('entities', {}).items() if name in active},
                      'stages': [{'stage': s['index'], 'source_quote': s.get('source_quote', ''),
                                  'picture': candidates[s['index']]} for s in shots]}, ensure_ascii=False)}],
-        schema, name='repair_source_appearance', max_tokens=1400, timeout=120)
+        schema, name='repair_source_appearance', max_tokens=1400, timeout=120, settings=judge_settings())
     def strings(value):
         if isinstance(value, str):
             return [value]
@@ -224,7 +223,7 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
               + '\n原文（方括号是段落编号，不是原文内容）：' + '\n'.join(f'[{i}] {p}' for i,p in enumerate(paragraphs,1)) + '\n待核台词：' + json.dumps([
                   {**{k:v for k,v in t.items() if k != 'current_speaker'},
                    'adaptation_speaker':t.get('current_speaker')} for t in turns],ensure_ascii=False))
-    answer = ask_json([{'type':'text','text':prompt}], schema, name='speaker_binding', max_tokens=min(4000,600+400*len(turns)))
+    answer = ask_json([{'type':'text','text':prompt}], schema, name='speaker_binding', max_tokens=min(4000,600+400*len(turns)), settings=judge_settings())
     by_key = {(t['stage'],t['turn']):t for t in turns}
     result = dict(fixed_result)
     def quoted(row):
@@ -269,7 +268,7 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
                           +'\n以下台词片段已在原文唯一定位，source_quote必须留空，程序使用给定连续原文。'
                           '仍需依据叙述独立确定speaker和source_speaker_phrase，不能沿用旧归属：'
                           +json.dumps([{'stage':k[0],'turn':k[1],'source_quote':v} for k,v in literal.items()],ensure_ascii=False)}],
-                         schema,name='speaker_binding_evidence_correction',max_tokens=min(5000,900+650*len(missing)))
+                         schema,name='speaker_binding_evidence_correction',max_tokens=min(5000,900+650*len(missing)), settings=judge_settings())
         corrected = [{**r, 'source_quote':literal[(r.get('stage'),r.get('turn'))]}
                      if (r.get('stage'),r.get('turn')) in literal and not str(r.get('source_quote') or '').strip()
                      else quoted(r) for r in retry.get('speakers', [])]
@@ -474,7 +473,7 @@ def _proposal_data(novel_dir: Path, index: int, *, record_evidence=None, use_his
         try:
             answer = ask_json([{"type": "text", "text": repair_prompt(passage, shots, snapshot, failing[cid], clip_names, history, reframe, request_context, require_structure=require_structure)
                               + prompt_block(episode_dir, clip_names)}],
-                              schema, name="clip_repair", max_tokens=max(2400, min(4500, 800 * len(indexes))) if reframe else 1500)
+                              schema, name="clip_repair", max_tokens=max(2400, min(4500, 800 * len(indexes))) if reframe else 1500, settings=judge_settings())
         except Exception as error:  # noqa: BLE001
             notes.append(f"{cid}: model {type(error).__name__}: {str(error)[:80]}")
             continue

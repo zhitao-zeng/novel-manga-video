@@ -187,7 +187,8 @@ def test_managed_verifier_adds_advice_without_old_failure_labels(episode, monkey
     directory, plan, review, media = episode
     history.begin_trial(directory, {"clip_01"}, "rewrite")
     v = Verifier.__new__(Verifier)
-    v.novel, v.frames, v.prefix, v.judge_tag, v.judge_env = directory.parent, directory / "frames", "nov", "test", {}
+    v.novel, v.frames, v.prefix, v.judge_tag = directory.parent, directory / "frames", "nov", "test"
+    v.model_settings = model_client.JsonEndpoint.from_env()
     v.repair_advice = True
     monkeypatch.setattr(v, "prompt_for", lambda *a: ([], "current frame questions"))
     monkeypatch.setattr(review_evidence, "clip_frames", lambda *a: [directory / "frame.jpeg"])

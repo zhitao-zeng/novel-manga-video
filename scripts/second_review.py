@@ -42,18 +42,10 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 
 # The two judges that can see pictures.  ask_json carries one model name and one key for its
 # whole endpoint list, so a judge is chosen per process, not per call.
-JUDGES = {
-    "local": {"QWEN38_LOCAL_BASE_URL": ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)),
-              "QWEN38_LOCAL_MODEL": "Qwen3.8-27B-Project",
-              "QWEN38_LOCAL_API_KEY_VAR": "SECOND_REVIEW_NO_KEY", "QWEN38_LOCAL_STREAM": "0"},
-    "flashnext": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.81:8038/v1",
-                  "QWEN38_LOCAL_MODEL": "Qwen3.8-Flash-Next",
-                  "QWEN38_LOCAL_API_KEY_VAR": "GPU81_QWEN_API_KEY", "QWEN38_LOCAL_STREAM": "1"},
-}
+from novel_manga.review.endpoints import JUDGES, judge_settings
 JUDGE = os.environ.get("SECOND_REVIEW_JUDGE", "local")
 if JUDGE not in JUDGES:
     raise SystemExit(f"unknown judge {JUDGE}; pick one of {sorted(JUDGES)}")
-os.environ.update(JUDGES[JUDGE])
 
 from novel_manga.model_client import ask_json, image_part  # noqa: E402  (after the endpoint choice)
 
@@ -232,7 +224,7 @@ def look(job: dict, note: str) -> dict | None:
     try:
         answer = ask_json([{"type": "text", "text": LOOK_RULES + note
                             + (f"\n本段台词：{lines}" if lines else "")},
-                           *[image_part(p, 768) for p in images]], LOOK_SCHEMA, name="look", max_tokens=500)
+                           *[image_part(p, 768) for p in images]], LOOK_SCHEMA, name="look", max_tokens=500, settings=judge_settings(JUDGE))
     except Exception as error:  # noqa: BLE001
         return {"episode": job["episode"], "clip": job["clip"], "judge": JUDGE,
                 "error": f"{type(error).__name__}: {error}"[:200]}
@@ -250,7 +242,7 @@ def look(job: dict, note: str) -> dict | None:
 def read_back(job: dict, note: str) -> dict | None:
     try:
         answer = ask_json([{"type": "text", "text": READ_RULES + note + "\n\n描述：" + job["saw"]}],
-                          READ_SCHEMA, name="read", max_tokens=400)
+                          READ_SCHEMA, name="read", max_tokens=400, settings=judge_settings(JUDGE))
     except Exception as error:  # noqa: BLE001
         return {**job["row"], "read": None, "read_why": type(error).__name__}
     row = {**job["row"], "read": bool(answer.get("broken")), "read_why": (answer.get("why") or "")[:150]}

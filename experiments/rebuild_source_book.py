@@ -58,7 +58,7 @@ def judge_json(parts, schema, *, name, max_tokens=2200, timeout=240):
     from novel_manga.model_client import stream_completion
     # Import during setup/main has already selected the local reader. Only
     # read the alternate configuration here; do not mutate process settings.
-    from second_review import JUDGES
+    from novel_manga.review.endpoints import JUDGES
     config = JUDGES['flashnext']
     key = os.environ.get(config['QWEN38_LOCAL_API_KEY_VAR'], '')
     payload = {'model': config['QWEN38_LOCAL_MODEL'], 'temperature': 0, 'max_tokens': max_tokens, 'reasoning_effort': 'low',

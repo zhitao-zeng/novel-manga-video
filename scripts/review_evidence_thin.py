@@ -35,7 +35,8 @@ def snapshot_block(clip: dict, episode_dir: Path) -> str:
     if not chapter.isdigit() or not (novel_dir / "entity" / "mentions" / f"ch_{int(chapter):04d}.json").is_file():
         return ""
     try:
-        from entity_ledger_thin import Ledger, novel_texts, snapshot
+        from ledger_store_thin import Ledger, novel_texts
+        from ledger_views_thin import snapshot
         ledger = _LEDGER_CACHE.get(novel_dir) or _LEDGER_CACHE.setdefault(novel_dir, Ledger(novel_dir))
         texts = _NOVEL_TEXT_CACHE.get(novel_dir) or _NOVEL_TEXT_CACHE.setdefault(novel_dir, novel_texts(novel_dir))
         shot = snapshot(novel_dir, int(chapter), clip.get("segment_ids") or None, ledger=ledger, text=texts.get(int(chapter), ""))
