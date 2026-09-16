@@ -169,18 +169,18 @@ def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | Non
         return None
     if (episode_dir / "thin_media_report.h3zh.json").is_file():
         return {"skipped": "waiting for the H3 keep-check"}
-    limits = plan.get("limits") or {}
-    packer.MAX_CLIP_SECONDS = float(limits.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS)
-    packer.SOFT_CUT_SECONDS = float(limits.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS)
-    packer.MAX_STAGES = int(limits.get("max_stages") or packer.MAX_STAGES)
-    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier)
+    saved = plan.get("limits") or {}
+    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS),
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS),
+              "max_stages": int(saved.get("max_stages") or packer.MAX_STAGES)}
+    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
     shots = packer.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
     clips, moved, split = resplit(
         plan, {shot["index"]: shot for shot in shots},
         lambda raw, new_id, old_id: packer.clip_entry(raw, new_id, ctx, override=ctx["overrides"].get(old_id, {})), margin,
         settings=ctx.get('compiler_options'))
     summary = {"split": split, "new_clips": sum(len(ids) for ids in split.values()),
-               "final": (episode_dir / f"{episode_dir.name}.mp4").is_file(), "mode": int(packer.MAX_CLIP_SECONDS)}
+               "final": (episode_dir / f"{episode_dir.name}.mp4").is_file(), "mode": int(limits["max_clip_seconds"])}
     if not split or not apply:
         return summary
     feedback_path, overrides_path = episode_dir / "review_feedback.json", episode_dir / "clip_overrides.json"
@@ -241,11 +241,11 @@ def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | No
     record = plan.get("split_long_stages")
     if not record:
         return None
-    limits = plan.get("limits") or {}
-    packer.MAX_CLIP_SECONDS = float(limits.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS)
-    packer.SOFT_CUT_SECONDS = float(limits.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS)
-    packer.MAX_STAGES = int(limits.get("max_stages") or packer.MAX_STAGES)
-    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier)
+    saved = plan.get("limits") or {}
+    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packer.MAX_CLIP_SECONDS),
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packer.SOFT_CUT_SECONDS),
+              "max_stages": int(saved.get("max_stages") or packer.MAX_STAGES)}
+    ctx = packer.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
     shots = packer.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
     by_index = {shot["index"]: shot for shot in shots}
     position = {clip["clip_id"]: n for n, clip in enumerate(plan["clips"])}

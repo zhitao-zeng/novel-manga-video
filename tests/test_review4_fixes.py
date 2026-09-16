@@ -2,6 +2,7 @@
 missed their own takes, English (H3) prompts that carried Chinese the model read out, split parts that lost their
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
+from dataclasses import replace
 import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
@@ -324,7 +325,7 @@ def test_rebuilding_parts_keeps_every_part_whose_pictures_stay_the_same(tmp_path
         {"clip_id": "clip_02", "kind": "video", "shot_indexes": [5], "cast": ["林凡"], "references": ["a"], "prompt": "part 2"}],
         "split_long_stages": {"split": {"clip_01": ["clip_01", "clip_02"]}}}
     (directory / "clip_plan.json").write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None: {"overrides": {}})
+    monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None, **kwargs: {"overrides": {}, "compiler_options": replace(tool.packer.compiler_options(), **kwargs.get("limits", {}))})
     monkeypatch.setattr(tool.packer, "prepared_shots", lambda script, episode_dir: [long_stage(["我们走吧。" * 12] * 2)])
     rebuilt = {"clip_01": (["林凡"], ["a"]), "clip_02": (["林凡", "苏晴"], ["a", "b"])}
     monkeypatch.setattr(tool.packer, "clip_entry", lambda raw, clip_id, ctx, override=None: {

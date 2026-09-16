@@ -16,7 +16,7 @@ import threading
 import build_clip_plan_thin as packer
 from novel_manga.util import atomic_write_json
 
-LOCK = threading.Lock()  # packer's per-plan context is module state
+LOCK = threading.Lock()  # retain the existing serialized recovery operation
 
 
 def candidates(plan: dict) -> set[str]:
@@ -45,7 +45,7 @@ def recover(episode_dir: Path, plan: dict, script: dict) -> tuple[dict, list[str
                     if not any(p.get("split_part", [1, 1])[1] > 1 for p in pieces):
                         raise ValueError("no recoverable sibling ranges")
                     seconds = round(sum(packer.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)
-                    if seconds > packer.MAX_CLIP_SECONDS:
+                    if seconds > ctx["compiler_options"].max_clip_seconds:
                         raise ValueError("recovered range still exceeds clip limit")
                     raw = {"kind": "video", "location": before.get("location") or pieces[0]["location"],
                            "shots": pieces, "seconds": seconds}

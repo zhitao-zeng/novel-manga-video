@@ -86,7 +86,7 @@ def packed_episode(tmp_path: Path):
             "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d"}}}
     ctx = packer.context_for_plan(episode, novel / "story_bible.json", plan)
     plan["clips"] = [packer.clip_entry(c, f"clip_{i:02d}", ctx)
-                     for i, c in enumerate(packer.pack(packer.prepared_shots(copy.deepcopy(old), episode)), 1)]
+                     for i, c in enumerate(packer.pack(packer.prepared_shots(copy.deepcopy(old), episode), settings=ctx["compiler_options"]), 1)]
     return novel, episode, old, new, plan
 
 
@@ -142,10 +142,12 @@ def test_unrecoverable_cuts_are_left_unwritten(tmp_path, monkeypatch):
 
 def test_context_switch_back_to_quality_restores_two_views(tmp_path):
     novel, episode, old, new, plan = packed_episode(tmp_path)
-    assert packer.TWO_VIEW_CAST_LIMIT == 0
+    fast = packer.context_for_plan(episode, novel / "story_bible.json", plan)["compiler_options"]
+    assert fast.two_view_cast_limit == 0
     plan["totals"]["profile"]["tier"] = "quality"
     ctx = packer.context_for_plan(episode, novel / "story_bible.json", plan)
-    assert ctx["profile"]["tier"] == "quality" and packer.TWO_VIEW_CAST_LIMIT == 2
+    assert ctx["profile"]["tier"] == "quality" and ctx["compiler_options"].two_view_cast_limit == 2
+    assert fast.two_view_cast_limit == 0
 
 
 def test_an_unrelated_old_uncut_stage_does_not_change_or_block_split_repair(tmp_path):
@@ -156,7 +158,7 @@ def test_an_unrelated_old_uncut_stage_does_not_change_or_block_split_repair(tmp_
     new["shots"].append(copy.deepcopy(extra))
     # Build the legacy entry as one full stage, without repacking it into new clips.
     ctx = packer.context_for_plan(episode, novel / "story_bible.json", plan)
-    kept = packer.clip_entry({"kind": "video", "location": "大殿", "shots": [extra], "seconds": packer.shot_seconds(extra)}, "clip_04", ctx)
+    kept = packer.clip_entry({"kind": "video", "location": "大殿", "shots": [extra], "seconds": packer.shot_seconds(extra, settings=ctx["compiler_options"])}, "clip_04", ctx)
     kept.pop("shot_parts")
     plan["clips"].append(kept)
     merged, changed, why = completion.rebuild_in_place(episode, novel / "story_bible.json", old, new, plan)

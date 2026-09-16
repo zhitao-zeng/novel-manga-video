@@ -14,6 +14,7 @@ Writes clip_plan.json and clip_plan.md.  No model call, no remote call.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import copy
 import hashlib
 import json
@@ -70,7 +71,7 @@ def compiler_options(frame=None, *, planning_context=None):
         chat_screen=copy.deepcopy(CHAT_SCREEN), anon_voice=copy.deepcopy(ANON_VOICE),
         genre_rejects=list(GENRE_REJECTS), genre_crowd=GENRE_CROWD,
         entity_forms=copy.deepcopy(entities.entity_forms), entity_generic=copy.deepcopy(entities.entity_generic),
-        aliases=dict(entities.aliases), frame=frame or frame_spec({'frame':'9:16'}),
+        aliases=dict(entities.aliases), frame=dict(frame or frame_spec({'frame':'9:16'})),
         voices=dict(VOICES), two_view_cast_limit=TWO_VIEW_CAST_LIMIT)
 
 
@@ -162,6 +163,7 @@ VOICES: dict[str, str] = {}  # character -> series_assets/voices/<name>.wav, fro
 
 def load_voices(novel_dir: Path) -> dict[str, str]:
     """Reference voices built by build_voices_thin.py; empty until the first episodes exist."""
+    voices = {}
     manifest = novel_dir / "series_assets" / "voices" / "voices.json"
     if manifest.is_file():
         try:
@@ -170,17 +172,18 @@ def load_voices(novel_dir: Path) -> dict[str, str]:
             rows = {}
         for name in rows:
             if (novel_dir / "series_assets" / "voices" / f"{name}.wav").is_file():
-                VOICES[name] = f"series_assets/voices/{name}.wav"
-    return VOICES
+                voices[name] = f"series_assets/voices/{name}.wav"
+    return voices
 
 
 def load_chat_screen(novel_dir: Path) -> dict:
     """Per-novel chat UI template (outputs/<novel>/chat_screen.json): same group
     name and layout in every clip of every episode."""
+    screen = copy.deepcopy(CHAT_SCREEN)
     path = novel_dir / "chat_screen.json"
     if path.is_file():
-        CHAT_SCREEN.update({k: v for k, v in json.loads(path.read_text(encoding="utf-8")).items() if k in CHAT_SCREEN and v})
-    return CHAT_SCREEN
+        screen.update({k: v for k, v in json.loads(path.read_text(encoding="utf-8")).items() if k in screen and v})
+    return screen
 
 
 def screen_clause(*args, settings=None, **kwargs):
@@ -317,28 +320,28 @@ def compile_prompt(*args, settings=None, **kwargs):
 
 
 def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None = None, style: str | None = None,
-                 frame: str | None = None, tier: str | None = None) -> dict:
-    """Everything an episode's clip entries are built from besides the shots - and the module settings the packer
-    reads (genre rejects, crowd line, anonymous voices, chat screen, voice bank, cards per character)."""
+                 frame: str | None = None, tier: str | None = None, *, limits: dict | None = None) -> dict:
+    """Load the episode inputs and independent compiler options: genre, frame, voices, chat and limits."""
     planner_ctx = PlannerContext.from_env()
-    global GENRE_REJECTS, GENRE_CROWD, TWO_VIEW_CAST_LIMIT
     bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     grammar = load_grammar(grammar_path, episode_dir)
-    load_chat_screen(episode_dir.parent)
-    load_voices(episode_dir.parent)
+    chat_screen = load_chat_screen(episode_dir.parent)
+    voices = load_voices(episode_dir.parent)
     load_entity_index(episode_dir.parent, chapter_of(episode_dir), ctx=planner_ctx)
     profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
     genre = load_genre(profile)
-    GENRE_REJECTS = [x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x]
-    GENRE_CROWD = genre.get("crowd_default", "")
-    ANON_VOICE.clear()
-    ANON_VOICE.update(DEFAULT_ANON_VOICE)
-    ANON_VOICE.update(genre.get("anon_voice") or {})
-    TWO_VIEW_CAST_LIMIT = 0 if is_fast(profile) else 2
+    options = replace(compiler_options(frame_spec(profile), planning_context=planner_ctx),
+        chat_screen=chat_screen, voices=voices,
+        genre_rejects=[x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x],
+        genre_crowd=genre.get("crowd_default", ""),
+        anon_voice={**DEFAULT_ANON_VOICE, **(genre.get("anon_voice") or {})},
+        two_view_cast_limit=0 if is_fast(profile) else 2)
+    if limits is not None:
+        options = replace(options, **limits)
     overrides_path = episode_dir / "clip_overrides.json"
     return {
         "episode_dir": episode_dir, "bible": bible, "grammar": grammar, "profile": profile, "frame": frame_spec(profile),
-        "compiler_options": compiler_options(frame_spec(profile), planning_context=planner_ctx),
+        "compiler_options": options,
         "location_map": {full.split("：", 1)[0].strip(): full for full in bible.locations},
         "overrides": json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {},
     }
@@ -351,13 +354,14 @@ def prepared_shots(script: dict, episode_dir: Path) -> list[dict]:
 
 def context_for_plan(episode_dir: Path, bible_path: Path, plan: dict) -> dict:
     """Rebuild with the plan's recorded frame, style, tier and clip limits, not today's profile defaults."""
-    global MAX_CLIP_SECONDS, MAX_STAGES, SOFT_CUT_SECONDS
     profile = (plan.get("totals") or {}).get("profile") or {}
-    limits = plan.get("limits") or {}
-    MAX_CLIP_SECONDS = float(limits.get("max_clip_seconds") or (15 if "-15s" in plan.get("policy", "") else 30))
-    MAX_STAGES = int(limits.get("max_stages") or (3 if MAX_CLIP_SECONDS <= 15 else 6))
-    SOFT_CUT_SECONDS = float(limits.get("soft_cut_seconds") or (MAX_CLIP_SECONDS * 0.6))
-    return load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"), tier=profile.get("tier"))
+    saved = plan.get("limits") or {}
+    cap = float(saved.get("max_clip_seconds") or (15 if "-15s" in plan.get("policy", "") else 30))
+    limits = {"max_clip_seconds": cap,
+              "max_stages": int(saved.get("max_stages") or (3 if cap <= 15 else 6)),
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or cap * 0.6)}
+    return load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"),
+                        tier=profile.get("tier"), limits=limits)
 
 
 def shots_for_plan(*args, settings=None, **kwargs):
@@ -494,7 +498,7 @@ def main() -> int:
     shots = prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir)
     clips = [clip_entry(clip, f"clip_{number:02d}", ctx) for number, clip in enumerate(pack(shots, settings=ctx["compiler_options"]), start=1)]
     totals = plan_totals(clips, shots, ctx)
-    plan = {"policy": POLICY, "phases": phase_labels(clips), "limits": {"max_clip_seconds": MAX_CLIP_SECONDS, "soft_cut_seconds": SOFT_CUT_SECONDS, "max_stages": MAX_STAGES}, "totals": totals, "clips": clips}
+    plan = {"policy": POLICY, "phases": phase_labels(clips), "limits": {"max_clip_seconds": ctx["compiler_options"].max_clip_seconds, "soft_cut_seconds": ctx["compiler_options"].soft_cut_seconds, "max_stages": ctx["compiler_options"].max_stages}, "totals": totals, "clips": clips}
     try:
         old_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):

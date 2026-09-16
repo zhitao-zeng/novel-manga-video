@@ -1,6 +1,7 @@
 """split_long_stages.py: an old plan's clamped clips become the parts the packer now cuts them into, and nothing
 else about the episode changes - the other clips keep their entries and their rendered videos."""
 from __future__ import annotations
+from dataclasses import replace
 import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
@@ -189,7 +190,7 @@ def test_parts_are_packed_again_for_the_fast_tier_with_their_ids(tmp_path, monke
         "split_long_stages": {"split": {"clip_02": ["clip_02", "clip_03"]}}}
     (episode / "clip_plan.json").write_text(json.dumps(plan), encoding="utf-8")
     tiers = []
-    monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None: tiers.append(tier) or {"overrides": {}})
+    monkeypatch.setattr(tool.packer, "load_context", lambda episode_dir, bible, tier=None, **kwargs: tiers.append(tier) or {"overrides": {}, "compiler_options": replace(tool.packer.compiler_options(), **kwargs.get("limits", {}))})
     monkeypatch.setattr(tool.packer, "prepared_shots", lambda script, episode_dir: [long_stage(["我们走吧。" * 12] * 2)])
     monkeypatch.setattr(tool.packer, "clip_entry", lambda raw, clip_id, ctx, override=None: {"clip_id": clip_id, "kind": "video", "prompt": f"{clip_id}, fast", "references": []})
     monkeypatch.setattr(tool.packer, "plan_totals", lambda clips, shots, ctx: {})
