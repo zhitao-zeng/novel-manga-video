@@ -13,8 +13,8 @@ comparison shows it), fine.  Ghost text is recorded apart and does not drive the
 Modes: candidates = the review's must_fix clips (with the judge's claim); sample = N random clips the review
 passed (leak estimate); all = every clip with a take, except the candidates; replay = the clips another judge
 verified (calibration).  Records are keyed by (episode, clip, video file): a rerun only verifies new takes.
-The judge model is QWEN38_LOCAL_* from the environment, re-applied before every call because an imported
-module rewrites those variables for the process.  雾月 2026-09-14: the judge confirmed on half of its must_fix
+The judge captures its QWEN38_LOCAL_* endpoint settings when constructed; each request uses that
+instance configuration without changing another judge or the process environment.  雾月 2026-09-14: the judge confirmed on half of its must_fix
 flags and missed 4% of what it passed; this is what made the final fix list.
 """
 from __future__ import annotations

@@ -55,6 +55,8 @@ uv run pytest
 
 ## 代码分工
 
+- `src/novel_manga/planning/`：按章节隔离的规划上下文、预算、请求字段与校验规则。
+- `src/novel_manga/entities/`：实体证据和关系定义；账本读写、判断与索引由各流程模块承担。
 - `src/novel_manga/story/`：身份、动作和对白的共享规则，不执行模型请求或调度。
 - `src/novel_manga/story/compilation.py`：显式配置的片段编译，复用现有切段和提示词策略。
 - `src/novel_manga/repair/`：修复决策、内存候选及场景修改；流程层负责验证后写回。
@@ -77,5 +79,7 @@ uv run pytest
 审查入口保持 `scripts/thin_review.py`，取证、模型评审、人物库补全、卡片和整集报告分别编排；详见 [审查模块说明](docs/review-module-decoupling-20260916.md)。
 
 复审和补查命令只负责入口，状态存取、执行编排与成片发布分别维护；详见 [复审状态与发布说明](docs/review-state-decoupling-20260916.md)。
+
+规划、账本、调度与看板的最新分工见 [架构收尾说明](docs/architecture-consolidation-20260917.md)。诸天现有内容的抽样结果见 [章节核对报告](docs/zhutian-content-audit-20260917.md)。
 
 早期上传/生成/下载 HTTP API、`novel-manga` 命令、旧整集控制器及专用 API 容器已移除，不提供兼容入口。已有剧本、人物库、视频和任务历史保留。
