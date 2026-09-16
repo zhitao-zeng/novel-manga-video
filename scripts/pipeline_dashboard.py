@@ -314,18 +314,18 @@ def audit_metrics(novel: Path, directory: Path | None = None) -> dict | None:
             'reused':sum(launch['reused_results'].values()) if launch.get('reused_results') else launch.get('reused_h3_results',launch.get('reused_pilot_records',0))}
 
 
-def operation_metrics(novel: Path, repair_state=None):
+def operation_metrics(novel: Path, repair_state=None, *, process_rows=None):
     root = Path(__file__).resolve().parent.parent
     config = read(root / 'configs/pipeline.json', {})
     spec = next((n for n in config.get('novels', []) if n['id'] == novel.name), {'id': novel.name})
-    return flow_snapshot(root, {**spec, 'novel_dir': str(novel)}, repair_state=repair_state)
+    return flow_snapshot(root, {**spec, 'novel_dir': str(novel)}, repair_state=repair_state, rows=process_rows)
 
 
-def pipeline_metrics(novel: Path) -> dict | None:
+def pipeline_metrics(novel: Path, *, process_rows=None) -> dict | None:
     novel=novel.resolve()
     state=read(novel/'repair_manager/state.json',{})
     summary=state.get('summary',{})
-    flows=operation_metrics(novel, state)
+    flows=operation_metrics(novel, state, process_rows=process_rows)
     try:
         audit=audit_metrics(novel)
     except (OSError,ValueError,sqlite3.Error) as error:

@@ -51,3 +51,19 @@ def test_snapshot_scope_and_corrupt_cache_do_not_hide_current_book(tmp_path):
     assert cache.peek() is None
     cache.read(lambda:{'done':1});finish(cache)
     assert cache.peek()=={'done':1}
+
+
+def test_one_process_snapshot_is_shared_by_all_books(tmp_path, monkeypatch):
+    import dashboard_service_thin as service
+    calls=[];process_rows=[{'pid':1,'args':[],'cwd':str(tmp_path)}]
+    monkeypatch.setattr(service,'processes',lambda:calls.append('processes') or process_rows)
+    def metrics(novel, *, process_rows):
+        calls.append(novel.name)
+        assert process_rows is rows
+        return {'mode':'repair','status':'paused'}
+    rows=process_rows
+    monkeypatch.setattr(service,'pipeline_metrics',metrics)
+    snapshots=service.DashboardSnapshots(tmp_path,['a','b','c'])
+    result=snapshots.attach_live({'novels':[{'id':n} for n in ['a','b','c']]})
+    assert calls==['processes','a','b','c']
+    assert all(n['pipeline']['status']=='paused' for n in result['novels'])

@@ -118,8 +118,8 @@ def test_dashboard_and_cli_share_same_flow_status(tmp_path, monkeypatch, capsys)
     monkeypatch.setattr(control, 'processes', lambda: [])
     monkeypatch.setattr(pipeline, 'ROOT', tmp_path)
     monkeypatch.setattr(pipeline, 'load', lambda: {'novels': [spec]})
-    monkeypatch.setattr(dashboard, 'operation_metrics', lambda path, repair_state=None:
-                        control.flow_snapshot(tmp_path, spec, repair_state=repair_state))
+    monkeypatch.setattr(dashboard, 'operation_metrics', lambda path, repair_state=None, process_rows=None:
+                        control.flow_snapshot(tmp_path, spec, repair_state=repair_state, rows=process_rows))
     assert pipeline.main(['status', '--novel', 'book', '--json']) == 0
     cli = json.loads(capsys.readouterr().out)['novels'][0]['flows']
     assert dashboard.pipeline_metrics(novel)['flows'] == cli

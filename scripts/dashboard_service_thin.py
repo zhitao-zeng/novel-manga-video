@@ -7,6 +7,7 @@ import dashboard_config_thin as config
 import dashboard_history_thin as history
 import dashboard_resources_thin as resources
 from pipeline_dashboard import pipeline_metrics
+from novel_manga.batch_control import processes
 
 
 class DashboardSnapshots:
@@ -32,7 +33,8 @@ class DashboardSnapshots:
     def attach_live(self, data):
         # Current controller state is read on every response; historical cache
         # age must never delay a changed delivery count or pause status.
-        rows = [{**n, 'pipeline': pipeline_metrics(config.ROOT / 'outputs' / n['id']),
+        process_rows = processes()
+        rows = [{**n, 'pipeline': pipeline_metrics(config.ROOT / 'outputs' / n['id'], process_rows=process_rows),
                  'history_at': n.get('history_at', data.get('now'))} for n in data.get('novels', [])]
         rows.sort(key=lambda n: 0 if (n.get('pipeline') or {}).get('mode', 'repair') == 'repair' and n.get('pipeline')
                   else 1 if n.get('pipeline') else 2)
