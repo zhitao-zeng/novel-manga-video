@@ -135,22 +135,16 @@ def review_world_context(novel_dir: Path) -> str:
             '这些设定不能为动作或台词安错人、遗漏必需角色、超出原文人数的复制开脱。\n')
 
 
-def load_entity_tiers(novel_dir: Path) -> None:
-    policy.ENTITY_TIERS.clear()
+def load_review_rules(novel_dir: Path) -> policy.ReviewRules:
+    """Load an independent set of rules; an unconfigured genre uses defaults."""
     try:
         index = json.loads((Path(novel_dir) / "entity_index.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return
-    policy.ENTITY_TIERS.update({row["name"]: str(row.get("tier") or "") for row in index.get("characters", []) if row.get("name")})
-
-
-def apply_genre_review_rules(novel_dir: Path) -> None:
-    """Per-novel review rules from the genre preset: a fantasy cast has tails
-    and horns by design, so the breakdown pattern drops those words."""
-    load_entity_tiers(novel_dir)
+        index = {}
+    tiers = tuple((row["name"], str(row.get("tier") or ""))
+                  for row in index.get("characters", []) if row.get("name"))
     pattern = load_genre(load_profile(novel_dir)).get("breakdown_pattern")
-    if pattern:
-        policy.BREAKDOWN = re.compile(pattern)
+    return policy.ReviewRules(re.compile(pattern) if pattern else policy.BREAKDOWN, tiers)
 
 
 def review_mode(work_dir: Path) -> str:

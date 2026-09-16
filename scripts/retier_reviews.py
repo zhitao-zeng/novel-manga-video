@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.review.contracts import STORY_FATAL
-from review_evidence_thin import apply_genre_review_rules, segment_texts
+from review_evidence_thin import load_review_rules, segment_texts
 from novel_manga.review.policy import compose_feedback, fix_tier, flag_line
 from review_judges_thin import script_check  # noqa: E402
 from novel_manga.models import StoryBible  # noqa: E402
@@ -40,7 +40,7 @@ def main() -> int:
     args = parser.parse_args()
     novel_dir = args.novel_dir.resolve()
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
-    apply_genre_review_rules(novel_dir)
+    rules = load_review_rules(novel_dir)
     novel_id = novel_dir.name
 
     episodes = changed = 0
@@ -71,7 +71,7 @@ def main() -> int:
         for clip_id, verdict in clips.items():
             if not isinstance(verdict, dict) or verdict.get("severity") != "fail":
                 continue
-            tier = fix_tier(verdict, bible)
+            tier = fix_tier(verdict, bible, rules)
             if (args.script_check and tier == "must_fix" and "scripted" not in verdict
                     and not (verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL)):
                 check = script_check(plan_clips.get(clip_id, {}), verdict, segments)
@@ -81,7 +81,7 @@ def main() -> int:
                     touched = True
                     if check["scripted"]:
                         scripted += 1
-                        tier = fix_tier(verdict, bible)
+                        tier = fix_tier(verdict, bible, rules)
             if verdict.get("tier") != tier:
                 touched = True
                 verdict["tier"] = tier

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 import novel_manga.models as review_models
 from .contracts import STORY_FATAL
 
@@ -20,23 +21,27 @@ MISSING = re.compile(r"(?<!特征)(?<!道具)缺失|(?<!设定中)(?<!设定里)
 LEAD_ROLES = {"主角", "女主角", "男主角"}
 
 
-ENTITY_TIERS: dict[str, str] = {}  # name -> lead/major/minor/extra from entity_index.json, when the novel has one
+@dataclass(frozen=True)
+class ReviewRules:
+    breakdown: re.Pattern = BREAKDOWN
+    entity_tiers: tuple[tuple[str, str], ...] = ()
 
 
-def fix_tier(verdict: dict, bible: review_models.StoryBible) -> str:
+def fix_tier(verdict: dict, bible: review_models.StoryBible, rules: ReviewRules | None = None) -> str:
     """must_fix / optional / ignore for a failed clip verdict.  A viewer notices a
     broken body, a lead with the wrong face, or a speaking character who is not
     there; a side character's shirt colour or a garbled phone screen they do not."""
+    rules = rules or ReviewRules()
     if verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL:
         return "must_fix"  # the picture tells the wrong story, however clean it is
     if verdict.get("scripted"):
         return "optional"  # a scripted oddity never excuses assigning an action to the wrong person
     issue = str(verdict.get("identity_issue") or "") + " " + str(verdict.get("defect_issue") or "")
-    if verdict.get("visual_defects") or BREAKDOWN.search(issue):
+    if verdict.get("visual_defects") or rules.breakdown.search(issue):
         return "must_fix"
     # Whose swapped face is a retake: the bible's leads, or - when the book has an entity index, whose role field
     # is prose - its leads and majors (雾月: 莱恩 plus the twelve most-mentioned).
-    leads = ([name for name, tier in ENTITY_TIERS.items() if tier in {"lead", "major"} and len(name) >= 2]
+    leads = ([name for name, tier in rules.entity_tiers if tier in {"lead", "major"} and len(name) >= 2]
              or [c.name for c in bible.characters if str(c.role or "") in LEAD_ROLES])
     if any(name in issue for name in leads) and SWAP.search(issue):
         return "must_fix"

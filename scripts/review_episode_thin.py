@@ -16,7 +16,7 @@ import review_judges_thin as review_judges
 
 def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     novel_dir = episode_dir.parent
-    review_evidence.apply_genre_review_rules(novel_dir)
+    rules = review_evidence.load_review_rules(novel_dir)
     bible = review_models.StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}
@@ -70,14 +70,14 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
             continue
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
         if verdict.get("severity") == "fail":
-            tier = review_policy.fix_tier(verdict, bible)
+            tier = review_policy.fix_tier(verdict, bible, rules)
             if (tier == "must_fix" and "scripted" not in verdict
                     and not (verdict.get("story_ok") is False and verdict.get("story_kind") in review_contracts.STORY_FATAL)):
                 check = review_judges.script_check(clip, verdict, segments)
                 if check is not None:
                     verdict["scripted"] = report["clips"][clip_id]["scripted"] = (
                         {"evidence": check["evidence"], "note": check["note"]} if check["scripted"] else False)
-                    tier = review_policy.fix_tier(verdict, bible)
+                    tier = review_policy.fix_tier(verdict, bible, rules)
             # Into the file as well as this run's copy: without it the review said only how many clips differ from the
             # setting, never how many it actually asks to redo (雾月: 3501 fails, 600 of them must_fix).
             verdict["tier"] = report["clips"][clip_id]["tier"] = tier

@@ -62,7 +62,6 @@ class Verifier:
         self.repair_advice = repair_advice
         self.max_tokens = max_tokens
         self.judge_env = {k: os.environ[k] for k in JUDGE_KEYS if k in os.environ}
-        review_evidence.apply_genre_review_rules(self.novel)
         self.bible = StoryBible.model_validate_json((self.novel / "story_bible.json").read_text(encoding="utf-8"))
         self.phases = thin_phases.load_phases(self.novel)
         grammar = self.novel / "visual_grammar.json"
