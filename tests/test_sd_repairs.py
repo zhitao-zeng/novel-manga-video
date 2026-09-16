@@ -132,25 +132,25 @@ def test_a_line_longer_than_a_clip_is_cut_at_sentence_ends(monkeypatch):
 
 
 # ---------------------------------------------------------------- 18: title cards
-def title_runner(tmp_path: Path, plan: dict) -> rc.ThinMediaRunner:
+def title_runner(tmp_path: Path, plan: dict, monkeypatch) -> rc.ThinMediaRunner:
     r = object.__new__(rc.ThinMediaRunner)
     r.work, r.clip_plan = tmp_path / "work", plan
     r.settings = types.SimpleNamespace(width=1280, height=720, fps=25, font_path=DEFAULT_FONT_PATH)
     r.renderer = types.SimpleNamespace(mux_visual_group=lambda video, wav, out: (out, 5.0),
                                        _silent_card_segment=lambda image, out, seconds: out)
-    r.chat_segments = lambda clip_id, video: []
-    r.subtitle_events = lambda clip_id, selected: []
-    r.frame = lambda video, second, out: None  # no backdrop: the card is drawn on a dark ground
+    monkeypatch.setattr("novel_manga.media.postprocess.chat_segments", lambda *args: [])
+    monkeypatch.setattr("novel_manga.media.subtitles.subtitle_events", lambda *args: [])
+    monkeypatch.setattr("novel_manga.media.postprocess.frame", lambda *args: None)  # no backdrop: the card is drawn on a dark ground
     return r
 
 
-def test_the_plans_title_cards_are_cut_in_where_the_plan_puts_them(tmp_path):
+def test_the_plans_title_cards_are_cut_in_where_the_plan_puts_them(tmp_path, monkeypatch):
     if not Path(DEFAULT_FONT_PATH).is_file():
         pytest.skip("no CJK font on this machine")
     plan = {"clips": [{"clip_id": "clip_01", "kind": "video"},
                       {"clip_id": "clip_02", "kind": "title_card", "text": "二十年后", "request_seconds": 3},
                       {"clip_id": "clip_03", "kind": "video"}]}
-    r = title_runner(tmp_path, plan)
+    r = title_runner(tmp_path, plan, monkeypatch)
     results = [{"clip_id": c, "selected": {"video": str(tmp_path / f"{c}.mp4")}} for c in ("clip_01", "clip_03")]
     segments = r.story_segments(results)
     assert [(s["unit_id"], s["role"]) for s in segments] == [("clip_01", "dialogue"), ("clip_02", "title"), ("clip_03", "dialogue")]

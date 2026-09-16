@@ -121,7 +121,7 @@ def test_a_cached_asr_record_gives_the_take_beside_it_not_the_path_inside(tmp_pa
         (attempt / name).write_bytes(b"x")
     old = r.work / "clips" / "clip_03" / "attempt_01" / "clip.mp4"
     (attempt / "asr.json").write_text(json.dumps({"clip_id": "clip_03", "video": str(old), "passed": True}), encoding="utf-8")
-    monkeypatch.setattr(rc, "media_duration", lambda path: 10.0)
+    monkeypatch.setattr("novel_manga.media.analysis.media_duration", lambda path: 10.0)
     result = r.analyse_clip({"clip_id": "clip_04", "spoken_text": "我们走吧。"}, attempt / "clip.mp4")
     assert result == {"clip_id": "clip_04", "video": str(attempt / "clip.mp4"), "passed": True}
 

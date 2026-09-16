@@ -43,7 +43,11 @@ from novel_manga.media.common import audio_levels, cover_title, sha256_text, log
 from novel_manga.media.adapters import FramedPhanRouter, FramedLocalH3
 from novel_manga.media.assets import FramedAssetFactory, ModerationRejected, asset_index, cards_sheet, load_privacy_ok, moderation_error, record_privacy_ok, stylize_card, wait_for_inflight_redraws
 from novel_manga.media import assets as media_assets
-from novel_manga.media import generation, cache
+from novel_manga.media import generation, cache, postprocess, subtitles
+from novel_manga.media import analysis as media_analysis
+from novel_manga.media.subtitles import balanced_split, classify_unmatched, match_key, speakable, spoken_integer, subsequence_overlap, tidy_page
+from novel_manga.media.analysis import speech_chunks
+from novel_manga.media.postprocess import BatchRenderer
 from novel_manga.media.cache import CacheMiss
 from novel_manga.media.generation import voice_budget_seconds, trimmed_voice, renumber_audio
 from novel_manga.media.policy import takes_past_cache, soften_prompt, resubmittable
@@ -59,7 +63,7 @@ from novel_manga.render import _fit_cover
 from dataclasses import replace as dc_replace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import chat_card
+from novel_manga.media import chat_card
 from thin_profile import frame_spec, h3_prompt_fingerprint, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
 from thin_profile import MAX_HOLD_SECONDS, media_qc_ignores
 
@@ -94,112 +98,18 @@ SECONDS_PER_CHAR_CAP = 0.45   # a caption never stays longer than 0.8 s + this p
 SECONDS_PER_CHAR_FLOOR = 0.2  # ...and never shorter than this per character (bounded by the next caption)
 
 
-def subsequence_overlap(reference: str, hypothesis: str) -> int:
-    """Length of the longest common subsequence: script characters heard in order.
-
-    Insertions in the hypothesis cost nothing, so an ad-lib or a read-out stage
-    direction does not count against the clip; only script text that never
-    appears does.
-    """
-    if not reference or not hypothesis:
-        return 0
-    previous = [0] * (len(hypothesis) + 1)
-    for r in reference:
-        current = [0]
-        for j, h in enumerate(hypothesis, start=1):
-            current.append(previous[j - 1] + 1 if r == h else max(previous[j], current[j - 1]))
-        previous = current
-    return previous[-1]
 
 
-def spoken_integer(digits: str) -> str:
-    """Read an integer the way it is said in Chinese: 1000 → 一千, 19800 → 一万九千八百, 10500 → 一万零五百."""
-    n = int(digits)
-    if n == 0:
-        return "零"
-    units, bigs = ("", "十", "百", "千"), ("", "万", "亿", "万亿")
-    groups = []
-    while n > 0:
-        groups.append(n % 10000)
-        n //= 10000
-    parts = []
-    for gi in range(len(groups) - 1, -1, -1):
-        g = groups[gi]
-        if g == 0:
-            continue
-        s, pending_zero = "", False
-        for i in (3, 2, 1, 0):
-            d = (g // 10 ** i) % 10
-            if d:
-                if pending_zero:
-                    s += "零"
-                s += DIGIT_NAMES[d] + units[i]
-                pending_zero = False
-            elif s:
-                pending_zero = True
-        if gi < len(groups) - 1 and g < 1000:
-            s = "零" + s
-        parts.append(s + bigs[gi])
-    text = "".join(parts)
-    return text[1:] if text.startswith("一十") else text
 
 
-def speakable(text: str) -> str:
-    """Replace Arabic numbers by their spoken form so script and ASR text compare on equal terms."""
-    def read(match: re.Match) -> str:
-        token = match.group(0)
-        following = text[match.end():match.end() + 1]
-        if "." in token:
-            whole, _, fraction = token.partition(".")
-            return spoken_integer(whole) + "点" + "".join(DIGIT_NAMES[int(d)] for d in fraction)
-        if following == "年" or len(token) >= 7 or (token.startswith("0") and len(token) > 1):
-            return "".join(DIGIT_NAMES[int(d)] for d in token)
-        return spoken_integer(token)
-    return re.sub(r"\d+(?:\.\d+)?", read, text)
 
 
-def match_key(text: str) -> str:
-    """Normalised comparison text: spoken numbers, 两 read as 二, no punctuation."""
-    return normalize_text(speakable(text)).replace("两", "二")
 
 
-def balanced_split(text: str, width: int = CAPTION_LINE_CHARS) -> list[str]:
-    """Split one caption into two lines near the middle, at a clause boundary when one is close enough."""
-    if len(text) <= width:
-        return [text]
-    middle = len(text) / 2
-    candidates = [i for i in range(2, len(text) - 1) if text[i - 1] in CLAUSE_PUNCT and i <= width and len(text) - i <= width]
-    if candidates:
-        cut = min(candidates, key=lambda i: abs(i - middle))
-    else:
-        cut = max(1, min(len(text) - 1, round(middle)))
-    return [text[:cut], text[cut:]]
 
 
-def tidy_page(page: str) -> str:
-    """Rebalance orphaned second lines and drop trailing commas/periods at line ends."""
-    lines = [line.strip() for line in page.split(r"\N") if line.strip()]
-    if len(lines) == 2 and (len(normalize_text(lines[0])) <= 2 or len(normalize_text(lines[1])) <= 2):
-        lines = balanced_split(lines[0] + lines[1])
-    lines = [line.rstrip(CAPTION_TRAILING_PUNCT) for line in lines]
-    lines = [line for line in lines if normalize_text(line)]
-    return r"\N".join(lines) if lines else page.rstrip(CAPTION_TRAILING_PUNCT)
 
 
-def classify_unmatched(heard: str, seconds: float) -> str:
-    """Decide what to do with speech that matches no script line.
-
-    Only objective properties are used: how long the block is and how much text
-    the recogniser produced.  Short murmurs stay silent; anything longer is shown
-    as heard, ad-libs and the occasional stage direction the model read aloud
-    alike.
-    """
-    key = normalize_text(heard)
-    if not key:
-        return "silent"
-    if seconds < MIN_ASR_SECONDS or len(key) < MIN_ASR_CHARS:
-        return "dropped_murmur"
-    return "asr_text"
 
 
 MAX_CER = 0.5          # kept in the report; no longer gates
@@ -272,40 +182,6 @@ SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
 
 
 
-def speech_chunks(wav: Path, *, noise_db: float = -30.0, min_silence: float = 0.35, min_chunk: float = 0.4, pad: float = 0.15) -> list[list[float]]:
-    duration = media_duration(wav)
-    result = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(wav), "-af", f"silencedetect=noise={noise_db}dB:d={min_silence}", "-f", "null", "-"],
-        capture_output=True, text=True, check=False,
-    )
-    events = [(kind, float(value)) for kind, value in SILENCE_EVENT.findall(result.stderr)]
-    silences: list[tuple[float, float]] = []
-    start: float | None = None
-    for kind, value in events:
-        if kind == "start":
-            start = value
-        elif kind == "end" and start is not None:
-            silences.append((start, value))
-            start = None
-    if start is not None:
-        silences.append((start, duration))
-    chunks: list[list[float]] = []
-    cursor = 0.0
-    for silence_start, silence_end in silences:
-        if silence_start - cursor >= min_chunk:
-            chunks.append([cursor, silence_start])
-        cursor = silence_end
-    if duration - cursor >= min_chunk:
-        chunks.append([cursor, duration])
-    if not chunks:
-        return [[0.0, duration]]
-    merged: list[list[float]] = []
-    for chunk in chunks:
-        if merged and chunk[0] - merged[-1][1] < 0.3:
-            merged[-1][1] = chunk[1]
-        else:
-            merged.append(chunk)
-    return [[round(max(0.0, s - pad), 3), round(min(duration, e + pad), 3)] for s, e in merged]
 
 
 def lexicon_aliases() -> dict[str, str]:
@@ -436,7 +312,7 @@ class ThinMediaRunner:
         self.provider = (FramedLocalH3(self.settings, self.frame_spec, local, resolution=resolution)
                          if local else FramedPhanRouter(self.settings, self.frame_spec, resolution=resolution))
         self.provider.prompt_aliases = {str(k): str(v) for k, v in (self.profile.get("prompt_aliases") or {}).items()}
-        self.renderer = Renderer(self.settings)
+        self.renderer = BatchRenderer(self.settings)
         self.work = episode_dir / "work"
         self.work.mkdir(parents=True, exist_ok=True)
         chat_screen_path = novel_dir / "chat_screen.json"
@@ -764,93 +640,12 @@ class ThinMediaRunner:
         return output
 
     def analyse_clip(self, clip: dict, video: Path) -> dict:
-        directory = video.parent
-        wav = directory / "native.wav"
-        asr_path = directory / "asr.json"
-        if wav.is_file():
-            # A run killed mid-extraction leaves a short wav; trust it only when
-            # it is as long as the clip, otherwise redo the extraction and ASR.
-            try:
-                wav_seconds = media_duration(wav)
-            except Exception:  # noqa: BLE001 - unreadable header counts as truncated
-                wav_seconds = -1.0
-            if abs(wav_seconds - media_duration(video)) > 0.5:
-                log(f"{clip['clip_id']}: native.wav is {wav_seconds:.1f}s for a {media_duration(video):.1f}s clip; re-extracting")
-                for name in ("native.wav", "asr.json", "asr_raw.json", "chunks.json"):
-                    (directory / name).unlink(missing_ok=True)
-        if not wav.is_file():
-            partial = directory / "native.partial.wav"
-            run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(partial)])
-            partial.replace(wav)
-        reference = clip.get("spoken_text", "")
-        if asr_path.is_file():
-            # The record names the take it was made from, but its clip directory can be renamed under it
-            # (split_long_stages renumbers clips): the take is the file beside the record, never the path inside it.
-            cached = {**json.loads(asr_path.read_text(encoding="utf-8")), "clip_id": clip["clip_id"], "video": str(video)}
-            from thin_profile import speech_gate_result
-            return speech_gate_result(self.novel_dir,self.check_clip_black(clip, self.recheck_speech(clip, cached, video), video),self.episode_dir)
-        mean_db, peak_db = audio_levels(wav)
-        chunks = speech_chunks(wav) if reference else []
-        rows: list[dict] = []
-        if chunks:
-            segments_path = directory / "chunks.json"
-            segments_path.write_text(json.dumps(chunks), encoding="utf-8")
-            raw_out = directory / "asr_raw.json"
-            subprocess.run([self.asr_python, str(self.asr_helper), "--audio", str(wav), "--segments", str(segments_path), "--output", str(raw_out)], check=True, capture_output=True, text=True)
-            for row in json.loads(raw_out.read_text(encoding="utf-8"))["segments"]:
-                corrected, corrections = correct_protected_lexicon(row["hypothesis"], reference, self.protected_terms, self.aliases)
-                rows.append({**row, "raw_hypothesis": row["hypothesis"], "hypothesis": corrected, "corrections": corrections})
-        hypothesis = "".join(row["hypothesis"] for row in rows)
-        reference_key = match_key(reference)    # numbers in spoken form: 50万 and 五十万 agree
-        hypothesis_key = match_key(hypothesis)
-        cer = round(edit_distance(reference_key, hypothesis_key) / max(1, len(reference_key)), 4) if reference_key else 0.0
-        # CER punishes what the model ADDED (an ad-lib, a chuckle, a stage direction
-        # it read out) as much as what it dropped, and 12 of 14 gate failures in the
-        # first 46 episodes were of that kind - the lines were spoken.  The gate
-        # judges the share of the script that was never heard, in order.
-        missing = round(1.0 - subsequence_overlap(reference_key, hypothesis_key) / max(1, len(reference_key)), 4) if reference_key else 0.0
-        issues = []
-        if reference_key:
-            if not hypothesis_key or peak_db is None or peak_db < MIN_PEAK_DB:
-                issues.append("voice_energy_missing")
-            if missing > MAX_MISSING:
-                issues.append(f"missing_{missing}_over_{MAX_MISSING}")
-        result = {
-            "clip_id": clip["clip_id"], "video": str(video), "duration": round(media_duration(video), 3),
-            "reference": reference, "hypothesis": hypothesis, "cer": cer, "missing": missing, "mean_volume_db": mean_db, "max_volume_db": peak_db,
-            "chunks": rows, "issues": issues, "passed": not issues,
-        }
-        atomic_write_json(asr_path, result)
         from thin_profile import speech_gate_result
-        return speech_gate_result(self.novel_dir,self.check_clip_black(clip, self.recheck_speech(clip, result, video), video),self.episode_dir)
+        raw = media_analysis.analyse_clip(self, clip, video)
+        return speech_gate_result(self.novel_dir, self.check_clip_black(clip, self.recheck_speech(clip, raw, video), video), self.episode_dir)
 
     def recheck_speech(self, clip: dict, analysis: dict, video: Path) -> dict:
-        if clip['clip_id'] not in getattr(self, 'speech_checks', set()) or analysis.get('speech_recheck_policy') == 1:
-            return analysis
-        reference = clip.get('spoken_text', '')
-        chunks = []
-        for row in analysis.get('chunks') or []:
-            raw = row.get('raw_hypothesis', row.get('hypothesis', ''))
-            corrected, corrections = correct_protected_lexicon(raw, reference, self.protected_terms, self.aliases)
-            chunks.append({**row, 'raw_hypothesis': raw, 'hypothesis': corrected, 'corrections': corrections})
-        raw = ''.join(row['raw_hypothesis'] for row in chunks) if chunks else str(analysis.get('hypothesis') or '')
-        hypothesis = ''.join(row['hypothesis'] for row in chunks) if chunks else correct_protected_lexicon(raw, reference, self.protected_terms, self.aliases)[0]
-        expected, heard = match_key(reference), match_key(hypothesis)
-        missing = round(1 - subsequence_overlap(expected, heard) / max(1, len(expected)), 4) if expected else 0
-        issues = [i for i in analysis.get('issues') or [] if not i.startswith(('missing_', 'voice_energy_missing'))]
-        if expected:
-            if not heard or analysis.get('max_volume_db') is None or analysis['max_volume_db'] < MIN_PEAK_DB:
-                issues.append('voice_energy_missing')
-            if missing > MAX_MISSING:
-                issues.append(f'missing_{missing}_over_{MAX_MISSING}')
-            if len(heard) - len(expected) > max(12, len(expected) * 2):
-                issues.append('excess_unplanned_speech')
-        if re.search(r'keep\s*everything\s*above|this\s*is\s*take|spoken\s*clearly\s*and\s*completely', raw, re.I):
-            issues.append('director_instruction_spoken')
-        result = {**analysis, 'reference': reference, 'hypothesis': hypothesis, 'chunks': chunks or analysis.get('chunks', []),
-                  'missing': missing, 'issues': list(dict.fromkeys(issues)), 'passed': not issues, 'speech_recheck_policy': 1}
-        atomic_write_json(video.parent / 'asr.json', result)
-        return result
+        return media_analysis.recheck_speech(self, clip, analysis, video)
 
     def check_clip_black(self, clip: dict, analysis: dict, video: Path) -> dict:
         """Targeted black-frame recovery must reject a black take before assembly."""
@@ -1076,423 +871,58 @@ class ThinMediaRunner:
 
     # ---- assembly ----
     def script_lines(self, clip_id: str) -> list[str]:
-        clip = next((c for c in self.clip_plan["clips"] if c["clip_id"] == clip_id), None)
-        return [line["text"] for line in (clip or {}).get("lines", []) if normalize_text(line["text"])]
+        return subtitles.script_lines(self, clip_id)
 
     @staticmethod
     def align_chunks(lines: list[str], chunks: list[dict], threshold: float = MIN_LINE_SIMILARITY) -> list[tuple[dict, str | None, float, list[tuple[int, str]]]]:
-        """Map ASR chunks onto script text, in order, over the whole remaining script.
-
-        The script is flattened to one normalised character sequence (numbers in
-        their spoken form) with a pointer back to the original text.  For every
-        chunk the best span is searched from the cursor to the end of the script
-        (skipping ahead costs a small penalty per skipped line), so one noisy
-        chunk cannot derail the lines that follow, and the order constraint lets
-        the acceptance threshold sit well below a free-text match.  A span end
-        that lands within three characters of a clause boundary snaps to it, so
-        captions do not start mid-word.  Returns (chunk, matched original text
-        or None, score, pieces) where pieces splits the matched text per script
-        line - one line is one speaker's turn, so captions never mix speakers.
-        """
-        flat: list[tuple[str, int, int, int]] = []  # (key char, line index, first original index, last original index)
-        for line_index, line in enumerate(lines):
-            for match in re.finditer(r"\d+(?:\.\d+)?|.", line, re.S):
-                token = match.group(0)
-                if token[0].isdigit():
-                    for key_char in match_key(line[match.start():match.end() + 1] if line[match.end():match.end() + 1] == "年" else token).replace("年", ""):
-                        flat.append((key_char, line_index, match.start(), match.end() - 1))
-                else:
-                    key = normalize_text(token).replace("两", "二")
-                    if key:
-                        flat.append((key, line_index, match.start(), match.start()))
-        keys = "".join(item[0] for item in flat)
-        boundary_after: list[bool] = []  # True when a clause ends right after this flat position
-        for position, (_, line_index, _, last) in enumerate(flat):
-            following = flat[position + 1] if position + 1 < len(flat) else None
-            if following is None or following[1] != line_index:
-                boundary_after.append(True)
-                continue
-            between = lines[line_index][last + 1:following[2]]
-            boundary_after.append(any(ch in CLAUSE_PUNCT for ch in between))
-        line_starts: dict[int, int] = {}
-        for position, (_, line_index, _, _) in enumerate(flat):
-            line_starts.setdefault(line_index, position)
-        cursor = 0
-        results: list[tuple[dict, str | None, float, list[tuple[int, str]]]] = []
-
-        def original_pieces(start: int, end: int) -> list[tuple[int, str]]:
-            pieces: list[list[int]] = []
-            for position in range(start, end):
-                _, line_index, first, last = flat[position]
-                if not pieces or pieces[-1][0] != line_index:
-                    pieces.append([line_index, first, last])
-                pieces[-1][1] = min(pieces[-1][1], first)
-                pieces[-1][2] = max(pieces[-1][2], last)
-            out = []
-            for line_index, first, last in pieces:
-                line = lines[line_index]
-                stop = last + 1
-                while stop < len(line) and not normalize_text(line[stop]):
-                    stop += 1
-                out.append((line_index, line[first:stop]))
-            return out
-
-        for chunk in chunks:
-            hypothesis = match_key(str(chunk.get("hypothesis", "")))
-            if not hypothesis or cursor >= len(keys):
-                results.append((chunk, None, 0.0, []))
-                continue
-            current_line = flat[cursor][1]
-            candidates = [(cursor, 0)] + [(pos, li - current_line) for li, pos in line_starts.items() if pos > cursor]
-            best = (0.0, None, None)
-            for start, skipped in candidates:
-                low = max(2, int(len(hypothesis) * 0.6))
-                high = min(len(keys) - start, int(len(hypothesis) * 1.5) + 2)
-                for width in range(low, high + 1):
-                    span = keys[start:start + width]
-                    score = 1.0 - edit_distance(span, hypothesis) / max(len(span), len(hypothesis)) - 0.04 * skipped
-                    if score > best[0]:
-                        best = (score, start, width)
-            score, start, width = best
-            if start is None or score < threshold:
-                results.append((chunk, None, round(max(score, 0.0), 3), []))
-                continue
-            end = start + width
-            for delta in (0, -1, 1, -2, 2, -3, 3):
-                candidate = end + delta
-                if start < candidate <= len(keys) and boundary_after[candidate - 1]:
-                    end = candidate
-                    break
-            pieces = original_pieces(start, end)
-            results.append((chunk, "".join(text for _, text in pieces), round(score, 3), pieces))
-            cursor = end
-        return results
+        return subtitles.align_chunks(lines, chunks, threshold)
 
     def subtitle_events(self, clip_id: str, analysis: dict) -> list[dict]:
-        """Time subtitles by ASR chunks but print the script wording.
-
-        One caption per script line (so two speakers never share a caption),
-        timed by character count inside the chunk, then capped and floored by
-        reading speed so a caption neither lingers over the next speaker nor
-        flashes by.  Speech that matches no line is shown as heard whenever the
-        block is long enough to be a line at all; shorter murmurs stay silent.
-        """
-        rows: list[list] = []  # [start, end, text, source]
-        for row, text, score, pieces in self.align_chunks(self.script_lines(clip_id), analysis["chunks"]):
-            row["match_score"] = score
-            row["matched_lines"] = text or ""
-            start, end = float(row["start"]), float(row["end"])
-            if not text:
-                heard = str(row.get("hypothesis", "")).strip()
-                verdict = classify_unmatched(heard, end - start)
-                row["subtitle"] = verdict
-                if verdict == "asr_text":
-                    rows.append([start, end, heard, "asr_text"])
-                continue
-            row["subtitle"] = "script_span"
-            weights = [max(1, len(normalize_text(piece))) for _, piece in pieces]
-            total = sum(weights)
-            cursor = start
-            for index, ((_, piece), weight) in enumerate(zip(pieces, weights)):
-                piece_end = end if index == len(pieces) - 1 else cursor + (end - start) * weight / total
-                rows.append([cursor, piece_end, piece, "native_audio_asr"])
-                cursor = piece_end
-        clip_seconds = float(analysis.get("duration") or 0.0) or (rows[-1][1] if rows else 0.0)
-        for index, item in enumerate(rows):
-            chars = max(1, len(normalize_text(item[2])))
-            next_start = rows[index + 1][0] if index + 1 < len(rows) else clip_seconds
-            item[1] = min(item[1], item[0] + 0.8 + SECONDS_PER_CHAR_CAP * chars)
-            wanted = item[0] + SECONDS_PER_CHAR_FLOOR * chars
-            item[1] = max(item[1], min(wanted, max(item[0] + 0.3, next_start - 0.05)))
-        events = []
-        for start, end, text, source in rows:
-            for page in timed_subtitle_pages(text, start, end):
-                events.append({"unit_id": clip_id, "role": "dialogue", "start": float(page["start"]), "end": float(page["end"]), "text": tidy_page(str(page["text"])), "subtitle_source": source})
-        return events
+        return subtitles.subtitle_events(self, clip_id, analysis)
 
     def _font(self, size: int):
-        from PIL import ImageFont
-        return ImageFont.truetype(str(self.settings.font_path), size)
+        return postprocess._font(self, size)
 
     def landscape_cover(self, background: Path, output: Path, novel_title: str, art_title: str, label: str) -> Path:
-        from PIL import ImageDraw
-        W, H = self.settings.width, self.settings.height
-        with Image.open(background).convert("RGB") as source:
-            image = _fit_cover(source, W, H).convert("RGBA")
-        shade = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(shade)
-        for x in range(0, W // 2):
-            draw.line((x, 0, x, H), fill=(6, 10, 20, int(190 * (1 - x / (W / 2)))))
-        image = Image.alpha_composite(image, shade)
-        draw = ImageDraw.Draw(image)
-        draw.text((90, 70), novel_title, font=self._font(48), fill=(240, 197, 91), stroke_width=2, stroke_fill=(10, 8, 6))
-        y = 150
-        for line in [art_title[i:i + 6] for i in range(0, len(art_title), 6)][:2]:
-            draw.text((86, y), line, font=self._font(132), fill=(255, 250, 235), stroke_width=6, stroke_fill=(14, 10, 8))
-            y += 150
-        draw.line((92, y + 10, 92 + 520, y + 10), fill=(238, 196, 93, 220), width=4)
-        box = (W - 300, 64, W - 80, 156)
-        draw.rounded_rectangle(box, radius=14, fill=(150, 26, 24))
-        text_w = draw.textbbox((0, 0), label, font=self._font(52))[2]
-        draw.text(((box[0] + box[2] - text_w) / 2, 74), label, font=self._font(52), fill=(255, 246, 218))
-        output.parent.mkdir(parents=True, exist_ok=True)
-        image.convert("RGB").save(output, "JPEG", quality=95, subsampling=0)
-        return output
+        return postprocess.landscape_cover(self, background, output, novel_title, art_title, label)
 
     def landscape_card(self, background: Path, output: Path, novel_title: str, label: str, subtitle: str) -> Path:
-        from PIL import ImageDraw
-        W, H = self.settings.width, self.settings.height
-        with Image.open(background).convert("RGB") as source:
-            image = _fit_cover(source, W, H).convert("RGBA")
-        image = Image.alpha_composite(image, Image.new("RGBA", (W, H), (8, 12, 24, 150)))
-        draw = ImageDraw.Draw(image)
-        title_w = draw.textbbox((0, 0), novel_title, font=self._font(56))[2]
-        draw.text(((W - title_w) / 2, H * 0.30), novel_title, font=self._font(56), fill=(255, 246, 218))
-        label_w = draw.textbbox((0, 0), label, font=self._font(140))[2]
-        draw.text(((W - label_w) / 2, H * 0.40), label, font=self._font(140), fill=(248, 205, 92), stroke_width=6, stroke_fill=(14, 10, 8))
-        draw.line((W / 2 - 260, H * 0.72, W / 2 + 260, H * 0.72), fill=(238, 196, 93, 200), width=3)
-        sub_w = draw.textbbox((0, 0), subtitle, font=self._font(48))[2]
-        draw.text(((W - sub_w) / 2, H * 0.72 + 30), subtitle, font=self._font(48), fill=(255, 248, 228))
-        output.parent.mkdir(parents=True, exist_ok=True)
-        image.convert("RGB").save(output, "JPEG", quality=95, subsampling=0)
-        return output
+        return postprocess.landscape_card(self, background, output, novel_title, label, subtitle)
 
     def frame(self, video: Path, second: float, output: Path) -> Path:
-        run(["ffmpeg", "-y", "-v", "error", "-ss", f"{second:.3f}", "-i", str(video), "-frames:v", "1", "-q:v", "2", str(output)])
-        return output
+        return postprocess.frame(self, video, second, output)
 
     def chat_history(self, clip_id: str) -> dict[str, list[dict]]:
-        """Earlier messages per conversation: this episode's previous clips, then
-        the previous episodes, newest last.  Keyed like chat_card.channels()."""
-        history: dict[str, list[dict]] = {}
-
-        def absorb(plan: dict, stop_at: str | None) -> None:
-            for other in plan.get("clips", []):
-                if stop_at and other["clip_id"] == stop_at:
-                    break
-                for run in chat_card.channels(other.get("chat_lines") or [], str(self.chat_screen.get("self_name", ""))):
-                    history.setdefault(run["key"], []).extend(run["messages"])
-
-        try:
-            index = int(self.episode_dir.name.rsplit("_", 1)[1])
-        except (ValueError, IndexError):
-            index = None
-        if index is not None:
-            for previous in range(max(1, index - CHAT_HISTORY_EPISODES), index):
-                plan_path = self.novel_dir / f"{self.novel_dir.name}_{previous}" / "clip_plan.json"
-                if plan_path.is_file():
-                    try:
-                        absorb(json.loads(plan_path.read_text(encoding="utf-8")), None)
-                    except (OSError, ValueError):
-                        pass
-        absorb(self.clip_plan, clip_id)
-        return history
+        return postprocess.chat_history(self, clip_id)
 
     def chat_segments(self, clip_id: str, clip_video: Path) -> list[dict]:
-        """Phone-screen cards for this clip, drawn here instead of by the video model.
-
-        The card is cut in just before the clip, so the messages land (one chime
-        each) and the film then shows the character reading them.  Chat text is
-        on screen, so these segments carry no subtitles.
-        """
-        if str(self.chat_screen.get("render", "card")) != "card":
-            return []
-        clip = next((c for c in self.clip_plan["clips"] if c["clip_id"] == clip_id), {})
-        runs = chat_card.channels(clip.get("chat_lines") or [], str(self.chat_screen.get("self_name", "")))
-        if not runs:
-            return []
-        history = self.chat_history(clip_id)
-        out_dir = self.work / "chat"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        background = None
-        try:
-            background = self.frame(clip_video, 0.4, out_dir / f"{clip_id}_plate.jpeg")
-        except Exception as error:  # noqa: BLE001 - a missing plate only costs the blurred backdrop
-            log(f"{clip_id}: chat card backdrop unavailable ({type(error).__name__})")
-        segments = []
-        card = 0
-        for run in runs:
-            names = [str(m.get("speaker_name", "")) for m in run["messages"]] + [str(self.chat_screen.get("self_name", "")), run["target"]]
-            avatars = chat_card.load_avatars(self.novel_dir, [name for name in names if name])
-            # A card that opens on an empty screen looks wrong; seed it with the
-            # last messages of the same conversation so the new ones land below them.
-            context = history.get(run["key"], [])[-CHAT_CONTEXT_MESSAGES:]
-            messages = context + run["messages"]
-            for window in chat_card.windows(len(run["messages"])):
-                card += 1
-                window = (window[0] + len(context), window[1] + len(context))
-                path, seconds = chat_card.build_segment(
-                    messages, out_dir / f"{clip_id}_chat_{card:02d}.mp4",
-                    title=run["target"] or str(self.chat_screen.get("group_name", "群聊")),
-                    self_name=str(self.chat_screen.get("self_name", "")), group=not run["target"], avatars=avatars,
-                    width=self.settings.width, height=self.settings.height, fps=self.settings.fps, background=background,
-                    window=window,
-                )
-                log(f"{clip_id}: chat card {card} (messages {window[0] + 1}-{window[1]}, {seconds:.1f}s)")
-                segments.append({"unit_id": f"{clip_id}_chat{card}", "role": "chat", "segment": str(path),
-                                 "duration": seconds, "audio_source": "chat_card", "subtitle_events": []})
-        return segments
+        return postprocess.chat_segments(self, clip_id, clip_video)
 
     def title_card_image(self, text: str, background: Path | None, output: Path) -> Path:
-        """A time-jump caption on a darkened, softened frame of the scene it leads into."""
-        from PIL import ImageDraw, ImageFilter
-        W, H = self.settings.width, self.settings.height
-        if background is not None and Path(background).is_file():
-            with Image.open(background) as source:
-                image = _fit_cover(source.convert("RGB"), W, H).filter(ImageFilter.GaussianBlur(radius=max(6, W // 120)))
-        else:
-            image = Image.new("RGB", (W, H), (12, 14, 22))
-        image = Image.alpha_composite(image.convert("RGBA"), Image.new("RGBA", (W, H), (6, 8, 16, 170)))
-        draw = ImageDraw.Draw(image)
-        lines = [line.strip() for line in str(text).splitlines() if line.strip()] or [" "]
-        size = int(min(W, H) * 0.11)
-        while size > 24 and max(draw.textbbox((0, 0), line, font=self._font(size))[2] for line in lines) > W * 0.84:
-            size -= 4
-        font = self._font(size)
-        gap = int(size * 0.35)
-        heights = [draw.textbbox((0, 0), line, font=font)[3] for line in lines]
-        y = (H - (sum(heights) + gap * (len(lines) - 1))) / 2
-        for line, height in zip(lines, heights):
-            width = draw.textbbox((0, 0), line, font=font)[2]
-            draw.text(((W - width) / 2, y), line, font=font, fill=(255, 246, 222), stroke_width=max(2, size // 24), stroke_fill=(10, 8, 6))
-            y += height + gap
-        output.parent.mkdir(parents=True, exist_ok=True)
-        image.convert("RGB").save(output, "JPEG", quality=95, subsampling=0)
-        return output
+        return postprocess.title_card_image(self, text, background, output)
 
     def title_card_segment(self, clip: dict, background: Path | None) -> dict:
-        """A title card from the plan ("二十年后"), drawn here and cut in where the plan puts it.  The runner used to
-        take only the video clips, so every time jump the script announced this way was dropped (星海 817, 1146)."""
-        out_dir = self.work / "titles"
-        seconds = float(clip.get("request_seconds") or 3)
-        image = self.title_card_image(clip.get("text", ""), background, out_dir / f"{clip['clip_id']}.jpeg")
-        segment = self.renderer._silent_card_segment(image, out_dir / f"{clip['clip_id']}.mp4", seconds)
-        log(f"{clip['clip_id']}: title card 「{clip.get('text', '')}」 ({seconds:.0f}s)")
-        return {"unit_id": clip["clip_id"], "role": "title", "segment": str(segment), "duration": seconds,
-                "audio_source": "title_card", "subtitle_events": []}
+        return postprocess.title_card_segment(self, clip, background)
 
     def story_segments(self, results: list[dict]) -> list[dict]:
-        """The episode's segments in plan order: chat cards, each clip, and the plan's title cards."""
-        by_id = {record["clip_id"]: record for record in results}
-        order = self.clip_plan["clips"]
-        (self.work / "titles").mkdir(parents=True, exist_ok=True)
-        segments: list[dict] = []
-        for index, clip in enumerate(order):
-            if clip["kind"] == "title_card":
-                # Over the scene the jump lands in: the next rendered clip's opening frame, else the last one's end.
-                after = next((by_id[c["clip_id"]] for c in order[index + 1:] if c["clip_id"] in by_id), None)
-                before = next((by_id[c["clip_id"]] for c in reversed(order[:index]) if c["clip_id"] in by_id), None)
-                plate, backdrop = self.work / "titles" / f"{clip['clip_id']}_plate.jpeg", None
-                try:
-                    if after is not None:
-                        backdrop = self.frame(Path(after["selected"]["video"]), 0.4, plate)
-                    elif before is not None:
-                        video = Path(before["selected"]["video"])
-                        backdrop = self.frame(video, max(0.1, media_duration(video) - 0.6), plate)
-                except Exception as error:  # noqa: BLE001 - a missing plate only costs the backdrop
-                    log(f"{clip['clip_id']}: title card backdrop unavailable ({type(error).__name__})")
-                segments.append(self.title_card_segment(clip, backdrop))
-                continue
-            record = by_id.get(clip["clip_id"])
-            if record is None:
-                continue
-            selected = record["selected"]
-            clip_video = Path(selected["video"])
-            wav = clip_video.parent / "native.wav"
-            segment, duration = self.renderer.mux_visual_group(clip_video, wav, self.work / "segments" / f"{record['clip_id']}.mp4")
-            segments.extend(self.chat_segments(record["clip_id"], clip_video))
-            segments.append({"unit_id": record["clip_id"], "role": "dialogue", "segment": str(segment), "duration": duration, "audio_source": "native_dialogue", "subtitle_events": self.subtitle_events(record["clip_id"], selected)})
-        return segments
+        return postprocess.story_segments(self, results)
 
     def assemble(self, results: list[dict]) -> dict:
-        video_id = self.episode_dir.name
         from repair_history import assembly_directory
         output_dir = assembly_directory(self.episode_dir)
-        turn_segments = self.story_segments(results)
-        first_video = Path(results[0]["selected"]["video"])
-        last_video = Path(results[-1]["selected"]["video"])
-        cover_frame = self.frame(first_video, min(1.5, max(0.1, media_duration(first_video) - 0.2)), self.work / "cover_frame.jpeg")
-        ending_frame = self.frame(last_video, max(0.1, media_duration(last_video) - 0.6), self.work / "ending_frame.jpeg")
-        chapter_title = self.script.get("video_title") or self.bible.novel_title
-        art_title = cover_title(self.script.get("source_title") or "", chapter_title)
-        cover = output_dir / f"{video_id}_cover.jpeg"
-        ending = output_dir / f"{video_id}_ending.jpeg"
-        # Episode number from the directory name: "<novel>_3" or "<novel>_1-grammar".
-        number_match = re.search(r"_(\d+)(?:-[A-Za-z0-9]+)?$", video_id)
-        episode_number = int(number_match.group(1)) if number_match else 1
-        if self.settings.width > self.settings.height:
-            self.landscape_cover(cover_frame, cover, self.bible.novel_title, art_title, f"第{episode_number:02d}集")
-            self.landscape_card(ending_frame, ending, self.bible.novel_title, "未完待续", "敬请期待下一集")
-        else:
-            self.renderer.make_cover(cover_frame, cover, novel_title=self.bible.novel_title, art_title=art_title, episode_label=f"第{episode_number:02d}集")
-            self.renderer.make_card(ending_frame, ending, self.bible.novel_title, "未完待续", "敬请期待下一集")
-        final_video = output_dir / f"{video_id}.mp4"
-        # FFmpeg 4.4 on this host freezes inputs inside multi-input filter
-        # graphs (xfade chains, and on re-muxed segments the concat filter too:
-        # ep10 came back with a 12 s hold after a re-assembly).  Short drama
-        # cuts hard anyway: normalise every segment to constant frame rate and
-        # uniform audio, then join with the concat demuxer, no filter graph.
-        fps, width, height = self.settings.fps, self.settings.width, self.settings.height
-
-        def hard_cut_join(sequence, durations, output, *, crossfade_seconds=0.15):
-            def normalize(item):
-                index, path = item
-                target = output.parent / f"join_{index:02d}.mp4"
-                result = subprocess.run(
-                    ["ffmpeg", "-y", "-v", "error", "-threads", "4", "-i", str(path),
-                     "-vf", f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,fps={fps},format=yuv420p",
-                     "-vsync", "cfr", "-c:v", "libx264", "-preset", "superfast", "-crf", "20", "-pix_fmt", "yuv420p",
-                     "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(target)],
-                    capture_output=True, text=True)
-                # ffmpeg can exit 0 having written a file with no streams; the
-                # concat that follows then fails with a useless message, so the
-                # normalised part is checked here where the input is still known.
-                if result.returncode != 0 or media_duration(target) <= 0.0:
-                    raise RuntimeError(f"normalise failed for {path} (exit {result.returncode}): {(result.stderr or '')[-400:]}")
-                return target
-            with ThreadPoolExecutor(max_workers=4) as pool:  # segments normalise side by side
-                normalized = list(pool.map(normalize, enumerate(sequence)))
-            list_file = output.parent / "join_list.txt"
-            list_file.write_text("".join(f"file '{p}'\n" for p in normalized), encoding="utf-8")
-            run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", "-movflags", "+faststart", str(output)])
-            offsets, cumulative = [], 0.0
-            for path in normalized:
-                offsets.append(cumulative)
-                cumulative += media_duration(path)
-            return offsets
-
-        self.renderer._join_with_crossfade = hard_cut_join
-        # The renderer's subtitle style keeps a 310 px bottom margin (tuned for
-        # 9:16 so platform UI does not cover the line); on a 1080-high landscape
-        # frame that lands the subtitles a third of the way up.  Scale it: ~8%
-        # of the frame height, like a normal bottom caption.
-        original_write_ass = self.renderer.write_ass_pages
-        margin_v = 310 if height > width else max(60, round(height * 0.08))
-
-        def write_ass_pages(path, subtitles):
-            result = original_write_ass(path, subtitles)
-            text = Path(result).read_text(encoding="utf-8").replace(",2,90,90,310,1", f",2,90,90,{margin_v},1", 1)
-            Path(result).write_text(text, encoding="utf-8")
-            return result
-
-        self.renderer.write_ass_pages = write_ass_pages
-        final, ass, joined, events = self.renderer.assemble_production(cover, ending, turn_segments, final_video, self.work)
-        if output_dir != self.episode_dir:
-            staged_ass = output_dir / f"{video_id}.ass"
-            shutil.copy2(ass, staged_ass)
-            ass = staged_ass
-        # The actual end card rendered for this final, not a guess from the settings on a later recheck.
-        silent_outro = media_duration(self.work / "outro.mp4") if self.settings.outro_seconds > 0 else 0.0
+        assembly = postprocess.assemble(self, results, output_dir)
         needs_subtitles = any(c.get('spoken_text') or c.get('lines') for c in self.clip_plan.get('clips', []))
         needs_subtitles |= any(t.get('text') and t.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue', 'singing'}
                                for s in self.script.get('shots', []) for t in s.get('turns', []))
-        qc = inspect_media(final, cover, ending, ass, self.settings, output_dir / "media_qc_report.json",
-                           silent_outro_seconds=silent_outro, ignore_checks=tuple(media_qc_ignores(self.novel_dir,self.episode_dir)),
-                           subtitles_required=needs_subtitles or bool(events))
-        freeze = float(qc.get("checks", {}).get("long_freeze", {}).get("detail", {}).get("max_freeze_seconds", 0.0))
-        other_checks = [v.get("passed") for k, v in qc.get("checks", {}).items() if k != "long_freeze"]
-        thin_passed = all(other_checks) and freeze <= MAX_HOLD_SECONDS
-        return {"final_video": str(final), "cover": str(cover), "ending": str(ending), "ass": str(ass), "duration": round(media_duration(final), 3), "subtitle_events": len(events), "media_qc_passed": bool(qc.get("passed")), "max_hold_seconds": freeze, "thin_passed": thin_passed, "media_qc": qc, "silent_outro_seconds": silent_outro, "pending_publish": output_dir != self.episode_dir}
+        qc = inspect_media(Path(assembly['final_video']), Path(assembly['cover']), Path(assembly['ending']),
+                           Path(assembly['ass']), self.settings, output_dir / 'media_qc_report.json',
+                           silent_outro_seconds=assembly['silent_outro_seconds'],
+                           ignore_checks=tuple(media_qc_ignores(self.novel_dir,self.episode_dir)),
+                           subtitles_required=needs_subtitles or bool(assembly['subtitle_events']))
+        freeze = float(qc.get('checks', {}).get('long_freeze', {}).get('detail', {}).get('max_freeze_seconds', 0.0))
+        other_checks = [v.get('passed') for k, v in qc.get('checks', {}).items() if k != 'long_freeze']
+        return {**assembly, 'media_qc_passed': bool(qc.get('passed')), 'max_hold_seconds': freeze,
+                'thin_passed': all(other_checks) and freeze <= MAX_HOLD_SECONDS, 'media_qc': qc}
 
     def run(self) -> dict:
         started = time.monotonic()
