@@ -27,7 +27,9 @@ import novel_manga.planning.cast as pc_cast
 import planner_context_thin as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
 import retier_reviews  # noqa: E402
-import status_server  # noqa: E402
+import dashboard_config_thin as dashboard_config
+import dashboard_history_thin as dashboard_history
+import dashboard_inventory_thin as dashboard_inventory  # noqa: E402
 import production_flow_thin as production_flow  # noqa: E402
 import novel_manga.model_client as model_client
 import review_episode_thin as review_episode
@@ -205,26 +207,26 @@ def test_old_review_is_pending_in_conductor_board_and_delivery(tmp_path, monkeyp
     write(path, review)
     c = conductor(novel, tmp_path)
     assert conductor_state.chapter(c, 1)["unreviewed"]
-    assert status_server._episode_state(episode, False)["review"] == "pending"
-    assert status_server._parse_review(path) is None
+    assert dashboard_inventory._episode_state(episode, False)["review"] == "pending"
+    assert dashboard_history._parse_review(path) is None
     monkeypatch.setattr(sys, "argv", ["delivery_gate", "--novel-dir", str(novel), "--quiet"])
     delivery_gate_thin.main()
     assert not json.loads((novel / "delivery.json").read_text())["episodes"][0]["deliverable"]
     review["policy"] = REVIEW_POLICY
     write(path, review)
     assert not conductor_state.chapter(c, 1)["unreviewed"]
-    assert status_server._episode_state(episode, False)["review"] == "reviewed"
+    assert dashboard_inventory._episode_state(episode, False)["review"] == "reviewed"
     delivery_gate_thin.main()
     assert json.loads((novel / "delivery.json").read_text())["episodes"][0]["deliverable"]
 
 
 def test_board_ignores_delivery_aggregate_from_an_old_review_policy(tmp_path, monkeypatch):
-    monkeypatch.setattr(status_server, "ROOT", tmp_path)
+    monkeypatch.setattr(dashboard_config, 'ROOT', tmp_path)
     path = tmp_path / "outputs/nov/delivery.json"
     write(path, {"review_policy": "thin-review-v1.16-volume", "deliverable": 99, "total": 99})
-    assert status_server._delivery("nov") is None
+    assert dashboard_inventory._delivery("nov") is None
     write(path, {"review_policy": REVIEW_POLICY, "deliverable": 1, "total": 99})
-    assert status_server._delivery("nov")["deliverable"] == 1
+    assert dashboard_inventory._delivery("nov")["deliverable"] == 1
 
 
 def test_retierring_restores_a_wrong_actor_hidden_by_scripted_exemption(tmp_path, monkeypatch):

@@ -148,12 +148,15 @@ def test_dashboard_block_details_use_production_eligibility(tmp_path,monkeypatch
     assert row['blocks'][0]['category']=='有效生成次数用尽'
 
 
-def test_current_metrics_overlay_does_not_wait_for_historical_board_refresh(tmp_path,monkeypatch):
+def test_current_metrics_overlay_does_not_wait_for_historical_board_refresh(tmp_path, monkeypatch):
     import time
-    import status_server as server
-    monkeypatch.setattr(server,'ROOT',tmp_path)
+    import dashboard_config_thin as config
+    import dashboard_service_thin as server
+    monkeypatch.setattr(config, 'ROOT', tmp_path)
+    monkeypatch.setattr(config, 'NOVELS', [{'id':'book','title':'book'}])
     old={'now':'2026-09-15 15:00:00','novels':[{'id':'book','title':'book','delivery':{'deliverable':1}}]}
-    monkeypatch.setattr(server,'_board_cache',{'at':time.time(),'data':old,'building':False})
+    cache=server.snapshots().history
+    cache.data, cache.at = old, time.time()
     state={'updated_at':'2026-09-15 17:00:00','status':'running','summary':{'total':20,'deliverable_precise':12},'jobs':[]}
     write(tmp_path/'outputs/book/repair_manager/state.json',state)
     first=server.board_snapshot()
@@ -165,41 +168,40 @@ def test_current_metrics_overlay_does_not_wait_for_historical_board_refresh(tmp_
 
 
 def test_first_board_load_can_show_current_progress_before_history_is_ready(tmp_path,monkeypatch):
-    import status_server as server
-    monkeypatch.setattr(server,'ROOT',tmp_path)
-    monkeypatch.setattr(server,'NOVELS',[{'id':'book','title':'book'}])
-    monkeypatch.setattr(server,'_board_cache',{'at':0,'data':None,'building':True})
+    import dashboard_config_thin as config
+    import dashboard_service_thin as server
+    monkeypatch.setattr(config,'ROOT',tmp_path)
+    monkeypatch.setattr(config,'NOVELS',[{'id':'book','title':'book'}])
+    server.snapshots().history.building=True
     write(tmp_path/'outputs/book/repair_manager/state.json',{'summary':{'total':20,'deliverable_precise':12},'jobs':[]})
     result=server.board_snapshot()
     assert result['building'] and result['novels'][0]['pipeline']['deliverable']==12
 
 
 def test_cold_live_page_never_waits_for_full_book_validation_or_remote_h3(tmp_path,monkeypatch):
-    import status_server as server
+    import dashboard_config_thin as config
+    import dashboard_service_thin as server
+    import dashboard_inventory_thin as inventory
+    import dashboard_resources_thin as resources
+    import novel_manga.dashboard.cache as cache_module
     import pytest
-    monkeypatch.setattr(server,'ROOT',tmp_path)
-    monkeypatch.setattr(server,'NOVELS',[{'id':'book','title':'book'}])
-    monkeypatch.setattr(server,'_board_cache',{'at':0,'data':None,'building':True})
-    monkeypatch.setattr(server,'_cache',{'at':0,'data':None})
-    monkeypatch.setattr(server,'_LOCAL_CACHE',{'at':0,'rows':[]})
-    for name in ['_novel_status','_episode_inventory','_plan_modes','_local_video']:
-        monkeypatch.setattr(server,name,lambda *a,**k:pytest.fail('slow work on HTTP request path'))
-    for name in ['_lanes','_workers','_inflight','_warnings']:
-        monkeypatch.setattr(server,name,lambda:[])
-    monkeypatch.setattr(server,'_processes',lambda:{'conductors':2})
+    monkeypatch.setattr(config,'ROOT',tmp_path)
+    monkeypatch.setattr(config,'NOVELS',[{'id':'book','title':'book'}])
+    for name in ['_novel_status','_episode_inventory','_plan_modes']:
+        monkeypatch.setattr(inventory,name,lambda *a,**k:pytest.fail('slow work on HTTP request path'))
+    monkeypatch.setattr(resources,'_local_video',lambda:pytest.fail('remote health on HTTP request path'))
     background=[]
     class Thread:
         def __init__(self,**kw):background.append(kw['target'])
         def start(self):pass
-    monkeypatch.setattr(server.threading,'Thread',Thread)
+    monkeypatch.setattr(cache_module.threading,'Thread',Thread)
     state={'summary':{'total':20,'deliverable_precise':12},'jobs':[]}
     path=tmp_path/'outputs/book/repair_manager/state.json'
     write(path,state)
     first=server.cached_snapshot()
     assert first['novels'][0]['pipeline']['deliverable']==12
-    assert first['novels'][0]['history_loading'] and not background
+    assert first['novels'][0]['history_loading'] and len(background)==1
     state['summary']['deliverable_precise']=13
     write(path,state)
-    server._cache['at']=0
     second=server.cached_snapshot()
     assert second['novels'][0]['pipeline']['deliverable']==13 and len(background)==1

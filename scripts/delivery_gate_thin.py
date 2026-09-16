@@ -52,9 +52,9 @@ def mtime(path: Path) -> float:
 def lane_is_h3(novel_id: str) -> bool:
     """The board's rule; an H3 lane changes what "stale" means in episode_status."""
     try:
-        import status_server  # noqa: E402 - guarded: the module has a __main__ block
+        import dashboard_config_thin as dashboard_config  # noqa: E402 - guarded: the module has a __main__ block
 
-        keys = status_server._lane_keys().get(novel_id, [])
+        keys = dashboard_config._lane_keys().get(novel_id, [])
         return bool(keys) and all(k.get("base_url") for k in keys)
     except Exception:  # noqa: BLE001 - the board is optional here
         return True

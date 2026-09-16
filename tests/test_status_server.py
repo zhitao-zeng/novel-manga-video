@@ -13,7 +13,12 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import status_server as monitor  # noqa: E402
+import dashboard_config_thin as dashboard_config
+import dashboard_history_thin as dashboard_history
+import dashboard_inventory_thin as dashboard_inventory
+import dashboard_resources_thin as dashboard_resources
+import dashboard_ui_thin as dashboard_ui
+import thin_runs as thin_runs
 from thin_profile import h3_prompt_fingerprint, plan_fingerprint  # noqa: E402
 from thin_runs import count_run  # noqa: E402
 
@@ -22,11 +27,11 @@ NOVEL = {"id": "nov", "title": "测试小说", "conductor": None}
 
 @pytest.fixture
 def workspace(tmp_path, monkeypatch):
-    monkeypatch.setattr(monitor, "ROOT", tmp_path)
-    monkeypatch.setattr(monitor, "_lane_keys", lambda: {"nov": [{"base_url": "pool"}]})
-    monkeypatch.setattr(monitor, "_EPISODE_CACHE", {})
-    monkeypatch.setattr(monitor, "_FILE_CACHE", {})
-    monkeypatch.setattr(monitor, "_MODE_CACHE", {})
+    monkeypatch.setattr(dashboard_config, 'ROOT', tmp_path)
+    monkeypatch.setattr(dashboard_config, '_lane_keys', lambda: {"nov": [{"base_url": "pool"}]})
+    monkeypatch.setattr(dashboard_inventory, '_EPISODE_CACHE', {})
+    monkeypatch.setattr(dashboard_history, '_FILE_CACHE', {})
+    monkeypatch.setattr(dashboard_inventory, '_MODE_CACHE', {})
     return tmp_path / "outputs" / "nov"
 
 
@@ -58,7 +63,7 @@ def episode(workspace, n=1, *, passed=True, gate_failed=False, failed=False, cli
 
 def review(directory, severities, *, fresh=True):
     path = directory / "episode_review.json"
-    write(path, {"policy": monitor.REVIEW_POLICY, "clips": {f"clip_{i:02d}": {"severity": severity} for i, severity in enumerate(severities, 1)}})
+    write(path, {"policy": thin_runs.REVIEW_POLICY, "clips": {f"clip_{i:02d}": {"severity": severity} for i, severity in enumerate(severities, 1)}})
     final = (directory / f"{directory.name}.mp4").stat().st_mtime
     stamp = final + 1 if fresh else final - 1
     os.utime(path, (stamp, stamp))
@@ -82,8 +87,8 @@ def test_live_and_board_count_only_current_qualified_finals(workspace):
     for _ in range(3):
         count_run(exhausted)
 
-    live = monitor._novel_status(NOVEL)
-    board = monitor._board_novel(NOVEL)
+    live = dashboard_inventory._novel_status(NOVEL)
+    board = dashboard_history._board_novel(NOVEL)
     assert live["files"] == 7 and live["planned"] == 8 and live["done"] == board["done"] == 1
     assert live["today"] == live["per_hour"] == 1 and live["left"] == 7
     assert sum(count for _, count in board["daily"]) == 1
@@ -96,22 +101,22 @@ def test_live_and_board_count_only_current_qualified_finals(workspace):
 
 def test_state_cache_tracks_feedback_report_final_and_review_changes(workspace):
     directory, plan = episode(workspace)
-    assert monitor._episode_state(directory, True)["status"] == "done"
+    assert dashboard_inventory._episode_state(directory, True)["status"] == "done"
     write(directory / "review_feedback.json", {"clip_01": "调整表情"})
-    assert monitor._episode_state(directory, True)["status"] == "stale"
+    assert dashboard_inventory._episode_state(directory, True)["status"] == "stale"
     write(directory / "review_feedback.json", {})
-    assert monitor._episode_state(directory, True)["status"] == "done"
+    assert dashboard_inventory._episode_state(directory, True)["status"] == "done"
     review(directory, ["review_error"])
-    assert monitor._episode_state(directory, True)["review"] == "error"
+    assert dashboard_inventory._episode_state(directory, True)["review"] == "error"
     review(directory, ["pass"])
     path = directory / "episode_review.json"
     os.utime(path, (time.time() + 2, time.time() + 2))
-    assert monitor._episode_state(directory, True)["review"] == "reviewed"
+    assert dashboard_inventory._episode_state(directory, True)["review"] == "reviewed"
     (directory / "nov_1.mp4").unlink()
-    assert monitor._episode_state(directory, True)["status"] == "pending"
+    assert dashboard_inventory._episode_state(directory, True)["status"] == "pending"
     (directory / "nov_1.mp4").write_bytes(b"final")
     (directory / "thin_media_report.json").unlink()
-    assert monitor._episode_state(directory, True)["status"] == "pending"
+    assert dashboard_inventory._episode_state(directory, True)["status"] == "pending"
 
 
 def test_review_errors_and_old_reviews_do_not_change_current_quality_rate(workspace):
@@ -124,7 +129,7 @@ def test_review_errors_and_old_reviews_do_not_change_current_quality_rate(worksp
     plan["clips"][0]["prompt"] = "changed"
     write(stale / "clip_plan.json", plan)
     (current / "render.log").write_text('{"video_model":"sd2.5"}\nold run\n{"video_model":"minimax-h3"}\n', encoding="utf-8")
-    board = monitor._board_novel(NOVEL)
+    board = dashboard_history._board_novel(NOVEL)
     assert board["quality"]["clips"] == 1
     assert board["quality"]["pass_rate"] == board["quality"]["recent_rate"] == 100
     assert board["quality"]["review_errors"] == 1
@@ -139,9 +144,9 @@ def test_lane_progress_and_worker_cache_use_current_plan(workspace, monkeypatch)
     episode(workspace, 2, passed=False)
     root = str(workspace)
     listing = f"999999 python thin_batch.py --novel-dir {root} --chapters 1-2 --stage render"
-    monkeypatch.setattr(monitor.subprocess, "run", lambda *a, **k: types.SimpleNamespace(stdout=listing))
-    monkeypatch.setattr(monitor, "_proc_env", lambda pid: {"NOVEL_LOCAL_H3_URL": "pool"})
-    row = monitor._lanes()[0]
+    monkeypatch.setattr(dashboard_resources.subprocess, "run", lambda *a, **k: types.SimpleNamespace(stdout=listing))
+    monkeypatch.setattr(dashboard_resources, '_proc_env', lambda pid: {"NOVEL_LOCAL_H3_URL": "pool"})
+    row = dashboard_resources._lanes()[0]
     assert row["covered"] == 1 and row["total"] == 2
     work = good / "work" / "clips"
     for cid in ("clip_01", "clip_99"):
@@ -149,7 +154,7 @@ def test_lane_progress_and_worker_cache_use_current_plan(workspace, monkeypatch)
         path.mkdir(parents=True)
         (path / "clip.mp4").write_bytes(b"cached")
     listing = f"999999 12 python render_clips_thin.py --novel-dir {root} --episode nov_1"
-    assert monitor._workers()[0]["detail"] == "缓存 1/1 段（未计质检）"
+    assert dashboard_resources._workers()[0]["detail"] == "缓存 1/1 段（未计质检）"
 
 
 def test_processes_include_current_pipeline_without_counting_wrappers(monkeypatch):
@@ -165,8 +170,8 @@ def test_processes_include_current_pipeline_without_counting_wrappers(monkeypatc
         'python scripts/run_repair_step.py --result receipt.json -- python scripts/repair_review_thin.py --episodes 2058',
         "bash -c 'python scripts/prepare_h3_book.py --episode 2001'",
     ]
-    monkeypatch.setattr(monitor, '_ps_output', lambda: '\n'.join(commands))
-    result = monitor._processes()
+    monkeypatch.setattr(dashboard_resources, '_ps_output', lambda: '\n'.join(commands))
+    result = dashboard_resources._processes()
     assert result['conductors'] == 2
     assert result['preparations'] == result['repairs'] == result['runners'] == 1
     assert result['reviews'] == 2 and result['planners'] == 0
@@ -181,8 +186,8 @@ def test_shared_locks_are_attributed_to_hyphenated_book_names(tmp_path, monkeypa
     (tmp_path/'cmd101').write_bytes(b'python\0scripts/render_clips_thin.py\0--episode\0other_book_4\0')
     original = Path
     mapped = {'/proc/locks':tmp_path/'locks','/proc/100/cmdline':tmp_path/'cmd100','/proc/101/cmdline':tmp_path/'cmd101'}
-    monkeypatch.setattr(monitor, 'Path', lambda value: mapped.get(str(value), original(value)))
-    assert monitor._held_by_novel(pool) == {'zhutian-card':1,'other_book':1}
+    monkeypatch.setattr(dashboard_resources, 'Path', lambda value: mapped.get(str(value), original(value)))
+    assert dashboard_resources._held_by_novel(pool) == {'zhutian-card':1,'other_book':1}
 
 
 def test_runtime_panel_updates_while_book_history_request_is_still_loading():
@@ -203,7 +208,7 @@ const vm=require('vm'),fs=require('fs'),assert=require('assert');
  assert.strictEqual(elements['runtime-stamp'].textContent,runtime.now);
 })().catch(e=>{console.error(e);process.exit(1)});
 '''
-    subprocess.run(['node','-e',script],input=monitor.PAGE,text=True,check=True)
+    subprocess.run(['node','-e',script],input=dashboard_ui.PAGE,text=True,check=True)
 
 
 def test_live_and_board_javascript_render_the_status_payload(workspace):
@@ -213,20 +218,20 @@ def test_live_and_board_javascript_render_the_status_payload(workspace):
     good, _ = episode(workspace, 1, clips=2)
     review(good, ["pass", "review_error"])
     episode(workspace, 2, passed=False)
-    write(workspace / "delivery.json", {"review_policy": monitor.REVIEW_POLICY, "deliverable": 1, "total": 2, "generated_at": "2026-09-12 23:00:00",
+    write(workspace / "delivery.json", {"review_policy": thin_runs.REVIEW_POLICY, "deliverable": 1, "total": 2, "generated_at": "2026-09-12 23:00:00",
                                         "gates": {"tech": {"blocked": 1}, "review": {"blocked": 0, "must_fix_clips": 0},
                                                   "script": {"flagged": 0, "would_block": 0}}})
-    live = {"now": time.strftime("%Y-%m-%d %H:%M:%S"), "novels": [monitor._novel_status(NOVEL)],
+    live = {"now": time.strftime("%Y-%m-%d %H:%M:%S"), "novels": [dashboard_inventory._novel_status(NOVEL)],
             "lanes": [], "workers": [], "inflight": [], "warnings": [], "processes": {}, "local": []}
-    board = {"now": live["now"], "novels": [monitor._board_novel(NOVEL)]}
+    board = {"now": live["now"], "novels": [dashboard_history._board_novel(NOVEL)]}
     board["novels"][0]["viewer_review"] = {
         "baseline_at": live["now"], "baseline_confirmed": 2, "baseline_one_vote": 0, "tracked": 2,
         "counts": {"clear": 1, "confirmed": 1}, "repair_checks": 2, "repair_counts": {"clear": 1, "confirmed": 1},
         "rows": [{"chapter": 1, "clip": "clip_01", "status": "clear", "kind": "", "observation": "正常"},
                  {"chapter": 2, "clip": "clip_02", "status": "confirmed", "kind": "画面出现文字", "observation": "出现<字幕>"}],
     }
-    pages = [{"html": monitor.PAGE, "data": live, "body": "novels"},
-             {"html": monitor.PAGE_BOARD, "data": board, "body": "board"}]
+    pages = [{"html": dashboard_ui.PAGE, "data": live, "body": "novels"},
+             {"html": dashboard_ui.PAGE_BOARD, "data": board, "body": "board"}]
     import copy
     pipeline={"updated_at":live['now'],'age_seconds':10,'status':'running','total':2,'deliverable':1,'remaining':1,
               'inspection':{'episode_buckets':{'passed':1,'checked_with_errors':1},'clips':{'total':2,'passed':1,'failed':1,'unchecked':0}},

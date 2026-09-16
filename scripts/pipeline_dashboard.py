@@ -22,8 +22,7 @@ _NET = {}
 _STARTED = set()
 _LOCK = threading.Lock()
 _AUDITS = {}
-FLOWS = {'repair':['check','repair','render','review','note1','render1','review1','note2','render2','review2'],
-         'recovery':['recover','render','review'],'fill':['render','review'],'audit':['audit'],'confirm':['confirm']}
+from novel_manga.repair.scheduling import FLOWS
 
 
 def read(path: Path, default=None):
