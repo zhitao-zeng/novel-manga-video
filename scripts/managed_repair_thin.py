@@ -14,7 +14,8 @@ from novel_manga.repair.proposal import RepairProposal
 from novel_manga.repair.execution import retake_proposal
 from repair_publication_thin import publish_candidate, publish_retake
 from novel_manga.util import atomic_write_json
-from repair_review_thin import read, current_takes
+from novel_manga.util import read_json as read
+from review_store_thin import current_takes
 import repair_history as history
 from h3_request_checks import request_issues, correction
 

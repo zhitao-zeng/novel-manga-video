@@ -9,7 +9,7 @@ from novel_manga import model_client
 import novel_manga.review.policy as review_policy
 import novel_manga.review.storage as review_storage
 import review_evidence_thin as review_evidence
-from repair_review_thin import current_takes
+from review_store_thin import current_takes
 from thin_profile import plan_fingerprint
 from thin_runs import REVIEW_POLICY, episode_status
 

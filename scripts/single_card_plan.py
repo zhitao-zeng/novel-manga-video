@@ -63,7 +63,8 @@ def repair_missing_expressions(directory: Path) -> dict:
     Caller owns the episode. Only reference metadata changes: no new source
     verdict is invented, and a known bad or unreviewed video is never accepted.
     """
-    from repair_review_thin import read,current_takes
+    from novel_manga.util import read_json as read
+    from review_store_thin import current_takes
     from repair_history import accepted_clip_material,begin_trial,load,save,refresh_prepared_plan,ERROR_FIELDS
     from build_h3_prompts import convert
     from thin_profile import h3_prompt_outdated

@@ -24,7 +24,8 @@ from concurrent.futures import ThreadPoolExecutor
 from benchmark_repair_cause import (ROOT, ROOT_FILES, EPISODE_FILES, copy_if_present, clone_case,
                                     render_arm, evaluation_passed)
 from novel_manga.util import atomic_write_json
-from repair_review_thin import read, current_takes
+from novel_manga.util import read_json as read
+from review_store_thin import current_takes
 from thin_batch import load_dotenv
 
 EXTRA_ROOT = ['review_normal.txt']

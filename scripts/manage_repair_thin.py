@@ -22,7 +22,9 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 from novel_manga.util import atomic_write_json
-from repair_review_thin import current_takes, inspection_counts, load_evidence, read, reconcile, current_evidence
+from review_store_thin import current_takes, load_evidence, reconcile, current_evidence
+from novel_manga.review.reconciliation import inspection_counts
+from novel_manga.util import read_json as read
 from thin_runs import RENDER_RUNS_PER_PLAN, episode_status, render_runs
 from clip_readiness import current_blocks
 
@@ -366,7 +368,7 @@ class Manager:
             for kind in ("plan", "references", "technical", "residual", "identity", "binding", "speech", "review", 'source','managed','entities')}
         self.state["summary"]["recovery_outcomes"] = dict(Counter(
             j.get("outcome", "unknown") for j in self.state["jobs"] if j["kind"] == "recovery" and j["status"] == "done"))
-        from shared_audit_thin import summary as audit_summary
+        from novel_manga.review.audit_queue import summary as audit_summary
         self.state["summary"]["shared_audit"] = audit_summary(self.directory / 'shared_audit.sqlite3')
         self.last_refresh = time.monotonic()
 

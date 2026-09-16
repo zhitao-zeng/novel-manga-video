@@ -30,7 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "src")]
 from novel_manga.util import atomic_write_json
 from diagnose_clip_repair import clip_context, diagnose, diagnose_numbered
-from repair_review_thin import current_takes, read
+from review_store_thin import current_takes
+from novel_manga.util import read_json as read
 from thin_batch import load_dotenv
 from thin_runs import episode_status
 

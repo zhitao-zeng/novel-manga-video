@@ -80,7 +80,7 @@ def add_observations(history: dict, review: dict, takes: dict) -> bool:
 
 def begin_trial(directory: Path, clip_ids: set[str], method: str, *, after_plan: dict | None = None,
                 after_notes: dict | None = None, changes: dict | None = None) -> int:
-    from repair_review_thin import current_takes
+    from review_store_thin import current_takes
     from thin_profile import plan_fingerprint
     plan = read(directory / "clip_plan.json", {})
     review = read(directory / "episode_review.json", {})

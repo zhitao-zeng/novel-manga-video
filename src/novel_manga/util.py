@@ -44,3 +44,10 @@ def retry(operation: Callable[[], T], attempts: int = 3, base_delay: float = 1.0
                 time.sleep(base_delay * (2 ** attempt))
     assert last_error is not None
     raise last_error
+
+
+def read_json(path: Path, default=None):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default

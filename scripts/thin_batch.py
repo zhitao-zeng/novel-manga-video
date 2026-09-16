@@ -476,7 +476,8 @@ class Batch:
                 # Existing reviewed footage keeps its exact cached references.
                 # Repair preparation normalizes changed clips before sealing
                 # their trials; here only missing material needs normalization.
-                from repair_review_thin import read, current_takes
+                from novel_manga.util import read_json as read
+                from review_store_thin import current_takes
                 takes=current_takes(directory,plan,read(directory/'episode_review.json',{}))
                 targets={clip['clip_id'] for clip in plan['clips'] if clip['clip_id'] not in takes}
             before_plan=copy.deepcopy(plan)

@@ -9,7 +9,7 @@ import clip_readiness as readiness
 import repair_flow_thin as repair
 import repair_history as history
 import render_flow_thin as render
-import repair_review_thin as review
+import novel_manga.review.reconciliation as reconciliation
 
 
 def test_restore_both_existing_source_parts_instead_of_repeating_the_reply():
@@ -74,9 +74,9 @@ def test_paraphrase_still_rejects_fabricated_source_quotes(monkeypatch):
 
 def test_source_confirmation_can_replace_old_script_based_confirmation():
     base={'ep':1,'clip':'c','video':'v','take':[1,2,3]};records={}
-    review.merge_evidence(records,{**base,'mode':'confirm','verdict':'obvious'})
-    review.merge_evidence(records,{**base,'mode':'source_confirm','verdict':'fine'})
-    review.merge_evidence(records,{**base,'mode':'joint','verdict':'obvious'})
+    reconciliation.merge_evidence(records,{**base,'mode':'confirm','verdict':'obvious'})
+    reconciliation.merge_evidence(records,{**base,'mode':'source_confirm','verdict':'fine'})
+    reconciliation.merge_evidence(records,{**base,'mode':'joint','verdict':'obvious'})
     assert next(iter(records.values()))['verdict']=='fine'
 
 

@@ -1,0 +1,921 @@
+[
+  {
+    "name": "first_precise_pass",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional"
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "old_take_does_not_clear_current",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "severity": "fail",
+          "tier": "must_fix",
+          "feedback": "original note"
+        }
+      },
+      "feedback": {
+        "a": "original note"
+      },
+      "video_name": "clip.mp4",
+      "flags": [
+        "a: original note"
+      ]
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 0,
+      "failed": 0,
+      "unchecked": 1,
+      "unconfirmed_candidates": 1,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [
+        "a"
+      ],
+      "changed": [
+        "a"
+      ],
+      "candidates": [
+        "a"
+      ],
+      "flash": []
+    }
+  },
+  {
+    "name": "replacement_needs_review",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/old.mp4",
+          "take": [
+            9,
+            90,
+            900
+          ],
+          "severity": "review_error",
+          "error": "current take awaiting precise review"
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/old.mp4",
+        "take": [
+          9,
+          90,
+          900
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 0,
+      "failed": 0,
+      "unchecked": 1,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [
+        "a"
+      ],
+      "changed": [
+        "a"
+      ],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "ordinary_scan_keeps_prior_precise_verdict",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "severity": "fail",
+          "tier": "must_fix",
+          "feedback": "original note",
+          "verify": {
+            "verdict": "obvious"
+          },
+          "story_ok": false
+        }
+      },
+      "feedback": {
+        "a": "original note"
+      },
+      "video_name": "clip.mp4",
+      "flags": [
+        "a: original note"
+      ]
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "joint_recheck_replaces_ordinary",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional",
+          "joint_checked": true
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "flash_candidate_awaits_confirmation",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional",
+          "flash_pending": "possible duplicate"
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 1
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": [
+        "a"
+      ]
+    }
+  },
+  {
+    "name": "explicit_confirmation_clears_flash",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional",
+          "flash_checked": true
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "source_recheck_overrides_confirmation",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional",
+          "flash_checked": true,
+          "source_confirmed_at": "fixed-time"
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "technical_failure_stays",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "severity": "fail",
+          "tier": "must_fix",
+          "feedback": "original note",
+          "technical": true
+        }
+      },
+      "feedback": {
+        "a": "original note"
+      },
+      "video_name": "clip.mp4",
+      "flags": [
+        "a: original note"
+      ]
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "old_final_gate_with_evidence",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional"
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "old_final_gate_without_evidence",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "severity": "fail",
+          "tier": "optional",
+          "feedback": "original note",
+          "verify": {
+            "verdict": "obvious"
+          },
+          "story_ok": false,
+          "verified": {
+            "verdict": "fine"
+          }
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 0,
+      "failed": 1,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "removed_id_cannot_request_retake",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional"
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "missing_media_stays_unchecked",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "severity": "fail",
+          "tier": "must_fix",
+          "feedback": "original note"
+        }
+      },
+      "feedback": {
+        "a": "original note"
+      },
+      "video_name": "clip.mp4",
+      "flags": [
+        "a: original note"
+      ]
+    },
+    "takes": {},
+    "counts": {
+      "total": 1,
+      "passed": 0,
+      "failed": 0,
+      "unchecked": 1,
+      "unconfirmed_candidates": 1,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  },
+  {
+    "name": "source_confirmation_has_priority",
+    "report": {
+      "policy": "thin-review-v1.17-story",
+      "episode": "book_1",
+      "clips": {
+        "a": {
+          "video": "/takes/current.mp4",
+          "take": [
+            10,
+            100,
+            1000
+          ],
+          "visible_people": 1,
+          "identity_ok": true,
+          "identity_issue": "",
+          "location_ok": true,
+          "time_of_day_ok": true,
+          "location_issue": "",
+          "text_or_watermark": false,
+          "chat_text_ok": true,
+          "chat_text_issue": "",
+          "visual_defects": false,
+          "defect_issue": "",
+          "story_ok": true,
+          "story_kind": "无问题",
+          "story_issue": "",
+          "severity": "pass",
+          "feedback": "",
+          "verify": {
+            "verdict": "fine",
+            "same_person_twice": false,
+            "species_or_gender_wrong": false,
+            "action_by_wrong_person": false,
+            "actor_missing": false,
+            "lead_face_swapped": false,
+            "ghost_text": false,
+            "evidence": "current picture",
+            "instruction": "",
+            "people": [
+              "甲(男) 站立"
+            ]
+          },
+          "tier": "optional",
+          "flash_checked": true,
+          "source_confirmed_at": "fixed-time"
+        }
+      },
+      "feedback": {},
+      "video_name": "clip.mp4",
+      "flags": []
+    },
+    "takes": {
+      "a": {
+        "video": "/takes/current.mp4",
+        "take": [
+          10,
+          100,
+          1000
+        ]
+      }
+    },
+    "counts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "unchecked": 0,
+      "unconfirmed_candidates": 0,
+      "flash_pending": 0
+    },
+    "missing": {
+      "all": [],
+      "changed": [],
+      "candidates": [],
+      "flash": []
+    }
+  }
+]
