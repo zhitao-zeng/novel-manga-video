@@ -1,10 +1,12 @@
+
+from render_context_support import uninitialized_runner
 import copy
 import json
 from pathlib import Path
 
 import source_identity_thin as identity
 import repair_flow_thin as repair
-import render_clips_thin as renderer
+import render_flow_thin as renderer
 import prepare_recovery_thin as recovery
 
 
@@ -53,15 +55,15 @@ def test_speaker_repair_preserves_exact_dialogue_and_delivery_mode():
 
 
 def test_short_black_transition_uses_same_limit_as_final_qc(tmp_path, monkeypatch):
-    r = renderer.ThinMediaRunner.__new__(renderer.ThinMediaRunner);r.black_checks={'c'};r.episode_dir=tmp_path
+    r = uninitialized_runner();r.context.black_checks={'c'};r.context.episode_dir=tmp_path
     monkeypatch.setattr(recovery, 'black_ranges', lambda *a: [(2.45,3.29)])
     out = r.check_clip_black({'clip_id':'c'}, {'passed':False, 'issues':['black_frames'], 'black_check_policy':2}, tmp_path/'clip.mp4')
     assert out['passed'] and not out['issues'] and out['black_check_policy']==3
 
 
 def test_name_normalization_does_not_hide_spoken_director_instructions(tmp_path):
-    r = renderer.ThinMediaRunner.__new__(renderer.ThinMediaRunner)
-    r.speech_checks={'c'};r.protected_terms=[];r.aliases={'纳迪亚弗伦':'娜迪娅·福伦'}
+    r = uninitialized_runner()
+    r.context.speech_checks={'c'};r.context.protected_terms=[];r.context.aliases={'纳迪亚弗伦':'娜迪娅·福伦'}
     clip={'clip_id':'c','spoken_text':'娜迪娅·福伦？'}
     out=r.recheck_speech(clip,{'hypothesis':'纳迪亚弗伦 keep everything above unchanged','chunks':[],
                          'issues':['missing_0.6_over_0.5'],'max_volume_db':-1},tmp_path/'clip.mp4')

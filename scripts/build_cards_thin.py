@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from render_clips_thin import RATE_LIMIT_RE
+from novel_manga.media.policy import RATE_LIMIT_RE
 from novel_manga.media.assets import FramedAssetFactory, ModerationRejected, apply_genre
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log

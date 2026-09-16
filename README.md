@@ -58,6 +58,7 @@ uv run pytest
 - `src/novel_manga/story/`：身份、动作和对白的共享规则，不执行模型请求或调度。
 - `src/novel_manga/story/compilation.py`：显式配置的片段编译，复用现有切段和提示词策略。
 - `src/novel_manga/repair/`：修复决策、内存候选及场景修改；流程层负责验证后写回。
+- `src/novel_manga/media/`：资产、生成、缓存、音轨分析、字幕和后期服务；每集使用独立 RenderContext。
 - `src/novel_manga/bible.py`：新书初始化所需的人物库生成。
 - `src/novel_manga/batch_control.py`：已有执行器的操作入口与状态汇总。
 - `src/novel_manga/` 其余模块：小说读取、数据结构、资产、视频后端、媒体处理和质检。
@@ -68,5 +69,7 @@ uv run pytest
 本文件是当前操作入口说明。[薄流水线](docs/thin-pipeline.md) 保留技术背景；带日期的文档是当时的记录，旧入口命令不作为当前操作指南。
 
 剧本、修复与打包的接口和职责见 [解耦说明](docs/scene-contract-decoupling-20260916.md)。
+
+渲染入口保持 `scripts/render_clips_thin.py`，流程编排位于 `scripts/render_flow_thin.py`；详见 [媒体模块说明](docs/render-module-decoupling-20260916.md)。
 
 早期上传/生成/下载 HTTP API、`novel-manga` 命令、旧整集控制器及专用 API 容器已移除，不提供兼容入口。已有剧本、人物库、视频和任务历史保留。

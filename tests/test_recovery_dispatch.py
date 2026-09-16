@@ -1,3 +1,5 @@
+
+from render_context_support import uninitialized_runner
 import json
 from pathlib import Path
 import subprocess
@@ -98,10 +100,10 @@ def test_black_detector_locates_actual_black_media(tmp_path):
 
 
 def test_black_take_cannot_pass_on_cached_speech_result(tmp_path, monkeypatch):
-    import render_clips_thin as renderer
-    runner = renderer.ThinMediaRunner.__new__(renderer.ThinMediaRunner)
-    runner.black_checks = {'clip_02'}
-    runner.episode_dir = tmp_path
+    import render_flow_thin as renderer
+    runner = uninitialized_runner()
+    runner.context.black_checks = {'clip_02'}
+    runner.context.episode_dir = tmp_path
     monkeypatch.setattr(recovery, 'black_ranges', lambda *a: [(3.0, 4.2)])
     monkeypatch.setattr(recovery, 'brighten_dark_scene', lambda *a: False)
     result = runner.check_clip_black({'clip_id': 'clip_02'}, {'passed': True, 'issues': []}, tmp_path / 'clip.mp4')

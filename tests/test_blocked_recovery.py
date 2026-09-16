@@ -1,3 +1,5 @@
+
+from render_context_support import uninitialized_runner
 import copy
 import json
 from pathlib import Path
@@ -5,7 +7,7 @@ from pathlib import Path
 import clip_readiness as readiness
 import repair_flow_thin as repair
 import repair_history as history
-import render_clips_thin as render
+import render_flow_thin as render
 import repair_review_thin as review
 
 
@@ -86,7 +88,7 @@ def test_approved_existing_video_does_not_require_its_old_wrong_request(tmp_path
     assert history.source_accepted_take(d,clip,'')==video
     assert history.source_accepted_take(d,{**clip,'prompt':'new scene'},'') is None
     assert history.source_accepted_take(d,clip,'new correction') is None
-    r=render.ThinMediaRunner.__new__(render.ThinMediaRunner);r.work=d/'work';r.feedback={};r.cache_only=False;r.max_attempts=2
+    r=uninitialized_runner();r.context.work=d/'work';r.context.feedback={};r.context.cache_only=False;r.context.max_attempts=2
     r.analyse_clip=lambda *a:{'passed':True,'video':str(video)}
     r.generate_clip=lambda *a:(_ for _ in ()).throw(AssertionError('must not regenerate an approved take'))
     assert r.process_clip(clip)['selected']['generated_this_run'] is False

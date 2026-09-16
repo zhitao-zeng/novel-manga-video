@@ -8,7 +8,7 @@ from PIL import Image
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import render_clips_thin as rc
+import render_flow_thin as rc
 from single_card_plan import single_card_plan
 from novel_manga.config import Settings
 from novel_manga.models import Character, StoryBible

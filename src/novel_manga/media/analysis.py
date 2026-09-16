@@ -1,15 +1,11 @@
 from __future__ import annotations
 import json
-import math
 import re
-import shutil
 import subprocess
-import time
 from pathlib import Path
-from PIL import Image
 from ..util import atomic_write_json, media_duration, run
-from ..runtime_backends import correct_protected_lexicon, edit_distance, normalize_text
-from .common import audio_levels, cover_title, log
+from ..runtime_backends import correct_protected_lexicon, edit_distance
+from .common import audio_levels, log
 
 from .subtitles import match_key, subsequence_overlap
 

@@ -2,6 +2,8 @@
 cache-only rebuild that puts the dropped title cards back into finished episodes."""
 from __future__ import annotations
 
+from render_context_support import uninitialized_runner
+
 import base64
 import io
 import json
@@ -21,7 +23,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import build_clip_plan_thin as packer  # noqa: E402
 import conductor_thin  # noqa: E402
 import plan_chapter_thin  # noqa: E402
-import render_clips_thin as rc  # noqa: E402
+import render_flow_thin as rc  # noqa: E402
 import thin_batch  # noqa: E402
 from novel_manga.config import DEFAULT_FONT_PATH  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
@@ -133,10 +135,10 @@ def test_a_line_longer_than_a_clip_is_cut_at_sentence_ends(monkeypatch):
 
 # ---------------------------------------------------------------- 18: title cards
 def title_runner(tmp_path: Path, plan: dict, monkeypatch) -> rc.ThinMediaRunner:
-    r = object.__new__(rc.ThinMediaRunner)
-    r.work, r.clip_plan = tmp_path / "work", plan
-    r.settings = types.SimpleNamespace(width=1280, height=720, fps=25, font_path=DEFAULT_FONT_PATH)
-    r.renderer = types.SimpleNamespace(mux_visual_group=lambda video, wav, out: (out, 5.0),
+    r = uninitialized_runner()
+    r.context.work, r.context.clip_plan = tmp_path / "work", plan
+    r.context.settings = types.SimpleNamespace(width=1280, height=720, fps=25, font_path=DEFAULT_FONT_PATH)
+    r.context.renderer = types.SimpleNamespace(mux_visual_group=lambda video, wav, out: (out, 5.0),
                                        _silent_card_segment=lambda image, out, seconds: out)
     monkeypatch.setattr("novel_manga.media.postprocess.chat_segments", lambda *args: [])
     monkeypatch.setattr("novel_manga.media.subtitles.subtitle_events", lambda *args: [])
@@ -161,15 +163,15 @@ def test_the_plans_title_cards_are_cut_in_where_the_plan_puts_them(tmp_path, mon
 
 # ---------------------------------------------------------------- the cache-only rebuild
 def test_cache_only_never_generates_a_clip(tmp_path):
-    r = object.__new__(rc.ThinMediaRunner)
-    r.novel_dir, r.work = tmp_path / NOVEL, tmp_path / NOVEL / "work"
-    r.settings = types.SimpleNamespace(local_h3_base_url=None)
-    r.feedback, r.prescreen, r.cache_only = {}, False, True
+    r = uninitialized_runner()
+    r.context.novel_dir, r.context.work = tmp_path / NOVEL, tmp_path / NOVEL / "work"
+    r.context.settings = types.SimpleNamespace(local_h3_base_url=None)
+    r.context.feedback, r.context.prescreen, r.context.cache_only = {}, False, True
 
     class Provider:
         def create_video(self, *args, **kwargs):
             raise AssertionError("cache-only generated a clip")
-    r.provider = Provider()
+    r.context.provider = Provider()
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": "【阶段1】林凡走进大殿。", "request_seconds": 10, "references": []}
     with pytest.raises(rc.CacheMiss):
         r.generate_clip(clip, 1)

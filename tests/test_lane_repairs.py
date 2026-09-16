@@ -3,6 +3,8 @@ blocks, English (H3) prompts and their voices, retakes, the render-run count, co
 the card manifest, review errors and the voice bank."""
 from __future__ import annotations
 
+from render_context_support import uninitialized_runner
+
 import json
 import os
 import sys
@@ -18,7 +20,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import build_voices_thin  # noqa: E402
 import conductor_thin  # noqa: E402
-import render_clips_thin as rc  # noqa: E402
+import render_flow_thin as rc  # noqa: E402
 import thin_batch  # noqa: E402
 import thin_review  # noqa: E402
 from thin_profile import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint  # noqa: E402
@@ -308,13 +310,13 @@ def test_the_converter_takes_just_the_episodes_named(h3prompts, monkeypatch, tmp
 
 # ---------------------------------------------------------------- the runner (1, 3, 9)
 def runner(tmp_path: Path, local: str | None = "pool") -> rc.ThinMediaRunner:
-    r = object.__new__(rc.ThinMediaRunner)
-    r.novel_dir = tmp_path / NOVEL
-    r.novel_dir.mkdir(parents=True, exist_ok=True)
-    r.settings = types.SimpleNamespace(local_h3_base_url=local)
-    r.feedback, r.max_attempts, r.free_retries = {}, 2, bool(local)
-    r.work = r.novel_dir / f"{NOVEL}_1" / "work"
-    r.prescreen, r.inflight, r.moderation_repair, r.cache_only = False, 0, True, False
+    r = uninitialized_runner()
+    r.context.novel_dir = tmp_path / NOVEL
+    r.context.novel_dir.mkdir(parents=True, exist_ok=True)
+    r.context.settings = types.SimpleNamespace(local_h3_base_url=local)
+    r.context.feedback, r.context.max_attempts, r.context.free_retries = {}, 2, bool(local)
+    r.context.work = r.context.novel_dir / f"{NOVEL}_1" / "work"
+    r.context.prescreen, r.context.inflight, r.context.moderation_repair, r.context.cache_only = False, 0, True, False
     return r
 
 
@@ -358,7 +360,7 @@ def test_audio_tags_point_at_the_voices_the_request_carries(tmp_path, monkeypatc
     r = runner(tmp_path)
     names = ["莱恩", "比尔", "卡拉"]
     for name in names:
-        write_voice(r.novel_dir / "series_assets" / "voices" / f"{name}.wav", 6.0)
+        write_voice(r.context.novel_dir / "series_assets" / "voices" / f"{name}.wav", 6.0)
     voices = [{"role": "voice", "name": n, "path": f"series_assets/voices/{n}.wav"} for n in names]
     lines = [{"speaker_name": "卡拉", "text": "很长很长的一句台词"}, {"speaker_name": "莱恩", "text": "中等的台词"}, {"speaker_name": "比尔", "text": "短"}]
     prompt_h3 = ("subject_definitions:\n"
@@ -378,13 +380,13 @@ def test_audio_tags_point_at_the_voices_the_request_carries(tmp_path, monkeypatc
 
 def test_a_video_of_a_redrawn_card_is_not_taken_from_another_attempt(tmp_path, monkeypatch):
     r = runner(tmp_path, local=None)
-    card = r.novel_dir / "series_assets" / "characters" / "character_001" / "turnaround.jpeg"
+    card = r.context.novel_dir / "series_assets" / "characters" / "character_001" / "turnaround.jpeg"
     card.parent.mkdir(parents=True)
     card.write_bytes(b"old card")
     clip = video_clip(references=[{"role": "character", "name": "林凡", "path": "series_assets/characters/character_001/turnaround.jpeg"}])
     old = rc.reference_digests([card])
     for attempt in (1, 2):
-        directory = r.work / "clips" / "clip_01" / f"attempt_{attempt:02d}"
+        directory = r.context.work / "clips" / "clip_01" / f"attempt_{attempt:02d}"
         directory.mkdir(parents=True)
         (directory / "clip.mp4").write_bytes(b"video of the old card")
         (directory / "request.json").write_text(json.dumps({
@@ -397,7 +399,7 @@ def test_a_video_of_a_redrawn_card_is_not_taken_from_another_attempt(tmp_path, m
         def create_video(self, prompt, image, output, duration, additional_images=(), reference_audios=()):
             made.append(prompt)
             output.write_bytes(b"new video")
-    r.provider = Provider()
+    r.context.provider = Provider()
     monkeypatch.setattr(rc, "wait_for_inflight_redraws", lambda paths: [])
     monkeypatch.setattr(rc, "media_duration", lambda path: 10.0)
     video = r.generate_clip(clip, 1)
@@ -407,8 +409,8 @@ def test_a_video_of_a_redrawn_card_is_not_taken_from_another_attempt(tmp_path, m
 def test_parallel_card_builds_keep_each_others_manifest_records(tmp_path):
     root = tmp_path / NOVEL / "series_assets"
     bible = types.SimpleNamespace(characters=[], locations=["大殿", "山门"], visual_style="2D", style_fingerprint="fp")
-    factory = types.SimpleNamespace(settings=types.SimpleNamespace(style_master_path=None),
-                                    _location_prompt=lambda bible, location: f"{location}的空镜")
+    factory = rc.FramedAssetFactory(types.SimpleNamespace(style_master_path=None), None)
+    factory._location_prompt = lambda bible, location: f"{location}的空镜"
 
     def ensure_card(prompt, output, reference=None):
         output.parent.mkdir(parents=True, exist_ok=True)

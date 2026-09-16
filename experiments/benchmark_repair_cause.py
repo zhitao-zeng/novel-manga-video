@@ -210,7 +210,7 @@ def render_arm(output: Path, prepared: dict) -> dict:
     from novel_manga.config import Settings
     from novel_manga.models import StoryBible
     from novel_manga.providers.h3_pool import H3Pool
-    from render_clips_thin import ThinMediaRunner
+    from render_flow_thin import ThinMediaRunner
     from thin_profile import load_profile
     case = prepared["case"]; novel = Path(prepared["novel"]);episode = Path(prepared["episode"])
     result_path = episode.parent.parent / "rendered.json"
@@ -224,12 +224,12 @@ def render_arm(output: Path, prepared: dict) -> dict:
         def acquire(self, timeout=None):
             member = self.lookup(PILOT_ENDPOINT)
             return member, self.hold(PILOT_ENDPOINT, timeout=timeout)
-    runner.provider.local.pool = PinnedPool()
-    runner.provider.local._submit = controlled_submit(runner.provider.local._submit, case['seed'], episode.parent.parent/'submission.json')
+    runner.context.provider.local.pool = PinnedPool()
+    runner.context.provider.local._submit = controlled_submit(runner.context.provider.local._submit, case['seed'], episode.parent.parent/'submission.json')
     # Calling only generate_clip avoids new asset creation, whole-episode assembly,
     # speech-gate retries and any write to the production review/cache.
     started = time.monotonic()
-    video = runner.generate_clip(runner.clip_plan["clips"][0], 1)
+    video = runner.generate_clip(runner.context.clip_plan["clips"][0], 1)
     subprocess.run(['ffmpeg','-v','error','-i',str(video),'-f','null','-'],check=True,capture_output=True)
     task = read(video.with_suffix(video.suffix + '.task.json'), {})
     if task.get('seed') != case['seed'] or task.get('endpoint') != PILOT_ENDPOINT + '/v1/videos':

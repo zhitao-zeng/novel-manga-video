@@ -15,11 +15,9 @@ coloured initial.
 """
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont

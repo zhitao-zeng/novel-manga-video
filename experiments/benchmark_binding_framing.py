@@ -177,7 +177,7 @@ def run(output):
     # The production admission poll sleeps three seconds between attempts. A
     # small experiment can miss every brief vacancy while existing workers
     # reacquire slots. Keep the same lock files and limit, with a bounded poll.
-    import render_clips_thin
+    import render_flow_thin
     from novel_manga.providers.h3_pool import H3Pool, PoolUnavailable
     def pause(started, timeout, message):
         if timeout is not None and time.monotonic()-started >= timeout:
@@ -198,7 +198,7 @@ def run(output):
                     handle.close()
             time.sleep(.1)
         raise TimeoutError('pilot shared admission queue exceeded ten minutes')
-    render_clips_thin.acquire_inflight_slot=acquire
+    render_flow_thin.acquire_inflight_slot=acquire
     manifest=read(output/'manifest.json');frozen=Path(manifest['frozen_novel']);results=read(output/'results.json',[])
     for case in manifest['cases']:
         original=evaluate(output,case,'original',frozen/f"{frozen.name}_{case['episode']}"/'failed.mp4')

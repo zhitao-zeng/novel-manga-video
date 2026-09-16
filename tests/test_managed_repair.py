@@ -1,3 +1,5 @@
+
+from render_context_support import uninitialized_runner
 import copy
 import hashlib
 import json
@@ -167,10 +169,10 @@ def test_failed_source_preparation_does_not_prevent_another_clip_from_being_prep
 
 
 def test_explicit_generation_retry_invalidates_old_cache_without_spoken_instruction(tmp_path):
-    import render_clips_thin as render
-    r=render.ThinMediaRunner.__new__(render.ThinMediaRunner)
+    import render_flow_thin as render
+    r=uninitialized_runner()
     from types import SimpleNamespace
-    r.settings=SimpleNamespace(local_h3_base_url='pool');r.novel_dir=tmp_path;r.feedback={}
+    r.context.settings=SimpleNamespace(local_h3_base_url='pool');r.context.novel_dir=tmp_path;r.context.feedback={}
     clip={'clip_id':'a','request_seconds':5,'repair_take':1,'prompt_h3':'same instruction'}
     saved={'duration':5,'prompt':'same instruction','references':[],'reference_sha256':[]}
     assert not r.request_matches(clip,saved,[],[])
@@ -179,17 +181,17 @@ def test_explicit_generation_retry_invalidates_old_cache_without_spoken_instruct
 
 def test_contradictory_request_is_blocked_before_acquiring_a_generation_slot(tmp_path,monkeypatch):
     from types import SimpleNamespace
-    import render_clips_thin as render
-    r=render.ThinMediaRunner.__new__(render.ThinMediaRunner)
-    r.work=tmp_path/'work';r.novel_dir=tmp_path;r.cache_only=False;r.feedback={};r.prescreen=False
-    r.settings=SimpleNamespace(local_h3_base_url='pool')
+    import render_flow_thin as render
+    r=uninitialized_runner()
+    r.context.work=tmp_path/'work';r.context.novel_dir=tmp_path;r.context.cache_only=False;r.context.feedback={};r.context.prescreen=False
+    r.context.settings=SimpleNamespace(local_h3_base_url='pool')
     r.clip_prompt=lambda clip:clip['prompt_h3']
     clip={'clip_id':'c','request_seconds':5,'references':[],
           'prompt_h3':'detailed_description:\nTwo <Subject 2> stand up.'}
     monkeypatch.setattr(render,'acquire_inflight_slot',lambda *a:pytest.fail('must not take a generation slot'))
     with pytest.raises(ValueError,match='identity repair'):
         r.generate_clip(clip,1)
-    assert r._blocked_clips['c'][0].startswith('request:')
+    assert r.context._blocked_clips['c'][0].startswith('request:')
 
 
 def test_one_render_is_recorded_for_every_prepared_clip_and_counted_once(tmp_path):

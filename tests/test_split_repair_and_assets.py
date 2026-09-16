@@ -1,3 +1,5 @@
+
+from render_context_support import uninitialized_runner
 """Split recovery must preserve dialogue order; asset checks must stay episode-local."""
 import copy
 import json
@@ -12,7 +14,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import build_clip_plan_thin as packer
-import render_clips_thin as renderer
+import render_flow_thin as renderer
 import repair_split_ranges as ranges
 from novel_manga.models import Character, StoryBible
 from novel_manga.config import Settings
@@ -280,13 +282,13 @@ def test_build_assets_checks_only_used_images_and_rebuilds_a_bad_used_card(tmp_p
     for path in (selected, unused, old_sheet, backup):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"broken")
-    runner = renderer.ThinMediaRunner.__new__(renderer.ThinMediaRunner)
-    runner.novel_dir, runner.fast = tmp_path, True
-    runner.settings, runner.provider, runner.bible = Settings(), object(), object()
-    runner.profile = {"style": "2d", "frame": "16:9"}
-    runner.frame_spec = {"text": "横屏"}
+    runner = uninitialized_runner()
+    runner.context.novel_dir, runner.context.fast = tmp_path, True
+    runner.context.settings, runner.context.provider, runner.context.bible = Settings(), object(), object()
+    runner.context.profile = {"style": "2d", "frame": "16:9"}
+    runner.context.frame_spec = {"text": "横屏"}
     ref = {"role": "character", "asset_id": "character_001", "path": str(selected.relative_to(tmp_path))}
-    runner.clip_plan = {"clips": [{"references": [ref, ref]}]}
+    runner.context.clip_plan = {"clips": [{"references": [ref, ref]}]}
     # Deliberately contains stale secondary and unrelated records; neither is needed by this episode.
     manifest = SimpleNamespace(characters=[SimpleNamespace(primary_image=str(p.relative_to(tmp_path)), secondary_image=None)
                                             for p in (selected, unused, old_sheet)], locations=[])
@@ -297,7 +299,7 @@ def test_build_assets_checks_only_used_images_and_rebuilds_a_bad_used_card(tmp_p
         return manifest
     monkeypatch.setattr(renderer.FramedAssetFactory, "build_selected", build)
     waits, opened = [], []
-    monkeypatch.setattr(renderer, "wait_for_inflight_redraws", lambda paths: waits.extend(paths))
+    monkeypatch.setattr("novel_manga.media.assets.wait_for_inflight_redraws", lambda paths: waits.extend(paths))
     original_open = Image.open
     def observe(path, *args, **kwargs):
         opened.append(path)
@@ -321,13 +323,13 @@ def test_quality_phase_card_does_not_require_an_unreferenced_expression_sheet(tm
     card = tmp_path / "series_assets/characters" / asset / "turnaround.jpeg"
     card.parent.mkdir(parents=True)
     Image.new("RGB", (2048, 1024), "white").save(card)
-    runner = renderer.ThinMediaRunner.__new__(renderer.ThinMediaRunner)
-    runner.novel_dir, runner.fast = tmp_path, False
-    runner.settings, runner.provider = Settings(), object()
-    runner.bible = StoryBible(novel_title="测试", genre="generic", visual_style="2d", palette="蓝", style_fingerprint="test",
+    runner = uninitialized_runner()
+    runner.context.novel_dir, runner.context.fast = tmp_path, False
+    runner.context.settings, runner.context.provider = Settings(), object()
+    runner.context.bible = StoryBible(novel_title="测试", genre="generic", visual_style="2d", palette="蓝", style_fingerprint="test",
                              characters=[Character(name="林凡", appearance="黑发", wardrobe="白衣")], locations=[])
-    runner.profile, runner.frame_spec = {"style": "2d", "frame": "16:9"}, {"text": "横屏"}
-    runner.clip_plan = {"clips": [{"references": [{"role": "character", "asset_id": asset,
+    runner.context.profile, runner.context.frame_spec = {"style": "2d", "frame": "16:9"}, {"text": "横屏"}
+    runner.context.clip_plan = {"clips": [{"references": [{"role": "character", "asset_id": asset,
                                                   "path": str(card.relative_to(tmp_path))}]}]}
     monkeypatch.setattr(renderer.FramedAssetFactory, "ensure_card", lambda *a, **kw: pytest.fail("phase card already exists"))
     runner.build_assets()

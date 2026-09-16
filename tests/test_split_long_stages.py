@@ -2,6 +2,8 @@
 else about the episode changes - the other clips keep their entries and their rendered videos."""
 from __future__ import annotations
 
+from render_context_support import uninitialized_runner
+
 import json
 import sys
 import types
@@ -10,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import render_clips_thin as rc  # noqa: E402
+import render_flow_thin as rc  # noqa: E402
 import split_long_stages as tool  # noqa: E402
 import thin_batch  # noqa: E402
 from thin_profile import plan_fingerprint  # noqa: E402
@@ -89,17 +91,17 @@ def test_a_moved_take_s_asr_record_names_its_new_place(tmp_path):
 
 # ---------------------------------------------------------------- the two runner changes that go with it
 def runner(tmp_path, cache_only=False) -> rc.ThinMediaRunner:
-    r = object.__new__(rc.ThinMediaRunner)
-    r.novel_dir, r.work = tmp_path / "nov", tmp_path / "nov" / "nov_1" / "work"
-    r.episode_dir = r.work.parent
-    r.settings = types.SimpleNamespace(local_h3_base_url=None)
-    r.feedback, r.prescreen, r.cache_only = {}, False, cache_only
+    r = uninitialized_runner()
+    r.context.novel_dir, r.context.work = tmp_path / "nov", tmp_path / "nov" / "nov_1" / "work"
+    r.context.episode_dir = r.context.work.parent
+    r.context.settings = types.SimpleNamespace(local_h3_base_url=None)
+    r.context.feedback, r.context.prescreen, r.context.cache_only = {}, False, cache_only
     return r
 
 
 def test_cache_only_leaves_a_clip_from_another_request_where_it_is(tmp_path):
     r = runner(tmp_path, cache_only=True)
-    attempt = r.work / "clips" / "clip_01" / "attempt_01"
+    attempt = r.context.work / "clips" / "clip_01" / "attempt_01"
     attempt.mkdir(parents=True)
     (attempt / "clip.mp4").write_bytes(b"old take")
     (attempt / "request.json").write_text(json.dumps({"prompt": "an older wording", "references": [], "duration": 10}), encoding="utf-8")
@@ -115,11 +117,11 @@ def test_a_cached_asr_record_gives_the_take_beside_it_not_the_path_inside(tmp_pa
     # 2026-09-11: after the split renamed clip_03 to clip_04, clip_04's asr.json still named clip_03/attempt_01/clip.mp4
     # - by then the split stage's first part - and 39 星海 finals were put together from neighbouring clips' takes.
     r = runner(tmp_path)
-    attempt = r.work / "clips" / "clip_04" / "attempt_01"
+    attempt = r.context.work / "clips" / "clip_04" / "attempt_01"
     attempt.mkdir(parents=True)
     for name in ("clip.mp4", "native.wav"):
         (attempt / name).write_bytes(b"x")
-    old = r.work / "clips" / "clip_03" / "attempt_01" / "clip.mp4"
+    old = r.context.work / "clips" / "clip_03" / "attempt_01" / "clip.mp4"
     (attempt / "asr.json").write_text(json.dumps({"clip_id": "clip_03", "video": str(old), "passed": True}), encoding="utf-8")
     monkeypatch.setattr("novel_manga.media.analysis.media_duration", lambda path: 10.0)
     result = r.analyse_clip({"clip_id": "clip_04", "spoken_text": "我们走吧。"}, attempt / "clip.mp4")
@@ -164,9 +166,9 @@ def test_a_clip_the_output_filter_passed_with_the_compliance_line_is_a_cache_hit
     class Provider:
         def create_video(self, *args, **kwargs):
             raise AssertionError("paid for a clip the cache holds")
-    r.provider = Provider()
+    r.context.provider = Provider()
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": "【阶段1】林凡擦去嘴角的血。", "request_seconds": 10, "references": []}
-    attempt = r.work / "clips" / "clip_01" / "attempt_01"
+    attempt = r.context.work / "clips" / "clip_01" / "attempt_01"
     attempt.mkdir(parents=True)
     (attempt / "clip.mp4").write_bytes(b"take that passed the filter")
     (attempt / "request.json").write_text(json.dumps({"prompt": clip["prompt"] + rc.COMPLIANCE_SUFFIX, "references": [],

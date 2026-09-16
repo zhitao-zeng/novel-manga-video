@@ -3,6 +3,8 @@ missed their own takes, English (H3) prompts that carried Chinese the model read
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
 
+from render_context_support import uninitialized_runner
+
 import json
 import os
 import re
@@ -19,7 +21,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import build_clip_plan_thin as packer  # noqa: E402
 import build_h3_prompts as h3prompts  # noqa: E402
-import render_clips_thin as rc  # noqa: E402
+import render_flow_thin as rc  # noqa: E402
 import split_long_stages as tool  # noqa: E402
 import thin_batch  # noqa: E402
 import thin_review  # noqa: E402
@@ -185,15 +187,15 @@ def test_a_held_submission_can_be_released_past_the_run_limit(tmp_path, monkeypa
 
 # ---------------------------------------------------------------- the runner (3, 6, 8, 10, 14)
 def runner(tmp_path: Path, local: str | None = None, **fields) -> rc.ThinMediaRunner:
-    r = object.__new__(rc.ThinMediaRunner)
-    r.novel_dir = tmp_path / NOVEL
-    r.novel_dir.mkdir(parents=True, exist_ok=True)
-    r.settings = types.SimpleNamespace(local_h3_base_url=local)
-    r.feedback, r.max_attempts, r.free_retries = {}, 2, bool(local)
-    r.work = r.novel_dir / f"{NOVEL}_1" / "work"
-    r.prescreen, r.inflight, r.moderation_repair, r.cache_only = False, 0, True, False
+    r = uninitialized_runner()
+    r.context.novel_dir = tmp_path / NOVEL
+    r.context.novel_dir.mkdir(parents=True, exist_ok=True)
+    r.context.settings = types.SimpleNamespace(local_h3_base_url=local)
+    r.context.feedback, r.context.max_attempts, r.context.free_retries = {}, 2, bool(local)
+    r.context.work = r.context.novel_dir / f"{NOVEL}_1" / "work"
+    r.context.prescreen, r.context.inflight, r.context.moderation_repair, r.context.cache_only = False, 0, True, False
     for key, value in fields.items():
-        setattr(r, key, value)
+        setattr(r.context, key, value)
     return r
 
 

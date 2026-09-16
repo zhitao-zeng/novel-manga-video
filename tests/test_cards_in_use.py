@@ -10,7 +10,8 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import mark_cards_in_use  # noqa: E402
-import render_clips_thin  # noqa: E402
+from novel_manga.media import assets as media_assets
+import render_flow_thin  # noqa: E402
 import thin_review  # noqa: E402
 
 
@@ -30,30 +31,30 @@ def ref(card: str) -> dict:
 def test_privacy_repair_leaves_proven_cards_alone(tmp_path, monkeypatch):
     root = novel(tmp_path)
     redrawn = []
-    monkeypatch.setattr(render_clips_thin, "stylize_card", lambda provider, path: redrawn.append(path.parent.name))
-    render_clips_thin.record_privacy_ok(root, [ref("character_001")["path"]])
+    monkeypatch.setattr(media_assets, "stylize_card", lambda provider, path: redrawn.append(path.parent.name))
+    render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
     runner = SimpleNamespace(novel_dir=root, provider=None, _ok_assets=set())
     clip = {"clip_id": "clip_01", "references": [ref("character_001"), ref("character_002")]}
     # one card unproven: only that one is restyled
-    assert render_clips_thin.ThinMediaRunner.repair_privacy_cards(runner, clip) == ["character_002/turnaround.jpeg"]
+    assert media_assets.repair_privacy_cards(runner, clip) == ["character_002/turnaround.jpeg"]
     assert redrawn == ["character_002"]
     # every card proven: nothing is restyled, the rejection stands
-    render_clips_thin.record_privacy_ok(root, [ref("character_002")["path"]])
+    render_flow_thin.record_privacy_ok(root, [ref("character_002")["path"]])
     redrawn.clear()
-    assert render_clips_thin.ThinMediaRunner.repair_privacy_cards(runner, clip) == []
+    assert media_assets.repair_privacy_cards(runner, clip) == []
     assert redrawn == []
 
 
 def test_named_rejected_reference_is_not_redrawn_when_proven(tmp_path, monkeypatch):
     root = novel(tmp_path)
     redrawn = []
-    monkeypatch.setattr(render_clips_thin, "stylize_card", lambda provider, path: redrawn.append(path.parent.name))
-    render_clips_thin.record_privacy_ok(root, [ref("character_001")["path"]])
+    monkeypatch.setattr(media_assets, "stylize_card", lambda provider, path: redrawn.append(path.parent.name))
+    render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
     runner = SimpleNamespace(novel_dir=root, provider=None, _ok_assets=set())
     clip = {"clip_id": "clip_01", "references": [ref("character_001"), ref("character_002")]}
-    assert render_clips_thin.ThinMediaRunner.repair_rejected_reference(runner, clip, 0) == []
+    assert media_assets.repair_rejected_reference(runner, clip, 0) == []
     assert redrawn == [] and (root / "series_assets/characters/character_001/turnaround.jpeg").is_file()
-    assert render_clips_thin.ThinMediaRunner.repair_rejected_reference(runner, clip, 1) == ["character_002/turnaround.jpeg"]
+    assert media_assets.repair_rejected_reference(runner, clip, 1) == ["character_002/turnaround.jpeg"]
     assert redrawn == ["character_002"]
 
 
@@ -61,7 +62,7 @@ def test_remediation_skips_cards_in_use(tmp_path, monkeypatch):
     root = novel(tmp_path)
     monkeypatch.setattr("novel_manga.config.Settings.from_env", lambda **_: None)
     monkeypatch.setattr("novel_manga.media.adapters.FramedPhanRouter", lambda *_: None)
-    render_clips_thin.record_privacy_ok(root, [ref("character_001")["path"]])
+    render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
     report = {"characters": {
         "character_001": {"views": ["turnaround.jpeg"], "actions": ["regenerate"]},
         "character_002": {"views": ["turnaround.jpeg"], "actions": ["regenerate"]}}, "locations": {}}
@@ -80,5 +81,5 @@ def test_backfill_records_referenced_cards(tmp_path, monkeypatch):
         "series_assets/characters/character_001/turnaround.jpeg", "series_assets/locations/location_003/establishing.jpeg"]}))
     monkeypatch.setattr(sys, "argv", ["mark_cards_in_use.py", "--novel-dir", str(root), "--apply"])
     assert mark_cards_in_use.main() == 0
-    assert render_clips_thin.load_privacy_ok(root) == {
+    assert render_flow_thin.load_privacy_ok(root) == {
         "series_assets/characters/character_001/turnaround.jpeg", "series_assets/locations/location_003/establishing.jpeg"}

@@ -7,12 +7,12 @@ import threading
 import time
 from pathlib import Path
 from PIL import Image
-from ..config import Settings
 from ..models import StoryBible
 from ..production_models import AssetRecord, SeriesAssetManifest
+from ..providers.phanrouter import SubmissionUncertain
 from ..util import atomic_write_json
 from .asset_factory import SeriesAssetFactory
-from .common import sha256_text, log, reference_digests
+from .common import sha256_text, log
 
 REDRAW_ORIGIN = "privacy-stylized-redraw"
 
@@ -54,6 +54,11 @@ class FramedAssetFactory(SeriesAssetFactory):
     """Asset factory whose scene-card prompt names the frame instead of 9:16."""
 
     frame_text = "竖屏9:16"
+
+    def __init__(self, settings, provider):
+        super().__init__(settings, provider)
+        self.card_style_suffix_3d = CARD_STYLE_SUFFIX_3D
+        self.location_empty_suffix = LOCATION_EMPTY_SUFFIX
 
     def _location_prompt(self, bible, location):  # type: ignore[override]
         prompt = SeriesAssetFactory._location_prompt(bible, location)
@@ -108,7 +113,7 @@ class FramedAssetFactory(SeriesAssetFactory):
             if "3D" in bible.visual_style or "三维" in bible.visual_style:
                 # Modern-dress 3D cards came out near-photoreal and were then
                 # redrawn by the review; ask for the animated look up front.
-                prompt += CARD_STYLE_SUFFIX_3D
+                prompt += self.card_style_suffix_3d
             invariants = [value for value in (character.appearance, *character.face_anchors, character.silhouette, character.hair) if value]
             state = {"costume": character.base_costume or character.wardrobe, "injury": "none unless changed by source events", "carried_prop": character.signature_prop or "none"}
             scope = {"inherit": ["identity", "hair", "costume", "2d_rendering"], "exclude": ["pose", "composition", "camera", "background", "lighting"]}
@@ -137,7 +142,7 @@ class FramedAssetFactory(SeriesAssetFactory):
             if asset_id not in location_ids:
                 continue
             directory = root / "locations" / asset_id
-            prompt = self._location_prompt(bible, location) + guard + LOCATION_EMPTY_SUFFIX
+            prompt = self._location_prompt(bible, location) + guard + self.location_empty_suffix
             invariants = [f"{location}固定建筑、出入口和空间层级"]
             state = {"time_of_day": "approved_reference_state", "weather": "approved_reference_state", "damage": "none unless changed by source events"}
             scope = {"inherit": ["architecture", "space", "color", "lighting", "2d_rendering"], "exclude": ["composition", "camera", "temporary_people", "text"]}
@@ -277,3 +282,217 @@ def apply_genre(genre):
         CARD_STYLE_SUFFIX_3D = genre['card_style_suffix_3d']
     if genre.get('location_policy') == 'sparse':
         LOCATION_EMPTY_SUFFIX = '。主体空无一人：近景和中景不出现任何人物或人形剪影，远处允许少量模糊的背景行人'
+
+
+ASSET_BUILD_ROUNDS = 6
+ASSET_RETRY_SECONDS = 90
+STYLIZE_STRONGER = '；比上一版更强的卡通化：头身比略夸张、眼睛明显更大、脸型圆润、皮肤为纯色平光、完全没有真人质感'
+
+DEFAULT_CARD_STYLE = CARD_STYLE_SUFFIX_3D
+DEFAULT_LOCATION_POLICY = LOCATION_EMPTY_SUFFIX
+
+
+def style_for_genre(genre):
+    return {'card_style_suffix_3d': genre.get('card_style_suffix_3d') or DEFAULT_CARD_STYLE,
+            'location_empty_suffix': ('。主体空无一人：近景和中景不出现任何人物或人形剪影，远处允许少量模糊的背景行人'
+                                      if genre.get('location_policy') == 'sparse' else DEFAULT_LOCATION_POLICY)}
+
+
+def build_assets(ctx, clips=None):
+    clips = ctx.clip_plan["clips"] if clips is None else clips
+    character_ids = {ref["asset_id"] for clip in clips for ref in clip.get("references", []) if ref["role"] == "character"}
+    location_ids = {ref["asset_id"] for clip in clips for ref in clip.get("references", []) if ref["role"] == "location"}
+    required_images = {ctx.novel_dir / ref["path"] for clip in clips for ref in clip.get("references", [])
+                       if ref.get("role") in {"character", "location"}}
+    # Quality-mode construction may use/build the second view even if this
+    # particular clip references only the primary. Fast production never does.
+    if not ctx.fast:
+        built_characters = {f"character_{i:03d}" for i, _ in enumerate(ctx.bible.characters, 1)}
+        required_images.update(ctx.novel_dir / "series_assets" / "characters" / asset / name
+                               for asset in character_ids & built_characters for name in ("turnaround.jpeg", "expressions.jpeg"))
+    log(f"assets: {len(character_ids)} character cards + {len(location_ids)} locations")
+    factory = FramedAssetFactory(ctx.settings, ctx.provider)
+    factory.frame_text = ctx.frame_spec["text"]
+    for field, value in ctx.asset_style.items():
+        setattr(factory, field, value)
+    log(f"profile: style={ctx.profile['style']} frame={ctx.profile['frame']} canvas={ctx.settings.width}x{ctx.settings.height}")
+    # Purge unreadable images BEFORE the factory runs.  A corrupt card is
+    # not just a bad output: the factory feeds a character turnaround in as
+    # the reference for its expression card, so one truncated download makes
+    # every dependent request fail with an unrelated-looking error.
+    purge_unreadable(ctx.novel_dir / "series_assets", paths=required_images)
+    wait_for_inflight_redraws(sorted(required_images))
+    manifest = None
+    for attempt in range(1, ASSET_BUILD_ROUNDS + 1):
+        try:
+            manifest = factory.build_selected(ctx.novel_dir / "series_assets", ctx.bible, character_ids, location_ids, expressions=not ctx.fast)
+        except ModerationRejected:
+            raise
+        except (RuntimeError, TimeoutError, OSError) as error:
+            if isinstance(error, SubmissionUncertain):
+                raise  # held until someone checks the bill: waiting out more rounds cannot release it
+            # The hosted image service returns "图片生成失败，请稍后重试" during
+            # its own incidents.  That is transient, so back off instead of
+            # losing the whole chapter.
+            if attempt == ASSET_BUILD_ROUNDS:
+                raise
+            log(f"assets: round {attempt} failed ({type(error).__name__}: {str(error)[:110]}); retrying in {ASSET_RETRY_SECONDS}s")
+            time.sleep(ASSET_RETRY_SECONDS)
+            continue
+        broken = broken_assets(ctx, manifest, paths=required_images)
+        if not broken:
+            break
+        # The hosted image CDN can serve an HTML notice or a truncated body;
+        # `_download` stores those bytes verbatim, and reuse-existing-assets
+        # would then lock the bad file in forever.  Drop it and regenerate.
+        for path in broken:
+            log(f"assets: {path.name} in {path.parent.name} is not a readable image, regenerating")
+            for sidecar in (path, path.with_suffix(path.suffix + ".request.json"), path.with_suffix(path.suffix + ".task.json")):
+                sidecar.unlink(missing_ok=True)
+        if attempt == ASSET_BUILD_ROUNDS:
+            raise RuntimeError(f"asset images still unreadable after {ASSET_BUILD_ROUNDS} rounds: {[str(p) for p in broken]}")
+    for clip in clips:
+        for ref in clip.get("references", []):
+            path = ctx.novel_dir / ref["path"]
+            if not path.is_file():
+                raise RuntimeError(f"reference image missing after asset build: {path}")
+    log("assets ready")
+    return manifest
+
+def purge_unreadable(root: Path, *, paths=None) -> list[Path]:
+    """Delete asset images that are missing bytes or are not images at all."""
+    removed: list[Path] = []
+    for path in sorted(set(root.rglob("*.jpeg") if paths is None else paths)):
+        if not path.is_file():
+            continue  # a missing selected image is built or awaited below
+        if path.name.startswith("."):
+            continue  # review markers and other dotfiles are not cards
+        try:
+            if path.stat().st_size < 20000:
+                raise ValueError("too small to be a generated card")
+            with Image.open(path) as image:
+                image.load()
+            continue
+        except Exception as error:
+            log(f"assets: discarding unreadable {path.parent.name}/{path.name} ({type(error).__name__})")
+            for sidecar in (path, path.with_suffix(path.suffix + ".request.json"), path.with_suffix(path.suffix + ".task.json")):
+                sidecar.unlink(missing_ok=True)
+            removed.append(path)
+    return removed
+
+def broken_assets(ctx, manifest, *, paths=None) -> list[Path]:
+    """Return asset images that are missing or that PIL cannot fully decode."""
+    if paths is None:
+        paths = [ctx.novel_dir / value for record in [*manifest.characters, *manifest.locations]
+                 for value in (record.primary_image, getattr(record, "secondary_image", None)) if value]
+    broken: list[Path] = []
+    for path in dict.fromkeys(paths):
+        if not path.is_file() or path.stat().st_size < 20000:
+            broken.append(path)
+            continue
+        try:
+            with Image.open(path) as image:
+                image.load()
+        except Exception:
+            broken.append(path)
+    return broken
+
+def repair_rejected_reference(ctx, clip: dict, index: int) -> list[str]:
+    """Seedance named the offending image (content[N]); fix exactly that one.
+
+    A location card that shows people is rebuilt from its own spec prompt
+    with the empty-scene line; a character card is stylized, or stylized
+    harder if it was stylized once already.  Each step happens once.
+    """
+    references = clip.get("references", [])
+    if not 0 <= index < len(references):
+        return []
+    ref = references[index]
+    if ref.get("role") == "voice":
+        return []  # a refused reference voice has no card to repair
+    path = ctx.novel_dir / ref["path"]
+    label = f"{ref['asset_id']}/{path.name}"
+    if ref["path"] in (set(getattr(ctx, "_ok_assets", set())) | load_privacy_ok(ctx.novel_dir)):
+        log(f"privacy repair: {label} has rendered fine before; not redrawn, the rejection stands")
+        return []
+    with REPAIR_LOCK:
+        if ref["role"] != "character":
+            marker = path.parent / ".emptied.txt"
+            if marker.exists() or not path.is_file():
+                return []
+            spec = json.loads((path.parent / "spec.json").read_text(encoding="utf-8")) if (path.parent / "spec.json").is_file() else {}
+            prompt = str(spec.get("prompt") or "") + getattr(ctx, "asset_style", {}).get("location_empty_suffix", LOCATION_EMPTY_SUFFIX)
+            for suffix in ("", ".task.json", ".request.json"):
+                source = path.with_suffix(path.suffix + suffix)
+                if source.exists():
+                    target = path.with_suffix(".with-people" + path.suffix + suffix)
+                    target.unlink(missing_ok=True)
+                    source.rename(target)
+            log(f"privacy repair: rebuilding {label} as an empty scene (people were read as a real person)")
+            ctx.provider.create_image(prompt, path)
+            with Image.open(path) as image:
+                image.load()
+            marker.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+            return [label]
+        backup = path.with_suffix(".photoreal-rejected.jpeg")
+        second = path.with_suffix(".photoreal-rejected2.jpeg")
+        if not path.is_file() or second.exists():
+            return []
+        if not backup.exists():
+            log(f"privacy repair: redrawing {label} as stylized 3D")
+            stylize_card(ctx.provider, path)
+            return [label]
+        log(f"privacy repair: {label} was stylized once and still read as a real person; stylizing harder")
+        for suffix in ("", ".task.json", ".request.json"):
+            source = path.with_suffix(path.suffix + suffix)
+            if source.exists():
+                target = second.with_suffix(second.suffix + suffix)
+                target.unlink(missing_ok=True)
+                source.rename(target)
+        ctx.provider.create_image(STYLIZE_PROMPT + STYLIZE_STRONGER, path, reference=second)
+        with Image.open(path) as image:
+            image.load()
+        atomic_write_json(path.with_suffix(path.suffix + ".request.json"), {"origin": REDRAW_ORIGIN, "source": second.name, "prompt_sha256": sha256_text(STYLIZE_PROMPT + STYLIZE_STRONGER), "request_sha256": sha256_text(STYLIZE_PROMPT + STYLIZE_STRONGER + second.name), "reason": "second privacy rejection"})
+        return [label]
+
+def repair_privacy_cards(ctx, clip: dict) -> list[str]:
+    """Redraw the character cards unique to a rejected clip as clearly animated.
+
+    Seedance's privacy detector treats a near-photoreal CG face as a real
+    person.  Cards (individual views) already used by a clip that generated
+    fine are exempt, and when every card of the clip is exempt nothing is
+    redrawn: the rejection stands and the clip fails.  The old fallback
+    ("then it must be their combination, so all of them are candidates")
+    restyled 雾月's protagonist on 2026-09-13 after 1,700 episodes had used
+    his card - a changed face is worse than a failed clip.  A card is
+    redrawn at most once: one already stylized (by this run, a parallel
+    thread or another process) just earns the clip its retry.
+    """
+    exempt = set(getattr(ctx, "_ok_assets", set())) | load_privacy_ok(ctx.novel_dir)
+    cards = [ref for ref in clip.get("references", []) if ref["role"] == "character"]
+    candidates = [ref for ref in cards if ref["path"] not in exempt]
+    if cards and not candidates:
+        log(f"privacy repair: every card of {clip.get('clip_id')} has rendered fine before; none is redrawn, the rejection stands")
+        return []
+    repaired: list[str] = []
+    with REPAIR_LOCK:
+        for ref in candidates:
+            path = ctx.novel_dir / ref["path"]
+            label = f"{ref['asset_id']}/{path.name}"
+            backup = path.with_suffix(".photoreal-rejected.jpeg")
+            if not path.is_file() and backup.exists():
+                wait_for_inflight_redraws([path])
+                repaired.append(label)
+                continue
+            if not path.is_file():
+                continue
+            if backup.exists():
+                # Live card next to a parked original = already stylized
+                # once (the factory of a later run may have overwritten the
+                # request.json marker, the backup file it cannot touch).
+                repaired.append(label)
+                continue
+            log(f"privacy repair: redrawing {label} as stylized 3D from {backup.name}")
+            stylize_card(ctx.provider, path)
+            repaired.append(label)
+    return repaired

@@ -1,3 +1,5 @@
+
+from render_context_support import uninitialized_runner
 import copy
 import json
 import subprocess
@@ -7,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 import clip_readiness as ready
-import render_clips_thin as rendering
+import render_flow_thin as rendering
 import thin_batch
 from thin_runs import episode_status, render_runs
 
@@ -55,12 +57,12 @@ def test_complete_parts_and_mixed_legacy_records_are_not_guessed():
 
 def runner_for(episode, monkeypatch):
     directory, plan, script = episode
-    r = rendering.ThinMediaRunner.__new__(rendering.ThinMediaRunner)
-    r.episode_dir, r.novel_dir = directory, directory.parent
-    r.work = directory / "work"
-    r.clip_plan, r.script, r.feedback = plan, script, {}
-    r.cache_only, r.max_attempts, r.free_retries, r.workers = False, 1, False, 2
-    r.settings = SimpleNamespace(local_h3_base_url="")
+    r = uninitialized_runner()
+    r.context.episode_dir, r.context.novel_dir = directory, directory.parent
+    r.context.work = directory / "work"
+    r.context.clip_plan, r.context.script, r.context.feedback = plan, script, {}
+    r.context.cache_only, r.context.max_attempts, r.context.free_retries, r.context.workers = False, 1, False, 2
+    r.context.settings = SimpleNamespace(local_h3_base_url="")
     requested = []
     monkeypatch.setattr(r, "build_assets", lambda **kw: None)
     def generate(c, attempt):
@@ -91,7 +93,7 @@ def test_bad_clip_never_reaches_generation_but_good_clip_finishes(episode, monke
 def test_duration_estimate_does_not_discard_a_matching_passed_video(episode, monkeypatch, matches):
     directory, plan, _ = episode
     r, requested = runner_for(episode, monkeypatch)
-    attempt = r.work / "clips/clip_01/attempt_01"
+    attempt = r.context.work / "clips/clip_01/attempt_01"
     attempt.mkdir(parents=True)
     (attempt / "clip.mp4").write_bytes(b"previously passed")
     (attempt / "asr.json").write_text(json.dumps({"passed": True, "cer": 0, "max_volume_db": -5, "issues": []}))
@@ -118,7 +120,7 @@ def test_reused_passed_video_restores_pruned_audio_before_assembly(episode, monk
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(video)], check=True)
     record = {"passed": True, "video": str(video), "cer": 0, "max_volume_db": -5, "issues": []}
     (attempt / "asr.json").write_text(json.dumps(record))
-    r._approved_cached = {"clip_01": record}
+    r.context._approved_cached = {"clip_01": record}
     monkeypatch.setattr(r, "analyse_clip", rendering.ThinMediaRunner.analyse_clip.__get__(r))
     result = r.process_clip(plan["clips"][0])
     assert result["selected"]["passed"] and not requested
@@ -194,8 +196,8 @@ def test_plan_or_script_change_releases_a_waiting_request(episode):
 
 
 def test_last_submission_boundary_refuses_a_missing_image_before_touching_cache(tmp_path):
-    r = rendering.ThinMediaRunner.__new__(rendering.ThinMediaRunner)
-    r.cache_only, r.novel_dir = False, tmp_path
+    r = uninitialized_runner()
+    r.context.cache_only, r.context.novel_dir = False, tmp_path
     c = clip()
     c["references"] = [{"role": "character", "path": "missing.jpeg"}]
     with pytest.raises(RuntimeError, match="blocked before generation"):
