@@ -22,7 +22,7 @@ from experiments.legacy.planner import (
     _validate_series_development,
     plan_episode_contract,
 )
-from novel_manga.script_planning import validate_series_state
+from experiments.legacy.script_planning import validate_series_state
 
 
 def _fixture() -> tuple[NovelDocument, StoryBible, list[ChapterDiagnosis]]:

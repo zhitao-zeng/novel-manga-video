@@ -19,8 +19,8 @@ from novel_manga.models import (
     TurnDelivery,
 )
 from experiments.legacy.planner import OpenAICompatiblePlanner, _loads_json_object
-from novel_manga.script_planning import deterministic_chapter_diagnosis
-from novel_manga.script_planning import evaluate_script_quality, normalize_chronological_plan
+from experiments.legacy.script_planning import deterministic_chapter_diagnosis
+from experiments.legacy.script_planning import evaluate_script_quality, normalize_chronological_plan
 
 
 class _Response:

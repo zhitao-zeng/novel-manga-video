@@ -25,7 +25,8 @@ from novel_manga.models import (
     TurnDevice,
     VisualStrategy,
 )
-from novel_manga.production import SeriesAssetFactory, compile_production_plan, sha256_file, sha256_text
+from novel_manga.media.asset_factory import SeriesAssetFactory, sha256_file, sha256_text
+from experiments.legacy.production_plan import compile_production_plan
 from novel_manga.preflight import evaluate_production_preflight
 from novel_manga.production_models import (
     EpisodeSequenceContract,

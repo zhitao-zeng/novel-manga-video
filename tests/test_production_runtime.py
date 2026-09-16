@@ -21,7 +21,8 @@ from novel_manga.models import (
     TurnDelivery,
     VisualStrategy,
 )
-from novel_manga.production import SeriesAssetFactory, compile_production_plan
+from novel_manga.media.asset_factory import SeriesAssetFactory
+from experiments.legacy.production_plan import compile_production_plan
 from novel_manga.production_models import (
     AssetRecord,
     ProductionPlan,

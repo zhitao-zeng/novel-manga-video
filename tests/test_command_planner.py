@@ -4,7 +4,7 @@ from pathlib import Path
 from novel_manga.config import Settings
 from novel_manga.ingest import read_novel
 from experiments.legacy.planner import CommandPlanner
-from novel_manga.script_planning import evaluate_script_quality
+from experiments.legacy.script_planning import evaluate_script_quality
 
 
 def test_command_planner_can_be_driven_by_a_non_codex_model_adapter(tmp_path) -> None:

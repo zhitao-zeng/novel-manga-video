@@ -22,7 +22,7 @@ from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
 from novel_manga.bible import (
     _bounded_validate, _compact_excerpt, _fingerprint, _loads_json_object, _validate_story_bible, _validation_feedback, _validation_retry
 )
-from novel_manga.creative_direction import (
+from experiments.legacy.creative_direction import (
     SHORT_DRAMA_PROFILE,
     apply_creative_direction,
     creative_prompt_brief,
@@ -63,7 +63,7 @@ from novel_manga.models import (
     TurnDevice,
 )
 from novel_manga.safety import safe_visual_prompt
-from novel_manga.script_planning import (
+from experiments.legacy.script_planning import (
     SHORT_DRAMA_TURN_HARD_MAX,
     _narration_body,
     _quote_key,

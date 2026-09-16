@@ -1,4 +1,4 @@
-from novel_manga.creative_direction import SHORT_DRAMA_PROFILE, apply_creative_direction
+from experiments.legacy.creative_direction import SHORT_DRAMA_PROFILE, apply_creative_direction
 from novel_manga.models import (
     ChapterDiagnosis,
     ChapterEvent,
@@ -10,7 +10,7 @@ from novel_manga.models import (
     StoryBible,
 )
 from experiments.legacy.planner import OpenAICompatiblePlanner
-from novel_manga.script_planning import evaluate_script_quality
+from experiments.legacy.script_planning import evaluate_script_quality
 
 
 def _episode_and_diagnosis() -> tuple[Episode, ChapterDiagnosis]:

@@ -37,7 +37,7 @@ from novel_manga.models import (
     EpisodePlan,
     StoryBible,
 )
-from novel_manga.script_planning import (
+from experiments.legacy.script_planning import (
     deterministic_series_state,
     evaluate_script_quality,
 )

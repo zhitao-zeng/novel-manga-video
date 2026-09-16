@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from novel_manga.config import Settings
 from novel_manga.models import Character, StoryBible
-from novel_manga.production import SeriesAssetFactory
+from novel_manga.media.asset_factory import SeriesAssetFactory
 from novel_manga.providers.base import ImageResult
 from novel_manga.providers.command import CommandMediaProvider
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider

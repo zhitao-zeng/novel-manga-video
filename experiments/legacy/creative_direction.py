@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import (
+from novel_manga.models import (
     AudioBeat,
     CharacterAwareness,
     CharacterDramaticState,

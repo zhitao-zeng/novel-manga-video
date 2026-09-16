@@ -14,7 +14,7 @@ from novel_manga.models import (
     Shot,
     StoryBible,
 )
-from novel_manga.script_planning import (
+from experiments.legacy.script_planning import (
     deterministic_chapter_diagnosis,
     effective_script_policy,
     evaluate_script_quality,

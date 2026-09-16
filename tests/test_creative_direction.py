@@ -1,4 +1,4 @@
-from novel_manga.creative_direction import (
+from experiments.legacy.creative_direction import (
     SHORT_DRAMA_PROFILE,
     apply_creative_direction,
     infer_visual_strategy,
@@ -14,7 +14,7 @@ from novel_manga.models import (
     StoryBible,
     VisualStrategy,
 )
-from novel_manga.script_planning import evaluate_script_quality, normalize_chronological_plan
+from experiments.legacy.script_planning import evaluate_script_quality, normalize_chronological_plan
 
 
 def _bible() -> StoryBible:

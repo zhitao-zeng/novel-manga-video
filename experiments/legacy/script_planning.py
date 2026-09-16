@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
-from .models import (
+from novel_manga.models import (
     AdaptationLedgerItem,
     ChapterDiagnosis,
     ChapterEvent,
@@ -25,7 +25,7 @@ from .models import (
     TurnDerivation,
     TurnDevice,
 )
-from .creative_direction import SHORT_DRAMA_PROFILE
+from experiments.legacy.creative_direction import SHORT_DRAMA_PROFILE
 
 
 SCRIPT_POLICY_REVISION = "novel-manga-script-v7-active-drama"

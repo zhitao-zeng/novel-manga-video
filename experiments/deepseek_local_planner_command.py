@@ -16,7 +16,7 @@ from pathlib import Path
 
 import httpx
 
-from novel_manga.script_planning import source_evidence_units
+from experiments.legacy.script_planning import source_evidence_units
 
 
 CONTENT_DIRECTION = """

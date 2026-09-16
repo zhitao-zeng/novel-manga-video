@@ -7,6 +7,6 @@
 - `rebuild_source_book.py`：从原文重建人物库、事实和剧本的小样本试验，尚未接管生产。
 - `build_s1.py`、`ep*_data.py`、`build_ceiling_plan_v1.py`、`build_episode1_user_recut_plan.py`：手写样片与剧本实验。
 - `run_episode1_local_plan_ab.py`、`report_episode1_plan_ab.py`、`deepseek_local_planner_command.py`、`gen_diagnoses.py`：早期完整规划方法的实验工具。
-- `legacy/`：以上实验需要的旧规划器和素材复用研究代码；正式生产不得导入这里。
+- `legacy/`：以上实验需要的旧规划器、完整剧本评估与导演规则、旧整集计划编译和素材复用研究代码；正式生产不得导入这里。
 
 在仓库根目录运行 `python experiments/<入口>.py --help` 查看该实验参数。实验产物继续写入忽略的 `outputs/`，不迁移历史产物。
