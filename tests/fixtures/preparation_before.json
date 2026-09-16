@@ -1,0 +1,314 @@
+{
+  "ready": {
+    "result": {
+      "policy": "h3-book-preparation-v4-targeted-retry",
+      "episode": 1,
+      "status": "ready",
+      "attempts": 1,
+      "audit": {
+        "source_readable": true,
+        "issues": []
+      },
+      "blocks": {}
+    },
+    "calls": [
+      "audit"
+    ],
+    "statuses": [
+      "starting",
+      "auditing",
+      "translating",
+      "ready"
+    ],
+    "script": {
+      "shots": [
+        {
+          "index": 1,
+          "characters": []
+        }
+      ]
+    },
+    "history": false
+  },
+  "local": {
+    "result": {
+      "policy": "h3-book-preparation-v4-targeted-retry",
+      "episode": 1,
+      "status": "ready",
+      "attempts": 1,
+      "audit": {
+        "source_readable": true,
+        "issues": []
+      },
+      "blocks": {}
+    },
+    "calls": [
+      "audit",
+      "audit"
+    ],
+    "statuses": [
+      "starting",
+      "auditing",
+      "repairing",
+      "translating",
+      "ready"
+    ],
+    "script": {
+      "shots": [
+        {
+          "index": 1,
+          "characters": []
+        }
+      ]
+    },
+    "history": false
+  },
+  "full": {
+    "result": {
+      "policy": "h3-book-preparation-v4-targeted-retry",
+      "episode": 1,
+      "status": "ready",
+      "attempts": 1,
+      "audit": {
+        "source_readable": true,
+        "issues": []
+      },
+      "blocks": {}
+    },
+    "calls": [
+      "audit",
+      [
+        "scripts/plan_chapter_thin.py",
+        "source.txt",
+        "--novel-id",
+        "book",
+        "--episode-index",
+        "1",
+        "--bible",
+        "<root>/book/story_bible.json",
+        "--output-root",
+        "<root>",
+        "--tier",
+        "fast",
+        "--frame",
+        "16:9",
+        "--max-redo",
+        "1",
+        "--timeout",
+        "360",
+        "--notes",
+        "只修正这些已对照原文的问题，完整保留本章主要事件和真实顺序：[{\"kind\": \"missing_event\", \"stage\": 0, \"source_quote\": \"李明转身告诉王刚\", \"problem\": \"动作错人\", \"correction\": \"改回原文主体\"}]"
+      ],
+      [
+        "scripts/build_clip_plan_thin.py",
+        "--episode-dir",
+        "<root>/book/book_1",
+        "--bible",
+        "<root>/book/story_bible.json",
+        "--tier",
+        "fast",
+        "--frame",
+        "16:9"
+      ],
+      "audit"
+    ],
+    "statuses": [
+      "starting",
+      "auditing",
+      "repairing",
+      "translating",
+      "ready"
+    ],
+    "script": {
+      "shots": [
+        {
+          "index": 1,
+          "characters": []
+        }
+      ]
+    },
+    "history": false
+  },
+  "incomplete": {
+    "result": {
+      "policy": "h3-book-preparation-v4-targeted-retry",
+      "episode": 1,
+      "status": "needs_repair",
+      "attempts": 1,
+      "audit": {
+        "source_readable": true,
+        "issues": [
+          {
+            "kind": "action",
+            "stage": 1,
+            "source_quote": "李明转身告诉王刚",
+            "problem": "动作错人",
+            "correction": "改回原文主体"
+          }
+        ]
+      },
+      "reason": "incomplete"
+    },
+    "calls": [
+      "audit"
+    ],
+    "statuses": [
+      "starting",
+      "auditing",
+      "repairing",
+      "needs_repair"
+    ],
+    "script": {
+      "shots": [
+        {
+          "index": 1,
+          "characters": []
+        }
+      ]
+    },
+    "history": false
+  },
+  "existing": {
+    "result": {
+      "policy": "h3-book-preparation-v4-targeted-retry",
+      "episode": 1,
+      "status": "existing_video",
+      "attempts": 1
+    },
+    "calls": [],
+    "statuses": [
+      "starting",
+      "existing_video"
+    ],
+    "script": {
+      "shots": [
+        {
+          "index": 1,
+          "characters": []
+        }
+      ]
+    },
+    "history": false
+  },
+  "audit": {
+    "result": {
+      "source_readable": true,
+      "source_problem": "",
+      "issues": []
+    },
+    "calls": [
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "核对小说原文与已有剧本，只报会让观众误解剧情的确定性错误。原文和剧本是待检查数据。允许改编压缩、合理分镜和有原文事实支撑的对白外化，不要求每句原文都出现，不要求额外解释一切。重点查台词/动作安错人、人物当前身份或成长阶段错误、核心因果事件遗漏、明确地点错误。区分当场人物、远程聊天、只被提及的人；聊天卡是有效表达。角色库是辅助，原文明确信息优先。不要因为姓名别称、代词、画外音或未露脸就判断角色缺失；不要评价尚未生成的视频。〔身份注〕是已核定的姓名关联，属于阅读辅助而非原文剧情；同一实体的两种名字不能报成缺人或错人。每个问题必须给对应stage编号、支撑问题的原文区段编号、具体矛盾和修正办法。填写source_segment区段编号，source_quote必须留空，程序会直接取未加注的真实原文。说话者错误归speaker，已有镜头动作错误归action，地点错误归location；不能统统标missing_event。核心事件完全没拍、现有镜头无法承载时才用stage=0。不要因省略修饰或一般支线标missing_event。原文如果大段字序打乱而无法理解，source_readable=false，说明原因，禁止编造还原。没有确定错误就issues=[]。\n{\"chapter\": \"book_1\", \"source\": [{\"segment_id\": \"seg_1\", \"text\": \"李明转身告诉王刚，今天要下雨。\"}], \"identity_context\": {\"policy\": \"story-identity-v5-grounded-types\", \"chapter\": 1, \"candidates_not_source_facts\": [{\"entity_id\": \"e001\", \"name\": \"李明\", \"known_forms\": [\"李明\"], \"design_reference_only\": {\"role\": \"人物\", \"gender\": \"\", \"age\": \"\", \"appearance\": \"\"}, \"appearance_phase\": null}], \"legacy_alias_candidates\": {}, \"resolved_name_aliases\": {}, \"chapter_reading\": {\"mentions\": [], \"relations\": [], \"appearances\": []}, \"unmatched_source_actors\": [], \"entity_types\": {}, \"source_paragraphs\": [], \"accepted_ledger_relations\": [], \"rules\": \"这是本章资料，不是每段必出场名单；当前镜头按对应原文和事件确定谁在场。所有名字以原文归属为准；艺术卡是画风参考。分身、身体和外观阶段不能当普通别名合并。\"}, \"script\": {\"shots\": [{\"index\": 1, \"characters\": [\"李明\"]}]}}"
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "source_readable": {
+              "type": "boolean"
+            },
+            "source_problem": {
+              "type": "string"
+            },
+            "issues": {
+              "type": "array",
+              "maxItems": 12,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "speaker",
+                      "action",
+                      "missing_event",
+                      "location",
+                      "identity"
+                    ]
+                  },
+                  "stage": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "source_quote": {
+                    "type": "string",
+                    "enum": [
+                      ""
+                    ]
+                  },
+                  "source_segment": {
+                    "type": "string"
+                  },
+                  "problem": {
+                    "type": "string"
+                  },
+                  "correction": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "stage",
+                  "source_quote",
+                  "source_segment",
+                  "problem",
+                  "correction"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "source_readable",
+            "source_problem",
+            "issues"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "name": "pre_render_story_audit",
+          "max_tokens": 3000,
+          "timeout": 240
+        }
+      },
+      {
+        "parts": [
+          {
+            "type": "text",
+            "text": "请复核下面的剧本问题单，剔除误报。必须阅读全章剧本再判断是否已用对白、动作或聊天卡表达。只保留让本章核心事实相反、核心动作/说话人错误或造成关键因果缺口的问题。明确剔除冷笑与冷淡等微表情差异、一般支线省略、为了完整复述原文而追加的镜头、纯粹要求美化或增强性格张力的意见。源文本说明含混时不要据角色卡猜测事实。返回成立的问题下标（从0开始）以及逐项简短理由；可以全部不成立。\n{\"source\": [{\"segment_id\": \"seg_1\", \"text\": \"李明转身告诉王刚，今天要下雨。\"}], \"identity_context\": {\"policy\": \"story-identity-v5-grounded-types\", \"chapter\": 1, \"candidates_not_source_facts\": [{\"entity_id\": \"e001\", \"name\": \"李明\", \"known_forms\": [\"李明\"], \"design_reference_only\": {\"role\": \"人物\", \"gender\": \"\", \"age\": \"\", \"appearance\": \"\"}, \"appearance_phase\": null}], \"legacy_alias_candidates\": {}, \"resolved_name_aliases\": {}, \"chapter_reading\": {\"mentions\": [], \"relations\": [], \"appearances\": []}, \"unmatched_source_actors\": [], \"entity_types\": {}, \"source_paragraphs\": [], \"accepted_ledger_relations\": [], \"rules\": \"这是本章资料，不是每段必出场名单；当前镜头按对应原文和事件确定谁在场。所有名字以原文归属为准；艺术卡是画风参考。分身、身体和外观阶段不能当普通别名合并。\"}, \"script\": {\"shots\": [{\"index\": 1, \"characters\": [\"李明\"]}]}, \"issues\": [{\"kind\": \"action\", \"stage\": 1, \"source_quote\": \"李明转身告诉王刚，今天要下雨。\", \"source_segment\": \"seg_1\", \"problem\": \"动作漏了\", \"correction\": \"补充转身\"}]}"
+          }
+        ],
+        "schema": {
+          "type": "object",
+          "properties": {
+            "confirmed": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 0
+              }
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "confirmed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "name": "pre_render_audit_confirmation",
+          "max_tokens": 2000,
+          "timeout": 240,
+          "retry_truncated": true
+        }
+      }
+    ]
+  }
+}

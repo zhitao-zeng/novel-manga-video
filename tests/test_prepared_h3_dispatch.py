@@ -1,3 +1,4 @@
+import preparation_store_thin as preparation_store
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_state_thin as repair_manager_state
 import json
@@ -8,7 +9,6 @@ import repair_manager_flow_thin as repair_manager_flow
 import repair_manager_workers_thin as repair_manager_workers
 import review_store_thin as review_store
 import thin_runs as thin_runs
-import prepare_h3_book as preparation
 
 
 def setup(tmp_path, monkeypatch):
@@ -31,8 +31,8 @@ def setup(tmp_path, monkeypatch):
 
 def test_unprepared_episodes_are_not_rendered_or_given_video_reviews(tmp_path, monkeypatch):
     m, seen = setup(tmp_path, monkeypatch)
-    preparation.record(m.novel / 'book_1', 'ready')
-    preparation.record(m.novel / 'book_2', 'needs_repair')
+    preparation_store.record(m.novel / 'book_1', 'ready')
+    preparation_store.record(m.novel / 'book_2', 'needs_repair')
     repair_manager_state.refresh(m, write=False)
     repair_manager_dispatch.schedule(m)
     assert seen == ['book_1']
@@ -44,12 +44,12 @@ def test_unprepared_episodes_are_not_rendered_or_given_video_reviews(tmp_path, m
 def test_stale_preparation_is_rejected_and_new_ready_work_is_admitted(tmp_path, monkeypatch):
     m, seen = setup(tmp_path, monkeypatch)
     directory = m.novel / 'book_1'
-    preparation.record(directory, 'ready')
+    preparation_store.record(directory, 'ready')
     atomic_write_json(directory / 'chapter_script.json', {'shots': [{'motion_prompt': 'changed'}]})
     repair_manager_state.refresh(m, write=False)
     repair_manager_dispatch.schedule(m)
     assert not m.state['jobs'] and not seen
-    preparation.record(directory, 'ready')
+    preparation_store.record(directory, 'ready')
     repair_manager_state.refresh(m, write=False)
     repair_manager_dispatch.schedule(m)
     assert [j['episodes'] for j in m.state['jobs']] == [[1]]
@@ -58,7 +58,7 @@ def test_stale_preparation_is_rejected_and_new_ready_work_is_admitted(tmp_path, 
 def test_production_edits_do_not_return_an_admitted_episode_to_preparation(tmp_path, monkeypatch):
     m, seen = setup(tmp_path, monkeypatch)
     directory = m.novel / 'book_1'
-    preparation.record(directory, 'ready')
+    preparation_store.record(directory, 'ready')
     repair_manager_state.refresh(m, write=False)
     atomic_write_json(directory / 'chapter_script.json', {'shots': [{'motion_prompt': 'production repair'}]})
     m.save()
@@ -71,7 +71,7 @@ def test_production_edits_do_not_return_an_admitted_episode_to_preparation(tmp_p
 def test_initial_production_preserves_chapter_order(tmp_path, monkeypatch):
     m, seen = setup(tmp_path, monkeypatch)
     for n in (1, 2, 3):
-        preparation.record(m.novel / f'book_{n}', 'ready')
+        preparation_store.record(m.novel / f'book_{n}', 'ready')
     repair_manager_state.refresh(m, write=False)
     repair_manager_dispatch.schedule(m)
     assert [j['episodes'] for j in m.state['jobs']] == [[1], [2], [3]]

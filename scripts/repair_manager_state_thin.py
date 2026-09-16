@@ -26,7 +26,8 @@ def refresh(manager, *, write: bool = True):
         if manager.episode_scope is not None and n not in manager.episode_scope:
             continue
         if manager.state.get('preparation_gate') and n not in admitted:
-            from prepare_h3_book import inputs as preparation_inputs, POLICY as PREPARATION_POLICY
+            from preparation_store_thin import inputs as preparation_inputs
+            from novel_manga.planning.preparation import POLICY as PREPARATION_POLICY
             preparation = read(manager.novel / 'h3_preparation/episodes' / f'{n}.json', {})
             if (preparation.get('policy') == PREPARATION_POLICY and preparation.get('status') == 'ready'
                     and preparation.get('inputs') == preparation_inputs(directory)):
