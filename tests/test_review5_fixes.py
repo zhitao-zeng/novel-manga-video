@@ -5,8 +5,8 @@ from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 import novel_manga.application.repair.judges as repair_judges
-import conductor_state_thin as conductor_state
-import conductor_workers_thin as conductor_workers
+import novel_manga.application.production.conductor_state as conductor_state
+import novel_manga.application.production.conductor_workers as conductor_workers
 
 import copy
 import json
@@ -25,17 +25,17 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.application.packing.context as packer
 import novel_manga.application.planning.cast_completion as completion
-import conductor_flow_thin as conductor_flow
-import conductor_workers_thin as conductor_workers  # noqa: E402
-import delivery_gate_thin  # noqa: E402
+import novel_manga.application.production.conductor_flow as conductor_flow
+import novel_manga.application.production.conductor_workers as conductor_workers
+import novel_manga.application.production.delivery as delivery_gate_thin
 import novel_manga.planning.cast as pc_cast
 import novel_manga.application.planning.context as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
 import novel_manga.application.review.retier as retier_reviews
-import dashboard_config_thin as dashboard_config
-import dashboard_history_thin as dashboard_history
-import dashboard_inventory_thin as dashboard_inventory  # noqa: E402
-import production_flow_thin as production_flow  # noqa: E402
+import novel_manga.application.dashboard.config as dashboard_config
+import novel_manga.application.dashboard.history as dashboard_history
+import novel_manga.application.dashboard.inventory as dashboard_inventory
+import novel_manga.application.production.flow as production_flow
 import novel_manga.llm.client as model_client
 import novel_manga.application.review.episode as review_episode
 import novel_manga.application.review.judges as review_judges

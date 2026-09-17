@@ -42,14 +42,9 @@ def prepare_one(directory):
     return actions.translate_and_check(directory, plan, answer)
 
 
-def run(args):
-    from novel_manga.util import load_dotenv
-    load_dotenv(ROOT / '.env')
-    # This queue uses local Qwen, independent of paid planner lane settings.
-    os.environ['QWEN38_LOCAL_BASE_URL'] = ','.join(f'http://127.0.0.1:{p}/v1' for p in range(18120, 18125)) + ',http://172.28.4.52:18125/v1,http://172.28.4.52:18126/v1'
-    os.environ['QWEN38_LOCAL_MODEL'] = 'Qwen3.8-27B-Project'
-    os.environ['QWEN38_LOCAL_API_KEY_VAR'] = 'H3_PROMPT_NO_KEY'
-    os.environ['NOVEL_CLIP_SECONDS_MAX'] = '15'
+def run(args, *, worker_env=None):
+    from novel_manga.application.configuration import preparation_environment
+    worker_env = preparation_environment(ROOT) if worker_env is None else worker_env
     novel = args.novel_dir.resolve()
     out = novel / 'h3_preparation'
     (out / 'episodes').mkdir(parents=True, exist_ok=True)
@@ -96,7 +91,7 @@ def run(args):
                 log = (out / f'chapter-{n}.log').open('a')
                 child = subprocess.Popen([sys.executable, str(ROOT / 'scripts/prepare_h3_book.py'), '--novel-dir', str(novel),
                                           '--episode', str(n)], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
-                                         stdin=subprocess.DEVNULL)
+                                         stdin=subprocess.DEVNULL, env=worker_env)
                 log.close()
                 active[n] = child
             for n, child in list(active.items()):

@@ -1,5 +1,6 @@
 """repair_manager_workers_thin responsibilities; existing job state and scheduling policy."""
 from __future__ import annotations
+from novel_manga.application.configuration import project_root
 from novel_manga.util import atomic_write_json
 from novel_manga.util import read_json as read
 from pathlib import Path
@@ -8,7 +9,7 @@ import shutil
 import signal
 import subprocess
 import time
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = project_root()
 import novel_manga.application.preparation.readiness as clip_readiness
 import novel_manga.repair.scheduling as schedule_rules
 import novel_manga.application.production.runs as thin_runs

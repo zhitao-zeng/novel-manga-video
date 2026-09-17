@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import patch
 from novel_manga.util import atomic_write_json
 from novel_manga.review.contracts import REVIEW_POLICY
-import repair_manager_flow_thin as flow
-import repair_manager_state_thin as state
-import repair_manager_progression_thin as progression
+import novel_manga.application.repair.manager_flow as flow
+import novel_manga.application.repair.manager_state as state
+import novel_manga.application.repair.manager_progression as progression
 import novel_manga.application.review.store as store
 import novel_manga.application.repair.delivery as delivery
 import novel_manga.application.repair.history as history

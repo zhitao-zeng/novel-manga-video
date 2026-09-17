@@ -85,7 +85,7 @@ def test_body_mapping_refreshes_after_ledger_changes(tmp_path, monkeypatch):
 
 
 def test_usage_counts_generated_material_outside_latest_report(tmp_path):
-    from cost_report_thin import episode_rows
+    from novel_manga.application.reporting.cli import episode_rows
     novel = tmp_path / 'book'; episode = novel / 'book_1'
     for n in (1, 2):
         attempt = episode / 'work/clips/clip_01' / f'attempt_{n:02d}'

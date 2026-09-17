@@ -7,7 +7,7 @@ from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.flow as packing_flow
 import novel_manga.application.packing.service as packing_service
-import production_render_thin as production_render
+import novel_manga.application.production.render as production_render
 
 import json
 import os
@@ -22,10 +22,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import conductor_flow_thin as conductor_flow
-import conductor_state_thin as conductor_state
+import novel_manga.application.production.conductor_flow as conductor_flow
+import novel_manga.application.production.conductor_state as conductor_state
 import novel_manga.application.production.runs as thin_runs
-import production_flow_thin as production_flow  # noqa: E402
+import novel_manga.application.production.flow as production_flow
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain

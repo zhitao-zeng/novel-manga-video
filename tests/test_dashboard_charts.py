@@ -1,7 +1,7 @@
 import subprocess
 from pathlib import Path
 
-from pipeline_dashboard import net_windows, pipeline_metrics
+from novel_manga.application.dashboard.metrics import net_windows, pipeline_metrics
 
 
 def test_net_buckets_share_boundaries_without_counting_a_delivery_twice():

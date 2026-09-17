@@ -2,8 +2,8 @@ from novel_manga.story.compilation import ClipCompiler
 from novel_manga.application.packing.context import compiler_options
 import novel_manga.story.dialogue as story_dialogue
 import novel_manga.application.packing.service as packing_service
-import repair_manager_dispatch_thin as repair_manager_dispatch
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_dispatch as repair_manager_dispatch
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 
 from render_context_support import uninitialized_runner
 import json
@@ -11,8 +11,8 @@ from pathlib import Path
 import subprocess
 
 import novel_manga.repair.scheduling as schedule_rules
-import repair_manager_flow_thin as repair_manager_flow
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_flow as repair_manager_flow
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 import novel_manga.application.repair.recovery as recovery
 
 

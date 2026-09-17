@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 import time
 import urllib.request
-import conductor_common_thin as conductor_common
+import novel_manga.application.production.conductor_common as conductor_common
 import novel_manga.application.production.runs as thin_runs
 
 def chapter(conductor, n: int) -> dict:

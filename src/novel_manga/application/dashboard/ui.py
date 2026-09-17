@@ -1,8 +1,9 @@
 """dashboard_ui_thin responsibilities; existing dashboard metric definitions."""
 from __future__ import annotations
+from novel_manga.application.configuration import project_root
 from pathlib import Path
 import json
-import dashboard_config_thin as dashboard_config
+import novel_manga.application.dashboard.config as dashboard_config
 
 STYLE = """
 :root{
@@ -201,10 +202,10 @@ function episodeAttention(n){
 STATE_JS = 'const DASHBOARD_VERSION='+json.dumps(dashboard_config.UI_VERSION)+';\n'+STATE_JS
 
 
-STATE_JS += (Path(__file__).with_name('pipeline_dashboard.js')).read_text(encoding='utf-8')
+STATE_JS += (project_root() / 'scripts/pipeline_dashboard.js').read_text(encoding='utf-8')
 
 
-STYLE += (Path(__file__).with_name('pipeline_dashboard.css')).read_text(encoding='utf-8')
+STYLE += (project_root() / 'scripts/pipeline_dashboard.css').read_text(encoding='utf-8')
 
 
 def _page(active: str, header_extra: str, body: str) -> str:

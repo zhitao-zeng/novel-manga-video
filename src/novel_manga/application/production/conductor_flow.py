@@ -7,11 +7,11 @@ import os
 import subprocess
 import time
 from novel_manga.application.configuration import RuntimePaths
-import conductor_capacity_thin as conductor_capacity
-import conductor_common_thin as conductor_common
-import conductor_dispatch_thin as conductor_dispatch
-import conductor_state_thin as conductor_state
-import conductor_workers_thin as conductor_workers
+import novel_manga.application.production.conductor_capacity as conductor_capacity
+import novel_manga.application.production.conductor_common as conductor_common
+import novel_manga.application.production.conductor_dispatch as conductor_dispatch
+import novel_manga.application.production.conductor_state as conductor_state
+import novel_manga.application.production.conductor_workers as conductor_workers
 
 class Conductor:
     def __init__(self, config: dict, dry_run: bool, plan_only: bool = False):

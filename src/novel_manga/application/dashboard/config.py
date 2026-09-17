@@ -1,12 +1,13 @@
 """dashboard_config_thin responsibilities; existing dashboard metric definitions."""
 from __future__ import annotations
+from novel_manga.application.configuration import project_root
 from pathlib import Path
 import json
 import re
 from novel_manga.application.configuration import RuntimePaths, dashboard_novels
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = project_root()
 
 
 TMP = RuntimePaths(ROOT).temporary

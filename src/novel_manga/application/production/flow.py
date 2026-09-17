@@ -11,10 +11,10 @@ import sys
 import threading
 import time
 import urllib.request
-import production_assets_thin as production_assets
+import novel_manga.application.production.assets as production_assets
 import novel_manga.application.production.common as production_common
-import production_render_thin as production_render
-import production_reports_thin as production_reports
+import novel_manga.application.production.render as production_render
+import novel_manga.application.production.reports as production_reports
 import novel_manga.application.profiles as thin_profile
 import novel_manga.application.production.runs as thin_runs
 
@@ -46,7 +46,6 @@ class Batch:
         }
         self.rows: dict[int, dict] = {}
         self.reviewing = bool(args.unattended or args.review_only)
-        sys.path.insert(0, str(production_common.SCRIPTS))
         from novel_manga.application.profiles import is_fast, load_profile
         self.profile = load_profile(self.novel_dir, tier=args.tier)
         self.fast = is_fast(self.profile)
@@ -61,7 +60,6 @@ class Batch:
     # ---- helpers ----
     def novel(self):
         if self._novel is None:
-            sys.path.insert(0, str(production_common.ROOT / "src"))
             from novel_manga.ingest import read_novel
             self._novel = read_novel(self.source, novel_id=self.novel_id, title=self.title)
         return self._novel

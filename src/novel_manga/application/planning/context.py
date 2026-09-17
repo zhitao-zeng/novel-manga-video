@@ -9,7 +9,7 @@ import novel_manga.planning.constants as pc_constants
 
 def load_separate_pairs(novel_dir: Path) -> list[tuple[str, str]]:
     """Character pairs this novel's review record says the generator cannot tell apart."""
-    path = novel_dir / "novel_manga.application.assets.confusable.json"
+    path = novel_dir / "confusable_pairs.json"
     if not path.is_file():
         return []
     try:

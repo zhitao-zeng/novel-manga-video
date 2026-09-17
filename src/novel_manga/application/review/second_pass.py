@@ -283,6 +283,10 @@ def report(novel_dir: Path, look_dir: Path, read_dir: Path) -> list[dict]:
 
 
 def main() -> int:
+    import sys
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__)
+        return 0
     novel = sys.argv[1] if len(sys.argv) > 1 else "xinghai"
     stage = sys.argv[sys.argv.index("--stage") + 1] if "--stage" in sys.argv else "all"
     workers = int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else 12

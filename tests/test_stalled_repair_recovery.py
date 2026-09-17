@@ -1,13 +1,13 @@
 import novel_manga.repair.evidence as repair_evidence
 import novel_manga.application.repair.judges as repair_judges
-import repair_manager_dispatch_thin as repair_manager_dispatch
+import novel_manga.application.repair.manager_dispatch as repair_manager_dispatch
 import copy
 import json
 from types import SimpleNamespace
 
 import pytest
 
-import repair_manager_flow_thin as repair_manager_flow
+import novel_manga.application.repair.manager_flow as repair_manager_flow
 import novel_manga.application.repair.flow as repair
 import novel_manga.application.repair.source_recheck as source
 from test_managed_repair import fixture_episode

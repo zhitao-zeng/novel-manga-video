@@ -1,7 +1,7 @@
-import repair_manager_progression_thin as repair_manager_progression
-import repair_manager_dispatch_thin as repair_manager_dispatch
-import repair_manager_state_thin as repair_manager_state
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_progression as repair_manager_progression
+import novel_manga.application.repair.manager_dispatch as repair_manager_dispatch
+import novel_manga.application.repair.manager_state as repair_manager_state
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 import json
 
 from novel_manga.application.profiles import speech_gate_result, blocking_clip_failures
@@ -60,7 +60,7 @@ def test_collective_offscreen_voice_and_named_duchess_can_be_grounded(monkeypatc
 
 def test_current_full_delivery_finishes_despite_an_old_failed_scan(tmp_path,monkeypatch):
     import time
-    import repair_manager_flow_thin as repair_manager_flow
+    import novel_manga.application.repair.manager_flow as repair_manager_flow
     m=repair_manager_flow.Manager(tmp_path/'book',tmp_path/'legacy')
     m.state.update(phase=2,scan_started=True,jobs=[{'kind':'scan','status':'needs_attention','episodes':[]}])
     m.last_delivery=time.monotonic()

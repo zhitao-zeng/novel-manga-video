@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from novel_manga import batch_control as control
+from novel_manga.application.production import control as control
 from novel_manga.util import atomic_write_json
-import pipeline
-import pipeline_dashboard as dashboard
+import novel_manga.application.production.cli as pipeline
+import novel_manga.application.dashboard.metrics as dashboard
 
 
 def book(tmp_path):

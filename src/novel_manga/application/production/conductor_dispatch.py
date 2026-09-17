@@ -2,10 +2,10 @@
 from __future__ import annotations
 import json
 import time
-import conductor_capacity_thin as conductor_capacity
-import conductor_common_thin as conductor_common
-import conductor_state_thin as conductor_state
-import conductor_workers_thin as conductor_workers
+import novel_manga.application.production.conductor_capacity as conductor_capacity
+import novel_manga.application.production.conductor_common as conductor_common
+import novel_manga.application.production.conductor_state as conductor_state
+import novel_manga.application.production.conductor_workers as conductor_workers
 
 def range_finished(conductor, r: dict, stats: dict) -> bool:
     blocks_done = all(b["done"] for b in conductor.blocks if b["a"] >= r["a"] and b["b"] <= r["b"])

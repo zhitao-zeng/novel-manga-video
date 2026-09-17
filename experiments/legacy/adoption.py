@@ -4,7 +4,7 @@ import os
 import signal
 import time
 from novel_manga.util import atomic_write_json
-from repair_manager_workers_thin import ROOT, alive, processes
+from novel_manga.application.repair.manager_workers import ROOT, alive, processes
 
 CONTROLLERS = {"wy_repair_chain2.sh", "wy_repair_chain2b.sh", "wy_repair_pass2.sh", "wy_filler.sh",
                "wy_verify_run2.sh", "wy_verify_flash_all.sh", "wy_single_card_recovery.py"}

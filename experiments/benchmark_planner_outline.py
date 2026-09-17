@@ -27,7 +27,7 @@ DEFAULT_ROOT = REPO / "outputs/experiments/planner-outline-ab-20260914"
 CONTEXT_FILES = (
     "story_bible.json", "profile.json", "bible_growth.json", "bible_aliases.json",
     "entity_index.json", "cast_index.json", "recap.json", "volumes.json",
-    "visual_grammar.json", "chat_screen.json", "novel_manga.application.assets.confusable.json",
+    "visual_grammar.json", "chat_screen.json", "confusable_pairs.json",
 )
 
 

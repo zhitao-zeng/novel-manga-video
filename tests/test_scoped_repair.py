@@ -1,9 +1,9 @@
-import repair_manager_state_thin as repair_manager_state
+import novel_manga.application.repair.manager_state as repair_manager_state
 import copy
 import json
 from pathlib import Path
 
-import repair_manager_flow_thin as repair_manager_flow
+import novel_manga.application.repair.manager_flow as repair_manager_flow
 import novel_manga.application.review.store as review_store
 import novel_manga.application.production.runs as thin_runs
 from novel_manga.application.packing.single_card import single_card_plan

@@ -61,7 +61,7 @@ def analyse(novel: str) -> dict:
 
 for novel in sys.argv[1:] or ("xinghai", "wuyue", "zhutian-card"):
     result = analyse(novel)
-    out = ROOT / novel / "novel_manga.application.assets.confusable.json"
+    out = ROOT / novel / "confusable_pairs.json"
     out.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"{novel}: 基线出错率 {100 * result['baseline']:.0f}%，命中 {len(result['pairs'])} 对 → {out}")
     for p in result["pairs"][:6]:

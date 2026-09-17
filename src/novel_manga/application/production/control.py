@@ -13,7 +13,7 @@ import subprocess
 import sys
 import time
 
-from .application.configuration import RuntimePaths
+from novel_manga.application.configuration import RuntimePaths
 
 FLOWS = ('production', 'prepare', 'repair')
 ENTRIES = {'production': 'conductor_thin.py', 'prepare': 'prepare_h3_book.py',

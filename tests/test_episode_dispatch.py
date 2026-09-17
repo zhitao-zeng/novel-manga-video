@@ -1,5 +1,5 @@
-import repair_manager_dispatch_thin as repair_manager_dispatch
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_dispatch as repair_manager_dispatch
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 import json
 import os
 from pathlib import Path
@@ -10,8 +10,8 @@ import pytest
 
 import novel_manga.application.preparation.readiness as ready
 import novel_manga.repair.scheduling as schedule_rules
-import repair_manager_flow_thin as repair_manager_flow
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_flow as repair_manager_flow
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 import novel_manga.application.production.runs as thin_runs
 
 

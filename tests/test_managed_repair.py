@@ -1,8 +1,8 @@
 from novel_manga.media import cache
 import novel_manga.story.source_identity as source_identity_rules
 import novel_manga.application.repair.judges as repair_judges
-import repair_manager_dispatch_thin as repair_manager_dispatch
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_dispatch as repair_manager_dispatch
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 
 from render_context_support import uninitialized_runner
 import copy
@@ -15,7 +15,7 @@ import novel_manga.application.repair.managed as managed
 import novel_manga.application.repair.history as history
 import novel_manga.application.repair.flow as repair
 import novel_manga.repair.scheduling as schedule_rules
-import repair_manager_flow_thin as repair_manager_flow
+import novel_manga.application.repair.manager_flow as repair_manager_flow
 from novel_manga.story.h3 import request_issues
 from novel_manga.application.profiles import plan_fingerprint
 from novel_manga.review.storage import take_identity

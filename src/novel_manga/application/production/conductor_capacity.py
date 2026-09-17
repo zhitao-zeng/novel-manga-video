@@ -4,7 +4,7 @@ from pathlib import Path
 import fcntl
 import os
 import time
-import conductor_state_thin as conductor_state
+import novel_manga.application.production.conductor_state as conductor_state
 
 def compatible(conductor, key: dict, r: dict) -> bool:
     return r["plan_mode"] == int(key["clip_cap"])

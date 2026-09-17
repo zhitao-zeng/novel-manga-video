@@ -2,7 +2,7 @@
 else about the episode changes - the other clips keep their entries and their rendered videos."""
 from __future__ import annotations
 from dataclasses import replace
-import production_render_thin as production_render
+import novel_manga.application.production.render as production_render
 
 from render_context_support import uninitialized_runner
 
@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import novel_manga.application.rendering.flow as rc
 import novel_manga.application.packing.split as tool
-import production_flow_thin as production_flow  # noqa: E402
+import novel_manga.application.production.flow as production_flow
 from novel_manga.application.profiles import plan_fingerprint
 
 

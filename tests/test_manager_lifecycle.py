@@ -1,10 +1,10 @@
 """Controller refactors retain pause semantics after the completed handoff retires."""
 import time
 import pytest
-import repair_manager_flow_thin as flow
-import repair_manager_state_thin as state
-import repair_manager_dispatch_thin as dispatch
-import repair_manager_workers_thin as workers
+import novel_manga.application.repair.manager_flow as flow
+import novel_manga.application.repair.manager_state as state
+import novel_manga.application.repair.manager_dispatch as dispatch
+import novel_manga.application.repair.manager_workers as workers
 
 
 def test_paused_manager_never_dispatches_or_changes_history(tmp_path, monkeypatch):
@@ -25,7 +25,7 @@ def test_paused_manager_never_dispatches_or_changes_history(tmp_path, monkeypatc
 @pytest.mark.parametrize('arguments', [['preview'], ['run', '--adopt-legacy']])
 def test_completed_handoff_is_no_longer_a_production_entry(tmp_path, monkeypatch, arguments):
     import sys
-    import manage_repair_thin
+    import novel_manga.application.repair.cli as manage_repair_thin
     monkeypatch.setattr(sys, 'argv', ['manage_repair_thin.py', *arguments, '--novel-dir', str(tmp_path)])
     with pytest.raises(SystemExit) as error:
         manage_repair_thin.main()

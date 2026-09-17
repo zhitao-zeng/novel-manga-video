@@ -1,4 +1,4 @@
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 import novel_manga.review.audit_queue as audit_queue
 import novel_manga.application.review.store as review_store
 import novel_manga.repair.scheduling as schedule_rules
-import repair_manager_flow_thin as repair_manager_flow
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_flow as repair_manager_flow
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 
 
 def targets(n=30):

@@ -20,4 +20,10 @@ def main():
     parser.add_argument('--workers', type=int, default=6)
     parser.add_argument('--episode', type=int)
     args = parser.parse_args()
-    return run(args)
+    from novel_manga.application.configuration import preparation_environment
+    worker_env = preparation_environment(ROOT)
+    if args.episode is not None:
+        # A single-episode command owns its process; its in-process steps inherit this lane.
+        import os
+        os.environ.update(worker_env)
+    return run(args, worker_env=worker_env)

@@ -9,7 +9,6 @@ import struct
 import subprocess
 from pathlib import Path
 
-import sherpa_onnx
 
 
 def pcm(audio: Path, start: float, end: float) -> list[float]:
@@ -28,6 +27,7 @@ def main() -> int:
     parser.add_argument("--segments", type=Path, required=True, help="JSON list of [start, end] seconds")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    import sherpa_onnx
     model_dir = Path(os.environ["NOVEL_SENSEVOICE_MODEL_DIR"])
     recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
         model=str(model_dir / "model.int8.onnx"), tokens=str(model_dir / "tokens.txt"),

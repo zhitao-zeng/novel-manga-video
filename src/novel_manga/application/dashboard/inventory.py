@@ -1,7 +1,7 @@
 """dashboard_inventory_thin responsibilities; existing dashboard metric definitions."""
 from __future__ import annotations
 from pathlib import Path
-from pipeline_dashboard import pipeline_metrics
+from novel_manga.application.dashboard.metrics import pipeline_metrics
 from novel_manga.application.production.runs import RENDER_RUNS_PER_PLAN
 from novel_manga.application.production.runs import REVIEW_POLICY
 from novel_manga.application.production.runs import episode_status
@@ -10,8 +10,8 @@ from novel_manga.application.production.runs import render_runs
 import json
 import os
 import time
-import dashboard_config_thin as dashboard_config
-from dashboard_store_thin import scan_book
+import novel_manga.application.dashboard.config as dashboard_config
+from novel_manga.application.dashboard.store import scan_book
 
 def _read_tail(path: Path, lines: int = 400) -> list[str]:
     try:

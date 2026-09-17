@@ -9,8 +9,8 @@ import subprocess
 import threading
 import time
 import urllib.request
-import dashboard_config_thin as dashboard_config
-import dashboard_inventory_thin as dashboard_inventory
+import novel_manga.application.dashboard.config as dashboard_config
+import novel_manga.application.dashboard.inventory as dashboard_inventory
 
 def _proc_env(pid: str) -> dict:
     try:

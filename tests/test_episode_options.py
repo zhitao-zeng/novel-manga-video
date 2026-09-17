@@ -7,8 +7,8 @@ from threading import Event
 from types import SimpleNamespace
 
 import pytest
-import production_flow_thin as production
-import production_render_thin as render
+import novel_manga.application.production.flow as production
+import novel_manga.application.production.render as render
 
 
 def batch_for(tmp_path, *, replan=False):
@@ -63,8 +63,8 @@ def test_failed_forced_replan_keeps_options_and_invalidates_only_its_old_plan(tm
 
 def test_production_does_not_write_to_shared_command_options():
     root=Path(__file__).resolve().parents[1]
-    for name in ['production_flow_thin.py','production_render_thin.py']:
-        for node in ast.walk(ast.parse((root/'scripts'/name).read_text())):
+    for name in ['flow.py', 'render.py']:
+        for node in ast.walk(ast.parse((root/'src/novel_manga/application/production'/name).read_text())):
             if isinstance(node,ast.Attribute) and isinstance(node.ctx,ast.Store):
                 assert not (isinstance(node.value,ast.Attribute) and node.value.attr=='args'), (name,node.lineno)
 

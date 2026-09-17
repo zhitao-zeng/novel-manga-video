@@ -106,3 +106,14 @@ def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None)
         "review": defaults.get("review", {}),
         "render": defaults.get("render", {}),
     }
+
+
+def preparation_environment(root: Path) -> dict:
+    settings = pipeline_config(root).get('defaults', {}).get('preparation', {})
+    env = environment(root)
+    defaults = h3_translation_endpoint()
+    env.update(QWEN38_LOCAL_BASE_URL=','.join(settings.get('endpoints', defaults.endpoints)),
+               QWEN38_LOCAL_MODEL=settings.get('model', 'Qwen3.8-27B-Project'),
+               QWEN38_LOCAL_API_KEY_VAR=settings.get('key_var', 'H3_PROMPT_NO_KEY'),
+               NOVEL_CLIP_SECONDS_MAX=str(settings.get('clip_cap', 15)))
+    return env

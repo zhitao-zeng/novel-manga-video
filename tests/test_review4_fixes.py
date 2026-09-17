@@ -9,7 +9,7 @@ from novel_manga.providers import phanrouter_tasks
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 from dataclasses import replace
-import production_render_thin as production_render
+import novel_manga.application.production.render as production_render
 
 from render_context_support import uninitialized_runner
 
@@ -31,7 +31,7 @@ import novel_manga.application.packing.context as packer
 import novel_manga.application.rendering.h3 as h3prompts
 import novel_manga.application.rendering.flow as rc
 import novel_manga.application.packing.split as tool
-import production_flow_thin as production_flow  # noqa: E402
+import novel_manga.application.production.flow as production_flow
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.policy as review_policy
 import novel_manga.review.storage as review_storage

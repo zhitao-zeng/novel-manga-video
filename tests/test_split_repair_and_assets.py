@@ -5,7 +5,7 @@ import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 import novel_manga.application.repair.context as repair_context
 import novel_manga.application.repair.judges as repair_judges
-import production_render_thin as production_render
+import novel_manga.application.production.render as production_render
 
 from render_context_support import uninitialized_runner
 """Split recovery must preserve dialogue order; asset checks must stay episode-local."""
@@ -257,7 +257,7 @@ def test_blocked_repack_includes_siblings_instead_of_duplicating_dialogue(split_
 
 
 def test_batch_restores_ranges_before_translating_h3_prompts(split_episode, monkeypatch):
-    import production_flow_thin as production_flow
+    import novel_manga.application.production.flow as production_flow
     episode, script, plan = split_episode
     for clip in plan["clips"]:
         clip.pop("shot_parts")

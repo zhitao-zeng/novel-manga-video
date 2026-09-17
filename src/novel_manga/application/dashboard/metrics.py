@@ -4,6 +4,7 @@ Only the monitor's own delivery samples are written. Detailed repair aggregates
 are cached by episode file mtimes and refreshed in the monitor background thread.
 """
 from __future__ import annotations
+from novel_manga.application.configuration import project_root
 
 from collections import Counter
 import json
@@ -14,9 +15,9 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from novel_manga.batch_control import flow_snapshot
+from novel_manga.application.production.control import flow_snapshot
 from novel_manga.reporting.delivery import net_rates, net_windows
-from dashboard_store_thin import scan_book
+from novel_manga.application.dashboard.store import scan_book
 
 _DETAILS = {}
 _EPISODES = {}
@@ -267,7 +268,7 @@ def audit_metrics(novel: Path, directory: Path | None = None) -> dict | None:
 
 
 def operation_metrics(novel: Path, repair_state=None, *, process_rows=None):
-    root = Path(__file__).resolve().parent.parent
+    root = project_root()
     config = read(root / 'configs/pipeline.json', {})
     spec = next((n for n in config.get('novels', []) if n['id'] == novel.name), {'id': novel.name})
     return flow_snapshot(root, {**spec, 'novel_dir': str(novel)}, repair_state=repair_state, rows=process_rows)

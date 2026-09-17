@@ -11,7 +11,6 @@ import struct
 import subprocess
 from pathlib import Path
 
-import sherpa_onnx
 
 
 def main() -> int:
@@ -21,6 +20,7 @@ def main() -> int:
     parser.add_argument("--text", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    import sherpa_onnx
     model_dir = Path(os.environ["NOVEL_SENSEVOICE_MODEL_DIR"])
     recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
         model=str(model_dir / "model.int8.onnx"),

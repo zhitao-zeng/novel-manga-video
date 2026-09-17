@@ -54,7 +54,7 @@ def test_snapshot_scope_and_corrupt_cache_do_not_hide_current_book(tmp_path):
 
 
 def test_one_process_snapshot_is_shared_by_all_books(tmp_path, monkeypatch):
-    import dashboard_service_thin as service
+    import novel_manga.application.dashboard.service as service
     calls=[];process_rows=[{'pid':1,'args':[],'cwd':str(tmp_path)}]
     monkeypatch.setattr(service,'processes',lambda:calls.append('processes') or process_rows)
     def metrics(novel, *, process_rows):

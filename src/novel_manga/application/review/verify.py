@@ -31,13 +31,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = project_root()
-# The judge endpoints: QWEN38_LOCAL_BASE_URL from the environment, else the repo .env (a caller that never sourced it
-# would otherwise send every request to the single default port - 雾月 2026-09-14 afternoon).
-if "QWEN38_LOCAL_BASE_URL" not in os.environ:
-    for _line in (ROOT / ".env").read_text(encoding="utf-8").splitlines() if (ROOT / ".env").is_file() else []:
-        if _line.startswith("QWEN38_LOCAL_BASE_URL="):
-            os.environ["QWEN38_LOCAL_BASE_URL"] = _line.split("=", 1)[1].strip().strip('"').strip("\'")
-            break
 from novel_manga.llm import client as model_client
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.prompts as review_prompts
@@ -61,7 +54,10 @@ class Verifier:
         self.workers = workers
         self.repair_advice = repair_advice
         self.max_tokens = max_tokens
-        self.model_settings = model_client.JsonEndpoint.from_env()
+        from novel_manga.application.configuration import environment
+        endpoint_env = environment(ROOT)
+        self.model_settings = model_client.JsonEndpoint.from_env({
+            'QWEN38_LOCAL_BASE_URL': endpoint_env.get('QWEN38_LOCAL_BASE_URL', 'http://127.0.0.1:18120/v1')})
         self.bible = StoryBible.model_validate_json((self.novel / "story_bible.json").read_text(encoding="utf-8"))
         self.phases = thin_phases.load_phases(self.novel)
         grammar = self.novel / "visual_grammar.json"

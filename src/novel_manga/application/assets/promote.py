@@ -24,6 +24,10 @@ def write_json(path: Path, payload: object) -> None:
 
 
 def main() -> int:
+    import sys
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__)
+        return 0
     candidates = json.loads((ROOT / "3d_asset_manifest.json").read_text(encoding="utf-8"))
     approval_date = date.today().isoformat()
     for row in [*candidates["characters"], *candidates["locations"]]:

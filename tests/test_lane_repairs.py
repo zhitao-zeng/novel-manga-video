@@ -3,9 +3,9 @@ blocks, English (H3) prompts and their voices, retakes, the render-run count, co
 the card manifest, review errors and the voice bank."""
 from __future__ import annotations
 from novel_manga.media import cache, generation
-import conductor_dispatch_thin as conductor_dispatch
-import conductor_state_thin as conductor_state
-import production_render_thin as production_render
+import novel_manga.application.production.conductor_dispatch as conductor_dispatch
+import novel_manga.application.production.conductor_state as conductor_state
+import novel_manga.application.production.render as production_render
 
 from render_context_support import uninitialized_runner
 
@@ -23,11 +23,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import novel_manga.application.assets.voices as build_voices_thin
-import conductor_common_thin as conductor_common
-import conductor_flow_thin as conductor_flow
+import novel_manga.application.production.conductor_common as conductor_common
+import novel_manga.application.production.conductor_flow as conductor_flow
 import novel_manga.application.production.runs as thin_runs
 import novel_manga.application.rendering.flow as rc
-import production_flow_thin as production_flow  # noqa: E402
+import novel_manga.application.production.flow as production_flow
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.storage as review_storage
 import novel_manga.application.review.episode as review_episode

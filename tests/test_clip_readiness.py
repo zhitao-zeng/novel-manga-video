@@ -1,4 +1,4 @@
-import production_render_thin as production_render
+import novel_manga.application.production.render as production_render
 
 from render_context_support import uninitialized_runner
 import copy
@@ -11,7 +11,7 @@ import pytest
 
 import novel_manga.application.preparation.readiness as ready
 import novel_manga.application.rendering.flow as rendering
-import production_flow_thin as production_flow
+import novel_manga.application.production.flow as production_flow
 from novel_manga.application.production.runs import episode_status, render_runs
 
 

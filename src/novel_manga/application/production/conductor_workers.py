@@ -6,7 +6,7 @@ from novel_manga.application.profiles import reference_image_env
 import os
 import signal
 import subprocess
-import conductor_common_thin as conductor_common
+import novel_manga.application.production.conductor_common as conductor_common
 
 def alive(conductor, name: str) -> bool:
     proc = conductor.procs.get(name)

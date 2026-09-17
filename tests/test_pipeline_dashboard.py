@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-import pipeline_dashboard as dashboard
+import novel_manga.application.dashboard.metrics as dashboard
 from novel_manga.application.repair.history import accepted_clip_material
 
 
@@ -150,8 +150,8 @@ def test_dashboard_block_details_use_production_eligibility(tmp_path,monkeypatch
 
 def test_current_metrics_overlay_does_not_wait_for_historical_board_refresh(tmp_path, monkeypatch):
     import time
-    import dashboard_config_thin as config
-    import dashboard_service_thin as server
+    import novel_manga.application.dashboard.config as config
+    import novel_manga.application.dashboard.service as server
     monkeypatch.setattr(config, 'ROOT', tmp_path)
     monkeypatch.setattr(config, 'NOVELS', [{'id':'book','title':'book'}])
     old={'now':'2026-09-15 15:00:00','novels':[{'id':'book','title':'book','delivery':{'deliverable':1}}]}
@@ -168,8 +168,8 @@ def test_current_metrics_overlay_does_not_wait_for_historical_board_refresh(tmp_
 
 
 def test_first_board_load_can_show_current_progress_before_history_is_ready(tmp_path,monkeypatch):
-    import dashboard_config_thin as config
-    import dashboard_service_thin as server
+    import novel_manga.application.dashboard.config as config
+    import novel_manga.application.dashboard.service as server
     monkeypatch.setattr(config,'ROOT',tmp_path)
     monkeypatch.setattr(config,'NOVELS',[{'id':'book','title':'book'}])
     server.snapshots().history.building=True
@@ -179,10 +179,10 @@ def test_first_board_load_can_show_current_progress_before_history_is_ready(tmp_
 
 
 def test_cold_live_page_never_waits_for_full_book_validation_or_remote_h3(tmp_path,monkeypatch):
-    import dashboard_config_thin as config
-    import dashboard_service_thin as server
-    import dashboard_inventory_thin as inventory
-    import dashboard_resources_thin as resources
+    import novel_manga.application.dashboard.config as config
+    import novel_manga.application.dashboard.service as server
+    import novel_manga.application.dashboard.inventory as inventory
+    import novel_manga.application.dashboard.resources as resources
     import novel_manga.dashboard.cache as cache_module
     import pytest
     monkeypatch.setattr(config,'ROOT',tmp_path)

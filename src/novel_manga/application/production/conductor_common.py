@@ -1,5 +1,6 @@
 """conductor_common_thin responsibilities; existing production limits and launch policy."""
 from __future__ import annotations
+from novel_manga.application.configuration import project_root
 from pathlib import Path
 import os
 
@@ -21,7 +22,7 @@ def load_dotenv(path: Path) -> None:
         os.environ.setdefault(key, value)
 
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = project_root()
 
 
 PY = str(REPO / ".venv" / "bin" / "python")

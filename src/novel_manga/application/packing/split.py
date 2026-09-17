@@ -188,7 +188,7 @@ def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | Non
     if not split or not apply:
         return summary
     feedback_path, overrides_path = episode_dir / "review_feedback.json", episode_dir / "clip_overrides.json"
-    record_path = episode_dir / "novel_manga.application.packing.split.json"
+    record_path = episode_dir / "split_long_stages.json"
     try:
         # Read before anything moves: a file that is not a map of clip ids leaves the episode as it was.  Read after
         # the move, it left the directories renamed next to the old plan.

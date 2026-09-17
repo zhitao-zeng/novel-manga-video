@@ -39,7 +39,7 @@ PILOT_CASES = ["wuyue_667_clip_07", "wuyue_1312_clip_01", "wuyue_1104_clip_02", 
 PILOT_ENDPOINT = "http://172.28.4.52:30014"
 
 ROOT_FILES = ["story_bible.json", "bible_aliases.json", "entity_index.json", "cast_index.json", "profile.json",
-              "visual_grammar.json", "chat_screen.json", "novel.json", "novel_manga.application.assets.confusable.json"]
+              "visual_grammar.json", "chat_screen.json", "novel.json", "confusable_pairs.json"]
 EPISODE_FILES = ["chapter_script.json", "segments.json", "episode_review.json", "review_feedback.json", "clip_overrides.json"]
 
 

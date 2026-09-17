@@ -1,5 +1,6 @@
 """repair_manager_flow_thin responsibilities; existing job state and scheduling policy."""
 from __future__ import annotations
+from novel_manga.application.configuration import project_root
 from novel_manga.util import atomic_write_json
 from novel_manga.util import read_json as read
 from pathlib import Path
@@ -7,11 +8,11 @@ import fcntl
 import os
 import subprocess
 import time
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = project_root()
 import novel_manga.repair.scheduling as schedule_rules
-import repair_manager_dispatch_thin as repair_manager_dispatch
-import repair_manager_progression_thin as repair_manager_progression
-import repair_manager_workers_thin as repair_manager_workers
+import novel_manga.application.repair.manager_dispatch as repair_manager_dispatch
+import novel_manga.application.repair.manager_progression as repair_manager_progression
+import novel_manga.application.repair.manager_workers as repair_manager_workers
 
 class Manager:
     def __init__(self, novel: Path, legacy: Path, state_dir: Path | None = None):

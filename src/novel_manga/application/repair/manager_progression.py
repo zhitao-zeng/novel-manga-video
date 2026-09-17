@@ -1,6 +1,6 @@
 """Advance eligible episode records, preserving review -> history -> publication order."""
 from __future__ import annotations
-import repair_manager_state_thin as state
+import novel_manga.application.repair.manager_state as state
 import novel_manga.application.review.store as reviews
 import novel_manga.application.repair.history as history
 import novel_manga.application.repair.delivery as delivery

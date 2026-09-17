@@ -13,11 +13,11 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import dashboard_config_thin as dashboard_config
-import dashboard_history_thin as dashboard_history
-import dashboard_inventory_thin as dashboard_inventory
-import dashboard_resources_thin as dashboard_resources
-import dashboard_ui_thin as dashboard_ui
+import novel_manga.application.dashboard.config as dashboard_config
+import novel_manga.application.dashboard.history as dashboard_history
+import novel_manga.application.dashboard.inventory as dashboard_inventory
+import novel_manga.application.dashboard.resources as dashboard_resources
+import novel_manga.application.dashboard.ui as dashboard_ui
 import novel_manga.application.production.runs as thin_runs
 from novel_manga.application.profiles import h3_prompt_fingerprint, plan_fingerprint
 from novel_manga.application.production.runs import count_run
@@ -30,7 +30,7 @@ def workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(dashboard_config, 'ROOT', tmp_path)
     monkeypatch.setattr(dashboard_config, '_lane_keys', lambda: {"nov": [{"base_url": "pool"}]})
     monkeypatch.setattr(dashboard_inventory, '_EPISODE_CACHE', {})
-    import dashboard_store_thin
+    import novel_manga.application.dashboard.store as dashboard_store_thin
     from novel_manga.dashboard.files import DashboardFiles
     monkeypatch.setattr(dashboard_store_thin, 'files', DashboardFiles())
     monkeypatch.setattr(dashboard_inventory, '_MODE_CACHE', {})

@@ -160,6 +160,20 @@
       "clip_cap": 15,
       "inflight": 24,
       "review_mode": "verify"
+    },
+    "preparation": {
+      "endpoints": [
+        "http://127.0.0.1:18120/v1",
+        "http://127.0.0.1:18121/v1",
+        "http://127.0.0.1:18122/v1",
+        "http://127.0.0.1:18123/v1",
+        "http://127.0.0.1:18124/v1",
+        "http://172.28.4.52:18125/v1",
+        "http://172.28.4.52:18126/v1"
+      ],
+      "model": "Qwen3.8-27B-Project",
+      "key_var": "H3_PROMPT_NO_KEY",
+      "clip_cap": 15
     }
   },
   "novels": [

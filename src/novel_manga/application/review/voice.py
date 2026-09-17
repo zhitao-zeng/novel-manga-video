@@ -23,9 +23,6 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
-import sherpa_onnx
-import soundfile as sf
 
 MODEL = "/mnt/disk1/zengzhitao/models/speaker/campplus_sv_zh-cn.onnx"
 MIN_SECONDS = 0.6          # CAM++ needs a little audio to be meaningful
@@ -33,6 +30,7 @@ SAME_SPEAKER = 0.55        # the usual operating point for this model
 
 
 def extractor() -> sherpa_onnx.SpeakerEmbeddingExtractor:
+    import sherpa_onnx
     config = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=MODEL, num_threads=4, debug=False, provider="cpu")
     if not config.validate():
         raise SystemExit(f"speaker model not usable: {MODEL}")
@@ -49,6 +47,8 @@ def speaker_of(chunk: dict, lines: list[dict]) -> str | None:
 
 
 def embeddings(novel_dirs: list[Path]) -> dict[str, dict[str, list[np.ndarray]]]:
+    import numpy as np
+    import soundfile as sf
     """character -> episode -> embeddings."""
     model = extractor()
     out: dict[str, dict[str, list[np.ndarray]]] = defaultdict(lambda: defaultdict(list))
@@ -93,6 +93,7 @@ def embeddings(novel_dirs: list[Path]) -> dict[str, dict[str, list[np.ndarray]]]
 
 
 def mean_similarity(left: list[np.ndarray], right: list[np.ndarray] | None = None) -> float | None:
+    import numpy as np
     if right is None:
         pairs = list(itertools.combinations(left, 2))
     else:
@@ -103,6 +104,8 @@ def mean_similarity(left: list[np.ndarray], right: list[np.ndarray] | None = Non
 
 
 def bank_report(novel_dir: Path, episodes: list[str] | None = None) -> int:
+    import numpy as np
+    import soundfile as sf
     """How close each character's generated speech is to their reference voice.
 
     Run after rendering with the voice bank attached: a character whose chunks
@@ -144,6 +147,10 @@ def bank_report(novel_dir: Path, episodes: list[str] | None = None) -> int:
 
 
 def main() -> int:
+    import sys
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__)
+        return 0
     arguments = sys.argv[1:]
     if arguments and arguments[0] == "--bank":
         novel = Path(arguments[1]).resolve() if len(arguments) > 1 else Path("outputs/zhutian-fast").resolve()

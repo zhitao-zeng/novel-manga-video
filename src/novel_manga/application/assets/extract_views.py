@@ -67,6 +67,10 @@ def character_card_dir(character_dir: Path) -> Path:
 
 
 def main() -> int:
+    import sys
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__)
+        return 0
     production_manifest = json.loads(
         (ROOT / "manifest.json").read_text(encoding="utf-8")
     )

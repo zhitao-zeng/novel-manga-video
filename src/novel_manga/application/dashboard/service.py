@@ -3,11 +3,11 @@ from __future__ import annotations
 import threading
 import time
 from novel_manga.dashboard.cache import CachedSnapshot
-import dashboard_config_thin as config
-import dashboard_history_thin as history
-import dashboard_resources_thin as resources
-from pipeline_dashboard import pipeline_metrics
-from novel_manga.batch_control import processes
+import novel_manga.application.dashboard.config as config
+import novel_manga.application.dashboard.history as history
+import novel_manga.application.dashboard.resources as resources
+from novel_manga.application.dashboard.metrics import pipeline_metrics
+from novel_manga.application.production.control import processes
 
 
 class DashboardSnapshots:

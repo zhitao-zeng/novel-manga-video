@@ -23,6 +23,10 @@ ROOT = project_root() / "outputs"
 
 
 def main() -> int:
+    import sys
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__)
+        return 0
     if len(sys.argv) < 3:
         print(__doc__)
         return 2
