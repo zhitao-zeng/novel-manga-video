@@ -84,7 +84,6 @@ def test_body_mapping_refreshes_after_ledger_changes(tmp_path, monkeypatch):
     assert packing.bodies_for(tmp_path, 1) == {'甲': ('新身体', 'new')}
 
 
-@pytest.mark.xfail(strict=True, reason='F06: latest media report omits historical generated takes')
 def test_usage_counts_generated_material_outside_latest_report(tmp_path):
     from cost_report_thin import episode_rows
     novel = tmp_path / 'book'; episode = novel / 'book_1'

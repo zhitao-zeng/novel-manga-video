@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from pipeline_dashboard import pipeline_metrics
 from review_progress_thin import viewer_progress
+from novel_manga.reporting.usage import summarize as usage_summary
+from novel_manga.util import read_json
 from thin_runs import REVIEW_POLICY
 import json
 import time
@@ -153,5 +155,6 @@ def _board_novel(novel: dict) -> dict:
             "cats": sorted(cats.items(), key=lambda kv: -kv[1]),
         },
         "viewer_review": viewer_progress(base, h3_lane),
+        "usage": usage_summary(base, read_json(dashboard_config.ROOT / "configs/pricing.json", {})),
         "lanes": lane_rows,
     }
