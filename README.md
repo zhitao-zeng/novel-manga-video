@@ -88,4 +88,6 @@ uv run pytest
 
 质量问题分类与规划修订决策见 [规则与决策说明](docs/quality-planning-decisions-20260917.md)。
 
+每章执行选项、只读状态查询与渲染重试决策见 [执行职责说明](docs/episode-state-retry-20260917.md)。
+
 早期上传/生成/下载 HTTP API、`novel-manga` 命令、旧整集控制器及专用 API 容器已移除，不提供兼容入口。已有剧本、人物库、视频和任务历史保留。

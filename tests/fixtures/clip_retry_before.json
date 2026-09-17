@@ -1,0 +1,865 @@
+{
+  "blocked": {
+    "events": [],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [],
+      "selected": null,
+      "error": "request blocked before generation",
+      "blocked": [
+        "missing asset"
+      ]
+    },
+    "flags": {}
+  },
+  "approved": {
+    "events": [],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/saved.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        }
+      ],
+      "selected": {
+        "video": "<root>/saved.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": false
+      }
+    },
+    "flags": {}
+  },
+  "source": {
+    "events": [],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/source.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        }
+      ],
+      "selected": {
+        "video": "<root>/source.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": false
+      }
+    },
+    "flags": {}
+  },
+  "success": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "second_success": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        2,
+        {
+          "_generated": true
+        }
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        },
+        {
+          "video": "<root>/take-2.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-2.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "free_cached": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        2,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        3,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-2.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-3.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-3.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "paid_cached": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "probe_cache",
+        2
+      ],
+      [
+        "generate",
+        2,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-2.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-2.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "late_error": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        2,
+        {
+          "_generated": true
+        }
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "retake_error": "RuntimeError: unavailable",
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": false,
+        "issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "cer": 0.7,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "cache_miss": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        2,
+        {
+          "_generated": true
+        }
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": false,
+        "issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "cer": 0.7,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      },
+      "error": "CacheMiss: missing cache"
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "uncertain": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        2,
+        {
+          "_generated": true
+        }
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "retake_error": "SubmissionUncertain: answer lost",
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": false,
+        "issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "cer": 0.7,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "privacy": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "repair_reference",
+        0
+      ],
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "privacy_fallback": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "repair_reference",
+        0
+      ],
+      [
+        "repair_all"
+      ],
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_generated": true
+    }
+  },
+  "text": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "generate",
+        1,
+        {
+          "_softened": true
+        }
+      ],
+      [
+        "rewrite",
+        1
+      ],
+      [
+        "generate",
+        1,
+        {
+          "_softened": true,
+          "_repaired": true
+        }
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_softened": true,
+      "_repaired": true,
+      "_generated": true
+    }
+  },
+  "output": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "generate",
+        1,
+        {
+          "_compliance": true
+        }
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_compliance": true,
+      "_generated": true
+    }
+  },
+  "rewrite_fallback": {
+    "events": [
+      [
+        "generate",
+        1,
+        {
+          "_softened": true
+        }
+      ],
+      [
+        "rewrite",
+        1
+      ],
+      [
+        "generate",
+        1,
+        {
+          "_softened": true,
+          "_repaired": true,
+          "_compliance": true
+        }
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": true,
+          "issues": [],
+          "cer": 0,
+          "max_volume_db": -5,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-1.mp4",
+        "passed": true,
+        "issues": [],
+        "cer": 0,
+        "max_volume_db": -5,
+        "generated_this_run": true
+      }
+    },
+    "flags": {
+      "_softened": true,
+      "_repaired": true,
+      "_compliance": true,
+      "_generated": true
+    }
+  },
+  "cache_limit": {
+    "events": [
+      [
+        "generate",
+        1,
+        {}
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        2,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        3,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        4,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        5,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        6,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        7,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ],
+      [
+        "generate",
+        8,
+        {
+          "_generated": false
+        }
+      ],
+      [
+        "accepted_assets"
+      ]
+    ],
+    "result": {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "video": "<root>/take-1.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-2.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-3.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-4.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-5.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-6.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-7.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        },
+        {
+          "video": "<root>/take-8.mp4",
+          "passed": false,
+          "issues": [
+            "missing_0.7_over_0.5"
+          ],
+          "cer": 0.7,
+          "max_volume_db": -5,
+          "generated_this_run": false
+        }
+      ],
+      "selected": {
+        "video": "<root>/take-8.mp4",
+        "passed": false,
+        "issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "cer": 0.7,
+        "max_volume_db": -5,
+        "generated_this_run": false
+      }
+    },
+    "flags": {
+      "_generated": false
+    }
+  }
+}

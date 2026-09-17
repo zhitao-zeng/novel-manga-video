@@ -18,6 +18,8 @@ OUTPUT_MODERATION_MARKERS = ("OutputVideoSensitiveContentDetected", "OutputAudio
 
 RATE_LIMIT_RE = re.compile(r"HTTP (429|502|503|504)\b|Too Many Requests|rate ?limit|concurren|QuotaExceeded|RequestLimit|ServerOverloaded", re.I)
 
+PRIVACY_MARKER = "InputImageSensitiveContentDetected"
+
 INPUT_TEXT_MARKER = "InputTextSensitiveContentDetected"
 
 SOFTEN = [  # stage descriptions only get milder wording on a text-moderation refusal; spoken lines stay

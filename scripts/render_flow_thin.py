@@ -13,6 +13,8 @@ Every remote task keeps its .task.json sidecar and every step skips work whose
 output already exists, so a rerun resumes instead of paying again.
 """
 from __future__ import annotations
+from novel_manga.media import retries as clip_retries
+import render_attempt_thin as clip_attempts
 from novel_manga.media.issues import QualityIssue
 import novel_manga.media.asset_inspection as asset_inspection
 import novel_manga.media.asset_repair as asset_repair
@@ -41,7 +43,7 @@ from novel_manga.media import assets as media_assets
 from novel_manga.media.asset_style import AssetStyle
 from novel_manga.media.context import RenderContext, ClipResult, AssemblyResult
 from novel_manga.media.resources import acquire_inflight_slot, release_inflight_slot
-from novel_manga.media.policy import COMPLIANCE_SUFFIX, INPUT_TEXT_MARKER, MAX_ATTEMPTS_FREE, OUTPUT_MODERATION_MARKERS, PRESCREEN_RISK, RETRY_SUFFIX, RETRY_SUFFIX_H3, SUBMIT_BACKOFF_SECONDS
+from novel_manga.media.policy import COMPLIANCE_SUFFIX, INPUT_TEXT_MARKER, PRIVACY_MARKER, MAX_ATTEMPTS_FREE, OUTPUT_MODERATION_MARKERS, PRESCREEN_RISK, RETRY_SUFFIX, RETRY_SUFFIX_H3, SUBMIT_BACKOFF_SECONDS
 from novel_manga.media.subtitles import MIN_LINE_SIMILARITY
 from novel_manga.media import policy as media_policy
 from novel_manga.media import generation, cache, postprocess, subtitles
@@ -90,7 +92,6 @@ CHAT_HISTORY_EPISODES = 3   # how far back to look for them
 
 
 MAX_CER = 0.5          # kept in the report; no longer gates
-PRIVACY_MARKER = "InputImageSensitiveContentDetected"
 
 
 
@@ -496,9 +497,7 @@ class ThinMediaRunner:
             return {"clip_id": clip["clip_id"], "attempts": [], "selected": None,
                     "error": "request blocked before generation", "blocked": reasons}
         attempts: list[dict] = []
-        privacy_repairs = 0
-        attempt = 1
-        limit = self.context.max_attempts
+        state = clip_retries.RetryState(attempt=1, limit=self.context.max_attempts)
         try:
             from repair_history import source_accepted_take
             accepted = source_accepted_take(self.context.work.parent, clip, str(self.context.feedback.get(clip['clip_id']) or ''))
@@ -516,41 +515,20 @@ class ThinMediaRunner:
                 cached = {**cached, "generated_this_run": False}
                 log(f"{clip['clip_id']}: reusing a matching passed take; no new request despite the old duration estimate")
                 return {"clip_id": clip["clip_id"], "attempts": [cached], "selected": cached}
-            while attempt <= limit:
-                try:
-                    video = self.generate_clip(clip, attempt)
-                except RuntimeError as error:
-                    if PRIVACY_MARKER in str(error) and privacy_repairs < 2:
-                        privacy_repairs += 1
-                        index = re.search(r"content\[(\d+)\]", str(error))
-                        # content[0] is the prompt text; content[N] is the N-th reference image (1-based).
-                        repaired = self.repair_rejected_reference(clip, int(index.group(1)) - 1) if index else []
-                        if not repaired and privacy_repairs == 1:
-                            repaired = self.repair_privacy_cards(clip)
-                        log(f"{clip['clip_id']}: reference rejected as a real person (image {index.group(1) if index else '?'}); fixed {repaired or 'nothing'}; retrying")
-                        if repaired:
-                            continue
-                    if INPUT_TEXT_MARKER in str(error) and not clip.get("_softened"):
-                        # The prompt text itself was refused: one retry with milder
-                        # stage wording (lines untouched) and the compliance line.
-                        clip["_softened"] = True
-                        log(f"{clip['clip_id']}: prompt text refused by input moderation; retrying once with softened wording")
+            while state.attempt <= state.limit:
+                outcome = clip_attempts.generate_attempt(self, clip, state.attempt)
+                if outcome.error is not None:
+                    steps = clip_retries.recovery_steps(outcome.error, clip, state,
+                                                       moderation_repair=self.context.moderation_repair)
+                    retry = False
+                    for step in steps:
+                        if clip_attempts.apply_recovery(self, clip, state, step):
+                            retry = True
+                            break
+                    if retry:
                         continue
-                    if INPUT_TEXT_MARKER in str(error) and self.context.moderation_repair and not clip.get("_repaired"):
-                        # Softening did not help.  Ask the filter itself where the
-                        # refusal lives, rewrite that part and verify the rewrite
-                        # before another video is paid for.
-                        clip["_repaired"] = True
-                        log(f"{clip['clip_id']}: still refused after softening; repairing the wording against the filter")
-                        if self.repair_refused_prompt(clip, attempt):
-                            continue
-                    if any(marker in str(error) for marker in OUTPUT_MODERATION_MARKERS) and not clip.get("_compliance"):
-                        # The generated video tripped the service's output filter;
-                        # one retry with an explicit compliance line, same attempt.
-                        clip["_compliance"] = True
-                        log(f"{clip['clip_id']}: generated video rejected by output moderation; retrying once with a compliance line")
-                        continue
-                    raise
+                    raise outcome.error
+                video = outcome.video
                 analysis = self.analyse_clip(clip, video)
                 analysis = {**analysis, "generated_this_run": bool(clip.get("_generated", False))}
                 if not hasattr(self.context, "_ok_assets"):
@@ -558,27 +536,24 @@ class ThinMediaRunner:
                 self.context._ok_assets.update(ref["path"] for ref in clip.get("references", []))
                 record_privacy_ok(self.context.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice"))
                 attempts.append(analysis)
-                log(f"{clip['clip_id']} attempt {attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
-                if analysis["passed"]:
+                log(f"{clip['clip_id']} attempt {state.attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
+                decision = clip_retries.after_analysis(state, analysis,
+                    generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries)
+                if decision.action == 'check_cache':
+                    decision = clip_retries.after_analysis(state, analysis,
+                        generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries,
+                        next_cached=self.cached_take(clip, state.attempt + 1))
+                state.attempt, state.limit = decision.attempt, decision.limit
+                if decision.action == 'stop':
                     break
-                if not clip.get("_generated", True) and limit < MAX_ATTEMPTS_FREE and (self.context.free_retries or self.cached_take(clip, attempt + 1)):
-                    # A failure served from the cache does not use up this run's takes on a free lane: an episode
-                    # taken back for its failed clips gets new takes of them, not the old verdicts over again.  And a
-                    # next take already in the cache is looked at on any lane, for free: a rebuild (--cache-only) or
-                    # a paid re-render stopped at take 2 and put the failed take in the final over a passing take 3.
-                    limit += 1
-                attempt += 1
         except Exception as error:  # noqa: BLE001 - one clip must not sink the episode
-            message = f"{type(error).__name__}: {str(error)[:600]}"
-            if attempts and not isinstance(error, CacheMiss):
-                # A further take failed (no instance free, a refusal, a held submission): the clip keeps the takes it
-                # has.  Marking the whole clip failed threw an assembled episode back to clips_failed.
-                log(f"{clip['clip_id']}: a further take failed ({message[:160]}); keeping the {len(attempts)} it has")
-                return {"clip_id": clip["clip_id"], "attempts": attempts, "retake_error": message,
-                        "selected": next((row for row in attempts if row["passed"]), attempts[-1])}
-            log(f"{clip['clip_id']}: FAILED {message[:200]}")
-            return {"clip_id": clip["clip_id"], "attempts": attempts, "selected": attempts[-1] if attempts else None, "error": message}
-        selected = next((row for row in attempts if row["passed"]), attempts[-1])
+            result = clip_retries.failure_result(clip['clip_id'], attempts, error)
+            if 'retake_error' in result:
+                log(f"{clip['clip_id']}: a further take failed ({result['retake_error'][:160]}); keeping the {len(attempts)} it has")
+            else:
+                log(f"{clip['clip_id']}: FAILED {result['error'][:200]}")
+            return result
+        selected = clip_retries.selected_take(attempts)
         return {"clip_id": clip["clip_id"], "attempts": attempts, "selected": selected}
 
     # ---- assembly ----
