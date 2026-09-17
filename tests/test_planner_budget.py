@@ -9,8 +9,8 @@ import novel_manga.planning.budget as pc_budget
 import novel_manga.planning.prompts as pc_prompts
 import novel_manga.planning.text as pc_text
 import novel_manga.planning.validation as pc_validation
-import plan_chapter_thin as plan_chapter
-import planner_requests_thin as planner_requests
+import novel_manga.application.planning.cli as plan_chapter
+import novel_manga.application.planning.requests as planner_requests
 import sys
 from novel_manga.planning.context import PlannerContext
 from novel_manga.models.bible import Character, StoryBible

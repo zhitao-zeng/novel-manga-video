@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import pipeline_dashboard as dashboard
-from repair_history import accepted_clip_material
+from novel_manga.application.repair.history import accepted_clip_material
 
 
 def write(path,data):
@@ -140,7 +140,7 @@ def test_sd_audit_counts_models_without_changing_h3_delivery_scope(tmp_path):
 
 
 def test_dashboard_block_details_use_production_eligibility(tmp_path,monkeypatch):
-    import managed_repair_thin as managed
+    import novel_manga.application.repair.managed as managed
     d=tmp_path/'book'/'book_1';d.mkdir(parents=True)
     write(d/'repair_routing.json',{'c':{'status':'prepared','action':'retake'}})
     monkeypatch.setattr(managed,'candidates',lambda directory,review:([],{'c':'effective clip retry budget used'}))

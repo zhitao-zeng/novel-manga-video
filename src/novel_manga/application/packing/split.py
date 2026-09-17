@@ -1,0 +1,329 @@
+#!/usr/bin/env python
+"""Split the over-long stages of clip plans packed before the packer did it, leaving every other clip as it is.
+
+Until 2026-09-11 the packer cut only between stages, so a stage longer than a clip became one clip whose request
+was clamped to the cap: 星海 484 clip_05, 71 s of lines asked of a 15 s clip, 45 % of them never spoken.  Packing
+such a chapter again from its script would also re-word every other clip - the packer's prompts have changed since
+- and pay for all of them again.  This replaces only the clamped clips, each by the parts build_clip_plan_thin now
+cuts it into (split_long_shot), keeps every other clip entry as it is, numbers the clips again in order, and moves
+the rendered clips, director corrections and overrides to their new ids, so the next render generates only the new
+parts.  A split clip's old video goes to work/clips_before_split/, its correction (it described the clamped clip)
+to split_long_stages.json.
+
+    split_long_stages.py outputs/<novel> [--chapters 1-50,60] [--margin 5] [--tier fast] [--apply]
+    split_long_stages.py outputs/<novel> --rebuild-parts [--apply]
+
+Without --apply it reports what it would change.  An episode another process is rendering is skipped.  The parts
+are packed for --tier (fast, as the conductor plans): the first run on 2026-09-11 took profile.json's tier, which
+for 星海 and 雾月 is quality, so their parts asked for expression cards the fast tier never builds and every render
+stopped at "reference image missing"; --rebuild-parts builds the parts of episodes split earlier again.
+"""
+from __future__ import annotations
+from novel_manga.application.configuration import project_root
+import novel_manga.story.compilation as compilation
+import novel_manga.application.packing.context as packing_context
+import novel_manga.application.packing.service as packing_service
+
+import argparse
+import copy
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+ROOT = project_root()
+
+from novel_manga.util import atomic_write_json  # noqa: E402
+from novel_manga.application.production.common import parse_chapters, pid_alive
+
+MARGIN_SECONDS = 5.0  # a stage this much longer than its clip's request is split; a second or two over is left alone
+
+
+def is_target(clip: dict, margin: float) -> bool:
+    return (clip.get("kind") == "video" and len(clip.get("shot_indexes") or []) == 1
+            and float(clip.get("seconds_estimate") or 0) > float(clip.get("request_seconds") or 0) + margin)
+
+
+def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGIN_SECONDS, *, settings=None) -> tuple[list[dict], dict, dict]:
+    """The plan's clips with every target replaced by its parts, numbered again in order.
+
+    Returns (clips, {old id: new id} for the clips kept as they were, {old id: [part ids]} for the split ones);
+    build_entry(raw clip, new id, old id) makes a part's plan entry."""
+    clips: list[dict] = []
+    moved: dict[str, str] = {}
+    split: dict[str, list[str]] = {}
+    for clip in plan["clips"]:
+        parts = []
+        if is_target(clip, margin) and clip["shot_indexes"][0] in shots_by_index:
+            parts = packing_service.split_long_shot(copy.deepcopy(shots_by_index[clip["shot_indexes"][0]]), settings=settings)
+        if len(parts) > 1:
+            split[clip["clip_id"]] = []
+            for part in parts:
+                new_id = f"clip_{len(clips) + 1:02d}"
+                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packing_service.shot_seconds(part, settings=settings), 2)}
+                clips.append(build_entry(raw, new_id, clip["clip_id"]))
+                split[clip["clip_id"]].append(new_id)
+        else:
+            new_id = f"clip_{len(clips) + 1:02d}"
+            moved[clip["clip_id"]] = new_id
+            clips.append({**clip, "clip_id": new_id})
+    return clips, moved, split
+
+
+def repoint_records(clip_dir: Path) -> None:
+    """A take's asr.json names its clip id and video path: after the move both are set to the new ones.  The renderer
+    reads a take from where it lies either way, so a record that cannot be read is only reported."""
+    for record in clip_dir.glob("attempt_*/asr.json"):
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("video"):
+                atomic_write_json(record, {**data, "clip_id": clip_dir.name, "video": str(record.parent / Path(data["video"]).name)})
+        except (OSError, ValueError) as error:
+            print(f"  {record}: record not repointed ({type(error).__name__})", file=sys.stderr, flush=True)
+
+
+def rename_clip_dirs(episode_dir: Path, moved: dict, split: dict):
+    """Move each rendered clip to its new id - through temporary names, since the ids shift into each other - and
+    set aside the old clip of every split stage, with any clip directory the plan did not name.
+
+    All or nothing: a failure part-way puts every directory back under its old name.  A run stopped half-way used to
+    leave takes under .moving-* names that nothing reads, next to the old plan, and a second run could not recover
+    them.  Returns a function that undoes the whole move, for a failure after it."""
+    clips_dir = episode_dir / "work" / "clips"
+    if not clips_dir.is_dir():
+        return lambda: None
+    leftovers = sorted(p.name for p in clips_dir.glob(".moving-*"))
+    if leftovers:
+        raise RuntimeError(f"{episode_dir.name}: {len(leftovers)} directories left from an interrupted move "
+                           f"({', '.join(leftovers[:3])}): put them back first")
+    aside = episode_dir / "work" / "clips_before_split" / time.strftime("%Y%m%d-%H%M%S")
+    staged: list[tuple[str, Path]] = []
+    placed: list[tuple[str, Path]] = []
+
+    def undo() -> None:
+        for old, target in reversed(placed):
+            target.rename(clips_dir / f".moving-{old}")
+        placed.clear()
+        for old, temporary in reversed(staged):
+            if temporary.exists():
+                temporary.rename(clips_dir / old)
+        staged.clear()
+
+    try:
+        for directory in sorted(p for p in clips_dir.iterdir() if p.is_dir() and p.name.startswith("clip_")):
+            temporary = clips_dir / f".moving-{directory.name}"
+            directory.rename(temporary)
+            staged.append((directory.name, temporary))
+        for old, temporary in staged:
+            if old in moved:
+                target = clips_dir / moved[old]
+            else:
+                aside.mkdir(parents=True, exist_ok=True)
+                target = aside / old
+            temporary.rename(target)
+            placed.append((old, target))
+    except BaseException:
+        undo()
+        raise
+    for old, target in placed:
+        if old in moved:
+            repoint_records(target)
+    return undo
+
+
+def remapped(path: Path, moved: dict, split: dict, to_parts: bool) -> tuple[dict | None, dict]:
+    """A {clip id: value} file re-keyed to the new ids, not written: (the new content, or None with no file; what is
+    dropped).  A split clip's value goes to each of its parts when `to_parts`, else it is dropped; so is a key for a
+    clip the plan did not have.  A file that is not such a map raises ValueError."""
+    if not path.is_file():
+        return None, {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name} is not a map of clip ids")
+    kept, dropped = {}, {}
+    for key, value in data.items():
+        if key in moved:
+            kept[moved[key]] = value
+        elif key in split and to_parts:
+            for part in split[key]:
+                kept[part] = value
+        else:
+            dropped[key] = value
+    return kept, dropped
+
+
+def remap_json(path: Path, moved: dict, split: dict, to_parts: bool) -> dict:
+    """remapped, written back.  Returns what was dropped."""
+    kept, dropped = remapped(path, moved, split, to_parts)
+    if kept is not None:
+        atomic_write_json(path, kept)
+    return dropped
+
+
+def split_episode(episode_dir: Path, margin: float, apply: bool, tier: str | None = "fast") -> dict | None:
+    plan_path = episode_dir / "clip_plan.json"
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not any(is_target(clip, margin) for clip in plan.get("clips", [])):
+        return None
+    if (episode_dir / "thin_media_report.h3zh.json").is_file():
+        return {"skipped": "waiting for the H3 keep-check"}
+    saved = plan.get("limits") or {}
+    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packing_context.MAX_CLIP_SECONDS),
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packing_context.SOFT_CUT_SECONDS),
+              "max_stages": int(saved.get("max_stages") or packing_context.MAX_STAGES)}
+    ctx = packing_context.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
+    shots = packing_service.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir, identity_data=ctx.get("identity_data"))
+    clips, moved, split = resplit(
+        plan, {shot["index"]: shot for shot in shots},
+        lambda raw, new_id, old_id: packing_service.clip_entry(raw, new_id, ctx, override=ctx["overrides"].get(old_id, {})), margin,
+        settings=ctx.get('compiler_options'))
+    summary = {"split": split, "new_clips": sum(len(ids) for ids in split.values()),
+               "final": (episode_dir / f"{episode_dir.name}.mp4").is_file(), "mode": int(limits["max_clip_seconds"])}
+    if not split or not apply:
+        return summary
+    feedback_path, overrides_path = episode_dir / "review_feedback.json", episode_dir / "clip_overrides.json"
+    record_path = episode_dir / "novel_manga.application.packing.split.json"
+    try:
+        # Read before anything moves: a file that is not a map of clip ids leaves the episode as it was.  Read after
+        # the move, it left the directories renamed next to the old plan.
+        feedback, dropped = remapped(feedback_path, moved, split, to_parts=False)
+        overrides, _ = remapped(overrides_path, moved, split, to_parts=True)
+        originals = {path: path.read_text(encoding="utf-8") for path in (feedback_path, overrides_path, plan_path, record_path) if path.is_file()}
+    except (OSError, ValueError) as error:
+        return {**summary, "skipped": f"cannot read the corrections or overrides ({type(error).__name__}: {str(error)[:80]})"}
+    pid = locked(episode_dir)
+    if pid:
+        return {**summary, "skipped": f"being rendered (pid {pid})"}
+    lock = episode_dir / ".render.lock"
+    lock.write_text(str(os.getpid()), encoding="utf-8")
+    try:
+        undo = rename_clip_dirs(episode_dir, moved, split)
+        try:
+            if feedback is not None:
+                atomic_write_json(feedback_path, feedback)
+            if overrides is not None:
+                atomic_write_json(overrides_path, overrides)
+            record = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "packer_version": packing_context.PACKER_VERSION, "tier": tier, "split": split, "renamed": moved}
+            atomic_write_json(plan_path, {**plan, "clips": clips, "totals": compilation.plan_totals(clips, shots, ctx), "split_long_stages": record})
+            atomic_write_json(record_path, {**record, "dropped_corrections": dropped})
+        except BaseException:
+            # The takes go back under their old ids and the files as they were: the old plan still names them all.
+            undo()
+            for path in (feedback_path, overrides_path, plan_path, record_path):
+                if path in originals:
+                    path.write_text(originals[path], encoding="utf-8")
+                elif path != plan_path:
+                    path.unlink(missing_ok=True)
+            raise
+    finally:
+        lock.unlink(missing_ok=True)
+    return summary
+
+
+def locked(episode_dir: Path) -> int:
+    try:
+        pid = int((episode_dir / ".render.lock").read_text(encoding="utf-8").strip() or 0)
+    except (OSError, ValueError):
+        return 0
+    return pid if pid and pid_alive(pid) else 0
+
+
+def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | None:
+    """Build again, from the script, the parts of an episode split earlier - with `tier`; ids and everything else
+    in the plan stay as they are."""
+    plan_path = episode_dir / "clip_plan.json"
+    try:
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    record = plan.get("split_long_stages")
+    if not record:
+        return None
+    saved = plan.get("limits") or {}
+    limits = {"max_clip_seconds": float(saved.get("max_clip_seconds") or packing_context.MAX_CLIP_SECONDS),
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or packing_context.SOFT_CUT_SECONDS),
+              "max_stages": int(saved.get("max_stages") or packing_context.MAX_STAGES)}
+    ctx = packing_context.load_context(episode_dir, episode_dir.parent / "story_bible.json", tier=tier, limits=limits)
+    shots = packing_service.prepared_shots(json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8")), episode_dir, identity_data=ctx.get("identity_data"))
+    by_index = {shot["index"]: shot for shot in shots}
+    position = {clip["clip_id"]: n for n, clip in enumerate(plan["clips"])}
+    clips = list(plan["clips"])
+    replaced = 0
+    for old_id, part_ids in record["split"].items():
+        parts = packing_service.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]), settings=ctx.get("compiler_options"))
+        if len(parts) != len(part_ids):
+            return {"skipped": f"{old_id} splits into {len(parts)} parts now, not {len(part_ids)}"}
+        for part_id, part in zip(part_ids, parts):
+            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packing_service.shot_seconds(part, settings=ctx.get("compiler_options")), 2)}
+            entry = packing_service.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
+            current = clips[position[part_id]]
+            # Only a part whose pictures change - its cast or its reference cards - takes the new entry.  The others
+            # keep theirs, English prompt and repaired wording included, and with it the takes rendered for them.
+            if (entry.get("cast"), entry.get("references")) != (current.get("cast"), current.get("references")):
+                clips[position[part_id]] = entry
+                replaced += 1
+    summary = {"rebuilt": replaced}
+    if not apply or not replaced:
+        return summary
+    pid = locked(episode_dir)
+    if pid:
+        return {**summary, "skipped": f"being rendered (pid {pid})"}
+    atomic_write_json(plan_path, {**plan, "clips": clips, "totals": compilation.plan_totals(clips, shots, ctx),
+                                  "split_long_stages": {**record, "tier": tier, "parts_rebuilt_at": time.strftime("%Y-%m-%d %H:%M:%S")}})
+    return summary
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("novel_dir", type=Path)
+    parser.add_argument("--chapters", help='only these episodes, e.g. "484" or "1-500,812"')
+    parser.add_argument("--margin", type=float, default=MARGIN_SECONDS, help="split a single-stage clip estimated this many seconds over its request")
+    parser.add_argument("--tier", choices=("fast", "quality"), default="fast", help="the tier the plans were packed for (the conductor plans fast)")
+    parser.add_argument("--rebuild-parts", action="store_true", help="build again the parts of episodes split earlier (same ids)")
+    parser.add_argument("--apply", action="store_true", help="write the plans (default: report only)")
+    args = parser.parse_args()
+    novel_dir = args.novel_dir.resolve()
+    wanted = set(parse_chapters(args.chapters)) if args.chapters else None
+    episodes = sorted((d for d in novel_dir.glob(f"{novel_dir.name}_*") if d.is_dir() and d.name.rsplit("_", 1)[-1].isdigit()),
+                      key=lambda d: int(d.name.rsplit("_", 1)[1]))
+    results = {}
+    for episode in episodes:
+        number = int(episode.name.rsplit("_", 1)[1])
+        if wanted is not None and number not in wanted:
+            continue
+        if args.rebuild_parts:
+            result = rebuild_parts(episode, args.tier, args.apply)
+            if result:
+                results[number] = result
+                if result.get("skipped"):
+                    print(f"  {number}: skipped ({result['skipped']})", flush=True)
+            continue
+        result = split_episode(episode, args.margin, args.apply, args.tier)
+        if result:
+            results[number] = result
+            if result.get("skipped"):
+                print(f"  {number}: skipped ({result['skipped']})", flush=True)
+    if args.rebuild_parts:
+        print(json.dumps({"episodes": len([r for r in results.values() if not r.get("skipped")]),
+                          "parts": sum(r["rebuilt"] for r in results.values() if not r.get("skipped")),
+                          "skipped": {n: r["skipped"] for n, r in results.items() if r.get("skipped")}, "applied": args.apply},
+                         ensure_ascii=False, indent=1))
+        return 0
+    done = {n: r for n, r in results.items() if not r.get("skipped")}
+    by_mode: dict[str, list[int]] = {}
+    for n, r in done.items():
+        if r.get("final"):
+            by_mode.setdefault(str(r["mode"]), []).append(n)
+    summary = {"episodes": len(done), "split_clips": sum(len(r["split"]) for r in done.values()),
+               "new_clips": sum(r["new_clips"] for r in done.values()),
+               "new_clips_in_finals": sum(r["new_clips"] for r in done.values() if r.get("final")),
+               "finals_by_mode": {mode: ",".join(map(str, eps)) for mode, eps in by_mode.items()},
+               "skipped": {n: r["skipped"] for n, r in results.items() if r.get("skipped")}, "applied": args.apply}
+    if args.apply:
+        atomic_write_json(novel_dir / "split_long_stages_report.json", {"summary": summary, "episodes": results})
+    print(json.dumps(summary, ensure_ascii=False, indent=1))
+    return 0

@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from benchmark_repair_cause import controlled_submit, clone_case, evaluation_passed
-from diagnose_clip_repair import numbered_evidence, validate_diagnosis
+from novel_manga.application.repair.diagnosis import numbered_evidence, validate_diagnosis
 
 
 def test_literal_diagnosis_cannot_route_with_invented_source_evidence():

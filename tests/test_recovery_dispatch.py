@@ -1,5 +1,5 @@
 import novel_manga.story.dialogue as story_dialogue
-import packing_service_thin as packing_service
+import novel_manga.application.packing.service as packing_service
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_workers_thin as repair_manager_workers
 
@@ -11,7 +11,7 @@ import subprocess
 import novel_manga.repair.scheduling as schedule_rules
 import repair_manager_flow_thin as repair_manager_flow
 import repair_manager_workers_thin as repair_manager_workers
-import prepare_recovery_thin as recovery
+import novel_manga.application.repair.recovery as recovery
 
 
 def info(**kw):
@@ -89,7 +89,7 @@ def test_technical_failure_only_changes_failed_clip_and_retains_story_instructio
     (d / 'thin_media_report.json').write_text(json.dumps({'gate_failed_clips': ['clip_02']}))
     (d / 'clip_plan.json').write_text(json.dumps({'clips': [{'clip_id': 'clip_02', 'lines': []}]}))
     (d / 'review_feedback.json').write_text(json.dumps({'clip_01': 'keep', 'clip_02': 'correct actor'}))
-    import repair_history
+    import novel_manga.application.repair.history as repair_history
     monkeypatch.setattr(repair_history, 'begin_trial', lambda *a, **k: 1)
     result = recovery.prepare_technical(d)
     notes = json.loads((d / 'review_feedback.json').read_text())
@@ -106,7 +106,7 @@ def test_black_detector_locates_actual_black_media(tmp_path):
 
 
 def test_black_take_cannot_pass_on_cached_speech_result(tmp_path, monkeypatch):
-    import render_flow_thin as renderer
+    import novel_manga.application.rendering.flow as renderer
     runner = uninitialized_runner()
     runner.context.black_checks = {'clip_02'}
     runner.context.episode_dir = tmp_path

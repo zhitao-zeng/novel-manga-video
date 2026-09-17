@@ -9,10 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import clip_readiness as ready
-import render_flow_thin as rendering
+import novel_manga.application.preparation.readiness as ready
+import novel_manga.application.rendering.flow as rendering
 import production_flow_thin as production_flow
-from thin_runs import episode_status, render_runs
+from novel_manga.application.production.runs import episode_status, render_runs
 
 
 def clip(cid="clip_01", index=1, seconds=5):
@@ -207,8 +207,8 @@ def test_last_submission_boundary_refuses_a_missing_image_before_touching_cache(
 
 
 def test_h3_translation_skips_structurally_blocked_clips(episode, monkeypatch):
-    import build_h3_prompts as h3
-    from thin_profile import h3_source_digest
+    import novel_manga.application.rendering.h3 as h3
+    from novel_manga.application.profiles import h3_source_digest
     directory, _, _ = episode
     calls = []
     def convert(c, **kwargs):

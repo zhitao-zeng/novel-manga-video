@@ -39,8 +39,8 @@ def test_meta_commentary_is_dropped():
 
 
 def test_a_folded_correction_is_merged_into_the_shots(monkeypatch):
-    import build_h3_prompts as h3
-    from build_h3_prompts import h3_source_digest
+    import novel_manga.application.rendering.h3 as h3
+    from novel_manga.application.rendering.h3 import h3_source_digest
     prompt = "【阶段1】林凡推门走进大殿。"
     note = "林凡必须是一只橘色的猫"
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": prompt, "request_seconds": 10, "references": [],
@@ -58,7 +58,7 @@ def test_a_folded_correction_is_merged_into_the_shots(monkeypatch):
 
 
 def test_compose_follows_the_official_six_sections():
-    import build_h3_prompts as bh
+    import novel_manga.application.rendering.h3 as bh
     clip = {"request_seconds": 10, "references": [
         {"role": "character", "name": "莱恩·格雷", "path": "a"}, {"role": "character", "name": "比尔·维克托", "path": "b"},
         {"role": "location", "name": "书房", "path": "c"}, {"role": "voice", "name": "莱恩·格雷", "path": "v"}]}

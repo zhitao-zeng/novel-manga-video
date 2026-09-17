@@ -111,7 +111,7 @@ def episode_details(directory: Path, *, scan=None) -> dict:
                 and not row.get('flash_pending') and not row.get('technical')):
             successful.add(cid)
     accepted=0
-    from repair_history import source_accepted_take
+    from novel_manga.application.repair.history import source_accepted_take
     for cid,row in scan.read(directory/'source_acceptances.json',{}).items():
         clip=clips.get(cid,{})
         if (cid in successful and row.get('video')==(current.get(cid) or {}).get('video')
@@ -119,7 +119,7 @@ def episode_details(directory: Path, *, scan=None) -> dict:
                 and all(clip.get(k)==v for k,v in row.get('clip',{}).items())
                 and source_accepted_take(directory,clip,notes.get(cid,'')) is not None):
             accepted+=1
-    from managed_repair_thin import candidates
+    from novel_manga.application.repair.managed import candidates
     _,blocked=candidates(directory,review)
     blocks=[]
     for cid,reason in blocked.items():

@@ -2,18 +2,18 @@
 verdict and a status, a supported same_as becomes a reversible merge edge, the bible grows from the ledger's
 rows, and a scene snapshot says who is present, through which body, and what must not be revealed."""
 from __future__ import annotations
-import ledger_extraction_thin as ledger_extraction
-import ledger_resolution_thin as ledger_resolution
+import novel_manga.application.identity.ledger_extraction as ledger_extraction
+import novel_manga.application.identity.ledger_resolution as ledger_resolution
 
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import ledger_judges_thin as ledger_judges
-import ledger_resolution_thin as ledger_resolution
-import ledger_store_thin as ledger_store
-import ledger_views_thin as ledger_views
+import novel_manga.application.identity.ledger_judges as ledger_judges
+import novel_manga.application.identity.ledger_resolution as ledger_resolution
+import novel_manga.application.identity.ledger_store as ledger_store
+import novel_manga.application.identity.ledger_views as ledger_views
 import novel_manga.entities.contracts as entity_contracts
 import novel_manga.entities.evidence as entity_evidence  # noqa: E402
 

@@ -1,12 +1,12 @@
-import packing_context_thin as packing_context
-import packing_service_thin as packing_service
-import identity_store_thin as identity_store_thin
+import novel_manga.application.packing.context as packing_context
+import novel_manga.application.packing.service as packing_service
+import novel_manga.application.identity.store as identity_store_thin
 import novel_manga.story.source_identity as source_identity
 import copy
 from pathlib import Path
 
 from novel_manga.util import atomic_write_json
-import dialogue_binding as binding
+import novel_manga.application.identity.dialogue as binding
 from novel_manga.story.h3 import compose
 from novel_manga.story.h3 import request_issues
 
@@ -82,7 +82,7 @@ def test_word_changes_are_not_framing_changes_and_actor_swap_is_detected():
 
 
 def test_source_verifier_finds_current_video_even_when_proposed_request_changed(tmp_path):
-    from source_recheck_thin import SourceVerifier
+    from novel_manga.application.repair.source_recheck import SourceVerifier
     v=object.__new__(SourceVerifier)
     old=tmp_path/'current.mp4';old.write_bytes(b'old')
     v.current_videos={'clip_01':{'video':str(old)}}

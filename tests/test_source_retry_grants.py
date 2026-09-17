@@ -1,9 +1,9 @@
 import copy
 import json
 
-import managed_repair_thin as managed
-import prepare_recovery_thin as recovery
-import repair_history as history
+import novel_manga.application.repair.managed as managed
+import novel_manga.application.repair.recovery as recovery
+import novel_manga.application.repair.history as history
 
 
 def test_seed_only_change_cannot_extend_an_exhausted_budget(tmp_path, monkeypatch):

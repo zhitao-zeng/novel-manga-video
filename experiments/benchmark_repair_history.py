@@ -25,19 +25,19 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from benchmark_repair_cause import ROOT, ROOT_FILES, EPISODE_FILES, copy_if_present, clone_case, render_arm, evaluate_arm, evaluation_passed
-from clip_readiness import plan_issues
+from novel_manga.application.preparation.readiness import plan_issues
 from novel_manga.repair.scheduling import active_episodes
 from novel_manga.config import Settings
 from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json
-from repair_flow_thin import repair_episode
+from novel_manga.application.repair.flow import repair_episode
 from novel_manga.util import read_json as read
-from repair_history import ERROR_FIELDS
-from render_flow_thin import ThinMediaRunner
+from novel_manga.application.repair.history import ERROR_FIELDS
+from novel_manga.application.rendering.flow import ThinMediaRunner
 from novel_manga.util import load_dotenv
-from thin_profile import load_profile, h3_prompt_outdated, plan_fingerprint
-from thin_runs import episode_status
-from verify_clips_thin import Verifier
+from novel_manga.application.profiles import load_profile, h3_prompt_outdated, plan_fingerprint
+from novel_manga.application.production.runs import episode_status
+from novel_manga.application.review.verify import Verifier
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.storage as review_storage
 
@@ -170,7 +170,7 @@ def confirm(output: Path):
 
 
 def prepare(output: Path, case: dict, arm: str):
-    import build_h3_prompts as h3
+    import novel_manga.application.rendering.h3 as h3
     frozen = Path(read(output / "manifest.json")["frozen_novel"])
     dest = output / "runs" / case["id"] / arm
     if (dest / "prepared.json").exists(): return read(dest / "prepared.json")

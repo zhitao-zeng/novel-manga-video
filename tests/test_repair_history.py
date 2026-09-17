@@ -1,4 +1,4 @@
-import packing_service_thin as packing_service
+import novel_manga.application.packing.service as packing_service
 import novel_manga.repair.execution as repair_execution
 import copy
 import json
@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 
 import novel_manga.util as utils
-import repair_delivery_thin as delivery
-import repair_history as history
+import novel_manga.application.repair.delivery as delivery
+import novel_manga.application.repair.history as history
 from novel_manga.llm import client as model_client
 import novel_manga.review.policy as review_policy
 import novel_manga.review.storage as review_storage
-import review_evidence_thin as review_evidence
-from review_store_thin import current_takes
-from thin_profile import plan_fingerprint
-from thin_runs import REVIEW_POLICY, episode_status
+import novel_manga.application.review.evidence as review_evidence
+from novel_manga.application.review.store import current_takes
+from novel_manga.application.profiles import plan_fingerprint
+from novel_manga.application.production.runs import REVIEW_POLICY, episode_status
 
 
 def write(path, value):
@@ -185,7 +185,7 @@ def test_cause_advice_is_preserved_without_overriding_the_visual_verdict():
 
 
 def test_managed_verifier_adds_advice_without_old_failure_labels(episode, monkeypatch):
-    from verify_clips_thin import Verifier
+    from novel_manga.application.review.verify import Verifier
     directory, plan, review, media = episode
     history.begin_trial(directory, {"clip_01"}, "rewrite")
     v = Verifier.__new__(Verifier)
@@ -209,7 +209,7 @@ def test_managed_verifier_adds_advice_without_old_failure_labels(episode, monkey
 
 
 def test_explicit_repair_participants_keep_their_cards_when_only_one_person_speaks():
-    import repair_flow_thin as repair
+    import novel_manga.application.repair.flow as repair
     pass
     names = ["塞西娅", "莱恩·格雷", "贝纳妮丝"]
     shot = {"characters": names[:], "visual_prompt": "三人被污泥雨包围", "motion_prompt": "暖光笼罩三人", "end_state": "三人受到保护",
@@ -232,7 +232,7 @@ def test_positive_visual_flags_still_count_when_the_model_labels_the_verdict_fin
 
 
 def test_actor_tags_are_resolved_before_visual_translation(monkeypatch):
-    import build_h3_prompts as h3
+    import novel_manga.application.rendering.h3 as h3
     clip = {"clip_id": "clip_01", "kind": "video", "request_seconds": 10,
             "prompt": "【阶段1】林凡推门走进大殿。【阶段2】林凡抬头看向王座。",
             "references": [{"role": "character", "name": "林凡", "path": "card.jpeg"}]}

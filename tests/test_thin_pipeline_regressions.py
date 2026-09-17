@@ -7,12 +7,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import packing_service_thin as packer
+import novel_manga.application.packing.service as packer
 
 # The standalone scripts import their siblings from the scripts directory.
 import novel_manga.planning.validation as pc_validation
-import plan_chapter_thin as plan_chapter
-import planner_requests_thin as planner_requests
+import novel_manga.application.planning.cli as plan_chapter
+import novel_manga.application.planning.requests as planner_requests
 import sys
 import time
 from novel_manga.planning.context import PlannerContext
@@ -161,7 +161,7 @@ def test_chapter_repair_budget_survives_full_draft_retries(monkeypatch, tmp_path
         raise TimeoutError("simulated slow repair")
 
     monkeypatch.setattr(planner_requests, "call_model", draft)
-    monkeypatch.setattr('identity_flow_thin.resolve_chapter', lambda *a, **k: {})
+    monkeypatch.setattr('novel_manga.application.identity.flow.resolve_chapter', lambda *a, **k: {})
     monkeypatch.setattr(pc_validation, "validate_and_normalize", lambda *args, **kwargs: ValidationResult([PlanningIssue(PlanningCode.VISIBLE_SPEAKER, "missing speaker", stage="clip_1 stage 1")], [], []))
     monkeypatch.setattr(planner_requests, "patch_plan", failed_patch)
     monkeypatch.setattr(sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo",

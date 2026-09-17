@@ -3,9 +3,9 @@ import json
 from collections import Counter
 from pathlib import Path
 
-import managed_repair_thin as repair
-import packing_service_thin as packing
-from packing_context_thin import context_for_plan
+import novel_manga.application.repair.managed as repair
+import novel_manga.application.packing.service as packing
+from novel_manga.application.packing.context import context_for_plan
 from test_managed_repair import fixture_episode
 from test_split_repair_and_assets import split_episode
 from novel_manga.util import atomic_write_json

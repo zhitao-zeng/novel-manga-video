@@ -2,9 +2,9 @@
 thin_batch and the conductor, reviews before the conductor stops, previews only a person can finish, unconfirmed
 submissions, the continuity of split stages, failed H3 rebuilds, corrections after a re-plan."""
 from __future__ import annotations
-import packing_context_thin as packing_context
-import packing_flow_thin as packing_flow
-import packing_service_thin as packing_service
+import novel_manga.application.packing.context as packing_context
+import novel_manga.application.packing.flow as packing_flow
+import novel_manga.application.packing.service as packing_service
 import production_render_thin as production_render
 
 import json
@@ -22,12 +22,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import conductor_flow_thin as conductor_flow
 import conductor_state_thin as conductor_state
-import thin_runs as thin_runs  # noqa: E402
+import novel_manga.application.production.runs as thin_runs
 import production_flow_thin as production_flow  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
-from thin_profile import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint  # noqa: E402
+from novel_manga.application.profiles import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint
 
 NOVEL = "nov"
 H3_KEY = {"name": "h3pool", "model": "minimax-h3", "key_var": "", "base_url": "pool", "clip_cap": 15, "parallel": 1,
@@ -198,7 +198,7 @@ def test_the_later_parts_of_a_split_stage_carry_on_instead_of_repeating_its_acti
 def test_a_forced_rebuild_that_fails_is_reported_as_a_failure(tmp_path, monkeypatch):
     for name in ("QWEN38_LOCAL_BASE_URL", "QWEN38_LOCAL_MODEL", "QWEN38_LOCAL_API_KEY_VAR"):
         monkeypatch.setenv(name, "unused")
-    import build_h3_prompts
+    import novel_manga.application.rendering.h3 as build_h3_prompts
     directory = episode(tmp_path)
     clip = {**CLIP, "prompt_h3": "old english"}
     clip["prompt_h3_of"] = h3_source_digest(clip["prompt"])
@@ -226,7 +226,7 @@ def test_corrections_follow_their_clip_through_a_new_plan(tmp_path):
 
 # ---------------------------------------------------------------- repair batches draw no backlog of cards
 def test_a_repair_batch_builds_only_the_cards_its_episode_references(tmp_path, monkeypatch):
-    import recurring_cards_thin
+    import novel_manga.application.assets.recurring as recurring_cards_thin
     directory = episode(tmp_path)
     plan_with(directory, [{**CLIP, "references": [{"role": "character", "asset_id": "character_001", "path": "x.jpeg"}]}])
     monkeypatch.setattr(recurring_cards_thin, "recurring_without_cards", lambda novel_dir: [("甲", "character_099", 2)])

@@ -29,17 +29,17 @@ from dataclasses import replace
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "src")]
 from novel_manga.util import atomic_write_json
-from diagnose_clip_repair import clip_context, diagnose, diagnose_numbered
-from review_store_thin import current_takes
+from novel_manga.application.repair.diagnosis import clip_context, diagnose, diagnose_numbered
+from novel_manga.application.review.store import current_takes
 from novel_manga.util import read_json as read
 from novel_manga.util import load_dotenv
-from thin_runs import episode_status
+from novel_manga.application.production.runs import episode_status
 
 PILOT_CASES = ["wuyue_667_clip_07", "wuyue_1312_clip_01", "wuyue_1104_clip_02", "wuyue_710_clip_03", "wuyue_1563_clip_01"]
 PILOT_ENDPOINT = "http://172.28.4.52:30014"
 
 ROOT_FILES = ["story_bible.json", "bible_aliases.json", "entity_index.json", "cast_index.json", "profile.json",
-              "visual_grammar.json", "chat_screen.json", "novel.json", "confusable_pairs.json"]
+              "visual_grammar.json", "chat_screen.json", "novel.json", "novel_manga.application.assets.confusable.json"]
 EPISODE_FILES = ["chapter_script.json", "segments.json", "episode_review.json", "review_feedback.json", "clip_overrides.json"]
 
 
@@ -157,8 +157,8 @@ def clone_case(frozen: Path, destination: Path, case: dict) -> tuple[Path, Path]
 
 
 def prepare_arm(output: Path, case: dict, arm: str) -> dict:
-    from repair_flow_thin import repair_episode
-    import build_h3_prompts as h3
+    from novel_manga.application.repair.flow import repair_episode
+    import novel_manga.application.rendering.h3 as h3
     manifest = read(output / "manifest.json", {})
     frozen = Path(manifest["frozen_novel"])
     destination = output / "runs" / case["id"] / arm
@@ -181,7 +181,7 @@ def prepare_arm(output: Path, case: dict, arm: str) -> dict:
     plan = read(episode / "clip_plan.json", {});clip = plan["clips"][0]
     notes = read(episode / "review_feedback.json", {})
     h3.convert(clip, note=notes.get(case["clip_id"], ""))
-    from thin_profile import h3_prompt_outdated
+    from novel_manga.application.profiles import h3_prompt_outdated
     if not clip.get("prompt_h3") or h3_prompt_outdated(clip, notes.get(case["clip_id"], "")):
         raise RuntimeError(f"incomplete H3 prompt for {case['id']}/{arm}")
     if not 4 <= clip["request_seconds"] <= 15:raise RuntimeError('clip exceeds the shared 15-second cap')
@@ -211,8 +211,8 @@ def render_arm(output: Path, prepared: dict) -> dict:
     from novel_manga.config import Settings
     from novel_manga.models.bible import StoryBible
     from novel_manga.providers.h3_pool import H3Pool
-    from render_flow_thin import ThinMediaRunner
-    from thin_profile import load_profile
+    from novel_manga.application.rendering.flow import ThinMediaRunner
+    from novel_manga.application.profiles import load_profile
     case = prepared["case"]; novel = Path(prepared["novel"]);episode = Path(prepared["episode"])
     result_path = episode.parent.parent / "rendered.json"
     if result_path.exists():return read(result_path)
@@ -242,7 +242,7 @@ def render_arm(output: Path, prepared: dict) -> dict:
 
 
 def evaluate_arm(output: Path, rendered: dict) -> dict:
-    from verify_clips_thin import Verifier
+    from novel_manga.application.review.verify import Verifier
     manifest = read(output / 'manifest.json', {}); frozen = Path(manifest['frozen_novel'])
     case = rendered['case'];arm = rendered['arm']
     dest = output / 'evaluation' / case['id'] / arm

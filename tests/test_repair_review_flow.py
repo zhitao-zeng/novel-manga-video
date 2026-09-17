@@ -1,10 +1,10 @@
 """Report, history and publication retain their original ordering and cache reuse."""
 import json
 from pathlib import Path
-import repair_review_flow_thin as flow
-import repair_history as history
-import repair_delivery_thin as delivery
-import verify_clips_thin as verifier_module
+import novel_manga.application.repair.review_flow as flow
+import novel_manga.application.repair.history as history
+import novel_manga.application.repair.delivery as delivery
+import novel_manga.application.review.verify as verifier_module
 from test_repair_history import episode, candidate_episode
 
 
@@ -61,10 +61,10 @@ def test_review_persists_before_history_and_publication(episode, tmp_path, monke
 def test_reconciliation_and_queue_do_not_depend_on_executors():
     import ast
     root = Path(__file__).resolve().parents[1]
-    high = {'repair_review_thin', 'shared_audit_thin', 'thin_batch', 'manage_repair_thin',
-            'repair_review_flow_thin', 'audit_flow_thin', 'verify_clips_thin', 'repair_delivery_thin'}
+    high = {'novel_manga.application.repair.review', 'novel_manga.application.review.audit_cli', 'thin_batch', 'manage_repair_thin',
+            'novel_manga.application.repair.review_flow', 'novel_manga.application.review.audit_flow', 'novel_manga.application.review.verify', 'novel_manga.application.repair.delivery'}
     paths = [root / 'src/novel_manga/review/reconciliation.py', root / 'src/novel_manga/review/audit_queue.py',
-             root / 'scripts/review_store_thin.py', root / 'scripts/repair_history.py']
+             root / 'src/novel_manga/application/review/store.py', root / 'src/novel_manga/application/repair/history.py']
     def imports(path):
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Import): yield from (alias.name for alias in node.names)
@@ -73,4 +73,6 @@ def test_reconciliation_and_queue_do_not_depend_on_executors():
         assert not (set(imports(path)) & high), path
     for base in ['scripts', 'src', 'experiments']:
         for path in (root / base).rglob('*.py'):
-            assert not (set(imports(path)) & {'repair_review_thin', 'shared_audit_thin'}), path
+            if path in {root / 'scripts/repair_review_thin.py', root / 'scripts/shared_audit_thin.py'}:
+                continue  # public commands invoke their own CLI implementation
+            assert not (set(imports(path)) & {'novel_manga.application.repair.review', 'novel_manga.application.review.audit_cli'}), path

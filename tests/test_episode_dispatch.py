@@ -8,11 +8,11 @@ import sys
 
 import pytest
 
-import clip_readiness as ready
+import novel_manga.application.preparation.readiness as ready
 import novel_manga.repair.scheduling as schedule_rules
 import repair_manager_flow_thin as repair_manager_flow
 import repair_manager_workers_thin as repair_manager_workers
-import thin_runs as thin_runs
+import novel_manga.application.production.runs as thin_runs
 
 
 def info(**kwargs):

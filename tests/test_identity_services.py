@@ -5,11 +5,11 @@ from pathlib import Path
 from novel_manga.llm import client as model_client
 from novel_manga.story.catalog import IdentityCatalog
 from novel_manga.util import atomic_write_json
-from identity_store_thin import load_chapter
-from identity_context_thin import prompt_context, reading_segments
-from identity_flow_thin import resolve_chapter
-from scene_context_thin import load_scene_context
-from planner_context_thin import load_entity_index
+from novel_manga.application.identity.store import load_chapter
+from novel_manga.application.identity.context import prompt_context, reading_segments
+from novel_manga.application.identity.flow import resolve_chapter
+from novel_manga.application.identity.scene import load_scene_context
+from novel_manga.application.planning.context import load_entity_index
 from novel_manga.planning.context import PlannerContext
 from service_contract_cases import service_contracts
 
@@ -20,7 +20,7 @@ def test_source_and_speaker_requests_evidence_and_cache_match_frozen_contracts()
 
 
 def test_chapter_snapshot_is_reused_by_planning_scene_and_review(tmp_path, monkeypatch):
-    import identity_store_thin as store
+    import novel_manga.application.identity.store as store
     novel = tmp_path / 'book'; directory = novel / 'book_1'
     atomic_write_json(novel / 'story_bible.json', {'characters': [{'name': '小甲', 'role': '人物'}]})
     atomic_write_json(novel / 'entity_index.json', {'characters': [{'name': '小甲', 'forms': {'甲兄': 2}}]})

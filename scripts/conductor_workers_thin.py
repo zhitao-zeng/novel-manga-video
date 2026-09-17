@@ -2,7 +2,7 @@
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-from thin_profile import reference_image_env
+from novel_manga.application.profiles import reference_image_env
 import os
 import signal
 import subprocess

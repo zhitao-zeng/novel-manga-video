@@ -12,11 +12,11 @@ import threading
 import time
 import urllib.request
 import production_assets_thin as production_assets
-import production_common_thin as production_common
+import novel_manga.application.production.common as production_common
 import production_render_thin as production_render
 import production_reports_thin as production_reports
-import thin_profile as thin_profile
-import thin_runs as thin_runs
+import novel_manga.application.profiles as thin_profile
+import novel_manga.application.production.runs as thin_runs
 
 class Batch:
     def __init__(self, args: argparse.Namespace):
@@ -47,7 +47,7 @@ class Batch:
         self.rows: dict[int, dict] = {}
         self.reviewing = bool(args.unattended or args.review_only)
         sys.path.insert(0, str(production_common.SCRIPTS))
-        from thin_profile import is_fast, load_profile
+        from novel_manga.application.profiles import is_fast, load_profile
         self.profile = load_profile(self.novel_dir, tier=args.tier)
         self.fast = is_fast(self.profile)
         self.grow_lock = threading.Lock()
@@ -84,7 +84,7 @@ class Batch:
             return
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             return
-        from review_bible_thin import grow_bible
+        from novel_manga.application.review.bible import grow_bible
         if self.fast and production_common.GROW_STRIDE > 1 and chapter % production_common.GROW_STRIDE != 1:
             return  # fast tier: sample chapters for growth (GROW_STRIDE = 1 grows every one)
         try:
@@ -135,7 +135,7 @@ class Batch:
         return "missing"
 
     def render_status(self, chapter: int) -> str:
-        """thin_runs.episode_status, read the way this lane renders (an H3 lane also watches its English prompts)."""
+        """novel_manga.application.production.runs.episode_status, read the way this lane renders (an H3 lane also watches its English prompts)."""
         return thin_runs.episode_status(self.episode_dir(chapter), bool(os.environ.get("NOVEL_LOCAL_H3_URL")))
 
     # ---- stages ----
@@ -223,7 +223,7 @@ class Batch:
         self.build_cards(planned)
         if not self.reviewing:
             return
-        from review_cards_thin import remediate_cards, review_cards
+        from novel_manga.application.review.cards import remediate_cards, review_cards
         self.card_review = review_cards(self.novel_dir)
         if self.args.unattended and self.card_review["flags"]:
             self.card_fixes = remediate_cards(self.novel_dir, self.card_review)
@@ -306,7 +306,7 @@ class Batch:
         except (OSError, ValueError):
             return 0
         notes = thin_runs.corrections(directory)  # a correction is written into the English prompt: a new one makes it due
-        from clip_readiness import inspect_episode
+        from novel_manga.application.preparation.readiness import inspect_episode
         _, blocked = inspect_episode(directory)
         return sum(1 for clip in plan.get("clips", []) if clip.get("kind") == "video"
                    and clip["clip_id"] not in blocked
@@ -318,7 +318,7 @@ class Batch:
         directory = self.episode_dir(chapter)
         row = self.rows[chapter]
         plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
-        from clip_readiness import inspect_episode
+        from novel_manga.application.preparation.readiness import inspect_episode
         _, blocked = inspect_episode(directory)
         wanted = {ref["asset_id"] for clip in plan["clips"] if clip["clip_id"] not in blocked
                   for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}}
@@ -331,7 +331,7 @@ class Batch:
         # each set about drawing - and paying for - all of them.
         if not self.args.no_recurring_cards:
             try:
-                from recurring_cards_thin import recurring_without_cards
+                from novel_manga.application.assets.recurring import recurring_without_cards
                 recurring = {asset_id for _, asset_id, _ in recurring_without_cards(self.novel_dir)}
                 if recurring:
                     production_common.log(f"ch{chapter}: cards for recurring off-screen characters {sorted(recurring)}")
@@ -350,7 +350,7 @@ class Batch:
     def review_episode(self, chapter: int) -> None:
         """Automatic clip review; in unattended mode a failed clip gets the reviewer's
         correction appended to its prompt and is regenerated once, then reviewed again."""
-        from review_episode_thin import review_episode
+        from novel_manga.application.review.episode import review_episode
         row = self.rows[chapter]
         directory = self.episode_dir(chapter)
         review = review_episode(directory)

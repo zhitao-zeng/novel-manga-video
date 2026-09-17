@@ -3,7 +3,7 @@ from dataclasses import replace
 
 from novel_manga.story.compilation import ClipCompiler, CompilerOptions
 from novel_manga.models.bible import Character, StoryBible
-from thin_profile import frame_spec
+from novel_manga.application.profiles import frame_spec
 
 
 def options(seconds):

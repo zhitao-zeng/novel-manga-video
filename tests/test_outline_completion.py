@@ -6,8 +6,8 @@ import pytest
 
 import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.contracts as pc_contracts
-import plan_chapter_thin as plan_chapter
-import planner_requests_thin as planner_requests
+import novel_manga.application.planning.cli as plan_chapter
+import novel_manga.application.planning.requests as planner_requests
 import sys
 from novel_manga.planning.context import PlannerContext
 
@@ -81,7 +81,7 @@ def test_cli_reports_incomplete_outline_without_outer_retry(monkeypatch, tmp_pat
         raise planner_requests.IncompleteOutlineError([{"finish_reason": "length", "errors": ["empty content"]}])
 
     monkeypatch.setattr(planner_requests, "call_model", failure)
-    monkeypatch.setattr('identity_flow_thin.resolve_chapter', lambda *a, **k: {})
+    monkeypatch.setattr('novel_manga.application.identity.flow.resolve_chapter', lambda *a, **k: {})
     monkeypatch.setattr(sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo", "--bible", str(bible),
                                                "--output-root", str(tmp_path / "out"), "--max-redo", "3"])
     assert plan_chapter.main(context=planner_ctx) == 2

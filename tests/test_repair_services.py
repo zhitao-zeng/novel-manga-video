@@ -4,14 +4,14 @@ import tempfile
 from pathlib import Path
 import httpx
 import pytest
-import repair_flow_thin as flow
-import repair_judges_thin as judges
-import repair_context_thin as context
-import identity_flow_thin as identity
+import novel_manga.application.repair.flow as flow
+import novel_manga.application.repair.judges as judges
+import novel_manga.application.repair.context as context
+import novel_manga.application.identity.flow as identity
 from test_split_repair_and_assets import split_episode
 from novel_manga.util import atomic_write_json
 from novel_manga.repair.proposal import RepairProposal
-import repair_publication_thin as publication
+import novel_manga.application.repair.publication as publication
 
 
 def repair_contracts():

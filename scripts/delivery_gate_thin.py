@@ -30,7 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
-from thin_runs import REVIEW_POLICY, episode_status, gate_failures, render_runs  # noqa: E402
+from novel_manga.application.production.runs import REVIEW_POLICY, episode_status, gate_failures, render_runs
 
 POLICY = "delivery-gate-v1"
 
@@ -159,7 +159,7 @@ def main() -> int:
         ghosts = sorted(name for name in cast & measurable if body and not any(f in body for f in forms[name]))
 
         tech = status == "done"
-        from repair_delivery_thin import publication_pending
+        from novel_manga.application.repair.delivery import publication_pending
         reviewed_clean = review_state == "reviewed" and not feedback and not publication_pending(d)
         script_ok = not ghosts
         why = [w for w, bad in (("技术", not tech), ("审查", not reviewed_clean)) if bad]

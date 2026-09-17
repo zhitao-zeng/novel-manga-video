@@ -2,7 +2,7 @@ import copy
 import json
 from pathlib import Path
 from unittest.mock import patch
-import thin_profile as profile
+import novel_manga.application.profiles as profile
 from novel_manga.media.issues import QualityIssue, is_speech_issue, replaced_by_speech_recheck, missing_dialogue
 
 

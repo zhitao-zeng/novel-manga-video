@@ -2,8 +2,8 @@
 event line, the ledger decides the chapter's candidates when it has read the chapter, and the packer's second
 reference view stays off unless asked for."""
 from __future__ import annotations
-import packing_assets_thin as packing_assets
-import packing_service_thin as packing_service
+import novel_manga.application.packing.assets as packing_assets
+import novel_manga.application.packing.service as packing_service
 
 import json
 import os
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import novel_manga.planning.outputs as pc_outputs
 import novel_manga.planning.validation as pc_validation
-import planner_context_thin as planner_context
+import novel_manga.application.planning.context as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
 from novel_manga.models.bible import Character, StoryBible
 

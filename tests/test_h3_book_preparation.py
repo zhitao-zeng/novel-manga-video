@@ -1,7 +1,7 @@
 import novel_manga.planning.preparation as preparation_rules
-import preparation_actions_thin as preparation_actions
-import preparation_flow_thin as preparation_flow
-import preparation_store_thin as preparation_store
+import novel_manga.application.preparation.actions as preparation_actions
+import novel_manga.application.preparation.flow as preparation_flow
+import novel_manga.application.preparation.store as preparation_store
 import json
 from pathlib import Path
 

@@ -2,7 +2,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from novel_manga.models.bible import StoryBible, Character
 from novel_manga.review.policy import fix_tier, ReviewRules
-from review_evidence_thin import load_review_rules
+from novel_manga.application.review.evidence import load_review_rules
 
 
 def test_book_rules_do_not_leak_when_interleaved(tmp_path):

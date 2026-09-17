@@ -6,7 +6,7 @@ import argparse
 import sys
 import json
 import os
-import production_common_thin as production_common
+import novel_manga.application.production.common as production_common
 import production_flow_thin as production_flow
 import production_render_thin as production_render
 import production_reports_thin as production_reports

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from novel_manga.review import reconciliation as rules
 from review_reconciliation_cases import cases
-import review_store_thin as store
+import novel_manga.application.review.store as store
 
 EXPECTED = {r['name']: r for r in json.loads((Path(__file__).parent / 'fixtures/review_reconciliation_before.json').read_text())}
 

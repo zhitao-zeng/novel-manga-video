@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import build_entity_index  # noqa: E402
+import novel_manga.application.identity.index as build_entity_index
 import novel_manga.planning.cast as pc_cast
-import planner_context_thin as planner_context
+import novel_manga.application.planning.context as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
 
 

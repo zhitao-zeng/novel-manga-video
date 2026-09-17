@@ -10,9 +10,9 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 from novel_manga.util import atomic_write_json
-from packing_context_thin import context_for_plan, load_context
-from packing_service_thin import compile_plan
-from thin_profile import plan_fingerprint
+from novel_manga.application.packing.context import context_for_plan, load_context
+from novel_manga.application.packing.service import compile_plan
+from novel_manga.application.profiles import plan_fingerprint
 from test_split_repair_and_assets import split_episode
 
 ROOT = Path(__file__).resolve().parents[1]

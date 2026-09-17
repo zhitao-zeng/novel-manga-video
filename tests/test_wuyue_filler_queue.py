@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from thin_runs import count_run
+from novel_manga.application.production.runs import count_run
 import wuyue_filler_queue as queue
 from wuyue_filler_queue import numbers, record, select
 

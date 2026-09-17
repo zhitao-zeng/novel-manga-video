@@ -10,10 +10,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import mark_cards_in_use  # noqa: E402
+import novel_manga.application.assets.in_use as mark_cards_in_use
 from novel_manga.media import assets as media_assets
-import render_flow_thin  # noqa: E402
-import review_cards_thin as review_cards  # noqa: E402
+import novel_manga.application.rendering.flow as render_flow_thin
+import novel_manga.application.review.cards as review_cards
 
 
 def novel(tmp_path: Path) -> Path:

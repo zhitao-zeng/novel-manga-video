@@ -1,11 +1,11 @@
-import identity_flow_thin as identity_flow_thin
+import novel_manga.application.identity.flow as identity_flow_thin
 import time
 from pathlib import Path
 
 import pytest
 
 from novel_manga.util import atomic_write_json
-from clip_readiness import reference_issues
+from novel_manga.application.preparation.readiness import reference_issues
 from novel_manga.story.h3 import source_crowds
 
 
@@ -31,8 +31,8 @@ def test_semantic_group_does_not_need_a_literal_number_or_occupational_suffix():
 
 
 def test_partial_entity_repair_cannot_publish_an_incomplete_plan(tmp_path,monkeypatch):
-    import prepare_recovery_thin as recovery
-    import repair_flow_thin
+    import novel_manga.application.repair.recovery as recovery
+    import novel_manga.application.repair.flow as repair_flow_thin
     directory=tmp_path/'book'/'book_1'
     plan={'clips':[{'clip_id':'clip_01','cast':['道具']} ]}
     atomic_write_json(directory/'clip_plan.json',plan)

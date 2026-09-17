@@ -11,7 +11,7 @@ import os
 from collections import Counter
 from pathlib import Path
 
-from thin_runs import RENDER_RUNS_PER_PLAN, episode_status, render_runs
+from novel_manga.application.production.runs import RENDER_RUNS_PER_PLAN, episode_status, render_runs
 
 
 def numbers(path: Path) -> list[int]:

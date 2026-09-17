@@ -3,10 +3,10 @@ from pathlib import Path
 
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.storage as review_storage
-import review_evidence_thin as review_evidence
-import audit_flow_thin as audit_flow
+import novel_manga.application.review.evidence as review_evidence
+import novel_manga.application.review.audit_flow as audit_flow
 import novel_manga.review.reconciliation as reconciliation
-import review_store_thin as review_store
+import novel_manga.application.review.store as review_store
 
 
 def test_precise_review_reads_existing_world_rules_without_changing_global_rules(tmp_path):

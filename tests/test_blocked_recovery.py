@@ -1,4 +1,4 @@
-import repair_judges_thin as repair_judges
+import novel_manga.application.repair.judges as repair_judges
 
 from render_context_support import uninitialized_runner
 import copy
@@ -6,10 +6,10 @@ from novel_manga.review import storage as review_storage, contracts as review_co
 import json
 from pathlib import Path
 
-import clip_readiness as readiness
-import repair_flow_thin as repair
-import repair_history as history
-import render_flow_thin as render
+import novel_manga.application.preparation.readiness as readiness
+import novel_manga.application.repair.flow as repair
+import novel_manga.application.repair.history as history
+import novel_manga.application.rendering.flow as render
 import novel_manga.review.reconciliation as reconciliation
 
 
@@ -35,8 +35,8 @@ def test_explicit_cut_metadata_is_not_guessed_from_legacy_occurrences():
 
 
 def test_recovery_restores_source_parts_before_resuming_failed_identity_repair(tmp_path,monkeypatch):
-    import prepare_recovery_thin as recovery
-    import repair_blocked_plan as blocked
+    import novel_manga.application.repair.recovery as recovery
+    import novel_manga.application.packing.blocked as blocked
     d=tmp_path/'book_1';d.mkdir()
     (d/'chapter_script.json').write_text(json.dumps({'shots':[{'index':1,'origin_index':1},{'index':2,'origin_index':1}]}))
     (d/'clip_plan.json').write_text(json.dumps({'clips':[{'clip_id':'a','kind':'video','shot_indexes':[2]}, {'clip_id':'b','kind':'video','shot_indexes':[2]}]}))
@@ -49,7 +49,7 @@ def test_recovery_restores_source_parts_before_resuming_failed_identity_repair(t
 
 
 def test_resumed_residual_with_no_remaining_error_is_not_a_failed_preparation(tmp_path,monkeypatch):
-    import prepare_recovery_thin as recovery
+    import novel_manga.application.repair.recovery as recovery
     monkeypatch.setattr(repair,'repair_episode',lambda *a,**k:{'clips':0,'why':'nothing to repair'})
     assert recovery.prepare(tmp_path/'book_1','residual')['skip_render']
 

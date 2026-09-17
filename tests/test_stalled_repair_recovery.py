@@ -1,5 +1,5 @@
 import novel_manga.repair.evidence as repair_evidence
-import repair_judges_thin as repair_judges
+import novel_manga.application.repair.judges as repair_judges
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import copy
 import json
@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 import repair_manager_flow_thin as repair_manager_flow
-import repair_flow_thin as repair
-import source_recheck_thin as source
+import novel_manga.application.repair.flow as repair
+import novel_manga.application.repair.source_recheck as source
 from test_managed_repair import fixture_episode
 
 
@@ -72,12 +72,12 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
     if changed_words == 'recut':
         plan['clips'].insert(1, {**copy.deepcopy(plan['clips'][0]), 'clip_id': 'c'})
         structural = {'groups': [{'old': ['a'], 'new': ['a', 'c']}]}
-    import planner_context_thin as planner_context
-    import build_h3_prompts as h3
-    import thin_profile
+    import novel_manga.application.planning.context as planner_context
+    import novel_manga.application.rendering.h3 as h3
+    import novel_manga.application.profiles as thin_profile
     import novel_manga.review.policy as review_policy
     monkeypatch.setattr(planner_context,'load_entity_index',lambda *a,**k:None)
-    monkeypatch.setattr('identity_flow_thin.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
+    monkeypatch.setattr('novel_manga.application.identity.flow.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     monkeypatch.setattr(planner_context,'ledger_cast',lambda *a:{})
     monkeypatch.setattr(repair_judges,'speaker_contract',lambda *a,**k:{})
     monkeypatch.setattr(repair,'repair_episode',lambda *a,**k:{'changed':['a','c'] if structural else [],
@@ -126,8 +126,8 @@ def test_narrated_line_can_follow_an_explicitly_named_source_actor(monkeypatch):
 
 
 def test_extra_take_is_scoped_to_the_explicitly_corrected_clip(tmp_path):
-    import managed_repair_thin as managed
-    import repair_history as history
+    import novel_manga.application.repair.managed as managed
+    import novel_manga.application.repair.history as history
     d,_,_=fixture_episode(tmp_path)
     takes=[{'video':'v','take':[i,1,2]} for i in range(3)]
     history.save(d,{'trials':[{'managed':True,'renders':[{'clips':{cid:{'generated_takes':takes} for cid in ['a','b']}}]}],'observations':{}})

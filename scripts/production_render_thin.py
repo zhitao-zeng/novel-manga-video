@@ -5,8 +5,8 @@ import json
 import os
 import sys
 import time
-import production_common_thin as production_common
-import thin_runs as thin_runs
+import novel_manga.application.production.common as production_common
+import novel_manga.application.production.runs as thin_runs
 
 def render(batch, chapter: int) -> None:
     row = batch.rows[chapter]
@@ -68,14 +68,14 @@ def render(batch, chapter: int) -> None:
             return
         lock.unlink(missing_ok=True)
     if not batch.args.cache_only:
-        from repair_split_ranges import repair_episode
+        from novel_manga.application.packing.ranges import repair_episode
         recovered = repair_episode(directory, apply=True)
         if recovered["changed"]:
             production_common.log(f"ch{chapter}: restored split dialogue for {', '.join(recovered['changed'])}; refreshing prompts")
         if recovered["skipped"]:
             production_common.log(f"ch{chapter}: split ranges left unchanged: {recovered['skipped']}")
     if batch.fast and not batch.args.cache_only:
-        from single_card_plan import single_card_plan,repair_missing_expressions
+        from novel_manga.application.packing.single_card import single_card_plan, repair_missing_expressions
         from novel_manga.util import atomic_write_json
         plan_path = directory / "clip_plan.json"
         restored=repair_missing_expressions(directory)
@@ -88,18 +88,18 @@ def render(batch, chapter: int) -> None:
             # Repair preparation normalizes changed clips before sealing
             # their trials; here only missing material needs normalization.
             from novel_manga.util import read_json as read
-            from review_store_thin import current_takes
+            from novel_manga.application.review.store import current_takes
             takes=current_takes(directory,plan,read(directory/'episode_review.json',{}))
             targets={clip['clip_id'] for clip in plan['clips'] if clip['clip_id'] not in takes}
         before_plan=copy.deepcopy(plan)
         changed = single_card_plan(plan,targets)
         if changed:
-            from repair_history import refresh_prepared_plan
+            from novel_manga.application.repair.history import refresh_prepared_plan
             refresh_prepared_plan(directory,before_plan,plan,thin_runs.corrections(directory))
             atomic_write_json(plan_path, plan)
             production_common.log(f"ch{chapter}: main character card only for {', '.join(changed)}; refreshing reference bindings")
     if not batch.args.cache_only:
-        from clip_readiness import inspect_episode, may_reuse_duration_cache, save_check
+        from novel_manga.application.preparation.readiness import inspect_episode, may_reuse_duration_cache, save_check
         plan, blocked = inspect_episode(directory)
         video_ids = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
         if video_ids and video_ids <= blocked.keys() and not any(may_reuse_duration_cache(directory, cid, reasons) for cid, reasons in blocked.items()):
@@ -162,7 +162,7 @@ def render(batch, chapter: int) -> None:
             targets = batch.moderation_targets(chapter)
             production_common.log(f"ch{chapter}: content moderation blocked a clip twice; re-planning ({replans + 1}/{len(production_common.MODERATION_MARKERS)}) with a toned-down note"
                 + (" naming the refused lines" if targets else ""))
-            from thin_profile import load_genre
+            from novel_manga.application.profiles import load_genre
             notes = production_common.MODERATION_NOTE + load_genre(batch.profile).get("moderation_note_extra", "") + targets
             batch.plan(chapter, replan=True, notes=notes)
             if batch.rows[chapter].get("plan") == "planned":

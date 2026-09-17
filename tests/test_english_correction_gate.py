@@ -3,8 +3,8 @@ from render_context_support import uninitialized_runner
 from types import SimpleNamespace
 
 import pytest
-import render_flow_thin as render
-from thin_profile import h3_source_digest, h3_prompt_outdated
+import novel_manga.application.rendering.flow as render
+from novel_manga.application.profiles import h3_source_digest, h3_prompt_outdated
 
 
 def runner():

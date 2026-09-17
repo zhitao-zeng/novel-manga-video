@@ -5,7 +5,7 @@ from pipeline_dashboard import pipeline_metrics
 from review_progress_thin import viewer_progress
 from novel_manga.reporting.usage import summarize as usage_summary
 from novel_manga.util import read_json
-from thin_runs import REVIEW_POLICY
+from novel_manga.application.production.runs import REVIEW_POLICY
 import json
 import time
 import dashboard_config_thin as dashboard_config

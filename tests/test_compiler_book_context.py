@@ -1,4 +1,4 @@
-import packing_context_thin as packing_context
+import novel_manga.application.packing.context as packing_context
 import json
 from concurrent.futures import ThreadPoolExecutor
 from novel_manga.models.bible import StoryBible, Character

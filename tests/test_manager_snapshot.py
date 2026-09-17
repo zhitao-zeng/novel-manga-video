@@ -9,11 +9,12 @@ from novel_manga.review.contracts import REVIEW_POLICY
 import repair_manager_flow_thin as flow
 import repair_manager_state_thin as state
 import repair_manager_progression_thin as progression
-import review_store_thin as store
-import repair_delivery_thin as delivery
-import repair_history as history
-import managed_repair_thin as managed
-import thin_runs, clip_readiness
+import novel_manga.application.review.store as store
+import novel_manga.application.repair.delivery as delivery
+import novel_manga.application.repair.history as history
+import novel_manga.application.repair.managed as managed
+import novel_manga.application.production.runs as thin_runs
+import novel_manga.application.preparation.readiness as clip_readiness
 
 
 def manager_cases():

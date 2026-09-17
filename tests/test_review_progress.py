@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from review_progress_thin import viewer_progress  # noqa: E402
-from thin_profile import plan_fingerprint  # noqa: E402
+from novel_manga.application.profiles import plan_fingerprint
 
 
 def write(path, data, stamp):

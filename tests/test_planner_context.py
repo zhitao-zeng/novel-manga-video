@@ -7,8 +7,8 @@ from novel_manga.planning.context import PlannerContext
 from novel_manga.planning.budget import configure_budget, budget_requirements
 from novel_manga.planning.cast import mentioned_characters
 from novel_manga.planning.prompts import render_brief
-from planner_context_thin import load_entity_index
-import plan_chapter_thin as entry
+from novel_manga.application.planning.context import load_entity_index
+import novel_manga.application.planning.cli as entry
 
 
 def test_independent_lane_budgets_and_book_aliases(tmp_path, monkeypatch):

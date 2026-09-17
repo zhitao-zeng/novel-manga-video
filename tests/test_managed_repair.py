@@ -1,5 +1,5 @@
 import novel_manga.story.source_identity as source_identity_rules
-import repair_judges_thin as repair_judges
+import novel_manga.application.repair.judges as repair_judges
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_workers_thin as repair_manager_workers
 
@@ -10,13 +10,13 @@ import json
 from pathlib import Path
 
 import pytest
-import managed_repair_thin as managed
-import repair_history as history
-import repair_flow_thin as repair
+import novel_manga.application.repair.managed as managed
+import novel_manga.application.repair.history as history
+import novel_manga.application.repair.flow as repair
 import novel_manga.repair.scheduling as schedule_rules
 import repair_manager_flow_thin as repair_manager_flow
 from novel_manga.story.h3 import request_issues
-from thin_profile import plan_fingerprint
+from novel_manga.application.profiles import plan_fingerprint
 from novel_manga.review.storage import take_identity
 
 
@@ -76,7 +76,7 @@ def test_two_distinct_people_and_repeated_mentions_are_allowed():
 def test_plural_role_uses_wardrobe_without_copying_one_identity():
     from novel_manga.story.h3 import source_crowds
     from novel_manga.story.h3 import subject_lines,compose
-    from thin_profile import h3_source_digest,h3_prompt_outdated
+    from novel_manga.application.profiles import h3_source_digest, h3_prompt_outdated
     clip={'clip_id':'c','references':[{'role':'character','name':'警员'},{'role':'character','name':'侍者'}],
           'lines':[],'prompt':'original','request_seconds':5}
     bible={'characters':[{'name':'侍者','role':'旅店侍者'}]}
@@ -153,9 +153,9 @@ def test_all_repair_preparation_stages_use_the_integrated_entry(tmp_path):
 
 def test_failed_source_preparation_does_not_prevent_another_clip_from_being_prepared(tmp_path,monkeypatch):
     d,clips,reviews=fixture_episode(tmp_path)
-    import diagnose_clip_repair as diagnose
-    import source_recheck_thin as source
-    import repair_blocked_plan as blocked
+    import novel_manga.application.repair.diagnosis as diagnose
+    import novel_manga.application.repair.source_recheck as source
+    import novel_manga.application.packing.blocked as blocked
     monkeypatch.setattr(blocked,'repair_episode',lambda *a,**k:{'changed':[]})
     monkeypatch.setattr(diagnose,'clip_context',lambda *a:{})
     monkeypatch.setattr(diagnose,'diagnose_numbered',lambda *a:{'cause':'script_mismatch'})
@@ -174,7 +174,7 @@ def test_failed_source_preparation_does_not_prevent_another_clip_from_being_prep
 
 
 def test_explicit_generation_retry_invalidates_old_cache_without_spoken_instruction(tmp_path):
-    import render_flow_thin as render
+    import novel_manga.application.rendering.flow as render
     r=uninitialized_runner()
     from types import SimpleNamespace
     r.context.settings=SimpleNamespace(local_h3_base_url='pool');r.context.novel_dir=tmp_path;r.context.feedback={}
@@ -186,7 +186,7 @@ def test_explicit_generation_retry_invalidates_old_cache_without_spoken_instruct
 
 def test_contradictory_request_is_blocked_before_acquiring_a_generation_slot(tmp_path,monkeypatch):
     from types import SimpleNamespace
-    import render_flow_thin as render
+    import novel_manga.application.rendering.flow as render
     r=uninitialized_runner()
     r.context.work=tmp_path/'work';r.context.novel_dir=tmp_path;r.context.cache_only=False;r.context.feedback={};r.context.prescreen=False
     r.context.settings=SimpleNamespace(local_h3_base_url='pool')
@@ -215,9 +215,9 @@ def test_one_render_is_recorded_for_every_prepared_clip_and_counted_once(tmp_pat
 
 
 def test_reframe_recut_translates_and_tracks_every_replacement(tmp_path, monkeypatch):
-    import build_h3_prompts
-    import diagnose_clip_repair
-    import repair_blocked_plan
+    import novel_manga.application.rendering.h3 as build_h3_prompts
+    import novel_manga.application.repair.diagnosis as diagnose_clip_repair
+    import novel_manga.application.packing.blocked as repair_blocked_plan
     d, clips, reviews = fixture_episode(tmp_path)
     monkeypatch.setattr(repair_blocked_plan, 'repair_episode', lambda *a, **k: {'changed': []})
     monkeypatch.setattr(diagnose_clip_repair, 'clip_context', lambda *a: {})
@@ -230,7 +230,7 @@ def test_reframe_recut_translates_and_tracks_every_replacement(tmp_path, monkeyp
         'structural_repair': {'groups': [{'old': ['a'], 'new': ['a', 'c']}]}}})
     translated = []
     def convert(entry, **kwargs):
-        from thin_profile import h3_source_digest
+        from novel_manga.application.profiles import h3_source_digest
         translated.append(entry['clip_id'])
         entry.update(prompt_h3='safe request', prompt_h3_of=h3_source_digest(entry['prompt']))
     monkeypatch.setattr(build_h3_prompts, 'convert', convert)

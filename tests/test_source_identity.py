@@ -1,16 +1,16 @@
 import novel_manga.repair.execution as repair_execution
 import novel_manga.story.source_identity as source_identity_rules
-import repair_judges_thin as repair_judges
+import novel_manga.application.repair.judges as repair_judges
 
 from render_context_support import uninitialized_runner
 import copy
 import json
 from pathlib import Path
 
-import source_identity_thin as identity
-import repair_flow_thin as repair
-import render_flow_thin as renderer
-import prepare_recovery_thin as recovery
+import novel_manga.application.identity.source as identity
+import novel_manga.application.repair.flow as repair
+import novel_manga.application.rendering.flow as renderer
+import novel_manga.application.repair.recovery as recovery
 
 
 def book(tmp_path):

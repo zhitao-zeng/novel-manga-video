@@ -3,8 +3,8 @@ missed their own takes, English (H3) prompts that carried Chinese the model read
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
 from novel_manga.providers import phanrouter_tasks
-import packing_context_thin as packing_context
-import packing_service_thin as packing_service
+import novel_manga.application.packing.context as packing_context
+import novel_manga.application.packing.service as packing_service
 from dataclasses import replace
 import production_render_thin as production_render
 
@@ -24,24 +24,24 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import packing_context_thin as packer  # noqa: E402
-import build_h3_prompts as h3prompts  # noqa: E402
-import render_flow_thin as rc  # noqa: E402
-import split_long_stages as tool  # noqa: E402
+import novel_manga.application.packing.context as packer
+import novel_manga.application.rendering.h3 as h3prompts
+import novel_manga.application.rendering.flow as rc
+import novel_manga.application.packing.split as tool
 import production_flow_thin as production_flow  # noqa: E402
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.policy as review_policy
 import novel_manga.review.storage as review_storage
-import review_episode_thin as review_episode
-import review_evidence_thin as review_evidence
-import review_judges_thin as review_judges  # noqa: E402
+import novel_manga.application.review.episode as review_episode
+import novel_manga.application.review.evidence as review_evidence
+import novel_manga.application.review.judges as review_judges
 from novel_manga.providers import phanrouter  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.h3_pool import PoolUnavailable  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
-from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
-from thin_runs import count_run, render_runs  # noqa: E402
+from novel_manga.application.profiles import h3_prompt_outdated, h3_source_digest
+from novel_manga.application.production.runs import count_run, render_runs
 
 NOVEL = "nov"
 

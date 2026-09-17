@@ -1,8 +1,8 @@
 """A character's look follows the chapter: the plan references the phase's card and says its anchor, the
 review describes the same phase, and a novel without phases.json behaves as before."""
 from __future__ import annotations
-import packing_assets_thin as packing_assets
-import packing_context_thin as packing_context
+import novel_manga.application.packing.assets as packing_assets
+import novel_manga.application.packing.context as packing_context
 
 import json
 import sys
@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from novel_manga.models.bible import Character, StoryBible
-from thin_phases import chapter_of, load_phases, phase_card, phase_for, phase_labels, phased  # noqa: E402
+from novel_manga.application.identity.phases import chapter_of, load_phases, phase_card, phase_for, phase_labels, phased
 
 PHASES = {"policy": "phase-cards-v1", "characters": {"沈玄川": [
     {"from": 1406, "to": 3504, "asset_id": "character_001-p2", "label": "白发青年", "hair": "满头白发，短发略显凌乱", "age": "青年"},

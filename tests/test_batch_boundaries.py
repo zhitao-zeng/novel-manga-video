@@ -1,4 +1,4 @@
-import packing_service_thin as packing_service
+import novel_manga.application.packing.service as packing_service
 import ast
 import json
 import os

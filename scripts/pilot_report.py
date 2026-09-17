@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from thin_runs import REVIEW_POLICY, episode_status  # noqa: E402
+from novel_manga.application.production.runs import REVIEW_POLICY, episode_status
 
 
 def mtime(path: Path) -> float:

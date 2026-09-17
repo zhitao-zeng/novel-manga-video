@@ -4,8 +4,8 @@ import repair_manager_state_thin as repair_manager_state
 import repair_manager_workers_thin as repair_manager_workers
 import json
 
-from thin_profile import speech_gate_result, blocking_clip_failures
-from review_evidence_thin import source_contract_block
+from novel_manga.application.profiles import speech_gate_result, blocking_clip_failures
+from novel_manga.application.review.evidence import source_contract_block
 from novel_manga.story.source_identity import identity_rows as source_identities
 
 

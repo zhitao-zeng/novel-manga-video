@@ -1,9 +1,9 @@
 """Advance eligible episode records, preserving review -> history -> publication order."""
 from __future__ import annotations
 import repair_manager_state_thin as state
-import review_store_thin as reviews
-import repair_history as history
-import repair_delivery_thin as delivery
+import novel_manga.application.review.store as reviews
+import novel_manga.application.repair.history as history
+import novel_manga.application.repair.delivery as delivery
 
 
 def advance(manager):

@@ -6,8 +6,8 @@ import signal
 import pytest
 from novel_manga.review import audit_queue
 from novel_manga.util import load_dotenv
-import audit_flow_thin as flow
-import verify_clips_thin as verifier_module
+import novel_manga.application.review.audit_flow as flow
+import novel_manga.application.review.verify as verifier_module
 
 
 class ImmediateExecutor:

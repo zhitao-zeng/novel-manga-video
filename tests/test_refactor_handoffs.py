@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import httpx
 import pytest
-import packing_assets_thin as packing
-import render_flow_thin as flow
+import novel_manga.application.packing.assets as packing
+import novel_manga.application.rendering.flow as flow
 from novel_manga.story.h3 import request_issues
 from novel_manga.config import Settings
 from novel_manga.media.adapters import FramedPhanRouter
@@ -77,7 +77,7 @@ def test_body_mapping_refreshes_after_ledger_changes(tmp_path, monkeypatch):
     path = tmp_path / 'entity/entities.json'
     path.write_text(json.dumps({'body': {'canonical': '旧身体'}}))
     sheet = {'cast': [{'name': '甲', 'body': 'body', 'card': 'old', 'acts_through_other_body': True}]}
-    monkeypatch.setattr('ledger_views_thin.snapshot', lambda *a: sheet)
+    monkeypatch.setattr('novel_manga.application.identity.ledger_views.snapshot', lambda *a: sheet)
     assert packing.bodies_for(tmp_path, 1) == {'甲': ('旧身体', 'old')}
     path.write_text(json.dumps({'body': {'canonical': '新身体'}}))
     sheet['cast'][0]['card'] = 'new'

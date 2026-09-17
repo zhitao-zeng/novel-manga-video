@@ -1,7 +1,7 @@
-import packing_service_thin as packing_service
-import identity_context_thin as identity_context_thin
-import identity_flow_thin as identity_flow_thin
-import identity_store_thin as identity_store_thin
+import novel_manga.application.packing.service as packing_service
+import novel_manga.application.identity.context as identity_context_thin
+import novel_manga.application.identity.flow as identity_flow_thin
+import novel_manga.application.identity.store as identity_store_thin
 import novel_manga.story.source_identity as source_identity
 from novel_manga.planning.context import PlannerContext
 import json
@@ -35,7 +35,7 @@ def test_alias_file_and_index_are_both_used(tmp_path):
 def test_book_switch_clears_previous_aliases(tmp_path):
     planner_ctx = PlannerContext.from_env()
     import novel_manga.planning.cast as pc_cast
-    import planner_context_thin as planner_context
+    import novel_manga.application.planning.context as planner_context
     a = tmp_path / 'a'; b = tmp_path / 'b'
     a.mkdir(); b.mkdir()
     atomic_write_json(a / 'bible_aliases.json', {'同一称谓': '甲'})
@@ -173,7 +173,7 @@ def test_design_body_is_not_exposed_as_source_truth(tmp_path):
 def test_planner_and_packer_share_the_same_scoped_identity(tmp_path):
     planner_ctx = PlannerContext.from_env()
     import novel_manga.planning.cast as pc_cast
-    import planner_context_thin as planner_context
+    import novel_manga.application.planning.context as planner_context
     pass
     novel=book(tmp_path,('正式名', '旧名字'))
     directory=novel/'book_1'

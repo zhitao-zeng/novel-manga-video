@@ -1,4 +1,4 @@
-import packing_service_thin as packing_service
+import novel_manga.application.packing.service as packing_service
 import novel_manga.repair.execution as repair_execution
 import copy
 
@@ -7,7 +7,7 @@ import pytest
 from novel_manga.models.bible import Character, StoryBible
 import novel_manga.planning.validation as pc_validation
 from novel_manga.planning.context import PlannerContext
-import repair_flow_thin as repair
+import novel_manga.application.repair.flow as repair
 from novel_manga.story import framing
 
 

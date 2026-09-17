@@ -1,14 +1,14 @@
 """A shot's cast is completed from its own description: the given name, the name without a title and
 小+name all count; two-character common-noun names never do; the repair script fixes storyboards on disk."""
 from __future__ import annotations
-import packing_service_thin as packing_service
+import novel_manga.application.packing.service as packing_service
 
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import complete_cast_thin  # noqa: E402
+import novel_manga.application.planning.cast_completion as complete_cast_thin
 import novel_manga.planning.cast as pc_cast
 import novel_manga.story.identity as pc_identity
 from novel_manga.planning.context import PlannerContext  # noqa: E402

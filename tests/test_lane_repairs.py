@@ -21,19 +21,19 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import build_voices_thin  # noqa: E402
+import novel_manga.application.assets.voices as build_voices_thin
 import conductor_common_thin as conductor_common
 import conductor_flow_thin as conductor_flow
-import thin_runs as thin_runs  # noqa: E402
-import render_flow_thin as rc  # noqa: E402
+import novel_manga.application.production.runs as thin_runs
+import novel_manga.application.rendering.flow as rc
 import production_flow_thin as production_flow  # noqa: E402
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.storage as review_storage
-import review_episode_thin as review_episode
-import review_evidence_thin as review_evidence
-import review_judges_thin as review_judges  # noqa: E402
-from thin_profile import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint  # noqa: E402
-from thin_runs import RENDER_RUNS_PER_PLAN, count_run, render_runs  # noqa: E402
+import novel_manga.application.review.episode as review_episode
+import novel_manga.application.review.evidence as review_evidence
+import novel_manga.application.review.judges as review_judges
+from novel_manga.application.profiles import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint
+from novel_manga.application.production.runs import RENDER_RUNS_PER_PLAN, count_run, render_runs
 
 NOVEL = "nov"
 H3_KEY = {"name": "h3pool", "model": "minimax-h3", "key_var": "", "base_url": "pool", "clip_cap": 15, "parallel": 1,
@@ -273,7 +273,7 @@ def test_an_episode_the_converter_cannot_finish_waits_without_spending_a_run(tmp
 def h3prompts(monkeypatch):
     for name in ("QWEN38_LOCAL_BASE_URL", "QWEN38_LOCAL_MODEL", "QWEN38_LOCAL_API_KEY_VAR"):
         monkeypatch.setenv(name, "unused")  # the module sets defaults for these on import
-    import build_h3_prompts
+    import novel_manga.application.rendering.h3 as build_h3_prompts
     return build_h3_prompts
 
 

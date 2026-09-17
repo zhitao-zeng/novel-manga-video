@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import build_h3_prompts as translation
+import novel_manga.application.rendering.h3 as translation
 from novel_manga.story import h3
 from novel_manga.media import cache, generation
 from novel_manga.repair.policy import diagnosed_decision

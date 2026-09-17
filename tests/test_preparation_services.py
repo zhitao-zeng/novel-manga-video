@@ -7,11 +7,15 @@ import os
 import signal
 from novel_manga.util import atomic_write_json
 from novel_manga.llm import client as model_client
-import preparation_flow_thin as flow
-import preparation_actions_thin as actions
-import preparation_store_thin as store
-import preparation_audit_thin as audit
-import clip_readiness, build_h3_prompts, thin_profile, repair_flow_thin, identity_flow_thin
+import novel_manga.application.preparation.flow as flow
+import novel_manga.application.preparation.actions as actions
+import novel_manga.application.preparation.store as store
+import novel_manga.application.preparation.audit as audit
+import novel_manga.application.preparation.readiness as clip_readiness
+import novel_manga.application.rendering.h3 as build_h3_prompts
+import novel_manga.application.profiles as thin_profile
+import novel_manga.application.repair.flow as repair_flow_thin
+import novel_manga.application.identity.flow as identity_flow_thin
 
 
 def frozen_preparation():

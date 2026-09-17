@@ -27,7 +27,7 @@ DEFAULT_ROOT = REPO / "outputs/experiments/planner-outline-ab-20260914"
 CONTEXT_FILES = (
     "story_bible.json", "profile.json", "bible_growth.json", "bible_aliases.json",
     "entity_index.json", "cast_index.json", "recap.json", "volumes.json",
-    "visual_grammar.json", "chat_screen.json", "confusable_pairs.json",
+    "visual_grammar.json", "chat_screen.json", "novel_manga.application.assets.confusable.json",
 )
 
 
@@ -152,7 +152,7 @@ def worker(job_path: Path) -> int:
     sys.path[:0] = [str(root / "code/scripts"), str(root / "code/src")]
     import httpx
     import novel_manga.planning.contracts as pc_contracts
-    import plan_chapter_thin as plan_chapter
+    import novel_manga.application.planning.cli as plan_chapter
 
     requests = []
     original_send = httpx.Client.send

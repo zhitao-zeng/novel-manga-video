@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 import pytest
 from novel_manga.entities import evidence
-import ledger_store_thin as store
-import ledger_resolution_thin as resolution
+import novel_manga.application.identity.ledger_store as store
+import novel_manga.application.identity.ledger_resolution as resolution
 
 
 def test_ledger_command_decisions_use_separate_resolver(tmp_path, monkeypatch):
@@ -22,9 +22,9 @@ def test_ledger_command_decisions_use_separate_resolver(tmp_path, monkeypatch):
 
 def test_store_never_imports_judges_or_identity_decision_flow():
     root=Path(__file__).resolve().parents[1]
-    for path in [root/'scripts/ledger_store_thin.py', *sorted((root/'src/novel_manga/entities').glob('*.py'))]:
+    for path in [root/'src/novel_manga/application/identity/ledger_store.py', *sorted((root/'src/novel_manga/entities').glob('*.py'))]:
         for node in ast.walk(ast.parse(path.read_text())):
             names=[a.name for a in node.names] if isinstance(node,ast.Import) else [node.module] if isinstance(node,ast.ImportFrom) else []
-            assert not set(names)&{'ledger_judges_thin','ledger_resolution_thin','ledger_flow_thin','second_review'},path
+            assert not set(names)&{'novel_manga.application.identity.ledger_judges','novel_manga.application.identity.ledger_resolution','novel_manga.application.identity.ledger_flow','novel_manga.application.review.second_pass'},path
     # The repository presents storage and lookups, never a hidden model operation.
     assert not hasattr(store.Ledger,'extract') and not hasattr(store.Ledger,'resolve_chapter')

@@ -4,7 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 import novel_manga.review.audit_queue as audit_queue
-import review_store_thin as review_store
+import novel_manga.application.review.store as review_store
 import novel_manga.repair.scheduling as schedule_rules
 import repair_manager_flow_thin as repair_manager_flow
 import repair_manager_workers_thin as repair_manager_workers

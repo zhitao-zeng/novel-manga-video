@@ -1,8 +1,8 @@
 """Regressions for the September 14 review: preserve cuts/tier and enforce current review semantics."""
 from __future__ import annotations
-import packing_context_thin as packing_context
-import packing_service_thin as packing_service
-import repair_judges_thin as repair_judges
+import novel_manga.application.packing.context as packing_context
+import novel_manga.application.packing.service as packing_service
+import novel_manga.application.repair.judges as repair_judges
 import conductor_state_thin as conductor_state
 import conductor_workers_thin as conductor_workers
 
@@ -21,28 +21,28 @@ import pytest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import packing_context_thin as packer  # noqa: E402
-import complete_cast_thin as completion  # noqa: E402
+import novel_manga.application.packing.context as packer
+import novel_manga.application.planning.cast_completion as completion
 import conductor_flow_thin as conductor_flow
 import conductor_workers_thin as conductor_workers  # noqa: E402
 import delivery_gate_thin  # noqa: E402
 import novel_manga.planning.cast as pc_cast
-import planner_context_thin as planner_context
+import novel_manga.application.planning.context as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
-import retier_reviews  # noqa: E402
+import novel_manga.application.review.retier as retier_reviews
 import dashboard_config_thin as dashboard_config
 import dashboard_history_thin as dashboard_history
 import dashboard_inventory_thin as dashboard_inventory  # noqa: E402
 import production_flow_thin as production_flow  # noqa: E402
 import novel_manga.llm.client as model_client
-import review_episode_thin as review_episode
-import review_judges_thin as review_judges  # noqa: E402
+import novel_manga.application.review.episode as review_episode
+import novel_manga.application.review.judges as review_judges
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
-from thin_profile import plan_fingerprint  # noqa: E402
-from thin_runs import REVIEW_POLICY  # noqa: E402
+from novel_manga.application.profiles import plan_fingerprint
+from novel_manga.application.production.runs import REVIEW_POLICY
 
 
 @pytest.fixture(autouse=True)
@@ -171,7 +171,7 @@ def test_an_unrelated_old_uncut_stage_does_not_change_or_block_split_repair(tmp_
 def test_targeted_story_repair_rebuilds_only_the_selected_part(tmp_path, monkeypatch):
     # Importing the existing repair CLI selects a judge; keep that environment change inside this test.
     with patch.dict(os.environ, dict(os.environ), clear=True):
-        import repair_flow_thin
+        import novel_manga.application.repair.flow as repair_flow_thin
     monkeypatch.setattr(repair_judges, 'ask_json', lambda *a, **k: pytest.fail("rebuilding must not call a model"))
     novel, episode, old, new, plan = packed_episode(tmp_path)
     merged, changed = repair_flow_thin.rebuild_clips(episode, novel / "story_bible.json", new, plan, {"clip_02"})

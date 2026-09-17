@@ -1,20 +1,20 @@
 """The clip judge gets the ledger's casting sheet for the clip's passage - and nothing at all when the novel has
 no ledger for that chapter."""
 from __future__ import annotations
-import ledger_resolution_thin as ledger_resolution
+import novel_manga.application.identity.ledger_resolution as ledger_resolution
 
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import ledger_judges_thin as ledger_judges
-import ledger_store_thin as ledger_store  # noqa: E402
+import novel_manga.application.identity.ledger_judges as ledger_judges
+import novel_manga.application.identity.ledger_store as ledger_store
 from novel_manga.models.bible import StoryBible as review_models_StoryBible
 import novel_manga.review.policy as review_policy
-import review_episode_thin as review_episode
-import review_evidence_thin as review_evidence
-import review_judges_thin as review_judges  # noqa: E402
+import novel_manga.application.review.episode as review_episode
+import novel_manga.application.review.evidence as review_evidence
+import novel_manga.application.review.judges as review_judges
 
 CH7 = "薇奥拉公主走进来。“早安，调查师。”作家小姐笑着说。莱恩点头。原来作家小姐就是薇奥拉。脑内的女声说：别信她。"
 
@@ -47,7 +47,7 @@ def test_snapshot_block_names_the_cast_and_stays_silent_without_a_ledger(tmp_pat
 
 
 def test_verify_answer_maps_to_the_review_shape():
-    import review_judges_thin as review_judges
+    import novel_manga.application.review.judges as review_judges
     obvious = review_policy.verify_to_verdict({"people": [{"who": "猫", "gender": "不明", "is_animal": True, "doing": "亲莱恩", "frames": "3-6"}],
                                     "same_person_twice": False, "species_or_gender_wrong": False, "action_by_wrong_person": True, "actor_missing": True,
                                     "lead_face_swapped": False, "ghost_text": False, "verdict": "obvious", "evidence": "图3-6 猫代替薇奥拉亲莱恩"})
@@ -63,7 +63,7 @@ def test_verify_answer_maps_to_the_review_shape():
 
 
 def test_review_mode_comes_from_env_or_profile(monkeypatch, tmp_path):
-    import review_judges_thin as review_judges
+    import novel_manga.application.review.judges as review_judges
     work = tmp_path / "novel" / "ep_1" / "work" / "review" / "clip_01"; work.mkdir(parents=True)
     monkeypatch.delenv("NOVEL_REVIEW_MODE", raising=False)
     assert review_evidence.review_mode(work) == ""
@@ -76,7 +76,7 @@ def test_review_mode_comes_from_env_or_profile(monkeypatch, tmp_path):
 def test_unchanged_takes_keep_their_verdict_across_reviews(monkeypatch, tmp_path):
     """Two reviews of the same episode: the second judges only the clip whose file changed."""
     import json
-    import review_judges_thin as review_judges
+    import novel_manga.application.review.judges as review_judges
     novel = tmp_path / "n"; ep = novel / "n_1"; (ep / "work" / "clips" / "clip_01" / "attempt_01").mkdir(parents=True)
     (ep / "work" / "clips" / "clip_02" / "attempt_01").mkdir(parents=True)
     (novel / "story_bible.json").write_text(json.dumps({"novel_title": "n", "genre": "g", "visual_style": "v", "palette": "p", "style_fingerprint": "f", "characters": [], "locations": []}), encoding="utf-8")
@@ -106,7 +106,7 @@ def test_unchanged_takes_keep_their_verdict_across_reviews(monkeypatch, tmp_path
 
 
 def test_story_feedback_is_the_judges_instruction_not_the_description():
-    import review_judges_thin as review_judges
+    import novel_manga.application.review.judges as review_judges
     verdict = {"story_ok": False, "story_kind": "动作落在错误的人物身上", "story_issue": "画面里两个一模一样的艾琳娜坐在左右两侧",
                "feedback": "艾琳娜只出现一次，坐在桌子左侧读信；莱恩·格雷站在她对面", "identity_ok": True}
     note = review_policy.compose_feedback(verdict)

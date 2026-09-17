@@ -1,4 +1,4 @@
-import preparation_store_thin as preparation_store
+import novel_manga.application.preparation.store as preparation_store
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_state_thin as repair_manager_state
 import json
@@ -7,8 +7,8 @@ import pytest
 from novel_manga.util import atomic_write_json
 import repair_manager_flow_thin as repair_manager_flow
 import repair_manager_workers_thin as repair_manager_workers
-import review_store_thin as review_store
-import thin_runs as thin_runs
+import novel_manga.application.review.store as review_store
+import novel_manga.application.production.runs as thin_runs
 
 
 def setup(tmp_path, monkeypatch):

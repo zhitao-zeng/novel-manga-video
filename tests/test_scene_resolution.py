@@ -2,7 +2,7 @@ import copy
 
 from novel_manga.story.scene import SceneContext, resolve_scene
 from novel_manga.util import atomic_write_json
-from scene_context_thin import prepare_scene
+from novel_manga.application.identity.scene import prepare_scene
 
 
 def test_resolution_is_nonmutating_and_resolved_result_is_idempotent():

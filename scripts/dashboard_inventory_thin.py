@@ -2,11 +2,11 @@
 from __future__ import annotations
 from pathlib import Path
 from pipeline_dashboard import pipeline_metrics
-from thin_runs import RENDER_RUNS_PER_PLAN
-from thin_runs import REVIEW_POLICY
-from thin_runs import episode_status
-from thin_runs import gate_failures
-from thin_runs import render_runs
+from novel_manga.application.production.runs import RENDER_RUNS_PER_PLAN
+from novel_manga.application.production.runs import REVIEW_POLICY
+from novel_manga.application.production.runs import episode_status
+from novel_manga.application.production.runs import gate_failures
+from novel_manga.application.production.runs import render_runs
 import json
 import os
 import time

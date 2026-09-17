@@ -9,9 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 from contextlib import redirect_stdout
 import httpx
-import plan_chapter_thin as command
-import planner_requests_thin as requests
-import identity_flow_thin as identity
+import novel_manga.application.planning.cli as command
+import novel_manga.application.planning.requests as requests
+import novel_manga.application.identity.flow as identity
 from novel_manga.planning.context import PlannerContext
 from novel_manga.planning import validation
 from novel_manga.planning.issues import ValidationResult, PlanningIssue, PlanningCode

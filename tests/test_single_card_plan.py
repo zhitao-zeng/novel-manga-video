@@ -1,5 +1,5 @@
-import packing_assets_thin as packing_assets
-import packing_context_thin as packing_context
+import novel_manga.application.packing.assets as packing_assets
+import novel_manga.application.packing.context as packing_context
 """Legacy clips use one card per actor with correct picture tags and fresh H3 bindings."""
 import copy
 import json
@@ -10,8 +10,8 @@ from PIL import Image
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import render_flow_thin as rc
-from single_card_plan import single_card_plan
+import novel_manga.application.rendering.flow as rc
+from novel_manga.application.packing.single_card import single_card_plan
 from novel_manga.config import Settings
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.providers.base import ImageResult
@@ -112,11 +112,11 @@ def test_chapter_preview_does_not_stack_the_whole_long_book(tmp_path):
 
 @pytest.mark.parametrize('passed',[True,False])
 def test_missing_expression_cleanup_only_reuses_a_current_approved_video(tmp_path,monkeypatch,passed):
-    import build_h3_prompts as prompts
-    import repair_history as history
-    from thin_profile import h3_source_digest,plan_fingerprint
+    import novel_manga.application.rendering.h3 as prompts
+    import novel_manga.application.repair.history as history
+    from novel_manga.application.profiles import h3_source_digest, plan_fingerprint
     from novel_manga.review.storage import take_identity
-    from single_card_plan import repair_missing_expressions
+    from novel_manga.application.packing.single_card import repair_missing_expressions
     d=tmp_path/'book'/'book_1';d.mkdir(parents=True)
     clip=legacy_clip();clip['shot_indexes']=[2];clip['shot_parts']=[{'index':2,'part':[1,1]}]
     keep={'clip_id':'other','kind':'video','references':[],'request_seconds':5,'prompt':'unchanged'}

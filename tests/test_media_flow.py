@@ -15,7 +15,7 @@ from novel_manga.media.cache import CacheMiss
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.config import Settings
-import render_flow_thin as flow
+import novel_manga.application.rendering.flow as flow
 
 
 def runner(tmp_path, *, frame='16:9', local='', extra=None):

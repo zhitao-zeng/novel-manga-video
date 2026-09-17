@@ -1,8 +1,8 @@
 """Regressions from the 2026-09-11 review of the Seedance lines and the packer (issues 16-21), and the
 cache-only rebuild that puts the dropped title cards back into finished episodes."""
 from __future__ import annotations
-import packing_context_thin as packing_context
-import packing_service_thin as packing_service
+import novel_manga.application.packing.context as packing_context
+import novel_manga.application.packing.service as packing_service
 import conductor_dispatch_thin as conductor_dispatch
 import conductor_workers_thin as conductor_workers
 import production_render_thin as production_render
@@ -27,15 +27,15 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from novel_manga.story.compilation import ClipCompiler  # noqa: E402
 import conductor_flow_thin as conductor_flow  # noqa: E402
-import planner_context_thin as planner_context  # noqa: E402
-import render_flow_thin as rc  # noqa: E402
+import novel_manga.application.planning.context as planner_context
+import novel_manga.application.rendering.flow as rc
 import production_flow_thin as production_flow  # noqa: E402
 from novel_manga.config import DEFAULT_FONT_PATH  # noqa: E402
 from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
-from thin_profile import plan_fingerprint  # noqa: E402
-from thin_runs import render_runs  # noqa: E402
+from novel_manga.application.profiles import plan_fingerprint
+from novel_manga.application.production.runs import render_runs
 
 NOVEL = "nov"
 

@@ -9,9 +9,9 @@ import signal
 import subprocess
 import time
 ROOT = Path(__file__).resolve().parents[1]
-import clip_readiness as clip_readiness
+import novel_manga.application.preparation.readiness as clip_readiness
 import novel_manga.repair.scheduling as schedule_rules
-import thin_runs as thin_runs
+import novel_manga.application.production.runs as thin_runs
 
 
 
@@ -51,7 +51,7 @@ def processes() -> list[dict]:
 
 def command(manager, job: dict) -> tuple[list[str], dict]:
     from novel_manga.application.configuration import repair_environment
-    from thin_profile import reference_image_env
+    from novel_manga.application.profiles import reference_image_env
     env, options = repair_environment(ROOT, manager.legacy)
     env.update(reference_image_env(env))
     python = str(ROOT / ".venv/bin/python")

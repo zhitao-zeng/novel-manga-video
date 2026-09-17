@@ -7,7 +7,7 @@ import json
 import time
 import urllib.request
 import conductor_common_thin as conductor_common
-import thin_runs as thin_runs
+import novel_manga.application.production.runs as thin_runs
 
 def chapter(conductor, n: int) -> dict:
     d = conductor.episode_dir(n)

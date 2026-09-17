@@ -1,5 +1,5 @@
 """Minimal media flow for focused tests that intentionally skip provider construction."""
-from render_flow_thin import ThinMediaRunner
+from novel_manga.application.rendering.flow import ThinMediaRunner
 from novel_manga.media.context import RenderContext
 
 

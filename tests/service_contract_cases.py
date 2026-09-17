@@ -1,4 +1,4 @@
-import repair_judges_thin as repair_judges
+import novel_manga.application.repair.judges as repair_judges
 """Frozen source-reading and speaker request cases; every model response is simulated."""
 import json
 import copy
@@ -8,9 +8,9 @@ from unittest.mock import patch
 import httpx
 from novel_manga.llm import client as model_client
 from novel_manga.util import atomic_write_json
-import identity_flow_thin as flow
-import identity_context_thin as views
-import repair_judges_thin as judges
+import novel_manga.application.identity.flow as flow
+import novel_manga.application.identity.context as views
+import novel_manga.application.repair.judges as judges
 
 
 def service_contracts():

@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import sys
 import threading
-import production_common_thin as production_common
+import novel_manga.application.production.common as production_common
 
 class CardFactory:
     """Builds asset cards per asset, many at a time, ahead of the episodes that need them.

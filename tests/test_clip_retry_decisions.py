@@ -4,11 +4,11 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 import pytest
-import render_flow_thin as render
+import novel_manga.application.rendering.flow as render
 from novel_manga.media.cache import CacheMiss
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from novel_manga.media import retries, policy
-import repair_history as history
+import novel_manga.application.repair.history as history
 from test_review4_fixes import runner
 
 

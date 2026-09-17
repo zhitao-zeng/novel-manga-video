@@ -25,7 +25,7 @@ from benchmark_repair_cause import (ROOT, ROOT_FILES, EPISODE_FILES, copy_if_pre
                                     render_arm, evaluation_passed)
 from novel_manga.util import atomic_write_json
 from novel_manga.util import read_json as read
-from review_store_thin import current_takes
+from novel_manga.application.review.store import current_takes
 from novel_manga.util import load_dotenv
 
 EXTRA_ROOT = ['review_normal.txt']
@@ -45,7 +45,7 @@ def clone(frozen, dest, case):
         trial['managed']=False
     if h:
         atomic_write_json(episode/'repair_history/history.json',h)
-    from identity_flow_thin import resolve_chapter
+    from novel_manga.application.identity.flow import resolve_chapter
     resolve_chapter(episode)
     return novel,episode
 
@@ -54,7 +54,7 @@ def freeze(novel, output, specs):
     if (output/'manifest.json').exists():
         return read(output/'manifest.json')
     from novel_manga.repair.scheduling import active_episodes
-    from identity_store_thin import load_catalog
+    from novel_manga.application.identity.store import load_catalog
     from novel_manga.review.storage import take_identity
     busy=active_episodes(read(novel/'repair_manager/state.json',{'jobs':[]}))
     frozen=output/'frozen'/novel.name
@@ -111,7 +111,7 @@ def freeze(novel, output, specs):
 
 
 def evaluate(output, case, arm, video):
-    from verify_clips_thin import Verifier
+    from novel_manga.application.review.verify import Verifier
     frozen=Path(read(output/'manifest.json')['frozen_novel'])
     dest=output/'evaluation'/case['id']/arm
     if (dest/'verdict.json').exists():
@@ -125,12 +125,12 @@ def evaluate(output, case, arm, video):
 
 
 def prepare(output, case, arm):
-    from repair_flow_thin import repair_episode
+    from novel_manga.application.repair.flow import repair_episode
     from novel_manga.repair.execution import framing_signature
-    from dialogue_binding import apply_confirmed_speakers
-    from build_h3_prompts import convert
+    from novel_manga.application.identity.dialogue import apply_confirmed_speakers
+    from novel_manga.application.rendering.h3 import convert
     from novel_manga.story.h3 import request_issues
-    from thin_profile import h3_prompt_outdated
+    from novel_manga.application.profiles import h3_prompt_outdated
     frozen=Path(read(output/'manifest.json')['frozen_novel']);dest=output/'runs'/case['id']/arm
     if (dest/'prepared.json').exists():
         return read(dest/'prepared.json')
@@ -179,7 +179,7 @@ def run(output):
     # The production admission poll sleeps three seconds between attempts. A
     # small experiment can miss every brief vacancy while existing workers
     # reacquire slots. Keep the same lock files and limit, with a bounded poll.
-    import render_flow_thin
+    import novel_manga.application.rendering.flow as render_flow_thin
     from novel_manga.providers.h3_pool import H3Pool, PoolUnavailable
     def pause(started, timeout, message):
         if timeout is not None and time.monotonic()-started >= timeout:

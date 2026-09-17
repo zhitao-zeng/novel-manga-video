@@ -14,10 +14,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import render_flow_thin as rc  # noqa: E402
-import split_long_stages as tool  # noqa: E402
+import novel_manga.application.rendering.flow as rc
+import novel_manga.application.packing.split as tool
 import production_flow_thin as production_flow  # noqa: E402
-from thin_profile import plan_fingerprint  # noqa: E402
+from novel_manga.application.profiles import plan_fingerprint
 
 
 def long_stage(turns: list[str], index: int = 5) -> dict:

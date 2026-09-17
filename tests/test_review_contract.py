@@ -13,10 +13,10 @@ from PIL import Image
 from novel_manga.llm import client as model_client
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.review import prompts
-import review_bible_thin as book
-import review_evidence_thin as evidence
-import review_episode_thin as episode_review
-import review_judges_thin as judges
+import novel_manga.application.review.bible as book
+import novel_manga.application.review.evidence as evidence
+import novel_manga.application.review.episode as episode_review
+import novel_manga.application.review.judges as judges
 
 
 def test_review_requests_match_before_extraction(tmp_path, monkeypatch):

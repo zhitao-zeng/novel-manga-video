@@ -4,7 +4,7 @@ import copy
 from novel_manga.story import fields
 import novel_manga.planning.contracts as pc_contracts
 from novel_manga.planning.context import PlannerContext
-import repair_flow_thin as repair
+import novel_manga.application.repair.flow as repair
 
 
 def stage_schemas(names):

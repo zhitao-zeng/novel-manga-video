@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from novel_manga.application.configuration import RuntimePaths, config_for_novel, dashboard_novels, environment, h3_translation_endpoint
-from packing_context_thin import compiler_options
+from novel_manga.application.packing.context import compiler_options
 
 
 def test_registered_production_configuration_matches_original():

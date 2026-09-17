@@ -1,7 +1,7 @@
-import packing_context_thin as packing_context
-import packing_service_thin as packing_service
-import repair_context_thin as repair_context
-import repair_judges_thin as repair_judges
+import novel_manga.application.packing.context as packing_context
+import novel_manga.application.packing.service as packing_service
+import novel_manga.application.repair.context as repair_context
+import novel_manga.application.repair.judges as repair_judges
 import production_render_thin as production_render
 
 from render_context_support import uninitialized_runner
@@ -18,14 +18,14 @@ import pytest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import packing_context_thin as packer
-import render_flow_thin as renderer
-import repair_split_ranges as ranges
+import novel_manga.application.packing.context as packer
+import novel_manga.application.rendering.flow as renderer
+import novel_manga.application.packing.ranges as ranges
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.config import Settings
 
 with patch.dict(os.environ):
-    import repair_flow_thin as repair
+    import novel_manga.application.repair.flow as repair
 
 
 @pytest.fixture
@@ -77,8 +77,8 @@ def test_no_op_rebuild_preserves_english_prompt_and_does_not_request_a_retake(sp
 
 
 def test_later_location_change_recuts_only_affected_range(split_episode):
-    from clip_readiness import plan_issues
-    from repair_blocked_plan import turn_stream
+    from novel_manga.application.preparation.readiness import plan_issues
+    from novel_manga.application.packing.blocked import turn_stream
     episode, script, plan = split_episode
     bible = json.loads((episode.parent / 'story_bible.json').read_text())
     bible['locations'].append('卧室：床')
@@ -114,7 +114,7 @@ def test_later_location_change_recuts_only_affected_range(split_episode):
 
 
 def test_legacy_location_label_with_correct_rebound_reference_does_not_retake():
-    from clip_readiness import location_issues
+    from novel_manga.application.preparation.readiness import location_issues
     shots = {1: {'location': '公安局旁边巷子'}}
     clip = {'location': '老街后巷', 'shot_indexes': [1],
             'references': [{'role': 'location', 'name': '公安局旁边巷子'}]}
@@ -129,7 +129,7 @@ def test_story_repair_addresses_plan_index_and_preserves_source_index(split_epis
     (episode / "clip_plan.json").write_text(json.dumps(plan))
     (episode / "episode_review.json").write_text(json.dumps({"clips": {"clip_02": {"tier": "must_fix", "story_ok": False}}}))
     monkeypatch.setattr(repair_context, 'ledger_cast', lambda *a: {})
-    monkeypatch.setattr('identity_flow_thin.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
+    monkeypatch.setattr('novel_manga.application.identity.flow.resolve_chapter',lambda *a,**k:{'policy':'test','entities':{},'mentions':[]})
     def answer(content, schema, **kwargs):
         assert schema["properties"]["stages"]["items"]["properties"]["origin_index"]["enum"] == [1]
         return {"stages": [{"origin_index": 1, "in_frame": ["林凡"], "actions": [], "extras": ["持灯的侍者"], "event": "林凡转身说话"}]}
@@ -154,7 +154,7 @@ def test_source_body_conflict_rolls_back_candidate_before_saving(split_episode, 
     before = {name: (episode / name).read_bytes() for name in ['chapter_script.json', 'clip_plan.json']}
     context = {'entities': {'e1': '林凡'}, 'mentions': [], 'appearances': [
         {'entity_id': 'e1', 'source_quote': quote, 'description': '白狐'}]}
-    monkeypatch.setattr('identity_flow_thin.resolve_chapter', lambda *a, **k: context)
+    monkeypatch.setattr('novel_manga.application.identity.flow.resolve_chapter', lambda *a, **k: context)
     monkeypatch.setattr(repair_context, 'ledger_cast', lambda *a: {})
     def ask(*a, **k):
         if k['name'] == 'repair_source_appearance':
@@ -218,8 +218,8 @@ def test_a_range_without_recoverable_siblings_is_not_guessed(split_episode):
 
 
 def test_blocked_repack_restores_full_source_once_and_preserves_other_requests(split_episode):
-    import repair_blocked_plan as blocked
-    from clip_readiness import plan_issues
+    import novel_manga.application.packing.blocked as blocked
+    from novel_manga.application.preparation.readiness import plan_issues
     episode, script, plan = split_episode
     # The legacy plan lost siblings entirely; bounded old-cut recovery cannot fix it.
     original = copy.deepcopy(script['shots'][0])
@@ -243,8 +243,8 @@ def test_blocked_repack_restores_full_source_once_and_preserves_other_requests(s
 
 
 def test_blocked_repack_includes_siblings_instead_of_duplicating_dialogue(split_episode):
-    import repair_blocked_plan as blocked
-    from clip_readiness import plan_issues
+    import novel_manga.application.packing.blocked as blocked
+    from novel_manga.application.preparation.readiness import plan_issues
     episode, script, plan = split_episode
     plan['clips'][1]['shot_parts'][0]['part'] = [1, 3]
     updated, report = blocked.repack(episode, plan, script)

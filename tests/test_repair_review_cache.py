@@ -5,9 +5,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.review.reconciliation as reconciliation
-import review_store_thin as review_store
-import repair_review_flow_thin as review_flow
-import verify_clips_thin as verify_clips
+import novel_manga.application.review.store as review_store
+import novel_manga.application.repair.review_flow as review_flow
+import novel_manga.application.review.verify as verify_clips
 
 
 def setup_episode(tmp_path, *, bad=True):

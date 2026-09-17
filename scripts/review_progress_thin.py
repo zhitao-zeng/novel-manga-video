@@ -11,7 +11,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from thin_runs import episode_status
+from novel_manga.application.production.runs import episode_status
 
 
 def read_json(path: Path, default=None):

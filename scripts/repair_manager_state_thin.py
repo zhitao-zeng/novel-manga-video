@@ -6,11 +6,11 @@ from pathlib import Path
 import copy
 from novel_manga.util import read_json as read
 import time
-import clip_readiness as clip_readiness
+import novel_manga.application.preparation.readiness as clip_readiness
 import novel_manga.repair.scheduling as schedule_rules
 import novel_manga.review.reconciliation as reconciliation
-import review_store_thin as review_store
-import thin_runs as thin_runs
+import novel_manga.application.review.store as review_store
+import novel_manga.application.production.runs as thin_runs
 
 @dataclass
 class Scan:
@@ -66,7 +66,7 @@ def eligible_episodes(manager, scan):
         if manager.episode_scope is not None and n not in manager.episode_scope:
             continue
         if scan.state.get('preparation_gate') and n not in scan.admitted:
-            from preparation_store_thin import inputs as preparation_inputs
+            from novel_manga.application.preparation.store import inputs as preparation_inputs
             from novel_manga.planning.preparation import POLICY as PREPARATION_POLICY
             preparation = read(manager.novel / 'h3_preparation/episodes' / f'{n}.json', {})
             if (preparation.get('policy') == PREPARATION_POLICY and preparation.get('status') == 'ready'
@@ -98,7 +98,7 @@ def read_episode(manager, scan, n, directory):
 def inspect_episode(manager, scan, observed):
     n, directory = observed.number, observed.directory
     status, blocked, review, takes = observed.status, observed.blocked, observed.review, observed.takes
-    from repair_delivery_thin import publication_pending
+    from novel_manga.application.repair.delivery import publication_pending
     pending_publication = publication_pending(directory)
     media = read(directory / "thin_media_report.json", {}) if status == "done_with_warnings" else {}
     black_targets = read(directory / "technical_repair.json", {}).get("black_clips", []) if media else []
@@ -113,7 +113,7 @@ def inspect_episode(manager, scan, observed):
                             "processed_cycles": scan.state["passes"].get(str(n), 0), **inspected})
     bad = len(review.get("feedback") or {})
     ready = status in {"done", "done_with_warnings"}
-    from managed_repair_thin import candidates as repair_candidates
+    from novel_manga.application.repair.managed import candidates as repair_candidates
     managed_clips,managed_blocked = repair_candidates(directory,review) if (ready and bad) or blocked else ([],{})
     flash_pending = sum(bool(v.get("flash_pending")) for v in clips.values())
     scan.info[n] = {"status": status, "bad": bad, "unverified": unverified if ready else 0,

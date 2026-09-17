@@ -7,8 +7,8 @@ import pytest
 from novel_manga.repair.policy import source_decision, diagnosed_decision
 from novel_manga.repair.proposal import RepairProposal
 from novel_manga.repair.execution import retake_proposal
-import repair_flow_thin as flow
-import repair_publication_thin as publication
+import novel_manga.application.repair.flow as flow
+import novel_manga.application.repair.publication as publication
 
 
 def test_source_checks_keep_priority_and_repeat_failures_only_reframe_generation():
@@ -72,5 +72,5 @@ def test_shared_rules_and_workers_do_not_import_operator_scripts():
                 modules = [a.name for a in node.names] if isinstance(node, ast.Import) else (
                     [node.module or ''] if isinstance(node, ast.ImportFrom) and not node.level else [])
                 assert not any(m.split('.')[0] in script_names for m in modules), p
-    worker = ast.parse((root / 'scripts/repair_flow_thin.py').read_text())
-    assert not any(isinstance(n, ast.ImportFrom) and n.module == 'managed_repair_thin' for n in ast.walk(worker))
+    worker = ast.parse((root / 'src/novel_manga/application/repair/flow.py').read_text())
+    assert not any(isinstance(n, ast.ImportFrom) and n.module == 'novel_manga.application.repair.managed' for n in ast.walk(worker))

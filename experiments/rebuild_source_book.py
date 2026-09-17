@@ -33,7 +33,7 @@ from novel_manga.ingest import read_novel
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.runtime_backends import normalize_text
 from novel_manga.util import atomic_write_json
-from identity_store_thin import read
+from novel_manga.application.identity.store import read
 
 POLICY = 'source-book-rebuild-v2-independent-check'
 ACTOR_KINDS = {'person', 'creature', 'group'}
@@ -67,7 +67,7 @@ def judge_json(parts, schema, *, name, max_tokens=2200, timeout=240):
     with JUDGE_SLOT, httpx.Client(trust_env=False, timeout=timeout) as client:
         result = stream_completion(client, config['QWEN38_LOCAL_BASE_URL'] + '/chat/completions',
                                    {'Authorization': 'Bearer ' + key} if key else {}, payload, timeout=timeout)
-    from planner_requests_thin import extract_json
+    from novel_manga.application.planning.requests import extract_json
     choice = result['choices'][0]
     if choice.get('finish_reason') != 'stop' or not choice['message'].get('content'):
         raise ValueError('independent judge did not finish: ' + str(choice.get('finish_reason')))
@@ -429,7 +429,7 @@ def compile_book(directory, chapters):
     characters = [Character(name=e['canonical'], role='原文主体', gender='原文未明示', age='原文未明示',
                              appearance='', wardrobe='') for e in entities]
     locations = sorted({loc['name'] for r in records for loc in r['facts']['locations']})
-    from thin_profile import STYLE_VISUAL
+    from novel_manga.application.profiles import STYLE_VISUAL
     bible = StoryBible(novel_title=manifest['title'], genre='依据原文逐场确定时代与场景', visual_style=STYLE_VISUAL['3d'],
                       palette='沿用项目画风，具体服装、物种与时代服从当前原文', style_fingerprint=directory.name,
                       characters=characters, locations=locations,
@@ -442,7 +442,7 @@ def compile_book(directory, chapters):
         'objects': [{'chapter': r['chapter'], **a} for r in records for a in r['facts']['actors'] if a['kind'] in {'object', 'concept'}]})
     by_name = {e['canonical']: e for e in entities}
     from novel_manga.story.source_identity import POLICY as IDENTITY_POLICY
-    from identity_store_thin import chapter_inputs
+    from novel_manga.application.identity.store import chapter_inputs
     for r in records:
         n = r['chapter']; d = directory / f'{directory.name}_{n}'
         names, mentions, appearances, local_cast, actors = {}, [], [], [], []
@@ -483,8 +483,8 @@ def compile_book(directory, chapters):
 
 
 def source_bindings(directory, chapter):
-    from identity_store_thin import current_context
-    from identity_context_thin import effective_aliases
+    from novel_manga.application.identity.store import current_context
+    from novel_manga.application.identity.context import effective_aliases
     context = current_context(directory / f'{directory.name}_{chapter}')
     return effective_aliases(directory, chapter, context) if context else {}
 
@@ -652,7 +652,7 @@ def main():
     args = parser.parse_args()
     setup_models()
     directory = args.novel_dir.resolve()
-    from entity_ledger_thin import parse_chapters
+    from novel_manga.application.identity.ledger_cli import parse_chapters
     if args.stage == 'init':
         if not args.source or not args.legacy_book:
             parser.error('init needs source and legacy-book')

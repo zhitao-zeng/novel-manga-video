@@ -18,9 +18,9 @@ import dashboard_history_thin as dashboard_history
 import dashboard_inventory_thin as dashboard_inventory
 import dashboard_resources_thin as dashboard_resources
 import dashboard_ui_thin as dashboard_ui
-import thin_runs as thin_runs
-from thin_profile import h3_prompt_fingerprint, plan_fingerprint  # noqa: E402
-from thin_runs import count_run  # noqa: E402
+import novel_manga.application.production.runs as thin_runs
+from novel_manga.application.profiles import h3_prompt_fingerprint, plan_fingerprint
+from novel_manga.application.production.runs import count_run
 
 NOVEL = {"id": "nov", "title": "测试小说", "conductor": None}
 

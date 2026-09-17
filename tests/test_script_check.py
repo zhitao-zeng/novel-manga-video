@@ -7,11 +7,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import retier_reviews  # noqa: E402
+import novel_manga.application.review.retier as retier_reviews
 import novel_manga.llm.client as model_client
 import novel_manga.review.policy as review_policy
 import novel_manga.review.prompts as review_prompts
-import review_judges_thin as review_judges  # noqa: E402
+import novel_manga.application.review.judges as review_judges
 from novel_manga.models.bible import Character, StoryBible
 
 PROMPT = ("【生成目标】生成一段横屏短剧片段，约12秒。核心主体是达克尼斯，"

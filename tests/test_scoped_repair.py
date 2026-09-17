@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 
 import repair_manager_flow_thin as repair_manager_flow
-import review_store_thin as review_store
-import thin_runs as thin_runs
-from single_card_plan import single_card_plan
+import novel_manga.application.review.store as review_store
+import novel_manga.application.production.runs as thin_runs
+from novel_manga.application.packing.single_card import single_card_plan
 
 
 def test_manager_does_not_inspect_or_write_outside_scope(tmp_path,monkeypatch):
@@ -34,7 +34,7 @@ def test_only_targeted_clip_loses_its_expression_reference():
 
 
 def test_scoped_speech_observation_does_not_change_sd_gate(tmp_path):
-    from thin_profile import speech_gate_result
+    from novel_manga.application.profiles import speech_gate_result
     novel=tmp_path/'book';state=novel/'repair_manager';state.mkdir(parents=True)
     p=state/'state.json';p.write_text(json.dumps({'scope':{'episodes':[1],'speech_gate':'observe'}}))
     raw={'passed':False,'issues':['missing_1.0_over_0.5']}
@@ -46,7 +46,7 @@ def test_scoped_speech_observation_does_not_change_sd_gate(tmp_path):
 
 
 def test_scoped_silence_policy_keeps_black_and_frozen_video_blocked(tmp_path):
-    from thin_profile import assembly_gate_passed
+    from novel_manga.application.profiles import assembly_gate_passed
     novel=tmp_path/'book';state=novel/'repair_manager';state.mkdir(parents=True)
     (state/'state.json').write_text(json.dumps({'scope':{'episodes':[1],'speech_gate':'observe'}}))
     a={'thin_passed':False,'max_hold_seconds':0,'media_qc':{'checks':{'silence_ratio':{'passed':False}}}}
