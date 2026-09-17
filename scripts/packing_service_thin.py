@@ -7,7 +7,7 @@ from pathlib import Path
 from novel_manga.story.compilation import ClipCompiler, plan_totals, lint_stage, chat_turns
 from novel_manga.story.dialogue import merged_turns
 from packing_context_thin import compiler_options, POLICY, PACKER_VERSION
-from packing_assets_thin import build_references
+from packing_assets_thin import build_references, bodies_for
 from identity_store_thin import load_chapter
 from thin_phases import chapter_of, phase_labels
 
@@ -110,7 +110,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         turn["speaker_name"] for shot in clip["shots"] for turn in shot["turns"]
         if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
     ))
-    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"))
+    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"))
     prompt = compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"], settings=options)
     lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
     lint = {k: v for k, v in lint.items() if v}
@@ -162,8 +162,12 @@ def compile_plan(script: dict, context: dict) -> tuple[dict, dict]:
     """Build the plan and its cut explanation without sharing diagnostic state."""
     shots = prepared_shots(script, context['episode_dir'], identity_data=context.get('identity_data'))
     compiler = ClipCompiler(context['compiler_options'])
+    packed = compiler.pack(shots)
+    chapter = chapter_of(context["episode_dir"])
+    if chapter and any(c["kind"] == "video" for c in packed):
+        context = {**context, "body_refs": bodies_for(context["episode_dir"].parent, chapter)}
     clips = [clip_entry(clip, f'clip_{number:02d}', context)
-             for number, clip in enumerate(compiler.pack(shots), start=1)]
+             for number, clip in enumerate(packed, start=1)]
     options = compiler.options
     limits = {'max_clip_seconds': options.max_clip_seconds, 'soft_cut_seconds': options.soft_cut_seconds,
               'max_stages': options.max_stages}

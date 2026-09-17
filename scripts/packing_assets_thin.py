@@ -30,7 +30,7 @@ def bodies_for(novel_dir, chapter) -> dict[str, tuple[str, str]]:
     return out
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None) -> tuple[list[dict], list[str], str]:
+def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None) -> tuple[list[dict], list[str], str]:
     settings = settings or compiler_options()
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
@@ -51,7 +51,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     # and the anchor describes that look - 沈玄川 is white-haired from ch1406, his base card is not.
     phases = identity_data.catalog.phases if identity_data is not None else load_phases(novel_dir) if novel_dir is not None else {}
     by_name = {character.name: character for character in bible.characters}
-    bodies = bodies_for(novel_dir, chapter) if novel_dir is not None and chapter else {}
+    bodies = body_refs if body_refs is not None else (bodies_for(novel_dir, chapter) if novel_dir is not None and chapter else {})
     for name in cast:
         phase = phase_for(phases, name, chapter)
         asset = str(phase["asset_id"]) if phase else f"character_{character_index[name]:03d}"

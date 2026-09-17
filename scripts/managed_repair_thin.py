@@ -18,40 +18,43 @@ from novel_manga.util import read_json as read
 from review_store_thin import current_takes
 import repair_history as history
 from h3_request_checks import request_issues, correction
+from repair_inputs_thin import RepairInputs
 
 MAX_GENERATED_TAKES = 3
 
 
-def generation_limit(directory: Path, cid: str) -> int:
+def generation_limit(directory: Path, cid: str, *, grants: dict | None = None) -> int:
     """Explicit clip-level grants after a reviewed change; history is retained."""
-    grant = read(directory/'repair_budget_grants.json',{}).get(cid,{})
+    grants = read(directory/'repair_budget_grants.json',{}) if grants is None else grants
+    grant = grants.get(cid,{})
     return int(grant.get('limit',MAX_GENERATED_TAKES)) if grant.get('reason') else MAX_GENERATED_TAKES
 
 
-def source_state(directory: Path, clip: dict) -> dict:
-    script = read(directory/'chapter_script.json',{})
+def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = None) -> dict:
+    inputs = inputs if inputs is not None else RepairInputs.load(directory)
+    script = inputs.script
     names=set(clip.get('cast',[]))|{r.get('name') for r in clip.get('references',[]) if r.get('role')=='character'}
-    bible=read(directory.parent/'story_bible.json',{})
+    bible=inputs.identity.catalog.bible
     paths=[directory.parent/name for name in ['entity_index.json','bible_aliases.json']]
     paths += [directory.parent/r['path'] for r in clip.get('references',[]) if r.get('path') and r.get('role')!='voice']
-    assets={str(p):[p.stat().st_mtime_ns,p.stat().st_size] if p.is_file() else None for p in paths}
-    from identity_store_thin import current_context
-    identity_context = current_context(directory)
+    assets={str(p):inputs.stat(p) for p in paths}
+    identity_context = inputs.identity.context
     source_identity = {k: [{field:value for field,value in row.items() if field!='source_quote'}
                           for row in identity_context.get(k, [])] for k in ['mentions','relations','appearances']}
     from dialogue_binding import POLICY as BINDING_POLICY
     return {'binding_policy': BINDING_POLICY, 'identity_reading': source_identity, 'stages':[s for i,s in enumerate(script.get('shots',[]),1)
                       if s.get('index',i) in clip.get('shot_indexes',[])],
-            'segments':read(directory/'segments.json',[]),
+            'segments':inputs.identity.segments,
             'cast':clip.get('cast',[]),'references':clip.get('references',[]),'crowd_roles':clip.get('crowd_roles',{}),
             'characters':[c for c in bible.get('characters',[]) if c['name'] in names],'assets':assets,
-            'speaker_facts':[r for r in read(directory/'source_speaker_contract.json',[]) if r.get('stage') in clip.get('shot_indexes',[])]}
+            'speaker_facts':[r for r in inputs.speaker_facts if r.get('stage') in clip.get('shot_indexes',[])]}
 
 
-def input_state(directory: Path, clip: dict, verdict: dict, takes: dict) -> dict:
+def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inputs: RepairInputs | None = None) -> dict:
+    inputs = inputs if inputs is not None else RepairInputs.load(directory)
     return {'clip':history.accepted_clip_material(clip),
-            'note':read(directory/'review_feedback.json',{}).get(clip['clip_id'],''),
-            'source':source_state(directory,clip),'take':takes.get(clip['clip_id']),
+            'note':inputs.notes.get(clip['clip_id'],''),
+            'source':source_state(directory,clip,inputs=inputs),'take':takes.get(clip['clip_id']),
             'evidence':(verdict.get('verify') or {}).get('evidence',verdict.get('story_issue',''))}
 
 
@@ -79,17 +82,22 @@ def candidates(directory: Path, review: dict | None = None) -> tuple[list[str],d
     decisions = read(directory/'repair_routing.json',{})
     counts = generated_counts(history.load(directory))
     wanted,blocked = [],{}
+    grants = read(directory/'repair_budget_grants.json',{})
+    inputs = None
     for clip in plan.get('clips',[]):
         cid = clip['clip_id'];verdict = review.get('clips',{}).get(cid,{})
         if ((cid not in review.get('feedback',{}) and not request_issues(clip)) or verdict.get('technical') or clip.get('kind')!='video'
                 or not takes.get(cid) or verdict.get('video')!=takes[cid]['video'] or verdict.get('take')!=takes[cid]['take']):
             continue
-        if counts.get(cid,0)>=generation_limit(directory,cid):
+        if counts.get(cid,0)>=generation_limit(directory,cid,grants=grants):
             blocked[cid]='effective clip retry budget used'
-        elif (decisions.get(cid,{}).get('status')=='blocked'
-              and decisions[cid].get('inputs')==input_state(directory,clip,verdict,takes)):
-            blocked[cid]=decisions[cid].get('reason','preparation requires corrected inputs')
         else:
+            previous = decisions.get(cid, {})
+            if previous.get('status') == 'blocked':
+                inputs = inputs if inputs is not None else RepairInputs.load(directory)
+                if previous.get('inputs') == input_state(directory, clip, verdict, takes, inputs=inputs):
+                    blocked[cid] = previous.get('reason', 'preparation requires corrected inputs')
+                    continue
             wanted.append(cid)
     return wanted,blocked
 
@@ -125,7 +133,7 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
         precise = verdict.get('verify') or {}
         before = input_state(directory,clip,verdict,current_takes(directory,plan,review))
         previous = decisions.get(cid,{})
-        verified_source = previous.get('source_checked')==source_state(directory,clip)
+        verified_source = previous.get('source_checked')==before['source']
         problem = request_issues(clip)
         try:
             decision = source_decision(problem, precise, verified_source, correction(clip) if problem else '')

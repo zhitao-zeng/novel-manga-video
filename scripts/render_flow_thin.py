@@ -229,7 +229,9 @@ class ThinMediaRunner:
         managed={cid for trial in history_record.get('trials',[]) if trial.get('managed')
                  and trial['expected_plan']==plan_fingerprint(self.context.clip_plan)
                  and trial['expected_notes']==self.context.feedback for cid in trial['clips']}
-        self.context._managed_remaining={cid:max(0,generation_limit(episode_dir,cid)-counts.get(cid,0)) for cid in managed}
+        from novel_manga.util import read_json
+        grants = read_json(episode_dir / 'repair_budget_grants.json', {}) if managed else {}
+        self.context._managed_remaining={cid:max(0,generation_limit(episode_dir,cid,grants=grants)-counts.get(cid,0)) for cid in managed}
         technical_path = episode_dir / "technical_repair.json"
         self.context.black_checks = set(json.loads(technical_path.read_text()).get("black_clips", [])) if technical_path.is_file() else set()
         self.context.speech_checks = set(json.loads(technical_path.read_text()).get("speech_clips", [])) if technical_path.is_file() else set()
