@@ -22,7 +22,6 @@ import httpx
 import pytest
 from PIL import Image
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.application.packing.context as packer
 import novel_manga.application.planning.cast_completion as completion
 import novel_manga.application.production.conductor_flow as conductor_flow

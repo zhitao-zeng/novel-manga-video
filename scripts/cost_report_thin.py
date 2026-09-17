@@ -1,6 +1,4 @@
-"""Report observable generation usage, local/paid lanes and recorded final duration.
-
-Existing task and repair records are counted once; missing history and prices remain explicit."""
+"""Report observable generation usage, local/paid lanes and recorded final duration."""
 import sys
 from pathlib import Path
 

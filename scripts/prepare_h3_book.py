@@ -1,7 +1,4 @@
-"""Resume a book's pre-render source audit, targeted rewrite, cards and H3 prompts.
-
-One subprocess owns one unrendered episode. Existing footage is never rewritten
-by this preparation queue. Reports are text checks, not video-review verdicts."""
+"""Resume a book's pre-render source audit, targeted rewrite, cards and H3 prompts."""
 import sys
 from pathlib import Path
 

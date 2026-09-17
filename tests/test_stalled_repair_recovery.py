@@ -10,7 +10,7 @@ import pytest
 import novel_manga.application.repair.manager_flow as repair_manager_flow
 import novel_manga.application.repair.flow as repair
 import novel_manga.application.repair.source_recheck as source
-from test_managed_repair import fixture_episode
+from support.managed_episode import fixture_episode
 
 
 def test_duration_conflict_never_cycles_as_a_seed_retry(tmp_path):

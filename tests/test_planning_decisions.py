@@ -5,7 +5,7 @@ import pytest
 
 from novel_manga.planning.issues import PlanningCode as Code, PlanningIssue as Issue, ValidationResult
 from novel_manga.planning.decisions import decide_validation, decide_strict, patch_targets
-from planner_decision_cases import planner_traces
+from support.planner_decision_cases import planner_traces
 
 
 def test_complete_retry_requests_patches_reports_and_publication_match_previous_flow():

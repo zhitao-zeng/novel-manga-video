@@ -157,7 +157,7 @@ def spawn(root: Path, command: list[str], log: Path):
     with log.open('ab') as handle:
         proc = subprocess.Popen(command, cwd=root, stdout=handle, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True,
-                                env={**os.environ, 'PYTHONPATH': f'{root / "src"}:{root / "scripts"}'})
+                                env={**os.environ, 'PYTHONPATH': str(root / 'src')})
     return proc.pid
 
 

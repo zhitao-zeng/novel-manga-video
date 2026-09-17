@@ -1,12 +1,4 @@
-"""Write director corrections for the clips the second review flagged, ready to re-render.
-
-A correction points at the fault in the reviewer's own words, then adds the standing
-instruction for that kind of fault - the earlier A/B showed the reviewer's sentence beats a
-tidied rewrite 6-7 to 2-8.  Writing the file is the whole trigger: it changes the prompt, so
-the request hash changes, so that clip regenerates and every other clip in the episode stays
-cached.
-
-    repair_from_review.py <novel> [--votes 2] [--apply]"""
+"""Write director corrections for the clips the second review flagged, ready to re-render."""
 import sys
 from pathlib import Path
 

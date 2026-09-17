@@ -8,7 +8,6 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.application.identity.phases import chapter_of, load_phases, phase_card, phase_for, phase_labels, phased
 

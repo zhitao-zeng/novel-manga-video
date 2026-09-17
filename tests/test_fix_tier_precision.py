@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.review.policy as review_policy  # noqa: E402
 from novel_manga.models.bible import Character, StoryBible
 

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from benchmark_planner_outline import audit_outline_trace, write
-from judge_planner_outline import judge_one, shot_view
+from experiments.benchmark_planner_outline import audit_outline_trace, write
+from experiments.judge_planner_outline import judge_one, shot_view
 import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.contracts as pc_contracts
 

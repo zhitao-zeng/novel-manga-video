@@ -1,7 +1,4 @@
-"""Select technical re-renders without taking episodes owned by either repair lane.
-
-wy_filler_tried.txt records attempts, not completion. Re-read actual episode status;
-retry a failed attempt up to the existing render limit and leave held work visible."""
+"""Select technical re-renders without taking episodes owned by either repair lane."""
 import sys
 from pathlib import Path
 

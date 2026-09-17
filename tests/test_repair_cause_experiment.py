@@ -4,8 +4,7 @@ import sys
 
 import pytest
 
-sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from benchmark_repair_cause import controlled_submit, clone_case, evaluation_passed
+from experiments.benchmark_repair_cause import controlled_submit, clone_case, evaluation_passed
 from novel_manga.application.repair.diagnosis import numbered_evidence, validate_diagnosis
 
 

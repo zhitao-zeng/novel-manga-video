@@ -12,8 +12,6 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import novel_manga.planning.outputs as pc_outputs
 import novel_manga.planning.validation as pc_validation
 import novel_manga.application.planning.context as planner_context

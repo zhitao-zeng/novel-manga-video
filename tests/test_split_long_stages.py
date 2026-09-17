@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import replace
 import novel_manga.application.production.render as production_render
 
-from render_context_support import uninitialized_runner
+from support.render_context import uninitialized_runner
 
 import json
 import sys
@@ -12,7 +12,6 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 import novel_manga.application.rendering.flow as rc
 import novel_manga.application.packing.split as tool

@@ -1,9 +1,4 @@
-"""Recheck existing thin finals' silence gates, without rendering or changing any video.
-
-    PYTHONPATH=src:scripts .venv/bin/python scripts/recheck_silence_thin.py --novel-dir outputs/wuyue --apply
-
-Only current previews that failed silence checks are considered. Other QC and speech verdicts are retained.
-Original reports are saved under the run's report directory before applying an update."""
+"""Recheck existing thin finals' silence gates, without rendering or changing any video."""
 import sys
 from pathlib import Path
 

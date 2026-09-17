@@ -6,8 +6,8 @@ from pathlib import Path
 import novel_manga.application.repair.managed as repair
 import novel_manga.application.packing.service as packing
 from novel_manga.application.packing.context import context_for_plan
-from test_managed_repair import fixture_episode
-from test_split_repair_and_assets import split_episode
+from support.managed_episode import fixture_episode
+from support.split_episode import split_episode
 from novel_manga.util import atomic_write_json
 
 

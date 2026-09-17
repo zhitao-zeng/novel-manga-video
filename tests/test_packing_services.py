@@ -13,7 +13,7 @@ from novel_manga.util import atomic_write_json
 from novel_manga.application.packing.context import context_for_plan, load_context
 from novel_manga.application.packing.service import compile_plan
 from novel_manga.application.profiles import plan_fingerprint
-from test_split_repair_and_assets import split_episode
+from support.split_episode import split_episode
 
 ROOT = Path(__file__).resolve().parents[1]
 

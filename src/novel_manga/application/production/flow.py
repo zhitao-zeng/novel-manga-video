@@ -36,7 +36,7 @@ class Batch:
         self.notes = json.loads(Path(args.notes_json).read_text(encoding="utf-8")) if args.notes_json else {}
         self.env = {
             **os.environ,
-            "PYTHONPATH": "src:scripts",
+            "PYTHONPATH": "src",
             "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": os.environ.get("NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"),
             **thin_profile.reference_image_env(os.environ),

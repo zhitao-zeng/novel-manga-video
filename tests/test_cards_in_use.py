@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.application.assets.in_use as mark_cards_in_use
 from novel_manga.media import assets as media_assets
 import novel_manga.application.rendering.flow as render_flow_thin

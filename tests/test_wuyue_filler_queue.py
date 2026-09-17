@@ -4,7 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from novel_manga.application.production.runs import count_run
 import novel_manga.application.repair.filler as queue
 from novel_manga.application.repair.filler import numbers, record, select

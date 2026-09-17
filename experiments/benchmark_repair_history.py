@@ -24,7 +24,7 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from benchmark_repair_cause import ROOT, ROOT_FILES, EPISODE_FILES, copy_if_present, clone_case, render_arm, evaluate_arm, evaluation_passed
+from experiments.benchmark_repair_cause import ROOT, ROOT_FILES, EPISODE_FILES, copy_if_present, clone_case, render_arm, evaluate_arm, evaluation_passed
 from novel_manga.application.preparation.readiness import plan_issues
 from novel_manga.repair.scheduling import active_episodes
 from novel_manga.config import Settings

@@ -10,7 +10,7 @@ import novel_manga.application.production.conductor_dispatch as conductor_dispat
 import novel_manga.application.production.conductor_workers as conductor_workers
 import novel_manga.application.production.render as production_render
 
-from render_context_support import uninitialized_runner
+from support.render_context import uninitialized_runner
 
 import base64
 import io
@@ -26,7 +26,6 @@ import pytest
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 from novel_manga.story.compilation import ClipCompiler  # noqa: E402
 import novel_manga.application.production.conductor_flow as conductor_flow

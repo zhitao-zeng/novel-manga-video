@@ -2,7 +2,7 @@ import novel_manga.repair.execution as repair_execution
 import novel_manga.story.source_identity as source_identity_rules
 import novel_manga.application.repair.judges as repair_judges
 
-from render_context_support import uninitialized_runner
+from support.render_context import uninitialized_runner
 import copy
 import json
 from pathlib import Path

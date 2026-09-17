@@ -7,7 +7,7 @@ import novel_manga.application.production.conductor_dispatch as conductor_dispat
 import novel_manga.application.production.conductor_state as conductor_state
 import novel_manga.application.production.render as production_render
 
-from render_context_support import uninitialized_runner
+from support.render_context import uninitialized_runner
 
 import json
 import os
@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 import novel_manga.application.assets.voices as build_voices_thin
 import novel_manga.application.production.conductor_common as conductor_common

@@ -71,7 +71,7 @@ def test_production_does_not_write_to_shared_command_options():
 
 @pytest.mark.parametrize('initial_replan',[False,True])
 def test_moderation_replan_passes_only_episode_overrides(tmp_path, monkeypatch, initial_replan):
-    from test_review4_fixes import batch_stub, paid_episode
+    from support.generation import batch_stub, paid_episode
     import novel_manga.application.profiles as thin_profile
     paid_episode(tmp_path)
     batch=batch_stub(tmp_path,monkeypatch,['clips_failed','clips_failed','clips_failed','done'],replan=initial_replan)

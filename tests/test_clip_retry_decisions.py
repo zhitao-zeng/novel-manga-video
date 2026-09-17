@@ -9,7 +9,7 @@ from novel_manga.media.cache import CacheMiss
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from novel_manga.media import retries, policy
 import novel_manga.application.repair.history as history
-from test_review4_fixes import runner
+from support.generation import runner
 
 
 def retry_cases():

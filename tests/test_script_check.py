@@ -6,7 +6,6 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.application.review.retier as retier_reviews
 import novel_manga.llm.client as model_client
 import novel_manga.review.policy as review_policy

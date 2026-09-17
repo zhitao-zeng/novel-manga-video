@@ -11,7 +11,7 @@ from novel_manga.application.identity.flow import resolve_chapter
 from novel_manga.application.identity.scene import load_scene_context
 from novel_manga.application.planning.context import load_entity_index
 from novel_manga.planning.context import PlannerContext
-from service_contract_cases import service_contracts
+from support.service_contract_cases import service_contracts
 
 
 def test_source_and_speaker_requests_evidence_and_cache_match_frozen_contracts():

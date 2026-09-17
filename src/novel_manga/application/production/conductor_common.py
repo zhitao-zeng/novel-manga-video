@@ -31,7 +31,7 @@ PY = str(REPO / ".venv" / "bin" / "python")
 SCRIPTS = REPO / "scripts"
 
 
-BASE_ENV = {"PYTHONPATH": "src:scripts", "NOVEL_PLANNER_BACKEND": "deterministic",
+BASE_ENV = {"PYTHONPATH": "src", "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": "short-drama-adaptive-v1"}
 
 

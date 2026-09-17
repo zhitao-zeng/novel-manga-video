@@ -7,7 +7,6 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.application.planning.cast_completion as complete_cast_thin
 import novel_manga.planning.cast as pc_cast
 import novel_manga.story.identity as pc_identity

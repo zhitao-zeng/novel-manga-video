@@ -5,7 +5,7 @@ import novel_manga.application.repair.review_flow as flow
 import novel_manga.application.repair.history as history
 import novel_manga.application.repair.delivery as delivery
 import novel_manga.application.review.verify as verifier_module
-from test_repair_history import episode, candidate_episode
+from support.repair_history import episode, candidate_episode
 
 
 def test_review_persists_before_history_and_publication(episode, tmp_path, monkeypatch):

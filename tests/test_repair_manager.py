@@ -8,7 +8,6 @@ import sys
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.repair.scheduling as schedule_rules
 import novel_manga.application.repair.manager_flow as repair_manager_flow
 import novel_manga.application.repair.manager_workers as repair_manager_workers

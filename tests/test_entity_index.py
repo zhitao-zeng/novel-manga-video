@@ -5,7 +5,6 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.application.identity.index as build_entity_index
 import novel_manga.planning.cast as pc_cast
 import novel_manga.application.planning.context as planner_context

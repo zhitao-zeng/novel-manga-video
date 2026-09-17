@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.review.reconciliation as reconciliation
 import novel_manga.application.review.store as review_store
 import novel_manga.application.repair.review_flow as review_flow

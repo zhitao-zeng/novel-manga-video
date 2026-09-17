@@ -53,41 +53,17 @@ uv run pytest
 
 访问本机 `http://127.0.0.1:8765/` 或 `/board`。看板独立于已移除的旧生成 API，继续展示交付进度、修复、资源及三条流程的运行状态。
 
-## 代码分工
+## 代码与维护
 
-- `src/novel_manga/planning/`：按章节隔离的规划上下文、预算、请求字段与校验规则。
-- `src/novel_manga/entities/`：实体证据和关系定义；账本读写、判断与索引由各流程模块承担。
-- `src/novel_manga/story/`：身份、动作和对白的共享规则，不执行模型请求或调度。
-- `src/novel_manga/story/compilation.py`：显式配置的片段编译，复用现有切段和提示词策略。
-- `src/novel_manga/repair/`：修复决策、内存候选及场景修改；流程层负责验证后写回。
-- `src/novel_manga/media/`：资产、生成、缓存、音轨分析、字幕和后期服务；每集使用独立 RenderContext。
-- `src/novel_manga/review/`：审查字段、提示词、证据合并、判词解释、片段版本识别和原有补查队列存取。
-- `src/novel_manga/model_client.py`：规划、身份核对和审查共用的 JSON 模型调用。
-- `src/novel_manga/bible.py`：新书初始化所需的人物库生成。
-- `src/novel_manga/batch_control.py`：已有执行器的操作入口与状态汇总。
-- `src/novel_manga/` 其余模块：小说读取、数据结构、资产、视频后端、媒体处理和质检。
-- `scripts/`：正式产线执行器、操作脚本和看板。
-- `experiments/`：A/B、测速、手写样片、原文重建试验及旧规划方法；详见 [实验说明](experiments/README.md)。生产不得导入实验。
-- `outputs/`：既有小说、计划、任务记录和媒体，整理代码不会迁移这些文件。
+正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
 
-本文件是当前操作入口说明。[薄流水线](docs/thin-pipeline.md) 保留技术背景；带日期的文档是当时的记录，旧入口命令不作为当前操作指南。
+- [当前架构与修改位置](docs/architecture.md)：职责、依赖、配置来源和产物写入者。
+- [测试与回归](tests/README.md)：请求、缓存、修复、媒体和看板的验证入口。
+- [完整重构计划](docs/full-refactor-plan-20260917.md)与[实施记录](docs/full-refactor-progress-20260917.md)。
+- [实验说明](experiments/README.md)：A/B、测速、人物库重建试验及旧整集实验。
 
-剧本、修复与打包的接口和职责见 [解耦说明](docs/scene-contract-decoupling-20260916.md)。
+看板页面和脚本位于 `src/novel_manga/dashboard/templates/` 与 `static/`；看板和用量命令共用 reporting 的统计。读取安装包中的服务时，用 `NOVEL_PROJECT_ROOT` 指向现有运行目录，产物不随安装位置迁移。
 
-渲染入口保持 `scripts/render_clips_thin.py`，流程编排位于 `scripts/render_flow_thin.py`；详见 [媒体模块说明](docs/render-module-decoupling-20260916.md)。
+无对白镜头仍进行 ASR 检查，发现意外说话；语音是否阻挡交付继续按小说及章节范围配置。
 
-审查入口保持 `scripts/thin_review.py`，取证、模型评审、人物库补全、卡片和整集报告分别编排；详见 [审查模块说明](docs/review-module-decoupling-20260916.md)。
-
-复审和补查命令只负责入口，状态存取、执行编排与成片发布分别维护；详见 [复审状态与发布说明](docs/review-state-decoupling-20260916.md)。
-
-规划、账本、调度与看板的最新分工见 [架构收尾说明](docs/architecture-consolidation-20260917.md)。诸天现有内容的抽样结果见 [章节核对报告](docs/zhutian-content-audit-20260917.md)。
-
-身份资料、局部修复和打包服务的进一步拆分见 [职责与回归对照](docs/identity-repair-packing-20260917.md)。
-
-看板采集、资产处理、开拍准备和供应商接口的最新分工见 [运行与供应商职责说明](docs/operations-assets-providers-20260917.md)。
-
-质量问题分类与规划修订决策见 [规则与决策说明](docs/quality-planning-decisions-20260917.md)。
-
-每章执行选项、只读状态查询与渲染重试决策见 [执行职责说明](docs/episode-state-retry-20260917.md)。
-
-早期上传/生成/下载 HTTP API、`novel-manga` 命令、旧整集控制器及专用 API 容器已移除，不提供兼容入口。已有剧本、人物库、视频和任务历史保留。
+早期上传/生成/下载 HTTP API、`novel-manga` 命令及旧整集控制器已移除。旧 shell 修复线的一次性接管入口也已退休；已有小说、人物库、视频、预算和任务历史保留。带日期的旧文档记录当时状态，当前操作以本 README 和架构说明为准。

@@ -1,6 +1,6 @@
 import novel_manga.application.repair.judges as repair_judges
 
-from render_context_support import uninitialized_runner
+from support.render_context import uninitialized_runner
 import copy
 from novel_manga.review import storage as review_storage, contracts as review_contracts
 import json

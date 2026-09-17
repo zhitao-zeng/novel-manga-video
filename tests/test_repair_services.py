@@ -8,7 +8,7 @@ import novel_manga.application.repair.flow as flow
 import novel_manga.application.repair.judges as judges
 import novel_manga.application.repair.context as context
 import novel_manga.application.identity.flow as identity
-from test_split_repair_and_assets import split_episode
+from support.split_episode import split_episode
 from novel_manga.util import atomic_write_json
 from novel_manga.repair.proposal import RepairProposal
 import novel_manga.application.repair.publication as publication

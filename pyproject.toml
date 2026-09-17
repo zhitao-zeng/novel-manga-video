@@ -25,4 +25,4 @@ packages = ["src/novel_manga"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-pythonpath = ["src", "scripts", ".", "experiments"]
+pythonpath = ["src", ".", "tests"]

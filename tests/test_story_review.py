@@ -6,7 +6,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.policy as review_policy
 import novel_manga.review.prompts as review_prompts  # noqa: E402

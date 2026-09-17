@@ -20,7 +20,6 @@ import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
 
 import novel_manga.application.production.conductor_flow as conductor_flow
 import novel_manga.application.production.conductor_state as conductor_state

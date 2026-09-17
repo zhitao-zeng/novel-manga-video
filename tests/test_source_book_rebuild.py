@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-import rebuild_source_book as rebuild
+import experiments.rebuild_source_book as rebuild
 from novel_manga.util import atomic_write_json
 from novel_manga.story.source_identity import active_cast_names
 from novel_manga.application.identity.store import current_context, read

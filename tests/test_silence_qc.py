@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from novel_manga.qc import inspect_silence  # noqa: E402
 from novel_manga.application.profiles import plan_fingerprint
 from novel_manga.application.production.runs import episode_status

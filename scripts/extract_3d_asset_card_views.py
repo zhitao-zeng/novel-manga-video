@@ -1,8 +1,4 @@
-"""Extract reusable single-view assets from approved/candidate 3D review cards.
-
-The generated cards intentionally remain human-review artifacts.  Production
-conditioning consumes the panel crops written by this script, never the whole
-multi-view board."""
+"""Extract reusable single-view assets from approved/candidate 3D review cards."""
 import sys
 from pathlib import Path
 

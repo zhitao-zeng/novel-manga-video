@@ -9,7 +9,6 @@ from pathlib import Path
 from PIL import Image
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.application.rendering.flow as rc
 from novel_manga.application.packing.single_card import single_card_plan
 from novel_manga.config import Settings

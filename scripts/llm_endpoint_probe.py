@@ -1,9 +1,4 @@
-"""List the models of OpenAI-compatible endpoints.
-
-    QWEN38_LOCAL_API_KEY_VAR=<env var holding the key> python scripts/llm_endpoint_probe.py http://host:port/v1 ...
-
-The key is read from the named variable and sent only as the Authorization
-header; nothing secret is printed."""
+"""List the models of OpenAI-compatible endpoints."""
 import sys
 from pathlib import Path
 
