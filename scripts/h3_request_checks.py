@@ -12,7 +12,8 @@ def request_issues(clip: dict) -> list[str]:
                         r'<Subject\s+(\d+)>',re.I)
     issues = [f'subject {n} is one identity but is requested as multiple people'
               for n in sorted(set(plural.findall(body)))]
-    declared=set(re.findall(r'<Subject\s+(\d+)> is the character',text))
+    definitions = text.split('summary:', 1)[0]
+    declared=set(re.findall(r'<Subject\s+(\d+)> is the (?:character\b|person shown in <Picture\s+\d+>)',definitions))
     if declared or 'subject_definitions:' in text:
         issues.extend(f'subject {n} has no identity definition' for n in sorted(set(re.findall(r'<Subject\s+(\d+)>',body))-declared))
     from dialogue_binding import final_dialogue_issues

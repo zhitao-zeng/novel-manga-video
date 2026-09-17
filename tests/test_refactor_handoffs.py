@@ -13,11 +13,16 @@ from novel_manga.config import Settings
 from novel_manga.media.adapters import FramedPhanRouter
 
 
-@pytest.mark.xfail(strict=True, reason='F01: new H3 declaration is rejected')
 def test_person_declaration_is_a_valid_subject_definition():
     clip = {'prompt_h3': 'subject_definitions:\n<Subject 1> is the person shown in <Picture 1>.\n'
                         'detailed_description:\n[Shot 1] <Subject 1> opens the door.'}
     assert request_issues(clip) == []
+
+
+def test_subject_mentions_without_declarations_still_fail():
+    clip = {'prompt_h3': 'subject_definitions:\n<Picture 1> shows a room.\nsummary:\n'
+                        'detailed_description:\n<Subject 1> is the character walking inside.'}
+    assert request_issues(clip) == ['subject 1 has no identity definition']
 
 
 @pytest.mark.xfail(strict=True, reason='F02: moderation edits leave old speech reference')
