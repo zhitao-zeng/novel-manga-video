@@ -24,6 +24,7 @@ def video_payload(
     duration: float,
     additional_image_urls: tuple[str, ...] = (),
     reference_audio_urls: tuple[str, ...] = (),
+    *, ratio: str = "9:16", resolution: str = "720p",
 ) -> dict:
     limits = VIDEO_MODEL_LIMITS.get(settings.video_model, {})
     content = [{"type": "text", "text": prompt}]
@@ -57,8 +58,8 @@ def video_payload(
     return {
         "model": settings.video_model,
         "content": content,
-        "ratio": "9:16",
-        "resolution": limits.get("resolution", "720p"),
+        "ratio": ratio,
+        "resolution": limits.get("resolution", resolution),
         "duration": max(4, min(int(limits.get("max_duration", 30)), math.ceil(duration))),
         "generate_audio": True,
         "watermark": False,

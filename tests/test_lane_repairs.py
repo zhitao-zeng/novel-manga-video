@@ -422,7 +422,7 @@ def test_parallel_card_builds_keep_each_others_manifest_records(tmp_path):
     factory = rc.FramedAssetFactory(types.SimpleNamespace(style_master_path=None), None)
     factory._location_prompt = lambda bible, location: f"{location}的空镜"
 
-    def ensure_card(prompt, output, reference=None):
+    def ensure_card(prompt, output, reference=None, aspect_ratio=None):
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(b"card")
         if output.parent.name == "location_001":  # another process finishes its card meanwhile

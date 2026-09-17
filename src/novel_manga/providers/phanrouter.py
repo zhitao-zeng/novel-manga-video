@@ -11,8 +11,9 @@ from .phanrouter_references import ReferenceMaterials
 from .downloads import download_file
 
 class PhanRouterMediaProvider(MediaProvider):
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, *, ratio="9:16", resolution="720p"):
         self.settings = settings
+        self.video_ratio, self.video_resolution = ratio, resolution
         self.client = httpx.Client(timeout=settings.request_timeout)
         self.video_headers = {
             "Authorization": f"Bearer {settings.phanrouter_api_key}"
@@ -37,10 +38,12 @@ class PhanRouterMediaProvider(MediaProvider):
         return self._references().public_card_url(path, digest)
 
     def _video_payload(self, prompt, image_url, duration, additional_image_urls=(), reference_audio_urls=()):
-        return video.video_payload(self.settings, prompt, image_url, duration, additional_image_urls, reference_audio_urls)
+        return video.video_payload(self.settings, prompt, image_url, duration, additional_image_urls, reference_audio_urls,
+                                   ratio=self.video_ratio, resolution=self.video_resolution)
 
-    def create_image(self, prompt, output, reference=None, additional_references=()):
-        return images.create_image(self.settings, self.client, self.image_headers, prompt, output, reference, additional_references)
+    def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None):
+        return images.create_image(self.settings, self.client, self.image_headers, prompt, output, reference, additional_references,
+                                   aspect_ratio=aspect_ratio or "9:16")
 
     def create_video(
         self,

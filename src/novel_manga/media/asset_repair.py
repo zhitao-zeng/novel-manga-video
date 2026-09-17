@@ -105,7 +105,8 @@ def repair_rejected_reference(ctx, clip: dict, index: int) -> list[str]:
                     target.unlink(missing_ok=True)
                     source.rename(target)
             log(f"privacy repair: rebuilding {label} as an empty scene (people were read as a real person)")
-            ctx.provider.create_image(prompt, path)
+            ratio = "16:9" if "16:9" in getattr(ctx, "asset_style", AssetStyle()).frame_text else "9:16"
+            ctx.provider.create_image(prompt, path, aspect_ratio=ratio)
             with Image.open(path) as image:
                 image.load()
             marker.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")

@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageOps
 from ..util import atomic_write_json
-from .base import ImageResult
+from .base import ImageResult, image_dimensions
 from .downloads import download_file
 from .phanrouter_tasks import (SUBMIT_TIMEOUT_SECONDS, PURGED_STATUSES, SubmissionUncertain,
                               unconfirmed, held_message, submit_once, submit_recorded, task_data)
@@ -42,6 +42,7 @@ def create_image(
     output: Path,
     reference: Path | None = None,
     additional_references: tuple[Path, ...] = (),
+    *, aspect_ratio: str = "9:16",
 ) -> ImageResult:
     if settings.image_model in {
         "doubao-seedream-5.0-lite",
@@ -49,12 +50,12 @@ def create_image(
     }:
         if additional_references:
             raise ValueError("Seedream image generation accepts only one reference")
-        return create_seedream_image(settings, client, image_headers, prompt, output, reference)
+        return create_seedream_image(settings, client, image_headers, prompt, output, reference, aspect_ratio=aspect_ratio)
 
     payload: dict[str, object] = {
         "model": settings.image_model,
         "prompt": prompt,
-        "aspectRatio": "9:16",
+        "aspectRatio": aspect_ratio,
         "resolution": "2K",
         "thinking": "high",
     }
@@ -115,12 +116,13 @@ def create_seedream_image(
     prompt: str,
     output: Path,
     reference: Path | None = None,
+    *, aspect_ratio: str = "9:16",
 ) -> ImageResult:
     payload: dict[str, object] = {
         "model": settings.image_model,
         "prompt": prompt,
         "n": 1,
-        "size": "1080x1920",
+        "size": "x".join(map(str, image_dimensions(aspect_ratio))),
         "watermark": False,
     }
     if reference is not None:

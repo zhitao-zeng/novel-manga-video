@@ -16,7 +16,8 @@ def frozen_assets():
       base=Path(tmp);calls=[]
       class Provider:
        def create_image(self,prompt,output,**kwargs):
-        calls.append({'prompt':prompt,'output':str(output.relative_to(base)),**{k:str(v.relative_to(base)) if isinstance(v,Path) else v for k,v in kwargs.items()}})
+        # The old facade injected frame after this boundary; payload parity is tested separately.
+        calls.append({'prompt':prompt,'output':str(output.relative_to(base)),**{k:str(v.relative_to(base)) if isinstance(v,Path) else v for k,v in kwargs.items() if k != "aspect_ratio"}})
         output.parent.mkdir(parents=True,exist_ok=True);Image.new('RGB',(64,64),'blue').save(output)
         return ImageResult(path=output)
       settings=Settings(reuse_existing_assets=True)

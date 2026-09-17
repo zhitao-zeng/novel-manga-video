@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from ..config import Settings
 from ..util import run
-from .base import ImageResult, MediaProvider
+from .base import ImageResult, MediaProvider, image_dimensions
 
 
 class MockMediaProvider(MediaProvider):
@@ -26,17 +26,19 @@ class MockMediaProvider(MediaProvider):
         output: Path,
         reference: Path | None = None,
         additional_references: tuple[Path, ...] = (),
+        *, aspect_ratio: str | None = None,
     ) -> ImageResult:
+        width, height = image_dimensions(aspect_ratio) if aspect_ratio else (self.settings.width, self.settings.height)
         output.parent.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256(prompt.encode("utf-8")).digest()
         top = tuple(35 + byte // 3 for byte in digest[:3])
         bottom = tuple(20 + byte // 4 for byte in digest[3:6])
-        image = Image.new("RGB", (self.settings.width, self.settings.height), top)
+        image = Image.new("RGB", (width, height), top)
         pixels = image.load()
-        for y in range(self.settings.height):
-            ratio = y / max(1, self.settings.height - 1)
+        for y in range(height):
+            ratio = y / max(1, height - 1)
             color = tuple(round(top[c] * (1 - ratio) + bottom[c] * ratio) for c in range(3))
-            for x in range(self.settings.width):
+            for x in range(width):
                 pixels[x, y] = color
         draw = ImageDraw.Draw(image, "RGBA")
         draw.ellipse((170, 250, 910, 990), fill=(245, 221, 198, 255), outline=(25, 28, 40, 255), width=14)

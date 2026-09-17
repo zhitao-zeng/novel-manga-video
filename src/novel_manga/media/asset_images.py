@@ -24,6 +24,7 @@ def ensure_image(
     *,
     reference: Path | None = None,
     additional_references: tuple[Path, ...] = (),
+    aspect_ratio: str | None = None,
 ) -> ImageResult:
     identity = {
         "prompt_sha256": sha256_text(prompt),
@@ -88,17 +89,19 @@ def ensure_image(
             },
         )
         return ImageResult(path=output)
+    options = {"aspect_ratio": aspect_ratio} if aspect_ratio else {}
     if additional_references:
         result = provider.create_image(
             prompt,
             output,
             reference=reference,
             additional_references=additional_references,
+            **options,
         )
     else:
         # Keep simple provider test doubles and hosted backends compatible
         # when a task genuinely has only one reference.
-        result = provider.create_image(prompt, output, reference=reference)
+        result = provider.create_image(prompt, output, reference=reference, **options)
     atomic_write_json(
         meta,
         {

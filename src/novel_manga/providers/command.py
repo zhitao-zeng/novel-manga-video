@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from ..config import Settings
-from .base import ImageResult, MediaProvider
+from .base import ImageResult, MediaProvider, image_dimensions
 
 
 class CommandMediaProvider(MediaProvider):
@@ -46,6 +46,7 @@ class CommandMediaProvider(MediaProvider):
         output: Path,
         reference: Path | None = None,
         additional_references: tuple[Path, ...] = (),
+        *, aspect_ratio: str | None = None,
     ) -> ImageResult:
         if self.remote_image_provider is not None:
             return self.remote_image_provider.create_image(
@@ -53,8 +54,10 @@ class CommandMediaProvider(MediaProvider):
                 output,
                 reference=reference,
                 additional_references=additional_references,
+                **({"aspect_ratio": aspect_ratio} if aspect_ratio else {}),
             )
-        arguments = ["--prompt", prompt, "--width", str(self.settings.width), "--height", str(self.settings.height)]
+        width, height = image_dimensions(aspect_ratio) if aspect_ratio else (self.settings.width, self.settings.height)
+        arguments = ["--prompt", prompt, "--width", str(width), "--height", str(height)]
         if reference:
             arguments.extend(["--reference", str(reference)])
         for additional_reference in additional_references:

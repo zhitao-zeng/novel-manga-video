@@ -25,18 +25,18 @@ class FramedAssetFactory:
         frame = self.style.frame_text
         return prompt.replace('9:16', frame.split('屏')[-1]).replace('竖屏', frame[:2]) if frame != '竖屏9:16' else prompt
 
-    def ensure_card(self, prompt: str, output: Path, *, reference=None):
+    def ensure_card(self, prompt: str, output: Path, *, reference=None, aspect_ratio=None):
         """_ensure_image, and on a content-moderation refusal one retry with a
         toned-down prompt; a second refusal is final (no point in more rounds)."""
         try:
-            return ensure_image(self.settings, self.provider, prompt, output, reference=reference)
+            return ensure_image(self.settings, self.provider, prompt, output, reference=reference, aspect_ratio=aspect_ratio)
         except RuntimeError as error:
             if not moderation_error(error):
                 raise
             safe = SCRUB_WORDS.sub("", prompt) + SAFE_SUFFIX
             log(f"assets: {output.parent.name}/{output.name} refused by content moderation; retrying with a toned-down prompt")
             try:
-                return ensure_image(self.settings, self.provider, safe, output, reference=reference)
+                return ensure_image(self.settings, self.provider, safe, output, reference=reference, aspect_ratio=aspect_ratio)
             except RuntimeError as again:
                 if moderation_error(again):
                     raise ModerationRejected(f"{output.parent.name}/{output.name}: {str(again)[:200]}") from again
@@ -98,7 +98,8 @@ class FramedAssetFactory:
             spec = location_spec(asset_id, location, bible, prompt)
             invariants, state, scope = spec['identity_invariants'], spec['state_variables'], spec['reference_scope']
             atomic_write_json(directory / "spec.json", spec)
-            image = self.ensure_card(prompt, directory / "establishing.jpeg", reference=style_master)
+            image = self.ensure_card(prompt, directory / "establishing.jpeg", reference=style_master,
+                                     aspect_ratio="16:9" if "16:9" in self.style.frame_text else "9:16")
             locations[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="location", name=location, identity_invariants=invariants, state_variables=state, reference_scope=scope,
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(image.path.relative_to(root.parent)),

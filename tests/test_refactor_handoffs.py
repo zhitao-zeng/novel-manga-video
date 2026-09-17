@@ -66,7 +66,7 @@ def test_seedream_scene_request_uses_landscape_size(tmp_path):
         provider = FramedPhanRouter(Settings(image_model='doubao-seedream-4.5'),
                                    {'image_ratio': '16:9', 'video_ratio': '16:9'})
         try:
-            provider.create_image('scene', tmp_path / 'establishing.jpeg')
+            provider.create_image('scene', tmp_path / 'establishing.jpeg', aspect_ratio='16:9')
         finally:
             provider.client.close()
     assert requests[0]['size'] == '1920x1080'
