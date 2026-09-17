@@ -5,11 +5,19 @@ import json
 import time
 import novel_manga.application.dashboard.resources as dashboard_resources
 import novel_manga.application.dashboard.service as dashboard_service
-import novel_manga.application.dashboard.ui as dashboard_ui
+from urllib.parse import urlsplit
+from novel_manga.dashboard.pages import render_page, static_resource
+from . import config
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - http.server's interface
-        if self.path.startswith('/runtime.json'):
+        if self.path.startswith('/static/'):
+            try:
+                body, content_type = static_resource(urlsplit(self.path).path.removeprefix('/static/'))
+            except KeyError:
+                self.send_error(404)
+                return
+        elif self.path.startswith('/runtime.json'):
             body = json.dumps({'now':time.strftime('%F %T'), 'processes':dashboard_resources._processes(), 'inflight':dashboard_resources._inflight()}, ensure_ascii=False).encode('utf-8')
             content_type = 'application/json; charset=utf-8'
         elif self.path.startswith("/status.json"):
@@ -19,10 +27,10 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps(dashboard_service.board_snapshot(), ensure_ascii=False).encode("utf-8")
             content_type = "application/json; charset=utf-8"
         elif self.path in ("/", "/index.html"):
-            body = dashboard_ui.PAGE.encode("utf-8")
+            body = render_page('status', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
         elif self.path == "/board":
-            body = dashboard_ui.PAGE_BOARD.encode("utf-8")
+            body = render_page('board', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
         else:
             self.send_error(404)

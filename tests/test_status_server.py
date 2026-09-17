@@ -17,7 +17,7 @@ import novel_manga.application.dashboard.config as dashboard_config
 import novel_manga.application.dashboard.history as dashboard_history
 import novel_manga.application.dashboard.inventory as dashboard_inventory
 import novel_manga.application.dashboard.resources as dashboard_resources
-import novel_manga.application.dashboard.ui as dashboard_ui
+from support.dashboard_pages import inline_page
 import novel_manga.application.production.runs as thin_runs
 from novel_manga.application.profiles import h3_prompt_fingerprint, plan_fingerprint
 from novel_manga.application.production.runs import count_run
@@ -210,7 +210,7 @@ const vm=require('vm'),fs=require('fs'),assert=require('assert');
  assert.strictEqual(elements['runtime-stamp'].textContent,runtime.now);
 })().catch(e=>{console.error(e);process.exit(1)});
 '''
-    subprocess.run(['node','-e',script],input=dashboard_ui.PAGE,text=True,check=True)
+    subprocess.run(['node','-e',script],input=inline_page(),text=True,check=True)
 
 
 def test_live_and_board_javascript_render_the_status_payload(workspace):
@@ -232,8 +232,8 @@ def test_live_and_board_javascript_render_the_status_payload(workspace):
         "rows": [{"chapter": 1, "clip": "clip_01", "status": "clear", "kind": "", "observation": "正常"},
                  {"chapter": 2, "clip": "clip_02", "status": "confirmed", "kind": "画面出现文字", "observation": "出现<字幕>"}],
     }
-    pages = [{"html": dashboard_ui.PAGE, "data": live, "body": "novels"},
-             {"html": dashboard_ui.PAGE_BOARD, "data": board, "body": "board"}]
+    pages = [{"html": inline_page(), "data": live, "body": "novels"},
+             {"html": inline_page('board'), "data": board, "body": "board"}]
     import copy
     pipeline={"updated_at":live['now'],'age_seconds':10,'status':'running','total':2,'deliverable':1,'remaining':1,
               'inspection':{'episode_buckets':{'passed':1,'checked_with_errors':1},'clips':{'total':2,'passed':1,'failed':1,'unchecked':0}},

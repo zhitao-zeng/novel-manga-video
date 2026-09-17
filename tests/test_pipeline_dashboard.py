@@ -20,7 +20,7 @@ def test_net_delivery_uses_count_changes_and_allows_negative_progress():
 
 def test_completed_controller_does_not_raise_a_stale_heartbeat_alarm():
     import subprocess
-    source=Path(__file__).resolve().parents[1]/'scripts/pipeline_dashboard.js'
+    source=Path(__file__).resolve().parents[1]/'src/novel_manga/dashboard/static/pipeline.js'
     code="""const fs=require('fs'),vm=require('vm');const c={};vm.createContext(c);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),c);
 const n={title:'book',pipeline:{mode:'repair',status:'complete',controller_alive:false,age_seconds:3600}};

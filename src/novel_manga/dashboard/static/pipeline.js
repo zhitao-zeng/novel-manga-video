@@ -169,7 +169,17 @@ function pipelineAuditSummary(n){
 
 function pipelineCurrentCard(n){
   const health=pipelineHealth(n);
-  return `<div class="card ncard" id="novel-${pipelineEscape(n.id)}"><div class="nrow"><span class="nname"><i class="dot ${health}"></i>${pipelineEscape(n.title)}</span><span class="neta">${pipelineEscape(pipelineHeadline(n))}</span></div>${pipelineSummary(n)}</div>`;
+  return `<div class="card ncard" id="novel-${pipelineEscape(n.id)}"><div class="nrow"><span class="nname"><i class="dot ${health}"></i>${pipelineEscape(n.title)}</span><span class="neta">${pipelineEscape(pipelineHeadline(n))}</span></div>${pipelineSummary(n)}${pipelineUsage(n)}</div>`;
+}
+
+function pipelineUsage(n){
+  const u=n.usage;if(!u)return '';
+  const rows=(u.groups||[]).map(g=>`<tr><td>${pipelineEscape(g.provider==='local_h3'?'本地 H3':g.model)}</td><td>${pipelineEscape(g.resolution==='unknown'?'未记录':g.resolution)}</td><td>${pipelineNumber(g.attempts)}</td><td>${pipelineNumber(g.seconds)}</td><td>${g.provider==='local_h3'?'—':pipelineNumber(g.tokens)+(g.missing_tokens?'（部分）':'')}</td></tr>`).join('');
+  const c=u.coverage||{};
+  return `<details data-panel="${pipelineEscape(n.id)}-usage"><summary>已记录生成用量 · ${pipelineNumber(u.video_seconds)} 秒素材 · ${pipelineNumber(Number((Number(u.final_seconds||0)/60).toFixed(1)))} 分钟成片</summary>`+
+    `<div class="pipeline-scroll"><table class="pipeline-table"><thead><tr><th>通道 / 模型</th><th>分辨率</th><th>生成次数</th><th>记录时长（秒）</th><th>接口 token</th></tr></thead><tbody>${rows}</tbody></table></div>`+
+    `<div class="pipeline-note">有价格依据的接口估算 ${pipelineNumber(u.known_api_cost)} ${pipelineEscape(u.currency)}；${pipelineNumber(u.unpriced_groups)} 组未定价。本地算力未计价。</div>`+
+    `<div class="pipeline-note">仅含现存可追溯记录；${pipelineNumber(c.missing_seconds||0)} 次缺时长，${pipelineNumber(c.duration_from_request||0)} 次只有请求时长。缺失历史未反推。图片 ${pipelineNumber(u.images)} 次，按全书统计。</div></details>`;
 }
 
 function pipelineAlerts(novels){

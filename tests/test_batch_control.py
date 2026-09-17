@@ -139,7 +139,7 @@ def test_start_defaults_to_production_without_a_new_scheduler(tmp_path, monkeypa
 
 def test_paused_ui_shows_shared_flow_state_without_stale_running_warning():
     import subprocess
-    source = Path(__file__).resolve().parents[1] / 'scripts/pipeline_dashboard.js'
+    source = Path(__file__).resolve().parents[1] / 'src/novel_manga/dashboard/static/pipeline.js'
     code = '''const fs=require('fs'),vm=require('vm');const c={};vm.createContext(c);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),c);
 const p={mode:'operations',flows:{repair:{status:'paused',controller_alive:true,in_flight:0,pending:12,blocked:0}}};

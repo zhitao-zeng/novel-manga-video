@@ -44,7 +44,7 @@ def test_first_page_can_draw_existing_samples_without_writing_state(tmp_path):
 
 
 def test_progress_partition_and_chart_empty_negative_states():
-    source = Path(__file__).resolve().parents[1] / 'scripts/pipeline_dashboard.js'
+    source = Path(__file__).resolve().parents[1] / 'src/novel_manga/dashboard/static/pipeline.js'
     code = """const fs=require('fs'),vm=require('vm');const c={};vm.createContext(c);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),c);
 const p={total:100,deliverable:10,remaining:90,preparation:{admitted:30},inspection:{episode_buckets:{awaiting_preparation:70,not_fully_checked:5,checked_with_errors:12}}};

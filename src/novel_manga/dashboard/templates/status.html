@@ -1,0 +1,12 @@
+
+<div class="stats" id="stats"></div>
+<div id="novels" style="display:grid;gap:16px"></div>
+<div class="card" id="attention-card"><div class="label">需要关注</div><div id="attention"></div></div>
+<div class="card"><div class="label">运行明细 · 通道</div><div class="twrap"><table class="resp" id="lanes"></table></div></div>
+<div class="card"><div class="label">运行明细 · 单集任务</div><div class="twrap"><table class="resp" id="workers"></table></div></div>
+<div class="card" id="local-card" style="display:none"><div class="label">本地 H3 生成资源</div>
+  <div class="twrap"><table class="resp" id="local"></table></div></div>
+<div class="card"><div class="label">进程与在途 <span id="runtime-stamp" class="dim"></span></div><div class="pills" id="procs"></div>
+  <div class="dim" style="margin-top:8px">进程数按当前运行入口统计；请求在途包含等待生成资源的任务。</div>
+  <div class="twrap" style="margin-top:12px"><table class="resp" id="inflight"></table></div></div>
+<script src="/static/status.js?v={{VERSION}}"></script>
