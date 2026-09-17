@@ -57,22 +57,27 @@ def pairs_of(novel: str) -> list[tuple[str, str]]:
     return [(a, b) for (a, b), n in together.most_common() if n >= MIN_TOGETHER], names, together
 
 
-novel = sys.argv[1] if len(sys.argv) > 1 else "xinghai"
-limit = int(sys.argv[2]) if len(sys.argv) > 2 else 40
-pairs, names, together = pairs_of(novel)
-base = ROOT / "outputs" / novel / "series_assets" / "characters"
-out = []
-for a, b in pairs[:limit]:
-    card_a, card_b = base / a / "turnaround.jpeg", base / b / "turnaround.jpeg"
-    if not (card_a.is_file() and card_b.is_file()):
-        continue
-    answer = ask_json([{"type": "text", "text": RULES + f"\n\n第一张是「{names.get(a)}」，第二张是「{names.get(b)}」。"},
-                       image_part(card_a, 768), image_part(card_b, 768)],
-                      SCHEMA, name="lookalike", max_tokens=600)
-    row = {"pair": [names.get(a), names.get(b)], "assets": [a, b], "together": together[(a, b)], **answer}
-    out.append(row)
-    print(f"{names.get(a)} + {names.get(b)}（同框 {row['together']}）: {row['distinguishable']} — {row['why'][:70]}", flush=True)
-path = ROOT / "outputs" / novel / "card_lookalikes.json"
-path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
-bad = [r for r in out if r["distinguishable"] != "一眼可分"]
-print(f"\n{len(out)} 对里，{len(bad)} 对不是一眼可分 → {path}")
+def main():
+    if '--help' in sys.argv or '-h' in sys.argv:
+        print(__doc__)
+        return 0
+    novel = sys.argv[1] if len(sys.argv) > 1 else "xinghai"
+    limit = int(sys.argv[2]) if len(sys.argv) > 2 else 40
+    pairs, names, together = pairs_of(novel)
+    base = ROOT / "outputs" / novel / "series_assets" / "characters"
+    out = []
+    for a, b in pairs[:limit]:
+        card_a, card_b = base / a / "turnaround.jpeg", base / b / "turnaround.jpeg"
+        if not (card_a.is_file() and card_b.is_file()):
+            continue
+        answer = ask_json([{"type": "text", "text": RULES + f"\n\n第一张是「{names.get(a)}」，第二张是「{names.get(b)}」。"},
+                           image_part(card_a, 768), image_part(card_b, 768)],
+                          SCHEMA, name="lookalike", max_tokens=600)
+        row = {"pair": [names.get(a), names.get(b)], "assets": [a, b], "together": together[(a, b)], **answer}
+        out.append(row)
+        print(f"{names.get(a)} + {names.get(b)}（同框 {row['together']}）: {row['distinguishable']} — {row['why'][:70]}", flush=True)
+    path = ROOT / "outputs" / novel / "card_lookalikes.json"
+    path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    bad = [r for r in out if r["distinguishable"] != "一眼可分"]
+    print(f"\n{len(out)} 对里，{len(bad)} 对不是一眼可分 → {path}")
+    return 0

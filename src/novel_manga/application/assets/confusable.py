@@ -59,10 +59,16 @@ def analyse(novel: str) -> dict:
     return {"novel": novel, "baseline": round(base, 3), "clips_reviewed": clips, "pairs": pairs}
 
 
-for novel in sys.argv[1:] or ("xinghai", "wuyue", "zhutian-card"):
-    result = analyse(novel)
-    out = ROOT / novel / "confusable_pairs.json"
-    out.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"{novel}: 基线出错率 {100 * result['baseline']:.0f}%，命中 {len(result['pairs'])} 对 → {out}")
-    for p in result["pairs"][:6]:
-        print(f"   {p['pair'][0]} + {p['pair'][1]}: 同框 {p['together']}，出错 {p['failed']}（{100 * p['rate']:.0f}%）")
+def main():
+    if '--help' in sys.argv or '-h' in sys.argv:
+        print(__doc__)
+        return 0
+    from novel_manga.application.configuration import pipeline_config
+    for novel in sys.argv[1:] or [n['id'] for n in pipeline_config(ROOT.parent)['novels']]:
+        result = analyse(novel)
+        out = ROOT / novel / "confusable_pairs.json"
+        out.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"{novel}: 基线出错率 {100 * result['baseline']:.0f}%，命中 {len(result['pairs'])} 对 → {out}")
+        for p in result["pairs"][:6]:
+            print(f"   {p['pair'][0]} + {p['pair'][1]}: 同框 {p['together']}，出错 {p['failed']}（{100 * p['rate']:.0f}%）")
+    return 0
