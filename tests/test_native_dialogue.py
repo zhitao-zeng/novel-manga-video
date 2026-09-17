@@ -237,6 +237,7 @@ def test_native_dialogue_production_configuration_does_not_require_tts() -> None
 
 def test_native_dialogue_provider_requests_native_audio_without_audio_url() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.settings = SimpleNamespace(
         video_model="sd2.5",
         final_audio_policy=NATIVE_DIALOGUE_POLICY,

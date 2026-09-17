@@ -108,6 +108,7 @@ def test_dialogue_prompt_uses_supplied_locked_identity_description() -> None:
 
 def test_phanrouter_native_audio_payload_uses_official_schema() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.client, provider.video_headers, provider.image_headers = None, {}, {}
     provider.settings = SimpleNamespace(video_model="sd2.5")
 
@@ -127,6 +128,7 @@ def test_phanrouter_native_audio_payload_uses_official_schema() -> None:
 
 def test_seedance25_payload_clamps_to_documented_duration_range() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.client, provider.video_headers, provider.image_headers = None, {}, {}
     provider.settings = SimpleNamespace(video_model="sd2.5")
 
@@ -153,6 +155,7 @@ def test_seedance25_payload_clamps_to_documented_duration_range() -> None:
 
 def test_seedance25_payload_keeps_ordered_character_and_scene_cards() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.client, provider.video_headers, provider.image_headers = None, {}, {}
     provider.settings = SimpleNamespace(video_model="sd2.5")
 
@@ -177,6 +180,7 @@ def test_seedance25_payload_keeps_ordered_character_and_scene_cards() -> None:
 
 def test_seedance25_payload_supports_text_to_video_without_image() -> None:
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.client, provider.video_headers, provider.image_headers = None, {}, {}
     provider.settings = SimpleNamespace(
         video_model="sd2.5",
@@ -199,6 +203,7 @@ def test_seedance25_can_inline_a_locked_local_reference_image(tmp_path) -> None:
     frame = tmp_path / "frame.png"
     Image.new("RGB", (360, 640), (12, 34, 56)).save(frame)
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.client, provider.video_headers, provider.image_headers = None, {}, {}
     provider.settings = SimpleNamespace(inline_reference_images=True)
 
@@ -231,6 +236,7 @@ def test_seedream_image_submit_download_and_sanitized_metadata(tmp_path) -> None
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.client, provider.video_headers, provider.image_headers = None, {}, {}
     provider.settings = SimpleNamespace(
         image_model="doubao-seedream-5.0-lite",
@@ -300,6 +306,7 @@ def test_seedance25_retries_succeeded_task_until_cdn_file_is_ready(
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.client, provider.video_headers, provider.image_headers = None, {}, {}
     provider.settings = SimpleNamespace(
         video_model="sd2.5",

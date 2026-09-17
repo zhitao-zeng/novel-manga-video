@@ -190,6 +190,7 @@ def test_phanrouter_forwards_gpt_image_references_as_two_urls(tmp_path: Path, mo
             return Response()
 
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.settings = SimpleNamespace(
         image_model="gpt-image-2",
         phanrouter_base_url="https://example.invalid",

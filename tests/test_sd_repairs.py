@@ -43,6 +43,7 @@ NOVEL = "nov"
 # ---------------------------------------------------------------- 16: reference pictures keep their frame
 def provider_with(handler=None) -> PhanRouterMediaProvider:
     provider = object.__new__(PhanRouterMediaProvider)
+    provider.video_ratio, provider.video_resolution = "9:16", "720p"
     provider.settings = types.SimpleNamespace(video_model="sd2.5", phanrouter_base_url="https://cloud.test/phanrouter",
                                               request_timeout=30.0, poll_timeout=5.0, inline_reference_images=True)
     provider.video_headers = {"Authorization": "Bearer runtime-secret"}
