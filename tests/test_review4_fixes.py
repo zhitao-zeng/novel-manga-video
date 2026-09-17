@@ -392,7 +392,7 @@ def review_with(tmp_path, monkeypatch, verdict) -> dict:
         {"clip_id": "clip_01", "selected": {"video": str(video), "hypothesis": ""}}]}), encoding="utf-8")
     (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(review_evidence, "load_review_rules", lambda novel_dir: None)
-    monkeypatch.setattr(review_models, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
+    monkeypatch.setattr(review_episode, "review_models_StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
     monkeypatch.setattr(review_judges, "judge_clip", lambda *args: dict(verdict))
     monkeypatch.setattr(review_policy, "compose_feedback", lambda *args, **kwargs: "修正")
     review_episode.review_episode(directory)
@@ -431,7 +431,7 @@ def test_a_verdict_is_reused_only_for_the_very_same_take(tmp_path, monkeypatch):
     os.utime(videos["clip_01"], (time.time() - 86400, time.time() - 86400))
     (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(review_evidence, "load_review_rules", lambda novel_dir: None)
-    monkeypatch.setattr(review_models, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
+    monkeypatch.setattr(review_episode, "review_models_StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
     judged = []
     monkeypatch.setattr(review_judges, "judge_clip", lambda clip, video, *rest: judged.append(clip["clip_id"]) or {"severity": "pass"})
     review_episode.review_episode(directory)

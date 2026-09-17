@@ -466,7 +466,7 @@ def test_a_resumed_review_judges_again_only_the_clips_it_failed_on(tmp_path, mon
     later(review, 5)
     (tmp_path / NOVEL / "story_bible.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(review_evidence, "load_review_rules", lambda novel_dir: None)
-    monkeypatch.setattr(review_models, "StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
+    monkeypatch.setattr(review_episode, "review_models_StoryBible", types.SimpleNamespace(model_validate_json=lambda text: types.SimpleNamespace(characters=[])))
     judged = []
 
     def judge(clip, video, *rest):

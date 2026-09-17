@@ -100,7 +100,7 @@ def test_failed_clip_does_not_discard_completed_verdicts(tmp_path, monkeypatch):
 
 def test_shared_review_code_and_callers_follow_dependency_direction():
     root = Path(__file__).resolve().parents[1]
-    shared = [root / 'src/novel_manga/model_client.py', *sorted((root / 'src/novel_manga/review').glob('*.py'))]
+    shared = [*sorted((root / 'src/novel_manga/llm').glob('*.py')), *sorted((root / 'src/novel_manga/review').glob('*.py'))]
     scripts = {p.stem for p in (root / 'scripts').glob('*.py')}
     for path in shared:
         for node in ast.walk(ast.parse(path.read_text())):
