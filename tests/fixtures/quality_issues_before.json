@@ -1,0 +1,159 @@
+[
+  {
+    "mode": "observe",
+    "results": [
+      {
+        "issues": [],
+        "speech_issues": [],
+        "speech_gate": "observe",
+        "passed": false
+      },
+      {
+        "passed": false,
+        "issues": [],
+        "speech_issues": [],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": true,
+        "issues": [],
+        "speech_issues": [],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": true,
+        "issues": [],
+        "speech_issues": [
+          "voice_energy_missing"
+        ],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": false,
+        "issues": [
+          "black_frames"
+        ],
+        "speech_issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": true,
+        "issues": [],
+        "speech_issues": [
+          "unscripted_speech"
+        ],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": true,
+        "issues": [],
+        "speech_issues": [
+          "excess_unplanned_speech",
+          "director_instruction_spoken"
+        ],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": true,
+        "issues": [],
+        "speech_issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": false,
+        "issues": [
+          "unknown_check",
+          "voice_energy_missing_extra"
+        ],
+        "speech_issues": [],
+        "speech_gate": "observe"
+      },
+      {
+        "passed": true,
+        "issues": [],
+        "speech_issues": [
+          "unscripted_speech"
+        ],
+        "speech_gate": "observe"
+      }
+    ],
+    "ignored": [
+      "existing_override",
+      "silence_ratio",
+      "long_silence"
+    ]
+  },
+  {
+    "mode": "enforce",
+    "results": [
+      {},
+      {
+        "passed": false
+      },
+      {
+        "passed": true,
+        "issues": []
+      },
+      {
+        "passed": false,
+        "issues": [
+          "voice_energy_missing"
+        ]
+      },
+      {
+        "passed": false,
+        "issues": [
+          "missing_0.7_over_0.5",
+          "black_frames"
+        ]
+      },
+      {
+        "passed": false,
+        "issues": [
+          "unscripted_speech"
+        ]
+      },
+      {
+        "passed": false,
+        "issues": [
+          "excess_unplanned_speech",
+          "director_instruction_spoken"
+        ]
+      },
+      {
+        "passed": false,
+        "issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "speech_issues": [
+          "missing_0.7_over_0.5"
+        ],
+        "speech_gate": "enforce"
+      },
+      {
+        "passed": false,
+        "issues": [
+          "unknown_check",
+          "voice_energy_missing_extra"
+        ]
+      },
+      {
+        "passed": false,
+        "issues": [
+          "unscripted_speech"
+        ],
+        "speech_issues": [
+          "unscripted_speech"
+        ],
+        "speech_gate": "enforce"
+      }
+    ],
+    "ignored": [
+      "existing_override"
+    ]
+  }
+]

@@ -13,6 +13,7 @@ Every remote task keeps its .task.json sidecar and every step skips work whose
 output already exists, so a rerun resumes instead of paying again.
 """
 from __future__ import annotations
+from novel_manga.media.issues import QualityIssue
 import novel_manga.media.asset_inspection as asset_inspection
 import novel_manga.media.asset_repair as asset_repair
 
@@ -459,7 +460,7 @@ class ThinMediaRunner:
         from prepare_recovery_thin import black_ranges, brighten_dark_scene
         ranges = black_ranges(video, 0.2)
         # Use the same one-second threshold as final-media QC.
-        issues = [issue for issue in analysis.get('issues') or [] if issue != 'black_frames']
+        issues = [issue for issue in analysis.get('issues') or [] if issue != QualityIssue.BLACK_FRAMES.code]
         exposure = False
         if ranges and any(end - start >= 1.0 for start, end in ranges):
             exposure = brighten_dark_scene(video, [(a,b) for a,b in ranges if b-a >= 1.0], self.context.episode_dir, clip['clip_id'])
@@ -467,7 +468,7 @@ class ThinMediaRunner:
                 ranges = []
                 log(f"{clip['clip_id']}: restored detail in an underexposed scene; original archived, audio unchanged")
         if any(end - start >= 1.0 for start, end in ranges):
-            issues.append('black_frames')
+            issues.append(QualityIssue.BLACK_FRAMES.code)
         result = {**analysis, 'black_checked': True, 'black_check_policy': 3, 'black_ranges': ranges, 'issues': issues, 'passed': not issues,
                   **({'exposure_gamma': 1.6} if exposure else {})}
         atomic_write_json(video.parent / 'asr.json', result)

@@ -6,6 +6,7 @@ text is what the asset factory routes on, so it must contain a 2D token for
 2d and a 3D token (and no 2D token) for 3d.
 """
 from __future__ import annotations
+from novel_manga.media.issues import apply_speech_policy, speech_qc_ignores
 
 import hashlib
 import os
@@ -84,7 +85,7 @@ def speech_gate_policy(novel_dir: Path, episode_dir: Path | None = None) -> str:
 def media_qc_ignores(novel_dir: Path, episode_dir: Path | None = None) -> list[str]:
     ignored=list(load_profile(novel_dir).get('qc_ignore') or [])
     if speech_gate_policy(novel_dir,episode_dir)=='observe':
-        ignored.extend(['silence_ratio','long_silence'])
+        ignored.extend(speech_qc_ignores())
     return list(dict.fromkeys(ignored))
 
 
@@ -99,15 +100,7 @@ def assembly_gate_passed(novel_dir: Path, assembly: dict, episode_dir: Path | No
 
 def speech_gate_result(novel_dir: Path, analysis: dict, episode_dir: Path | None = None) -> dict:
     """A book may observe speech errors while retaining all other clip gates."""
-    issues = list(dict.fromkeys([*analysis.get('issues',[]), *analysis.get('speech_issues',[])]))
-    speech = [issue for issue in issues if issue.startswith('missing_') or issue in {
-        'voice_energy_missing','excess_unplanned_speech','director_instruction_spoken'}]
-    observe = speech_gate_policy(novel_dir,episode_dir) == 'observe'
-    if not observe and not analysis.get('speech_issues'):
-        return analysis
-    blocking = [issue for issue in issues if issue not in speech] if observe else issues
-    return {**analysis,'issues':blocking,'speech_issues':speech,'speech_gate':'observe' if observe else 'enforce',
-            'passed':not blocking if issues else analysis.get('passed',False)}
+    return apply_speech_policy(analysis, observe=speech_gate_policy(novel_dir, episode_dir) == 'observe')
 
 
 def blocking_clip_failures(novel_dir: Path, report: dict, episode_dir: Path | None = None) -> list[str]:

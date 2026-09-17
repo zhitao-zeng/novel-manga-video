@@ -6,6 +6,7 @@ from pathlib import Path
 from ..util import atomic_write_json, media_duration, run
 from ..runtime_backends import correct_protected_lexicon, edit_distance
 from .common import audio_levels, log
+from .issues import QualityIssue, missing_dialogue, replaced_by_speech_recheck
 
 from .subtitles import match_key, subsequence_overlap
 
@@ -98,9 +99,9 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
     issues = []
     if reference_key:
         if not hypothesis_key or peak_db is None or peak_db < MIN_PEAK_DB:
-            issues.append("voice_energy_missing")
+            issues.append(QualityIssue.VOICE_ENERGY_MISSING.code)
         if missing > MAX_MISSING:
-            issues.append(f"missing_{missing}_over_{MAX_MISSING}")
+            issues.append(missing_dialogue(missing, MAX_MISSING))
     result = {
         "clip_id": clip["clip_id"], "video": str(video), "duration": round(media_duration(video), 3),
         "reference": reference, "hypothesis": hypothesis, "cer": cer, "missing": missing, "mean_volume_db": mean_db, "max_volume_db": peak_db,
@@ -122,16 +123,16 @@ def recheck_speech(ctx, clip: dict, analysis: dict, video: Path) -> dict:
     hypothesis = ''.join(row['hypothesis'] for row in chunks) if chunks else correct_protected_lexicon(raw, reference, ctx.protected_terms, ctx.aliases)[0]
     expected, heard = match_key(reference), match_key(hypothesis)
     missing = round(1 - subsequence_overlap(expected, heard) / max(1, len(expected)), 4) if expected else 0
-    issues = [i for i in analysis.get('issues') or [] if not i.startswith(('missing_', 'voice_energy_missing'))]
+    issues = [i for i in analysis.get('issues') or [] if not replaced_by_speech_recheck(i)]
     if expected:
         if not heard or analysis.get('max_volume_db') is None or analysis['max_volume_db'] < MIN_PEAK_DB:
-            issues.append('voice_energy_missing')
+            issues.append(QualityIssue.VOICE_ENERGY_MISSING.code)
         if missing > MAX_MISSING:
-            issues.append(f'missing_{missing}_over_{MAX_MISSING}')
+            issues.append(missing_dialogue(missing, MAX_MISSING))
         if len(heard) - len(expected) > max(12, len(expected) * 2):
-            issues.append('excess_unplanned_speech')
+            issues.append(QualityIssue.EXCESS_UNPLANNED_SPEECH.code)
     if re.search(r'keep\s*everything\s*above|this\s*is\s*take|spoken\s*clearly\s*and\s*completely', raw, re.I):
-        issues.append('director_instruction_spoken')
+        issues.append(QualityIssue.DIRECTOR_INSTRUCTION_SPOKEN.code)
     result = {**analysis, 'reference': reference, 'hypothesis': hypothesis, 'chunks': chunks or analysis.get('chunks', []),
               'missing': missing, 'issues': list(dict.fromkeys(issues)), 'passed': not issues, 'speech_recheck_policy': 1}
     atomic_write_json(video.parent / 'asr.json', result)
