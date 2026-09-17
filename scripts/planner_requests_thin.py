@@ -1,7 +1,9 @@
 """planner_requests_thin responsibilities, extracted without changing requests or policy."""
 from __future__ import annotations
 from novel_manga.planning.context import PlannerContext
-from novel_manga.model_client import endpoint_order
+from novel_manga.llm.config import endpoint_order
+from novel_manga.llm.responses import extract_json
+from novel_manga.llm.transport import post_any
 from thin_profile import FRAMES
 from thin_profile import STYLE_NAME
 from thin_profile import frame_spec
@@ -46,7 +48,7 @@ def generate_outline(client: httpx.Client, endpoints: list[str], headers: dict, 
         }
         try:
             client.timeout = httpx.Timeout(remaining)
-            response = _post_any(client, endpoints, headers, request)
+            response = post_any(client, endpoints, headers, request)
             choice = response["choices"][0]
             content = choice["message"].get("content") or ""
             errors = pc_contracts.validate_outline(content, mode, segment_ids)
@@ -77,7 +79,7 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     stages to insert and the replacements for the rejected ones.  The result
     is a deep copy; the caller validates it like any draft.
     """
-    from novel_manga.model_client import ask_json
+    from novel_manga.llm.client import ask_json
     segment_ids = [s["segment_id"] for s in segments]
     texts = {s["segment_id"]: s["text"] for s in segments}
     slots = pc_validation.stage_slots(raw)
@@ -140,50 +142,6 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     return patched
 
 
-def extract_json(text: str) -> dict:
-    text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    try:
-        value = json.loads(text)
-    except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start < 0 or end <= start:
-            raise
-        value = json.loads(text[start:end + 1])
-    if not isinstance(value, dict):
-        raise ValueError("model must return one JSON object")
-    return value
-
-
-def _post_any(client: httpx.Client, base_urls: list[str], headers: dict, request: dict) -> dict:
-    """Try the preferred endpoint, then the others; a dead instance costs one connect error."""
-    last: Exception | None = None
-    for base_url in base_urls:
-        try:
-            return _post(client, base_url, headers, request)
-        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
-            last = error
-            continue
-        except httpx.HTTPStatusError as error:
-            if error.response.status_code in (502, 503, 504):
-                last = error
-                continue
-            raise
-    assert last is not None
-    raise last
-
-
-def _post(client: httpx.Client, base_url: str, headers: dict, request: dict) -> dict:
-    if os.environ.get("QWEN38_LOCAL_STREAM", "").strip() == "1":
-        from novel_manga.model_client import stream_completion  # a proxied platform cuts non-streaming calls at 60 s
-        return stream_completion(client, f"{base_url.rstrip('/')}/chat/completions", headers, request)
-    response = client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=request)
-    response.raise_for_status()
-    return response.json()
-
-
 def qwen_default() -> str:
     return "__all__"
 
@@ -196,7 +154,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
         system_prompt += f"\n\n【全书视觉语法，camera 和 light 字段必须与之一致】{pc_prompts.grammar_text(grammar)}"
     system_prompt += (f"\n\n【本章导演意见，优先于一般偏好】{notes}" if notes else "")
     headers = {}
-    from novel_manga.model_client import endpoint_key  # key by variable name or key file, never on a command line
+    from novel_manga.llm.config import endpoint_key
     api_key = endpoint_key()
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -210,7 +168,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
             max_tokens=analysis_tokens, timeout=timeout, seed=seed,
         )
         analysis_seconds = round(time.monotonic() - started, 1)
-        body = _post_any(client, endpoints, headers, {
+        body = post_any(client, endpoints, headers, {
             "model": model,
             "temperature": 0.3,
             "max_tokens": max_tokens,

@@ -2,7 +2,7 @@ import copy
 import json
 from pathlib import Path
 
-from novel_manga import model_client
+from novel_manga.llm import client as model_client
 from novel_manga.story.catalog import IdentityCatalog
 from novel_manga.util import atomic_write_json
 from identity_store_thin import load_chapter

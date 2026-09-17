@@ -6,7 +6,7 @@ from unittest.mock import patch
 import os
 import signal
 from novel_manga.util import atomic_write_json
-from novel_manga import model_client
+from novel_manga.llm import client as model_client
 import preparation_flow_thin as flow
 import preparation_actions_thin as actions
 import preparation_store_thin as store

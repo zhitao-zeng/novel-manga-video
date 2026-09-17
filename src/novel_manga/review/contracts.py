@@ -1,7 +1,7 @@
 """Existing review schemas, questions and policy version. No file access or scheduling."""
 from __future__ import annotations
 
-import novel_manga.model_client as model_client
+import novel_manga.llm.client as model_client
 REVIEW_POLICY = "thin-review-v1.17-story"
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
-from novel_manga.model_client import ask_json, image_part  # noqa: E402
+from novel_manga.llm.client import ask_json, image_part
 
 MIN_TOGETHER = 30
 SCHEMA = {

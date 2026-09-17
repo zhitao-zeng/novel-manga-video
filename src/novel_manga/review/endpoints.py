@@ -1,6 +1,6 @@
 """Existing judge presets as explicit request settings, without import side effects."""
 import os
-from novel_manga.model_client import JsonEndpoint
+from novel_manga.llm.config import JsonEndpoint
 
 JUDGES = {
     "local": {"QWEN38_LOCAL_BASE_URL": ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)),

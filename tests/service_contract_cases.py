@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 import httpx
-from novel_manga import model_client
+from novel_manga.llm import client as model_client
 from novel_manga.util import atomic_write_json
 import identity_flow_thin as flow
 import identity_context_thin as views

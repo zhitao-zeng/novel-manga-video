@@ -2,14 +2,14 @@
 from __future__ import annotations
 
 import json
-from novel_manga.model_client import ask_json
+from novel_manga.llm.client import ask_json
 from novel_manga.review.endpoints import judge_settings
 from novel_manga.repair.contracts import schema_for
 from novel_manga.repair.execution import repair_prompt
 
 def source_appearance_check(passage: str, shots: list[dict], context: dict) -> dict:
     """Check rewritten pictures only when the reading found local body evidence."""
-    from novel_manga.model_client import obj
+    from novel_manga.llm.client import obj
     from novel_manga.runtime_backends import normalize_text
     active = {n for s in shots for n in [*s.get('characters', []), *s.get('in_frame', [])]}
     relevant = [a for a in context.get('appearances', [])

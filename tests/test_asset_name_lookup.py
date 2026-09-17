@@ -3,7 +3,7 @@ import json
 import pytest
 
 from novel_manga.models import Character, StoryBible
-import novel_manga.model_client as model_client
+import novel_manga.llm.client as model_client
 import novel_manga.story.identity as story_names
 import review_bible_thin as review_bible
 

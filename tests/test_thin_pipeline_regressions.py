@@ -16,7 +16,7 @@ import planner_requests_thin as planner_requests
 import sys
 import time
 from novel_manga.planning.context import PlannerContext
-from novel_manga import model_client
+from novel_manga.llm import client as model_client
 
 
 def _shot(index: int, clip_hint: str = "clip_1") -> dict:

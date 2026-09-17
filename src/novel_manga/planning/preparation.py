@@ -11,7 +11,7 @@ def needs_full_replan(issues):
 
 
 def audit_schema():
-    from novel_manga.model_client import obj
+    from novel_manga.llm.client import obj
     return obj({'source_readable': {'type': 'boolean'}, 'source_problem': {'type': 'string'},
                 'issues': {'type': 'array', 'maxItems': 12, 'items': obj({
                     'kind': {'type': 'string', 'enum': ['speaker', 'action', 'missing_event', 'location', 'identity']},

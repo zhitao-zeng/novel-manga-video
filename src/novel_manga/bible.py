@@ -12,6 +12,8 @@ import httpx
 from pydantic import ValidationError
 
 from .config import Settings
+from .llm.responses import bible_object
+from .llm.transport import send_json
 from .models import Character, NovelDocument, StoryBible
 
 ValidatedT = TypeVar("ValidatedT")
@@ -23,35 +25,6 @@ STYLE = (
 )
 
 DIAGNOSIS_TOKEN_BUDGET = 6000
-
-def _loads_json_object(value: str) -> dict:
-    """Parse model JSON with bounded repairs for punctuation-only defects."""
-
-    match = re.search(r"\{.*\}", value, re.S)
-    if not match:
-        raise ValueError("LLM did not return a JSON object")
-    candidate = match.group(0)
-    for _ in range(12):
-        try:
-            data = json.loads(candidate)
-            if not isinstance(data, dict):
-                raise ValueError("LLM JSON root must be an object")
-            return data
-        except json.JSONDecodeError as error:
-            if error.msg == "Expecting ',' delimiter":
-                previous = candidate[: error.pos].rstrip()
-                following = candidate[error.pos :].lstrip()
-                if previous and following and previous[-1] in '}\"]0123456789e' and following[0] in '{[\"':
-                    candidate = candidate[: error.pos] + "," + candidate[error.pos :]
-                    continue
-            if error.msg == "Expecting property name enclosed in double quotes":
-                previous = candidate[: error.pos].rstrip()
-                if previous.endswith(","):
-                    comma = candidate.rfind(",", 0, error.pos)
-                    candidate = candidate[:comma] + candidate[comma + 1 :]
-                    continue
-            raise
-    raise ValueError("LLM JSON exceeded the bounded punctuation repair budget")
 
 def _validation_feedback(error: ValueError) -> list[dict[str, object]]:
     if isinstance(error, ValidationError):
@@ -249,11 +222,8 @@ class BibleBuilder:
             # vLLM/Qwen accepts this OpenAI-compatible extension.  Keep it
             # opt-in so hosted OpenAI-compatible providers are unaffected.
             payload["chat_template_kwargs"] = {"enable_thinking": False}
-        response = self.client.post(
-            f"{base}/chat/completions",
-            headers={"Authorization": f"Bearer {self.settings.llm_api_key}"},
-            json=payload,
-        )
+        response = send_json(self.client, f"{base}/chat/completions",
+                             {"Authorization": f"Bearer {self.settings.llm_api_key}"}, payload)
         if getattr(response, "status_code", 200) == 400:
             try:
                 error_message = str(response.json()["error"]["message"])
@@ -277,13 +247,8 @@ class BibleBuilder:
                 )
                 if adjusted < int(payload["max_tokens"]):
                     payload["max_tokens"] = adjusted
-                    response = self.client.post(
-                        f"{base}/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {self.settings.llm_api_key}"
-                        },
-                        json=payload,
-                    )
+                    response = send_json(self.client, f"{base}/chat/completions",
+                                         {"Authorization": f"Bearer {self.settings.llm_api_key}"}, payload)
         try:
             response.raise_for_status()
         except Exception as error:
@@ -297,7 +262,7 @@ class BibleBuilder:
                 pass
             raise RuntimeError(f"{error}; body: {body}") from error
         content = response.json()["choices"][0]["message"]["content"]
-        return _loads_json_object(content)
+        return bible_object(content)
 
 
     def build_bible(self, novel: NovelDocument) -> StoryBible:

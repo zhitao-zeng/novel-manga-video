@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import retier_reviews  # noqa: E402
-import novel_manga.model_client as model_client
+import novel_manga.llm.client as model_client
 import novel_manga.review.policy as review_policy
 import novel_manga.review.prompts as review_prompts
 import review_judges_thin as review_judges  # noqa: E402

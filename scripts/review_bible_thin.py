@@ -5,7 +5,7 @@ import fcntl
 import json
 import re
 from pathlib import Path
-import novel_manga.model_client as model_client
+import novel_manga.llm.client as model_client
 import novel_manga.models as review_models
 from novel_manga.models import Character
 import novel_manga.story.identity as story_names

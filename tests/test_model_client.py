@@ -3,7 +3,9 @@ import copy
 import json
 import httpx
 import pytest
-from novel_manga import model_client as client
+from novel_manga.llm import client as client
+from novel_manga.llm import transport
+from novel_manga.llm.config import JsonEndpoint
 
 
 def test_stream_keeps_usage_and_existing_platform_parameters(monkeypatch):
@@ -23,7 +25,7 @@ def test_stream_keeps_usage_and_existing_platform_parameters(monkeypatch):
         data = '\n'.join('data: ' + json.dumps(e) for e in events) + '\ndata: [DONE]\n'
         return httpx.Response(200, text=data)
     with httpx.Client(transport=httpx.MockTransport(respond), trust_env=False) as http:
-        result = client.stream_completion(http, 'http://test.invalid/v1/chat/completions', {}, payload, 17)
+        result = transport.stream_completion(http, 'http://test.invalid/v1/chat/completions', {}, payload, 17)
     assert requests == [{'model': 'test', 'max_tokens': 50000, 'stream': True,
                          'stream_options': {'include_usage': True}, 'reasoning_effort': 'low'}]
     assert result == {'choices': [{'message': {'content': '{"ok":true}', 'reasoning': 'check'},
@@ -35,7 +37,7 @@ def test_stream_keeps_usage_and_existing_platform_parameters(monkeypatch):
 def test_stream_errors_are_not_returned_as_success(body):
     with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, text=body)), trust_env=False) as http:
         with pytest.raises(RuntimeError):
-            client.stream_completion(http, 'http://test.invalid/v1/chat/completions', {}, {})
+            transport.stream_completion(http, 'http://test.invalid/v1/chat/completions', {}, {})
 
 
 @pytest.mark.parametrize('status, expected', [(400, 1), (429, 1), (503, 2)])
@@ -60,8 +62,8 @@ def test_explicit_judges_keep_endpoints_and_models_when_interleaved(monkeypatch)
     monkeypatch.setenv('QWEN38_LOCAL_MODEL', 'unrelated-default')
     monkeypatch.setenv('QWEN38_LOCAL_BASE_URL', 'http://unrelated.invalid/v1')
     original = {k: os.environ[k] for k in ['QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_BASE_URL']}
-    settings = [client.JsonEndpoint('judge-a', ('http://a.invalid/v1',)),
-                client.JsonEndpoint('judge-b', ('http://b.invalid/v1',))]
+    settings = [JsonEndpoint('judge-a', ('http://a.invalid/v1',)),
+                JsonEndpoint('judge-b', ('http://b.invalid/v1',))]
     def respond(request):
         payload = json.loads(request.content)
         assert payload['model'] == ('judge-a' if request.url.host == 'a.invalid' else 'judge-b')

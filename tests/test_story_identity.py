@@ -105,7 +105,7 @@ def test_source_quotes_and_ids_are_checked_before_saving(tmp_path):
 
 
 def test_one_source_reading_is_reused_and_source_edits_invalidate_it(tmp_path, monkeypatch):
-    from novel_manga import model_client
+    from novel_manga.llm import client as model_client
     novel = book(tmp_path)
     directory = novel / 'book_1'
     atomic_write_json(directory / 'segments.json', [{'segment_id': 'seg_1', 'text': '甲推门进来。'}])
@@ -146,7 +146,7 @@ def test_two_source_actors_do_not_collapse_through_a_legacy_alias(tmp_path):
 
 
 def test_catalog_update_rematches_source_actors_without_another_model_read(tmp_path,monkeypatch):
-    from novel_manga import model_client
+    from novel_manga.llm import client as model_client
     novel=book(tmp_path,('甲',));directory=novel/'book_1'
     atomic_write_json(directory/'segments.json',[{'segment_id':'seg_1','text':'甲走进房间。'}])
     calls=[]
@@ -250,7 +250,7 @@ def test_declared_prop_never_uses_a_character_card(tmp_path):
 
 @pytest.mark.parametrize('confirmed, extracted', [(False, False), (True, True), (True, False)])
 def test_readability_false_requires_confirmation_and_preserves_raw_evidence(tmp_path,monkeypatch,confirmed,extracted):
-    from novel_manga import model_client
+    from novel_manga.llm import client as model_client
     novel=book(tmp_path,('甲乙',));directory=novel/'book_1'
     raw=[{'segment_id':'seg_1','text':'甲\n乙走进屋里。'}]
     atomic_write_json(directory/'segments.json',raw)
@@ -280,7 +280,7 @@ def test_readability_false_requires_confirmation_and_preserves_raw_evidence(tmp_
 
 
 def test_empty_cached_extraction_is_repaired_not_reused(tmp_path, monkeypatch):
-    from novel_manga import model_client
+    from novel_manga.llm import client as model_client
     novel = book(tmp_path)
     directory = novel / 'book_1'
     atomic_write_json(directory / 'segments.json', [{'segment_id': 's', 'text': '乙走进来。'}])
@@ -304,7 +304,7 @@ def test_empty_cached_extraction_is_repaired_not_reused(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('confirmed', [False, True])
 def test_actorless_source_needs_positive_confirmation(tmp_path, monkeypatch, confirmed):
-    from novel_manga import model_client
+    from novel_manga.llm import client as model_client
     novel = book(tmp_path)
     directory = novel / 'book_1'
     atomic_write_json(directory / 'segments.json', [{'segment_id': 's', 'text': '落日照着空山。'}])

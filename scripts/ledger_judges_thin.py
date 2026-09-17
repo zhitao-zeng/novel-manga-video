@@ -1,7 +1,7 @@
 """ledger_judges_thin responsibilities; existing evidence and identity policy."""
 from __future__ import annotations
 from novel_manga.review.endpoints import judge_settings
-from novel_manga.model_client import ask_json
+from novel_manga.llm.client import ask_json
 import novel_manga.entities.contracts as entity_contracts
 import novel_manga.entities.evidence as entity_evidence
 

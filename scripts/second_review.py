@@ -47,7 +47,7 @@ JUDGE = os.environ.get("SECOND_REVIEW_JUDGE", "local")
 if JUDGE not in JUDGES:
     raise SystemExit(f"unknown judge {JUDGE}; pick one of {sorted(JUDGES)}")
 
-from novel_manga.model_client import ask_json, image_part  # noqa: E402  (after the endpoint choice)
+from novel_manga.llm.client import ask_json, image_part
 
 KINDS = ["身体结构错误", "同一角色重复出现", "穿模或比例荒谬", "画面出现文字", "有台词却空无一人", "无问题"]
 LOOK_SCHEMA = {

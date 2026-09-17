@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from repair_flow_thin import read
-from novel_manga.model_client import ask_json
+from novel_manga.llm.client import ask_json
 from review_evidence_thin import snapshot_block
 
 CAUSES = ["script_mismatch", "request_mismatch", "generation_mismatch", "uncertain"]

@@ -11,7 +11,7 @@ from identity_store_thin import ChapterIdentityData, load_chapter
 
 def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData | None = None):
     # Read source first; legacy dictionaries never enter this semantic call.
-    from novel_manga.model_client import ask_json
+    from novel_manga.llm.client import ask_json
     directory = Path(directory).resolve()
     data = data if data is not None else load_chapter(directory)
     expected, saved = data.expected, data.saved
@@ -47,7 +47,7 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
     raw_path = directory / 'identity_source_reading.json'
     atomic_write_json(raw_path, {'policy': POLICY, 'inputs': expected, 'answer': answer})
     if answer.get('source_readable') is False:
-        from novel_manga.model_client import obj
+        from novel_manga.llm.client import obj
         confirmation = ask_json([{'type': 'text', 'text':
             '只判断这章小说的事件是否还能读懂，不做人物绑定，也不要求文本排版完美。'
             '人名、数字被换行切开，区段接续半句话，旧名和改名混用，均不构成原文不可读；'

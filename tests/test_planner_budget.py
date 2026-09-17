@@ -91,8 +91,7 @@ def test_ab_has_same_limits_and_each_complete_outline_reaches_pass_two(monkeypat
             content = '{"clips": []}'
         return {"choices": [{"message": {"content": content}, "finish_reason": "stop"}], "usage": {}}
 
-    monkeypatch.setattr(planner_requests, "_post_any", response)
-    monkeypatch.setattr(planner_requests, "_post", response)
+    monkeypatch.setattr(planner_requests, "post_any", response)
     kwargs = dict(base_url="http://model.invalid/v1", model="same-model", payload={"requirements": pc_budget.budget_requirements(ctx=planner_ctx), "segments": [{"segment_id": "seg_1", "text": "原文"}]},
                   schema={"type": "object"}, max_tokens=12000, timeout=5, fast=True, seed=37)
     planner_requests.call_model(**kwargs, ctx=planner_ctx)  # production default remains coverage

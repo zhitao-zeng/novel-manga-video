@@ -9,7 +9,7 @@ from preparation_store_thin import read
 
 def audit(directory):
     planner_ctx = PlannerContext.from_env()
-    from novel_manga.model_client import ask_json
+    from novel_manga.llm.client import ask_json
     from planner_context_thin import load_entity_index
     from novel_manga.planning.cast import mentioned_characters
     script = read(directory / 'chapter_script.json', {})
@@ -53,7 +53,7 @@ def audit(directory):
                           max_tokens=3000, timeout=240)
         grounded_issues(answer, script, segments)
     if answer['source_readable'] and answer['issues']:
-        from novel_manga.model_client import obj
+        from novel_manga.llm.client import obj
         confirmation = ask_json([{'type': 'text', 'text':
             '请复核下面的剧本问题单，剔除误报。必须阅读全章剧本再判断是否已用对白、动作或聊天卡表达。'
             '只保留让本章核心事实相反、核心动作/说话人错误或造成关键因果缺口的问题。'

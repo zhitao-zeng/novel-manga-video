@@ -10,7 +10,7 @@ POLICY = 'story-identity-v5-grounded-types'
 RELATIONS = ['same_as', 'rename', 'avatar_of', 'occupies_body', 'transformation', 'lookalike', 'impersonates']
 
 def source_schema(paragraphs):
-    from novel_manga.model_client import obj
+    from novel_manga.llm.client import obj
     refs = {'type': 'array', 'minItems': 1, 'items': {'type': 'integer', 'minimum': 1, 'maximum': paragraphs}}
     sid = {'type': 'integer', 'minimum': 1, 'maximum': 40}
     return obj({

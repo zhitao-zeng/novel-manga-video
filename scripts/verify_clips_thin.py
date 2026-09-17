@@ -38,7 +38,7 @@ if "QWEN38_LOCAL_BASE_URL" not in os.environ:
         if _line.startswith("QWEN38_LOCAL_BASE_URL="):
             os.environ["QWEN38_LOCAL_BASE_URL"] = _line.split("=", 1)[1].strip().strip('"').strip("\'")
             break
-from novel_manga import model_client
+from novel_manga.llm import client as model_client
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.prompts as review_prompts
 import novel_manga.review.storage as review_storage

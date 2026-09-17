@@ -34,7 +34,7 @@ import dashboard_config_thin as dashboard_config
 import dashboard_history_thin as dashboard_history
 import dashboard_inventory_thin as dashboard_inventory  # noqa: E402
 import production_flow_thin as production_flow  # noqa: E402
-import novel_manga.model_client as model_client
+import novel_manga.llm.client as model_client
 import review_episode_thin as review_episode
 import review_judges_thin as review_judges  # noqa: E402
 from novel_manga.config import Settings  # noqa: E402

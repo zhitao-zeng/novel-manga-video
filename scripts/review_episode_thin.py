@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import novel_manga.model_client as model_client
+import novel_manga.llm.client as model_client
 import novel_manga.models as review_models
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.policy as review_policy

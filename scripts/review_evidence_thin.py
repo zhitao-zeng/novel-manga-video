@@ -10,7 +10,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-import novel_manga.model_client as model_client
+import novel_manga.llm.client as model_client
 from novel_manga.review import policy
 import novel_manga.review.contracts as review_contracts
 from novel_manga.util import media_duration

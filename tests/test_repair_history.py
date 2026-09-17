@@ -9,7 +9,7 @@ import pytest
 import novel_manga.util as utils
 import repair_delivery_thin as delivery
 import repair_history as history
-from novel_manga import model_client
+from novel_manga.llm import client as model_client
 import novel_manga.review.policy as review_policy
 import novel_manga.review.storage as review_storage
 import review_evidence_thin as review_evidence

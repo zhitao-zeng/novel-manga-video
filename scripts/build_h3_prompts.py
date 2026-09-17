@@ -33,7 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
 from novel_manga.application.configuration import h3_translation_endpoint
-from novel_manga.model_client import ask_json  # noqa: E402
+from novel_manga.llm.client import ask_json
 from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
 from thin_runs import corrections  # noqa: E402
 

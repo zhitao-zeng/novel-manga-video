@@ -30,7 +30,7 @@ def test_truncated_reasoning_is_never_forwarded_as_an_outline(monkeypatch):
         requests.append(body)
         return {"choices": [{"finish_reason": "length", "message": {"content": "", "reasoning": "unfinished" * 2000}}], "usage": {}}
 
-    monkeypatch.setattr(planner_requests, "_post_any", response)
+    monkeypatch.setattr(planner_requests, "post_any", response)
     with pytest.raises(planner_requests.IncompleteOutlineError, match="empty content"):
         planner_requests.call_model(**kwargs(), ctx=planner_ctx)
     assert [r["max_tokens"] for r in requests] == [4096, 8192]
@@ -48,7 +48,7 @@ def test_even_parseable_length_output_must_complete_before_pass_two(monkeypatch)
                              "message": {"content": complete() if len(requests) <= 2 else '{"clips": []}'}}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
 
-    monkeypatch.setattr(planner_requests, "_post_any", response)
+    monkeypatch.setattr(planner_requests, "post_any", response)
     _, meta = planner_requests.call_model(**kwargs(), ctx=planner_ctx)
     assert [r["response_format"]["json_schema"]["name"] for r in requests] == ["chapter_outline", "chapter_outline", "thin_chapter_clips"]
     assert meta["outline_complete"] is True

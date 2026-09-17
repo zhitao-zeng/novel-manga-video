@@ -1,4 +1,5 @@
 from __future__ import annotations
+from novel_manga.llm.responses import bible_object as _loads_json_object
 
 import hashlib
 import json
@@ -20,7 +21,7 @@ from pydantic import ValidationError
 
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
 from novel_manga.bible import (
-    _bounded_validate, _compact_excerpt, _fingerprint, _loads_json_object, _validate_story_bible, _validation_feedback, _validation_retry
+    _bounded_validate, _compact_excerpt, _fingerprint, _validate_story_bible, _validation_feedback, _validation_retry
 )
 from experiments.legacy.creative_direction import (
     SHORT_DRAMA_PROFILE,

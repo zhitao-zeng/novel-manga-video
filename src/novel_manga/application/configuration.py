@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import json
 import os
-from novel_manga.model_client import JsonEndpoint
+from novel_manga.llm.config import JsonEndpoint
 
 
 def project_root() -> Path:
