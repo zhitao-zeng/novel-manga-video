@@ -28,7 +28,13 @@ def stages_of(prompt: str) -> list[tuple[str, list[tuple[str, str, bool]]]]:
     """Each stage as (visual Chinese text, [(speaker, line, offscreen)])."""
     out = []
     for block in STAGE.findall(prompt):
-        turns = [(who.strip(), text.strip(), bool(off)) for _, who, text, off in TURN.findall(block)]
+        # Everything between the delivery manner and 开口说 is captured together, and the storyboard
+        # puts the performance notes there as well as the name: "眉头微皱，眼神低垂，尾巴轻摆。，洛恩".
+        # The name is the last comma-separated piece; taking the whole run meant it never matched the
+        # subject map, and the line was written as a disembodied voiceover with the on-screen mouths
+        # explicitly told to stay closed - 41% of all spoken lines across 雾月 and 星海.
+        turns = [(who.strip().split("，")[-1].strip(" 。"), text.strip(), bool(off))
+                 for _, who, text, off in TURN.findall(block)]
         visual = re.sub(r"\s+", " ", SOUND.sub("", block)).strip(" 。")
         out.append((visual, turns))
     return out

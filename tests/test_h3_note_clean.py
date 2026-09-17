@@ -9,6 +9,17 @@ from novel_manga.story.h3 import clean_note, tag_names  # noqa: E402
 NAMING = "莱恩·格雷 = <Subject 1>\n琥珀·高德 = <Subject 2>\n"
 
 
+def test_performance_notes_do_not_replace_the_legacy_speaker():
+    from novel_manga.story.h3 import stages_of, compose
+    prompt = '【阶段1】洛恩站在门边。声音：中文普通话，平静，眉头微皱，眼神低垂，尾巴轻摆。，洛恩开口说：{我们走吧。}结束时：门打开。画面呈现'
+    stages = stages_of(prompt)
+    assert stages[0][1] == [('洛恩', '我们走吧。', False)]
+    clip = {'references': [{'role': 'character', 'name': '洛恩'}], 'request_seconds': 15}
+    request = compose(clip, ['<Subject 1> opens the door.'], stages)
+    assert '<Subject 1> (S1) says <d>[Chinese] 我们走吧。</d>' in request
+    assert 'An off-screen voice' not in request
+
+
 def test_translation_receives_current_character_traits(monkeypatch):
     from novel_manga.application.rendering import h3
     calls = []
