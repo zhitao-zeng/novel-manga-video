@@ -28,41 +28,13 @@ from experiments.legacy.creative_direction import (
     apply_creative_direction,
     creative_prompt_brief,
 )
-from novel_manga.models import (
-    AdaptationLedgerItem,
-    CameraBeat,
-    CameraPlan,
-    BeatScriptShot,
-    Character,
-    ChapterDiagnosis,
-    Episode,
-    EpisodeDramaturgy,
-    EpisodeMode,
-    EpisodeOpposition,
-    EpisodeContract,
-    EpisodePlanningBundle,
-    EpisodePlan,
-    MotionBeat,
-    NovelDocument,
-    PerformancePlan,
-    RetentionBeat,
-    RetentionBeatDirection,
-    RetentionBeatScript,
-    ScriptTurn,
-    SpeechStrategy,
-    ScriptQualityReport,
-    ScriptContentPatch,
-    ScriptExpansion,
-    SeriesState,
-    SeriesDevelopmentPlan,
-    SeriesDevelopmentReview,
-    ShowrunnerPlan,
-    Shot,
-    StoryBible,
-    TurnDelivery,
-    TurnDerivation,
-    TurnDevice,
-)
+from novel_manga.models.episode import AdaptationLedgerItem, EpisodePlan, Shot
+from novel_manga.models.directing import CameraBeat, CameraPlan, MotionBeat, PerformancePlan, SpeechStrategy
+from experiments.legacy.models import BeatScriptShot, ChapterDiagnosis, EpisodePlanningBundle, RetentionBeatDirection, RetentionBeatScript, ScriptQualityReport, ScriptContentPatch, ScriptExpansion, SeriesState, SeriesDevelopmentPlan, SeriesDevelopmentReview
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.source import Episode, NovelDocument
+from novel_manga.models.drama import EpisodeDramaturgy, EpisodeMode, EpisodeOpposition, EpisodeContract, RetentionBeat, ShowrunnerPlan
+from novel_manga.models.dialogue import ScriptTurn, TurnDelivery, TurnDerivation, TurnDevice
 from novel_manga.safety import safe_visual_prompt
 from experiments.legacy.script_planning import (
     SHORT_DRAMA_TURN_HARD_MAX,

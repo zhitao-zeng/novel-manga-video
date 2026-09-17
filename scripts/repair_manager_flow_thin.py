@@ -46,7 +46,7 @@ class Manager:
         return job
 
 
-    def run(self, adopt: bool = False):
+    def run(self):
         self.directory.mkdir(parents=True, exist_ok=True)
         with (self.directory / "manager.lock").open("w") as lock:
             try:
@@ -60,8 +60,6 @@ class Manager:
                                              "fill_review_backlog": schedule_rules.FILL_REVIEW_BACKLOG,
                                              "unit": "episode", "repair_episodes": schedule_rules.REPAIR_EPISODES,
                                              "fill_episodes": schedule_rules.FILL_EPISODES, "stage_capacity": schedule_rules.STAGE_CAPACITY}
-            if adopt:
-                repair_manager_workers.adopt(self)
             if not self.state["scan_started"]:
                 self.add("scan", [], source="local")
                 if self.state.get("flash_env"):

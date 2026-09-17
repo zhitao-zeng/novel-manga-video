@@ -30,7 +30,7 @@ from novel_manga.media.common import log
 from thin_phases import load_phases, phased  # noqa: E402
 from thin_profile import frame_spec, load_genre, load_profile, styled_bible  # noqa: E402
 from novel_manga.config import Settings  # noqa: E402
-from novel_manga.models import StoryBible  # noqa: E402
+from novel_manga.models.bible import StoryBible
 
 def load_dotenv(path: Path) -> None:
     """As thin_batch.py does.  build_cards_thin.py relies on the conductor's environment; a hand-run has none."""

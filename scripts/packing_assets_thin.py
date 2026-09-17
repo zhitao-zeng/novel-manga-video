@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import os
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 from novel_manga.story.compilation import anchor_of, compact
 from thin_phases import load_phases, phase_for, phased
 from packing_context_thin import compiler_options

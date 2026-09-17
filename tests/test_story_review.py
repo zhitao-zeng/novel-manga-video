@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.policy as review_policy
 import novel_manga.review.prompts as review_prompts  # noqa: E402
-from novel_manga.models import Character, StoryBible  # noqa: E402
+from novel_manga.models.bible import Character, StoryBible
 
 PROMPT = "【生成目标】约12秒。主要事件是从“薇奥拉环住莱恩的脖子踮脚吻他”到“莱恩推开怀里的姑娘”。\n【人物】"
 

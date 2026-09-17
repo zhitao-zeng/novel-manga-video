@@ -1,3 +1,4 @@
+from experiments.legacy import adoption
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_workers_thin as repair_manager_workers
 import json
@@ -31,7 +32,7 @@ def info(**extra):
     ("after repair:\nafter retake 1:", ["/x/wy_gate.py"], 9),
 ])
 def test_import_the_current_step_not_the_start_of_the_batch(tail, args, expected):
-    assert repair_manager_workers.legacy_step(args, tail) == expected
+    assert adoption.legacy_step(args, tail) == expected
 
 
 def test_all_lanes_share_episode_ownership(tmp_path):
@@ -163,18 +164,18 @@ def test_adoption_stops_controller_but_preserves_video_child(tmp_path, monkeypat
     (legacy / "wy_repair_chain2.state").write_text("ep:1\nep:2\n")
     (legacy / "wy_repair_chain2.log").write_text("===== batch: 3,4\nbefore repair: x\nafter repair: x\n")
     m = repair_manager_flow.Manager(novel, legacy)
-    monkeypatch.setattr(repair_manager_workers, "adoption_preview", lambda manager: {
+    monkeypatch.setattr(adoption, "adoption_preview", lambda manager: {
         "controllers": [{"pid": 100, "args": ["bash", str(legacy / "wy_repair_chain2.sh")]}],
         "workers": [{"pid": 101, "args": ["python", "scripts/thin_batch.py", "--novel-dir", str(novel), "--chapters", "3,4"]}],
     })
-    monkeypatch.setattr(repair_manager_workers, 'alive', lambda pid: True)
+    monkeypatch.setattr(adoption, 'alive', lambda pid: True)
     stopped = []
-    monkeypatch.setattr(repair_manager_workers.os, "kill", lambda pid, sig: stopped.append(pid))
-    repair_manager_workers.adopt(m)
+    monkeypatch.setattr(adoption.os, "kill", lambda pid, sig: stopped.append(pid))
+    adoption.adopt(m)
     assert stopped == [100]
     assert m.state["passes"] == {"1": 1, "2": 1}
     assert m.state["jobs"][0]["pid"] == 101 and m.state["jobs"][0]["step"] == 5
-    repair_manager_workers.adopt(m)
+    adoption.adopt(m)
     assert stopped == [100]  # a second call cannot import/reset the same work again
 
 

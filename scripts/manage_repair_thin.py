@@ -12,11 +12,10 @@ import repair_manager_workers_thin as repair_manager_workers
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["run", "status", "progress", "pause", "resume", "preview"])
+    parser.add_argument("action", choices=["run", "status", "progress", "pause", "resume"])
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--legacy-dir", type=Path, default=Path("/mnt/disk1/zengzhitao/tmp/fix"))
     parser.add_argument("--state-dir", type=Path)
-    parser.add_argument("--adopt-legacy", action="store_true")
     parser.add_argument('--prepared-only', action='store_true', help='admit new episodes only after current H3 book preparation passes')
     parser.add_argument('--model-workers', type=int, choices=range(1, 13), default=12,
                         help='parallel episode preparations; reduce while another book uses Qwen')
@@ -27,11 +26,7 @@ def main():
         manager.state["model_workers"] = args.model_workers
     if args.prepared_only:
         manager.state['preparation_gate'] = True
-    if args.action == "preview":
-        snapshot = repair_manager_workers.adoption_preview(manager)
-        print(json.dumps({"controllers_to_retire": [{"pid": p["pid"], "entry": p["args"][-1]} for p in snapshot["controllers"]],
-                          "workers_to_keep": snapshot["workers"], "current_batches": {"A": snapshot["a_batch"], "B": snapshot["b_batch"]}}, ensure_ascii=False, indent=2))
-    elif args.action == "progress":
+    if args.action == "progress":
         # Read-only with respect to production files and the coordinator's state.
         snapshot = repair_manager_state.read_snapshot(manager)
         report = {"generated_at": time.strftime("%F %T"), "total_episodes": len(snapshot.inspection_rows),
@@ -56,7 +51,7 @@ def main():
         pause.write_text(time.strftime("%F %T")) if args.action == "pause" else pause.unlink(missing_ok=True)
         print("pause requested; current steps may finish" if args.action == "pause" else "resume requested")
     else:
-        manager.run(args.adopt_legacy)
+        manager.run()
 
 
 if __name__ == "__main__":

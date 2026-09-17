@@ -6,7 +6,7 @@ class PlanningInputError(ValueError):
     pass
 
 from novel_manga.ingest import read_novel
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json
 from pathlib import Path
 from thin_profile import is_fast

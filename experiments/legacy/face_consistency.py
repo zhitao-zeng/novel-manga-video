@@ -5,7 +5,8 @@ from pathlib import Path
 
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 
-from .production_models import ProductionPlan, SeriesAssetManifest
+from novel_manga.models.runtime import ProductionPlan
+from novel_manga.models.assets import SeriesAssetManifest
 
 
 def _region_crops(path: Path, *, reference: bool) -> list[Image.Image]:

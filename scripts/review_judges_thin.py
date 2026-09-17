@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import novel_manga.llm.client as model_client
-import novel_manga.models as review_models
-from novel_manga.models import Character
+from novel_manga.models.bible import StoryBible as review_models_StoryBible
+from novel_manga.models.bible import Character
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.prompts as review_prompts
 import novel_manga.review.policy as review_policy
@@ -33,7 +33,7 @@ def judge_location_card(location: str, expected_time: str, view: Path, *, locati
     return model_client.ask_json(parts, review_contracts.LOCATION_CARD_SCHEMA, name="location_card")
 
 
-def judge_clip(clip: dict, video: Path, bible: review_models.StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
+def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
     if review_evidence.review_mode(work_dir) == "verify":
         return judge_clip_verify(clip, video, bible, location_time, hypothesis, work_dir)
     parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir)
@@ -78,7 +78,7 @@ def instruction_for(evidence: str, event: str = "", passage: str = "") -> str:
         return ""
 
 
-def judge_clip_verify(clip: dict, video: Path, bible: review_models.StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
+def judge_clip_verify(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
     parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir, verify=True)
     parts.append({"type": "text", "text": review_prompts.verify_prompt(clip, location_time, evidence)})
     answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=900)

@@ -3,31 +3,16 @@ from pathlib import Path
 import pytest
 
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
-from novel_manga.models import (
-    AdaptationLedgerItem,
-    CameraBeat,
-    CameraPlan,
-    ChapterDiagnosis,
-    ChapterEvent,
-    Character,
-    Episode,
-    EpisodeContract,
-    EpisodePlan,
-    HandoffState,
-    MotionBeat,
-    PerformancePlan,
-    SceneAudioPlan,
-    ScriptTurn,
-    Shot,
-    SpeechStrategy,
-    StoryBible,
-    TurnDelivery,
-    TurnDerivation,
-    TurnDevice,
-)
-from novel_manga.preflight import evaluate_production_preflight
+from novel_manga.models.episode import AdaptationLedgerItem, EpisodePlan, Shot
+from novel_manga.models.directing import CameraBeat, CameraPlan, HandoffState, MotionBeat, PerformancePlan, SceneAudioPlan, SpeechStrategy
+from experiments.legacy.models import ChapterDiagnosis, ChapterEvent
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.source import Episode
+from novel_manga.models.drama import EpisodeContract
+from novel_manga.models.dialogue import ScriptTurn, TurnDelivery, TurnDerivation, TurnDevice
+from experiments.legacy.preflight import evaluate_production_preflight
 from experiments.legacy.production_plan import compile_production_plan
-from novel_manga.production_models import AssetRecord, SeriesAssetManifest
+from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from experiments.legacy.production_runtime import EpisodeProductionRuntime, build_visual_groups
 from novel_manga.render import Renderer
 from experiments.legacy.script_planning import (

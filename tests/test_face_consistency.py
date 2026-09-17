@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from novel_manga.face_consistency import face_region_similarity
+from experiments.legacy.face_consistency import face_region_similarity
 
 
 def _portrait(path: Path, *, face: str, hair: str, offset: int = 0) -> None:

@@ -6,25 +6,12 @@ from collections import Counter
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
-from novel_manga.models import (
-    AdaptationLedgerItem,
-    ChapterDiagnosis,
-    ChapterEvent,
-    CharacterEpisodeState,
-    Episode,
-    EpisodeEndState,
-    EpisodeMode,
-    EpisodePlan,
-    GroundedStateFact,
-    QualityGateLevel,
-    ScriptQualityReport,
-    ScriptReviewIssue,
-    SeriesState,
-    StoryBible,
-    TurnDelivery,
-    TurnDerivation,
-    TurnDevice,
-)
+from novel_manga.models.episode import AdaptationLedgerItem, EpisodePlan
+from experiments.legacy.models import ChapterDiagnosis, ChapterEvent, CharacterEpisodeState, EpisodeEndState, GroundedStateFact, QualityGateLevel, ScriptQualityReport, ScriptReviewIssue, SeriesState
+from novel_manga.models.source import Episode
+from novel_manga.models.drama import EpisodeMode
+from novel_manga.models.bible import StoryBible
+from novel_manga.models.dialogue import TurnDelivery, TurnDerivation, TurnDevice
 from experiments.legacy.creative_direction import SHORT_DRAMA_PROFILE
 
 

@@ -7,7 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
-from novel_manga.production_models import ProductionPlan
+from novel_manga.models.runtime import ProductionPlan
 from novel_manga.video_quality import evaluate_generated_video_quality
 
 

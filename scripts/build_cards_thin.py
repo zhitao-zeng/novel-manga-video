@@ -29,7 +29,7 @@ from novel_manga.media.common import log
 from thin_profile import frame_spec, is_fast, load_genre, load_profile, styled_bible  # noqa: E402
 
 from novel_manga.config import Settings  # noqa: E402
-from novel_manga.models import StoryBible  # noqa: E402
+from novel_manga.models.bible import StoryBible
 from dataclasses import replace as dc_replace  # noqa: E402
 
 IMAGE_BACKOFF = (20, 40, 60, 90, 120)

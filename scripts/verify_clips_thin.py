@@ -44,7 +44,7 @@ import novel_manga.review.prompts as review_prompts
 import novel_manga.review.storage as review_storage
 import review_evidence_thin as review_evidence
 import thin_phases as thin_phases  # noqa: E402
-from novel_manga.models import StoryBible  # noqa: E402
+from novel_manga.models.bible import StoryBible
 from identity_context_thin import prompt_block as identity_prompt_block
 
 SCHEMA = review_contracts.VERIFY_SCHEMA

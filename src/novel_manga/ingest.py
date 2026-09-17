@@ -6,7 +6,7 @@ from pathlib import Path
 from docx import Document
 from pypdf import PdfReader
 
-from .models import NovelDocument
+from novel_manga.models.source import NovelDocument
 from .splitting import split_episodes
 
 

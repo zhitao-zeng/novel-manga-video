@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from novel_manga.production_models import ProductionPlan
+from novel_manga.models.runtime import ProductionPlan
 from novel_manga.util import atomic_write_json, media_duration
 
 

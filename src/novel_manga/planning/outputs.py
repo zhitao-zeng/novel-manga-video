@@ -1,11 +1,11 @@
 """planning.outputs responsibilities, extracted without changing requests or policy."""
 from __future__ import annotations
 from novel_manga.planning.context import PlannerContext
-from novel_manga.models import EpisodePlan
-from novel_manga.models import ScriptTurn
-from novel_manga.models import Shot
-from novel_manga.models import TurnDelivery
-from novel_manga.models import TurnDerivation
+from novel_manga.models.episode import EpisodePlan
+from novel_manga.models.dialogue import ScriptTurn
+from novel_manga.models.episode import Shot
+from novel_manga.models.dialogue import TurnDelivery
+from novel_manga.models.dialogue import TurnDerivation
 import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.text as pc_text
 

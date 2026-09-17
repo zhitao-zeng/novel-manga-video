@@ -15,7 +15,9 @@ import json
 from pathlib import Path
 
 from novel_manga.ingest import read_novel
-from novel_manga.models import ChapterDiagnosis, EpisodePlan, StoryBible
+from experiments.legacy.models import ChapterDiagnosis
+from novel_manga.models.episode import EpisodePlan
+from novel_manga.models.bible import StoryBible
 
 
 SILENT = "【无对白动作镜】"

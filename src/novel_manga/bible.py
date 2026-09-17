@@ -14,7 +14,8 @@ from pydantic import ValidationError
 from .config import Settings
 from .llm.responses import bible_object
 from .llm.transport import send_json
-from .models import Character, NovelDocument, StoryBible
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.source import NovelDocument
 
 ValidatedT = TypeVar("ValidatedT")
 

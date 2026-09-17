@@ -6,15 +6,10 @@ import pytest
 import experiments.legacy.production_runtime as runtime_module
 import novel_manga.render as render_module
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
-from novel_manga.models import (
-    EpisodePlan,
-    SceneAudioPlan,
-    ScriptTurn,
-    Shot,
-    SpeechStrategy,
-    TurnDelivery,
-)
-from novel_manga.production_models import RuntimeUnit, RuntimeVisualGroup
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.directing import SceneAudioPlan, SpeechStrategy
+from novel_manga.models.dialogue import ScriptTurn, TurnDelivery
+from novel_manga.models.runtime import RuntimeUnit, RuntimeVisualGroup
 from experiments.legacy.production_runtime import (
     EpisodeProductionRuntime,
     apply_native_dialogue_profile,

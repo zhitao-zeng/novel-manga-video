@@ -12,35 +12,21 @@ from pathlib import Path
 
 from PIL import Image, ImageStat
 
-from novel_manga.admission import evaluate_episode_admission
+from experiments.legacy.admission import evaluate_episode_admission
 from novel_manga.media.common import audio_levels, cover_title
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
-from novel_manga.face_consistency import evaluate_face_consistency
-from novel_manga.models import (
-    Episode,
-    EpisodePlan,
-    SpeechStrategy,
-    StoryBible,
-    TurnDelivery,
-    TurnDevice,
-    VisualStrategy,
-)
-from novel_manga.media.asset_factory import SeriesAssetFactory
+from experiments.legacy.face_consistency import evaluate_face_consistency
+from novel_manga.models.source import Episode
+from novel_manga.models.episode import EpisodePlan
+from novel_manga.models.directing import SpeechStrategy, VisualStrategy
+from novel_manga.models.bible import StoryBible
+from novel_manga.models.dialogue import TurnDelivery, TurnDevice
+from experiments.legacy.asset_factory import SeriesAssetFactory
 from novel_manga.media.common import sha256_file, sha256_text
 from experiments.legacy.production_plan import compile_production_plan
-from novel_manga.preflight import evaluate_production_preflight
-from novel_manga.production_models import (
-    EpisodeSequenceContract,
-    ImagePromptContract,
-    ProductionPlan,
-    ProviderPromptAdapter,
-    ReferenceScope,
-    RuntimeUnit,
-    RuntimeVisualGroup,
-    SeriesAssetManifest,
-    ShotContract,
-    ShotContractBeat,
-)
+from experiments.legacy.preflight import evaluate_production_preflight
+from novel_manga.models.runtime import EpisodeSequenceContract, ImagePromptContract, ProductionPlan, ProviderPromptAdapter, ReferenceScope, RuntimeUnit, RuntimeVisualGroup, ShotContract, ShotContractBeat
+from novel_manga.models.assets import SeriesAssetManifest
 from novel_manga.providers.base import ImageResult, MediaProvider
 from novel_manga.qc import inspect_media
 from novel_manga.render import Renderer
@@ -50,12 +36,8 @@ from novel_manga.runtime_backends import (
     correct_protected_lexicon,
     measured_speech_bounds,
 )
-from novel_manga.sd_dialogue import (
-    build_sd_prompt,
-    compile_performance_prompt,
-    performance_action_only,
-    timed_subtitle_pages,
-)
+from novel_manga.media.pagination import timed_subtitle_pages
+from experiments.legacy.sd_dialogue import build_sd_prompt, compile_performance_prompt, performance_action_only
 from novel_manga.util import atomic_write_json, media_duration, run
 
 
@@ -1251,7 +1233,7 @@ def _camera_mode_rank(mode: str) -> int:
 
 
 def _locked_group_camera_plan(camera_plan):
-    from novel_manga.models import CameraBeat, CameraPlan
+    from novel_manga.models.directing import CameraBeat, CameraPlan
 
     start = camera_plan.start_position if camera_plan is not None else "沿首次建立的行动轴同侧稳定取景"
     axis = camera_plan.action_axis if camera_plan is not None else "沿首次建立的行动轴同侧取景"

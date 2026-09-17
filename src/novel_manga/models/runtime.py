@@ -1,40 +1,11 @@
 from __future__ import annotations
+import re
+from enum import StrEnum
+from pathlib import Path
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from pydantic import BaseModel, Field, model_validator
-
-from .models import (
-    CameraPlan,
-    HandoffState,
-    PerformancePlan,
-    SceneAudioPlan,
-    ShotIntent,
-    TurnDelivery,
-    VisualStrategy,
-)
-
-
-class AssetRecord(BaseModel):
-    asset_id: str
-    kind: str
-    name: str
-    version: str = "v001"
-    approval_status: str = "approved"
-    rights_status: str = "project-generated"
-    identity_invariants: list[str] = Field(default_factory=list)
-    state_variables: dict[str, str] = Field(default_factory=dict)
-    reference_scope: dict[str, list[str]] = Field(default_factory=dict)
-    spec_path: str
-    primary_image: str
-    secondary_image: str | None = None
-    prompt_sha256: str
-
-
-class SeriesAssetManifest(BaseModel):
-    schema_version: int = 1
-    style_fingerprint: str
-    characters: list[AssetRecord]
-    locations: list[AssetRecord]
-    voice_assignments: dict[str, str]
+from novel_manga.models.dialogue import TurnDelivery
+from novel_manga.models.directing import CameraPlan, HandoffState, PerformancePlan, SceneAudioPlan, ShotIntent, VisualStrategy
 
 
 class RuntimeUnit(BaseModel):
@@ -84,6 +55,7 @@ class RuntimeUnit(BaseModel):
     attempt: int = 0
 
 
+
 class RuntimeShot(BaseModel):
     shot_id: str
     scene_id: str
@@ -95,6 +67,7 @@ class RuntimeShot(BaseModel):
     unit_ids: list[str] = Field(min_length=1)
 
 
+
 class RuntimeScene(BaseModel):
     scene_id: str
     index: int = Field(ge=1)
@@ -102,6 +75,7 @@ class RuntimeScene(BaseModel):
     narrative_job: str
     shot_ids: list[str] = Field(default_factory=list)
     spatial_contract: "SceneSpatialContract | None" = None
+
 
 
 class SceneSpatialContract(BaseModel):
@@ -115,6 +89,7 @@ class SceneSpatialContract(BaseModel):
     continuity_notes: list[str] = Field(default_factory=list)
 
 
+
 class ActionPhysicsPlan(BaseModel):
     trigger: str
     preparation: str
@@ -125,11 +100,13 @@ class ActionPhysicsPlan(BaseModel):
     environment_feedback: list[str] = Field(default_factory=list, max_length=5)
 
 
+
 class ReferenceScope(BaseModel):
     reference_id: str
     kind: str
     inherit: list[str] = Field(default_factory=list)
     exclude: list[str] = Field(default_factory=list)
+
 
 
 class ShotContractBeat(BaseModel):
@@ -140,6 +117,7 @@ class ShotContractBeat(BaseModel):
     action: str
     reaction: str = ""
     end_state: str = ""
+
 
 
 class ShotContract(BaseModel):
@@ -167,6 +145,7 @@ class ShotContract(BaseModel):
     external_audio_is_master: bool = True
 
 
+
 class ProviderPromptAdapter(BaseModel):
     adapter_version: str = "runtime-compact-v1"
     provider: str
@@ -176,6 +155,7 @@ class ProviderPromptAdapter(BaseModel):
     reference_order: list[str] = Field(default_factory=list)
     image_prompt: str
     video_prompt: str
+
 
 
 class ImagePromptContract(BaseModel):
@@ -195,6 +175,7 @@ class ImagePromptContract(BaseModel):
     delivery: str = "9:16 portrait JPEG keyframe; no burned-in text"
 
 
+
 class EpisodeSequenceContract(BaseModel):
     sequence_version: str = "hell-grind-adapted-v1"
     sequence_goal: str
@@ -208,6 +189,7 @@ class EpisodeSequenceContract(BaseModel):
     audio_continuity: str
     transition_rules: list[str] = Field(default_factory=list)
     final_landing: str
+
 
 
 class RuntimeVisualGroup(BaseModel):
@@ -233,6 +215,7 @@ class RuntimeVisualGroup(BaseModel):
     shot_contract: ShotContract | None = None
     image_contract: ImagePromptContract | None = None
     prompt_adapter: ProviderPromptAdapter | None = None
+
 
 
 class ProductionPlan(BaseModel):
@@ -304,3 +287,19 @@ class ProductionPlan(BaseModel):
                 if len(values) != len(set(values)):
                     raise ValueError(f"visual groups must not reuse {field} artifacts")
         return self
+
+
+# Resolve the existing forward references within this model group.
+RuntimeUnit.model_rebuild()
+RuntimeShot.model_rebuild()
+RuntimeScene.model_rebuild()
+SceneSpatialContract.model_rebuild()
+ActionPhysicsPlan.model_rebuild()
+ReferenceScope.model_rebuild()
+ShotContractBeat.model_rebuild()
+ShotContract.model_rebuild()
+ProviderPromptAdapter.model_rebuild()
+ImagePromptContract.model_rebuild()
+EpisodeSequenceContract.model_rebuild()
+RuntimeVisualGroup.model_rebuild()
+ProductionPlan.model_rebuild()

@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 from ..runtime_backends import edit_distance, normalize_text
 
-from ..sd_dialogue import timed_subtitle_pages
+from novel_manga.media.pagination import timed_subtitle_pages
 
 MIN_LINE_SIMILARITY = 0.35
 

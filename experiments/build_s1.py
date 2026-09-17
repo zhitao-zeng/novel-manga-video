@@ -30,7 +30,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from novel_manga.config import Settings
 from novel_manga.ingest import read_novel
-from novel_manga.models import ChapterDiagnosis, EpisodePlan, SeriesState, StoryBible
+from experiments.legacy.models import ChapterDiagnosis, SeriesState
+from novel_manga.models.episode import EpisodePlan
+from novel_manga.models.bible import StoryBible
 from experiments.legacy.script_planning import deterministic_series_state, evaluate_script_quality
 from novel_manga.util import atomic_write_json
 

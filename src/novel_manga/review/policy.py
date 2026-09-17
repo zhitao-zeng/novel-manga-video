@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-import novel_manga.models as review_models
+from novel_manga.models.bible import StoryBible as review_models_StoryBible
 from .contracts import STORY_FATAL
 
 
@@ -27,7 +27,7 @@ class ReviewRules:
     entity_tiers: tuple[tuple[str, str], ...] = ()
 
 
-def fix_tier(verdict: dict, bible: review_models.StoryBible, rules: ReviewRules | None = None) -> str:
+def fix_tier(verdict: dict, bible: review_models_StoryBible, rules: ReviewRules | None = None) -> str:
     """must_fix / optional / ignore for a failed clip verdict.  A viewer notices a
     broken body, a lead with the wrong face, or a speaking character who is not
     there; a side character's shirt colour or a garbled phone screen they do not."""

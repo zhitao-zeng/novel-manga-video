@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from novel_manga.models import EpisodePlan, ScriptTurn, Shot
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.dialogue import ScriptTurn
 from experiments.legacy.reuse import match_reusable_units
 
 

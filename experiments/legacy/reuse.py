@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from novel_manga.models import EpisodePlan, ScriptTurn, StoryBible
+from novel_manga.models.episode import EpisodePlan
+from novel_manga.models.dialogue import ScriptTurn
+from novel_manga.models.bible import StoryBible
 from experiments.legacy.planner import OpenAICompatiblePlanner
 
 

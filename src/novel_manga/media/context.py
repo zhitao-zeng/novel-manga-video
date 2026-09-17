@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 from ..config import Settings
-from ..models import StoryBible
+from novel_manga.models.bible import StoryBible
 from .asset_style import AssetStyle
 
 

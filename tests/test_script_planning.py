@@ -4,16 +4,11 @@ import json
 from pathlib import Path
 
 from novel_manga.ingest import read_novel
-from novel_manga.models import (
-    ChapterDiagnosis,
-    ChapterEvent,
-    Episode,
-    EpisodePlan,
-    ScriptTurn,
-    SeriesState,
-    Shot,
-    StoryBible,
-)
+from experiments.legacy.models import ChapterDiagnosis, ChapterEvent, SeriesState
+from novel_manga.models.source import Episode
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.dialogue import ScriptTurn
+from novel_manga.models.bible import StoryBible
 from experiments.legacy.script_planning import (
     deterministic_chapter_diagnosis,
     effective_script_policy,

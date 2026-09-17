@@ -5,20 +5,10 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from .av_quality import (
-    STATUS_FAILED,
-    STATUS_PASSED,
-    ass_layout,
-    evaluate_asr,
-    evaluate_delivered_audio_energy,
-    evaluate_subtitle_burn_in,
-)
-from .config import (
-    NATIVE_DIALOGUE_POLICY,
-    Settings,
-)
-from .production_models import ProductionPlan
-from .sd_dialogue import PUNCTUATION
+from novel_manga.av_quality import STATUS_FAILED, STATUS_PASSED, ass_layout, evaluate_asr, evaluate_delivered_audio_energy, evaluate_subtitle_burn_in
+from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
+from novel_manga.models.runtime import ProductionPlan
+from novel_manga.media.pagination import PUNCTUATION
 
 
 ADMISSION_POLICY_REVISION = "novel-manga-av-v1.7-video-side-gates"

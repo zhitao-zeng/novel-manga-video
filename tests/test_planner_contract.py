@@ -16,7 +16,7 @@ import novel_manga.planning.outputs as pc_outputs
 import novel_manga.planning.validation as pc_validation
 import planner_context_thin as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
-from novel_manga.models import Character, StoryBible  # noqa: E402
+from novel_manga.models.bible import Character, StoryBible
 
 TEXT = "薇奥拉站起身绕过桌子，伸手双臂环住莱恩的脖子，微微踮起脚尖吻住了他。但莱恩向后仰头想要避开：“塞西娅还在楼上。”"
 
@@ -141,7 +141,7 @@ def test_second_view_is_off_unless_asked(monkeypatch, tmp_path):
 def test_references_follow_the_body_the_ledger_names(monkeypatch, tmp_path):
     """A character the ledger puts in someone else's body references that body's card and says so in the binding."""
     pass
-    from novel_manga.models import Character, StoryBible
+    from novel_manga.models.bible import Character, StoryBible
     bible = StoryBible(novel_title="雾月", genre="gaslamp", visual_style="2d", palette="p", style_fingerprint="f", characters=[
         Character(name="艾琳娜", role="配角", appearance="银发", wardrobe="紫裙", hair="银色长发"),
         Character(name="薇奥拉公主", role="配角", appearance="金发", wardrobe="白裙", hair="金色长发"),

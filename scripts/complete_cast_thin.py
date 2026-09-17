@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import novel_manga.planning.cast as pc_cast
 import planner_context_thin as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
-from novel_manga.models import StoryBible  # noqa: E402
+from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json  # noqa: E402
 
 SCRIPTS = Path(__file__).resolve().parent

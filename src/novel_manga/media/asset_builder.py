@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from ..models import StoryBible
-from ..production_models import AssetRecord, SeriesAssetManifest
+from novel_manga.models.bible import StoryBible
+from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from ..util import atomic_write_json
 from .common import sha256_text, log
 from .asset_style import AssetStyle

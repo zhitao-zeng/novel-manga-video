@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
 from novel_manga.llm import client as model_client
-from novel_manga.models import Character, StoryBible
+from novel_manga.models.bible import Character, StoryBible
 from novel_manga.review import prompts
 import review_bible_thin as book
 import review_evidence_thin as evidence

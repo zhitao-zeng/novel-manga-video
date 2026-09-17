@@ -5,7 +5,7 @@ import json
 import time
 from pathlib import Path
 import novel_manga.llm.client as model_client
-import novel_manga.models as review_models
+from novel_manga.models.bible import StoryBible as review_models_StoryBible
 import novel_manga.review.contracts as review_contracts
 from novel_manga.util import atomic_write_json
 from thin_profile import load_genre, load_profile
@@ -26,7 +26,7 @@ def time_conflicts(expected: str, seen: str) -> bool:
 
 def review_cards(novel_dir: Path, include_backups: bool = False, only_ids: set[str] | None = None) -> dict:
     location_policy = load_genre(load_profile(novel_dir)).get("location_policy", "empty")
-    bible = review_models.StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
+    bible = review_models_StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}
     assets = novel_dir / "series_assets"

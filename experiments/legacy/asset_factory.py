@@ -3,15 +3,16 @@ import json
 import shutil
 from pathlib import Path
 from PIL import Image, ImageDraw
-from ..config import Settings
-from ..models import Character, StoryBible
-from ..production_models import AssetRecord, RuntimeUnit, SeriesAssetManifest
-from ..providers.base import ImageResult, MediaProvider
-from ..util import atomic_write_json
-from .common import sha256_text, sha256_file
-from .asset_images import ensure_image
-from .asset_prompts import character_prompt, expression_prompt as make_expression_prompt, location_prompt
-from .asset_specs import character_spec, location_spec
+from novel_manga.config import Settings
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
+from novel_manga.models.runtime import RuntimeUnit
+from novel_manga.providers.base import ImageResult, MediaProvider
+from novel_manga.util import atomic_write_json
+from novel_manga.media.common import sha256_text, sha256_file
+from novel_manga.media.asset_images import ensure_image
+from novel_manga.media.asset_prompts import character_prompt, expression_prompt as make_expression_prompt, location_prompt
+from novel_manga.media.asset_specs import character_spec, location_spec
 
 
 

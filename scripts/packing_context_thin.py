@@ -6,7 +6,7 @@ from dataclasses import replace
 import copy
 import json
 import os
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 from novel_manga.planning.context import PlannerContext
 from novel_manga.story.compilation import CompilerOptions
 from planner_context_thin import load_entity_index

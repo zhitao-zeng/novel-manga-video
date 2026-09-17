@@ -36,7 +36,7 @@ def main() -> int:
 
     bible_path = OUT / "story_bible.json"
     if bible_path.exists():
-        from novel_manga.models import StoryBible
+        from novel_manga.models.bible import StoryBible
         bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
         print("bible: reused")
     else:

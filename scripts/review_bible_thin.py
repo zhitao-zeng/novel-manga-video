@@ -6,8 +6,8 @@ import json
 import re
 from pathlib import Path
 import novel_manga.llm.client as model_client
-import novel_manga.models as review_models
-from novel_manga.models import Character
+from novel_manga.models.bible import StoryBible as review_models_StoryBible
+from novel_manga.models.bible import Character
 import novel_manga.story.identity as story_names
 import novel_manga.story.name_rules as name_rules
 import novel_manga.review.contracts as review_contracts
@@ -50,7 +50,7 @@ def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None
     """
     from novel_manga.ingest import read_novel
     bible_path = novel_dir / "story_bible.json"
-    bible = review_models.StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
+    bible = review_models_StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     novel = read_novel(source, novel_id=novel_dir.name, title=bible.novel_title)
     counts: dict[str, dict] = {}
     for episode in novel.episodes[:chapters] if chapters else novel.episodes:
@@ -78,7 +78,7 @@ def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None
     return report
 
 
-def fill_characters(bible: review_models.StoryBible, bible_path: Path, missing: dict, text: str) -> tuple[review_models.StoryBible, list[str], dict, dict]:
+def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: dict, text: str) -> tuple[review_models_StoryBible, list[str], dict, dict]:
     """Ask for casting entries for the missing names; add the confident proper
     names, keep appellations and vague entries as suggestions for a human."""
     known = [c.name for c in bible.characters]
@@ -191,7 +191,7 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     appending is allowed).  Appellations become suggestions for the volume
     review.  Everything is recorded in bible_growth.json."""
     bible_path = novel_dir / "story_bible.json"
-    bible = review_models.StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
+    bible = review_models_StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
     known = [c.name for c in bible.characters]
     # Names already judged in earlier chapters (an alias of someone, or held
     # for a human) stay excluded: the model's per-chapter verdict is not stable

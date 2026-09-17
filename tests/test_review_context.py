@@ -1,6 +1,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
-from novel_manga.models import StoryBible, Character
+from novel_manga.models.bible import StoryBible, Character
 from novel_manga.review.policy import fix_tier, ReviewRules
 from review_evidence_thin import load_review_rules
 

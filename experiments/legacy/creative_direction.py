@@ -2,25 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from novel_manga.models import (
-    AudioBeat,
-    CharacterAwareness,
-    CharacterDramaticState,
-    CharacterStateDelta,
-    ChapterDiagnosis,
-    EpisodeDramaturgy,
-    EpisodePlan,
-    InformationState,
-    RetentionBeat,
-    RetentionPlan,
-    SceneAudioPlan,
-    ShotIntent,
-    ShowrunnerPlan,
-    Shot,
-    SpeechStrategy,
-    StoryBible,
-    VisualStrategy,
-)
+from novel_manga.models.directing import AudioBeat, SceneAudioPlan, ShotIntent, SpeechStrategy, VisualStrategy
+from novel_manga.models.drama import CharacterAwareness, CharacterDramaticState, CharacterStateDelta, EpisodeDramaturgy, InformationState, RetentionBeat, RetentionPlan, ShowrunnerPlan
+from experiments.legacy.models import ChapterDiagnosis
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.bible import StoryBible
 
 
 SHORT_DRAMA_PROFILE = "short-drama-adaptive-v1"

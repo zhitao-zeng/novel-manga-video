@@ -6,7 +6,7 @@ import json
 import fcntl
 import threading
 from ..util import atomic_write_json
-from ..production_models import AssetRecord, SeriesAssetManifest
+from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 
 REPAIR_LOCK = threading.Lock()
 

@@ -7,25 +7,11 @@ import httpx
 from PIL import Image
 
 from novel_manga.config import Settings
-from novel_manga.models import (
-    AudioBeat,
-    CameraBeat,
-    CameraPlan,
-    MotionBeat,
-    PerformancePlan,
-    SceneAudioPlan,
-    ShotIntent,
-)
+from novel_manga.models.directing import AudioBeat, CameraBeat, CameraPlan, MotionBeat, PerformancePlan, SceneAudioPlan, ShotIntent
 from novel_manga.providers.base import ImageResult
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
-from novel_manga.sd_dialogue import (
-    PUNCTUATION,
-    build_sd_prompt,
-    compile_directing_prompt,
-    performance_action_only,
-    subtitle_pages,
-    timed_subtitle_pages,
-)
+from novel_manga.media.pagination import PUNCTUATION, subtitle_pages, timed_subtitle_pages
+from experiments.legacy.sd_dialogue import build_sd_prompt, compile_directing_prompt, performance_action_only
 
 
 def test_phanrouter_uses_separate_image_and_video_credentials() -> None:

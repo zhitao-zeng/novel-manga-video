@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 
-from .models import EpisodeMode, EpisodePlan, TurnDelivery, TurnDevice
-from .production_models import ProductionPlan
+from novel_manga.models.drama import EpisodeMode
+from novel_manga.models.episode import EpisodePlan
+from novel_manga.models.dialogue import TurnDelivery, TurnDevice
+from novel_manga.models.runtime import ProductionPlan
 
 
 def _spoken_chars(value: str) -> int:

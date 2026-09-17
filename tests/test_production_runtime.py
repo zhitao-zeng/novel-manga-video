@@ -8,29 +8,16 @@ import pytest
 from PIL import Image
 
 from novel_manga.config import Settings
-from novel_manga.admission import admission_backend_identity
-from novel_manga.models import (
-    Character,
-    Episode,
-    EpisodePlan,
-    MotionBeat,
-    PerformancePlan,
-    ScriptTurn,
-    Shot,
-    ShotIntent,
-    StoryBible,
-    TurnDelivery,
-    VisualStrategy,
-)
-from novel_manga.media.asset_factory import SeriesAssetFactory
+from experiments.legacy.admission import admission_backend_identity
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.source import Episode
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.directing import MotionBeat, PerformancePlan, ShotIntent, VisualStrategy
+from novel_manga.models.dialogue import ScriptTurn, TurnDelivery
+from experiments.legacy.asset_factory import SeriesAssetFactory
 from experiments.legacy.production_plan import compile_production_plan
-from novel_manga.production_models import (
-    AssetRecord,
-    ProductionPlan,
-    RuntimeUnit,
-    RuntimeVisualGroup,
-    SeriesAssetManifest,
-)
+from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
+from novel_manga.models.runtime import ProductionPlan, RuntimeUnit, RuntimeVisualGroup
 from experiments.legacy.production_runtime import (
     EpisodeProductionRuntime,
     build_visual_groups,

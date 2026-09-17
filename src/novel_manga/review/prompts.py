@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from .evidence import ClipEvidence
 from . import contracts as review_contracts
-from novel_manga.models import Character
+from novel_manga.models.bible import Character
 
 
 EVENT_LINE = re.compile(r"主要事件是(.+?)。\n")

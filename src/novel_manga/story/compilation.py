@@ -8,7 +8,7 @@ import re
 from .dialogue import merged_turns
 from .framing import blocking_note
 from .identity import mentioned_names
-from ..models import StoryBible
+from novel_manga.models.bible import StoryBible
 
 
 @dataclass(frozen=True)

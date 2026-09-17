@@ -3,17 +3,13 @@ from experiments.legacy.creative_direction import (
     apply_creative_direction,
     infer_visual_strategy,
 )
-from novel_manga.models import (
-    ChapterDiagnosis,
-    ChapterEvent,
-    Episode,
-    EpisodeDramaturgy,
-    EpisodePlan,
-    ScriptTurn,
-    Shot,
-    StoryBible,
-    VisualStrategy,
-)
+from experiments.legacy.models import ChapterDiagnosis, ChapterEvent
+from novel_manga.models.source import Episode
+from novel_manga.models.drama import EpisodeDramaturgy
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.dialogue import ScriptTurn
+from novel_manga.models.bible import StoryBible
+from novel_manga.models.directing import VisualStrategy
 from experiments.legacy.script_planning import evaluate_script_quality, normalize_chronological_plan
 
 

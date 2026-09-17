@@ -5,24 +5,13 @@ import pytest
 from pydantic import ValidationError
 
 from novel_manga.config import Settings
-from novel_manga.models import (
-    BeatScriptShot,
-    ChapterDiagnosis,
-    ChapterEvent,
-    Character,
-    Episode,
-    EpisodePlan,
-    RetentionBeat,
-    RetentionBeatDirection,
-    RetentionBeatScript,
-    RetentionPlan,
-    ScriptTurn,
-    ScriptQualityReport,
-    ShowrunnerPlan,
-    Shot,
-    ShotIntent,
-    StoryBible,
-)
+from experiments.legacy.models import BeatScriptShot, ChapterDiagnosis, ChapterEvent, RetentionBeatDirection, RetentionBeatScript, ScriptQualityReport
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.source import Episode
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.drama import RetentionBeat, RetentionPlan, ShowrunnerPlan
+from novel_manga.models.dialogue import ScriptTurn
+from novel_manga.models.directing import ShotIntent
 from experiments.legacy.planner import (
     EpisodePlanningFailed,
     OpenAICompatiblePlanner,

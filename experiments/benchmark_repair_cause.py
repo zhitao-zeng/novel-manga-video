@@ -209,7 +209,7 @@ def controlled_submit(original, seed: int, receipt: Path):
 
 def render_arm(output: Path, prepared: dict) -> dict:
     from novel_manga.config import Settings
-    from novel_manga.models import StoryBible
+    from novel_manga.models.bible import StoryBible
     from novel_manga.providers.h3_pool import H3Pool
     from render_flow_thin import ThinMediaRunner
     from thin_profile import load_profile

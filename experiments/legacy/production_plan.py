@@ -9,38 +9,19 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from novel_manga.media.asset_factory import SeriesAssetFactory
+from experiments.legacy.asset_factory import SeriesAssetFactory
 from novel_manga.media.common import sha256_text, sha256_file
 from novel_manga.media.asset_images import _archive_stale
 from novel_manga.config import Settings
-from novel_manga.models import (
-    CameraBeat,
-    CameraPlan,
-    Character,
-    Episode,
-    EpisodePlan,
-    MotionActionType,
-    MotionBeat,
-    PerformancePlan,
-    SpeechStrategy,
-    ScriptTurn,
-    StoryBible,
-    TurnDelivery,
-    TurnDerivation,
-    VisualStrategy,
-)
-from novel_manga.production_models import (
-    ActionPhysicsPlan,
-    AssetRecord,
-    ProductionPlan,
-    RuntimeScene,
-    RuntimeShot,
-    RuntimeUnit,
-    SceneSpatialContract,
-    SeriesAssetManifest,
-)
+from novel_manga.models.directing import CameraBeat, CameraPlan, MotionActionType, MotionBeat, PerformancePlan, SpeechStrategy, VisualStrategy
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.source import Episode
+from novel_manga.models.episode import EpisodePlan
+from novel_manga.models.dialogue import ScriptTurn, TurnDelivery, TurnDerivation
+from novel_manga.models.runtime import ActionPhysicsPlan, ProductionPlan, RuntimeScene, RuntimeShot, RuntimeUnit, SceneSpatialContract
+from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from novel_manga.providers.base import ImageResult, MediaProvider
-from novel_manga.sd_dialogue import build_sd_prompt
+from experiments.legacy.sd_dialogue import build_sd_prompt
 from novel_manga.util import atomic_write_json
 
 

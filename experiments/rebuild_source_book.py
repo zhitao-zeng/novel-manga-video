@@ -30,7 +30,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT / 'scripts')]
 from novel_manga.ingest import read_novel
-from novel_manga.models import Character, StoryBible
+from novel_manga.models.bible import Character, StoryBible
 from novel_manga.runtime_backends import normalize_text
 from novel_manga.util import atomic_write_json
 from identity_store_thin import read

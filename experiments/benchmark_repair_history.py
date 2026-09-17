@@ -28,7 +28,7 @@ from benchmark_repair_cause import ROOT, ROOT_FILES, EPISODE_FILES, copy_if_pres
 from clip_readiness import plan_issues
 from novel_manga.repair.scheduling import active_episodes
 from novel_manga.config import Settings
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json
 from repair_flow_thin import repair_episode
 from novel_manga.util import read_json as read

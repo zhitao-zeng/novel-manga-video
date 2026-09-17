@@ -1,6 +1,6 @@
 """In-memory evidence for a single clip. No new persisted review format."""
 from dataclasses import dataclass
-from novel_manga.models import Character
+from novel_manga.models.bible import Character
 
 
 @dataclass

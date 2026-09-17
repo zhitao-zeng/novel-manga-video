@@ -5,7 +5,7 @@ import math
 import subprocess
 from pathlib import Path
 
-from .production_models import ProductionPlan
+from novel_manga.models.runtime import ProductionPlan
 from .util import atomic_write_json, media_duration
 
 

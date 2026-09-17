@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from novel_manga.models import Character
+from novel_manga.models.bible import Character
 
 POLICY = "phase-cards-v1"
 # A phase may set any of these; a key present with "" clears the field (a beast has no hair style).

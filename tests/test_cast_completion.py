@@ -12,7 +12,7 @@ import complete_cast_thin  # noqa: E402
 import novel_manga.planning.cast as pc_cast
 import novel_manga.story.identity as pc_identity
 from novel_manga.planning.context import PlannerContext  # noqa: E402
-from novel_manga.models import Character, StoryBible  # noqa: E402
+from novel_manga.models.bible import Character, StoryBible
 
 EVERYONE = ["莱恩·格雷", "薇奥拉公主", "琥珀·高德", "艾琳娜", "灵魂", "秘女", "船长", "神"]
 

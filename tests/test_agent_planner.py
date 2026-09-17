@@ -8,16 +8,12 @@ import pytest
 import experiments.legacy.planner as planner_module
 from novel_manga.config import Settings
 from novel_manga.ingest import read_novel
-from novel_manga.models import (
-    Character,
-    EpisodeDramaturgy,
-    EpisodePlan,
-    ScriptQualityReport,
-    ScriptTurn,
-    ShotIntent,
-    StoryBible,
-    TurnDelivery,
-)
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.drama import EpisodeDramaturgy
+from novel_manga.models.episode import EpisodePlan
+from experiments.legacy.models import ScriptQualityReport
+from novel_manga.models.dialogue import ScriptTurn, TurnDelivery
+from novel_manga.models.directing import ShotIntent
 from experiments.legacy.planner import OpenAICompatiblePlanner, _loads_json_object
 from experiments.legacy.script_planning import deterministic_chapter_diagnosis
 from experiments.legacy.script_planning import evaluate_script_quality, normalize_chronological_plan

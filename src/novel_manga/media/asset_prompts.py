@@ -1,7 +1,7 @@
 """Shared character and location prompt rules, without IO."""
 from __future__ import annotations
 
-from ..models import StoryBible
+from novel_manga.models.bible import StoryBible
 
 def rendering_direction(bible: StoryBible) -> str:
     style = bible.visual_style.casefold()

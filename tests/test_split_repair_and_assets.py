@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import packing_context_thin as packer
 import render_flow_thin as renderer
 import repair_split_ranges as ranges
-from novel_manga.models import Character, StoryBible
+from novel_manga.models.bible import Character, StoryBible
 from novel_manga.config import Settings
 
 with patch.dict(os.environ):

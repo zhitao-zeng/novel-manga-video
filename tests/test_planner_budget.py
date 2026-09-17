@@ -13,7 +13,7 @@ import plan_chapter_thin as plan_chapter
 import planner_requests_thin as planner_requests
 import sys
 from novel_manga.planning.context import PlannerContext
-from novel_manga.models import Character, StoryBible
+from novel_manga.models.bible import Character, StoryBible
 
 
 @pytest.mark.parametrize("cap", [15, 30])

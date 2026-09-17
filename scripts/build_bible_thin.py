@@ -33,7 +33,7 @@ from thin_profile import DEFAULTS, STYLE_NAME, STYLE_VISUAL, detect_genre, load_
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.ingest import read_novel  # noqa: E402
 from novel_manga.bible import BibleBuilder, _fingerprint as fingerprint
-from novel_manga.models import StoryBible  # noqa: E402
+from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]

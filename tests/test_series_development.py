@@ -4,17 +4,10 @@ from pathlib import Path
 import pytest
 
 from novel_manga.config import Settings
-from novel_manga.models import (
-    ChapterDiagnosis,
-    ChapterEvent,
-    Character,
-    Episode,
-    NovelDocument,
-    SeriesState,
-    SeriesDevelopmentPlan,
-    ShowrunnerPlan,
-    StoryBible,
-)
+from experiments.legacy.models import ChapterDiagnosis, ChapterEvent, SeriesState, SeriesDevelopmentPlan
+from novel_manga.models.bible import Character, StoryBible
+from novel_manga.models.source import Episode, NovelDocument
+from novel_manga.models.drama import ShowrunnerPlan
 from experiments.legacy.planner import (
     OpenAICompatiblePlanner,
     _current_projection_context,

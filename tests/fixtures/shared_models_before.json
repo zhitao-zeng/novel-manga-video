@@ -1,0 +1,3597 @@
+{
+  "NovelDocument": {
+    "$defs": {
+      "Episode": {
+        "properties": {
+          "index": {
+            "minimum": 1,
+            "title": "Index",
+            "type": "integer"
+          },
+          "source_title": {
+            "title": "Source Title",
+            "type": "string"
+          },
+          "source_text": {
+            "title": "Source Text",
+            "type": "string"
+          },
+          "text_count": {
+            "minimum": 1,
+            "title": "Text Count",
+            "type": "integer"
+          },
+          "source_start": {
+            "minimum": 0,
+            "title": "Source Start",
+            "type": "integer"
+          },
+          "source_end": {
+            "exclusiveMinimum": 0,
+            "title": "Source End",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "source_title",
+          "source_text",
+          "text_count",
+          "source_start",
+          "source_end"
+        ],
+        "title": "Episode",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "novel_id": {
+        "title": "Novel Id",
+        "type": "string"
+      },
+      "title": {
+        "title": "Title",
+        "type": "string"
+      },
+      "source_path": {
+        "format": "path",
+        "title": "Source Path",
+        "type": "string"
+      },
+      "text": {
+        "title": "Text",
+        "type": "string"
+      },
+      "episodes": {
+        "items": {
+          "$ref": "#/$defs/Episode"
+        },
+        "title": "Episodes",
+        "type": "array"
+      },
+      "chaptered": {
+        "title": "Chaptered",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "novel_id",
+      "title",
+      "source_path",
+      "text",
+      "episodes",
+      "chaptered"
+    ],
+    "title": "NovelDocument",
+    "type": "object"
+  },
+  "StoryBible": {
+    "$defs": {
+      "Character": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "default": "配角",
+            "title": "Role",
+            "type": "string"
+          },
+          "gender": {
+            "default": "未知",
+            "title": "Gender",
+            "type": "string"
+          },
+          "age": {
+            "default": "成年",
+            "title": "Age",
+            "type": "string"
+          },
+          "appearance": {
+            "title": "Appearance",
+            "type": "string"
+          },
+          "wardrobe": {
+            "title": "Wardrobe",
+            "type": "string"
+          },
+          "visual_archetype": {
+            "default": "",
+            "title": "Visual Archetype",
+            "type": "string"
+          },
+          "face_anchors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Face Anchors",
+            "type": "array"
+          },
+          "silhouette": {
+            "default": "",
+            "title": "Silhouette",
+            "type": "string"
+          },
+          "hair": {
+            "default": "",
+            "title": "Hair",
+            "type": "string"
+          },
+          "palette": {
+            "default": "",
+            "title": "Palette",
+            "type": "string"
+          },
+          "base_costume": {
+            "default": "",
+            "title": "Base Costume",
+            "type": "string"
+          },
+          "episode_costumes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Episode Costumes",
+            "type": "array"
+          },
+          "signature_prop": {
+            "default": "",
+            "title": "Signature Prop",
+            "type": "string"
+          },
+          "expression_profile": {
+            "default": "",
+            "title": "Expression Profile",
+            "type": "string"
+          },
+          "motion_signature": {
+            "default": "",
+            "title": "Motion Signature",
+            "type": "string"
+          },
+          "voice_profile_id": {
+            "default": "",
+            "title": "Voice Profile Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "appearance",
+          "wardrobe"
+        ],
+        "title": "Character",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "novel_title": {
+        "title": "Novel Title",
+        "type": "string"
+      },
+      "genre": {
+        "title": "Genre",
+        "type": "string"
+      },
+      "visual_style": {
+        "title": "Visual Style",
+        "type": "string"
+      },
+      "palette": {
+        "title": "Palette",
+        "type": "string"
+      },
+      "typography": {
+        "default": "粗体无衬线中文字体，白字黑描边",
+        "title": "Typography",
+        "type": "string"
+      },
+      "characters": {
+        "items": {
+          "$ref": "#/$defs/Character"
+        },
+        "title": "Characters",
+        "type": "array"
+      },
+      "locations": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Locations",
+        "type": "array"
+      },
+      "continuity_rules": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Continuity Rules",
+        "type": "array"
+      },
+      "style_fingerprint": {
+        "title": "Style Fingerprint",
+        "type": "string"
+      }
+    },
+    "required": [
+      "novel_title",
+      "genre",
+      "visual_style",
+      "palette",
+      "style_fingerprint"
+    ],
+    "title": "StoryBible",
+    "type": "object"
+  },
+  "EpisodePlan": {
+    "$defs": {
+      "AdaptationLedgerItem": {
+        "properties": {
+          "event_id": {
+            "pattern": "^event_\\d{3}$",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "disposition": {
+            "pattern": "^(preserved|compressed|merged|externalized|removed)$",
+            "title": "Disposition",
+            "type": "string"
+          },
+          "shot_indexes": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Shot Indexes",
+            "type": "array"
+          },
+          "rationale": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event_id",
+          "disposition",
+          "rationale"
+        ],
+        "title": "AdaptationLedgerItem",
+        "type": "object"
+      },
+      "AudioBeat": {
+        "description": "A relative, trigger-bound sound event inside one shot.",
+        "properties": {
+          "position_ratio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Position Ratio",
+            "type": "number"
+          },
+          "cue_type": {
+            "pattern": "^(silence|ambience|impact|music_rise|music_cut|bass_drop|heartbeat|sfx|duck|release)$",
+            "title": "Cue Type",
+            "type": "string"
+          },
+          "cue": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Cue",
+            "type": "string"
+          },
+          "trigger": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Trigger",
+            "type": "string"
+          },
+          "retention_beat_id": {
+            "default": "",
+            "title": "Retention Beat Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position_ratio",
+          "cue_type",
+          "cue",
+          "trigger"
+        ],
+        "title": "AudioBeat",
+        "type": "object"
+      },
+      "CameraBeat": {
+        "properties": {
+          "phase": {
+            "pattern": "^(opening|development|resolution)$",
+            "title": "Phase",
+            "type": "string"
+          },
+          "trajectory": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Trajectory",
+            "type": "string"
+          },
+          "framing": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Framing",
+            "type": "string"
+          },
+          "parallax": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Parallax",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "trajectory",
+          "framing",
+          "parallax"
+        ],
+        "title": "CameraBeat",
+        "type": "object"
+      },
+      "CameraPlan": {
+        "properties": {
+          "mode": {
+            "default": "locked",
+            "pattern": "^(locked|motivated_subtle|motivated_emphasis)$",
+            "title": "Mode",
+            "type": "string"
+          },
+          "motivation": {
+            "default": "人物表演承担画面动态",
+            "maxLength": 180,
+            "title": "Motivation",
+            "type": "string"
+          },
+          "action_axis": {
+            "default": "沿首次建立的行动轴同侧取景",
+            "maxLength": 180,
+            "title": "Action Axis",
+            "type": "string"
+          },
+          "screen_direction": {
+            "default": "保持人物左右位置、视线和运动方向连续",
+            "maxLength": 180,
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "start_position": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Start Position",
+            "type": "string"
+          },
+          "camera_beats": {
+            "items": {
+              "$ref": "#/$defs/CameraBeat"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Camera Beats",
+            "type": "array"
+          },
+          "end_position": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "End Position",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_position",
+          "camera_beats",
+          "end_position"
+        ],
+        "title": "CameraPlan",
+        "type": "object"
+      },
+      "CharacterAwareness": {
+        "properties": {
+          "character_name": {
+            "title": "Character Name",
+            "type": "string"
+          },
+          "awareness": {
+            "pattern": "^(knows|suspects|misled|unaware)$",
+            "title": "Awareness",
+            "type": "string"
+          },
+          "belief": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Belief",
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_name",
+          "awareness"
+        ],
+        "title": "CharacterAwareness",
+        "type": "object"
+      },
+      "CharacterDramaticState": {
+        "properties": {
+          "social_status": {
+            "default": "未明确",
+            "title": "Social Status",
+            "type": "string"
+          },
+          "relationship_state": {
+            "default": "未明确",
+            "title": "Relationship State",
+            "type": "string"
+          },
+          "power_level": {
+            "default": "未明确",
+            "title": "Power Level",
+            "type": "string"
+          },
+          "emotional_state": {
+            "default": "未明确",
+            "title": "Emotional State",
+            "type": "string"
+          },
+          "confidence_state": {
+            "default": "未明确",
+            "title": "Confidence State",
+            "type": "string"
+          },
+          "costume_state": {
+            "default": "沿用角色资产",
+            "title": "Costume State",
+            "type": "string"
+          }
+        },
+        "title": "CharacterDramaticState",
+        "type": "object"
+      },
+      "CharacterStateDelta": {
+        "description": "A current-episode state transition, separate from permanent identity assets.",
+        "properties": {
+          "character_name": {
+            "title": "Character Name",
+            "type": "string"
+          },
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "before": {
+            "$ref": "#/$defs/CharacterDramaticState"
+          },
+          "after": {
+            "$ref": "#/$defs/CharacterDramaticState"
+          },
+          "source_quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Quote",
+            "type": "string"
+          },
+          "visual_consequence": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Visual Consequence",
+            "type": "string"
+          },
+          "performance_consequence": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Performance Consequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_name",
+          "event_ids",
+          "before",
+          "after",
+          "source_quote",
+          "visual_consequence",
+          "performance_consequence"
+        ],
+        "title": "CharacterStateDelta",
+        "type": "object"
+      },
+      "EpisodeContract": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_version": {
+            "default": "episode-contract-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "episode_index": {
+            "minimum": 1,
+            "title": "Episode Index",
+            "type": "integer"
+          },
+          "development_version": {
+            "pattern": "^v\\d{3}$",
+            "title": "Development Version",
+            "type": "string"
+          },
+          "arc_position": {
+            "title": "Arc Position",
+            "type": "string"
+          },
+          "pressure_loop": {
+            "title": "Pressure Loop",
+            "type": "string"
+          },
+          "protagonist_default_strategy": {
+            "title": "Protagonist Default Strategy",
+            "type": "string"
+          },
+          "strategy_creates_problem": {
+            "title": "Strategy Creates Problem",
+            "type": "string"
+          },
+          "pressure_step": {
+            "title": "Pressure Step",
+            "type": "string"
+          },
+          "setup_obligation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Setup Obligation Ids",
+            "type": "array"
+          },
+          "payoff_obligation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Payoff Obligation Ids",
+            "type": "array"
+          },
+          "allowed_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Allowed Event Ids",
+            "type": "array"
+          },
+          "allowed_information_fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Information Fact Ids",
+            "type": "array"
+          },
+          "retention_beat_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Retention Beat Ids",
+            "type": "array"
+          },
+          "required_close_state": {
+            "title": "Required Close State",
+            "type": "string"
+          },
+          "episode_mode": {
+            "$ref": "#/$defs/EpisodeMode",
+            "default": "pressure_episode"
+          },
+          "protagonist_choice": {
+            "default": "",
+            "title": "Protagonist Choice",
+            "type": "string"
+          },
+          "cost_paid": {
+            "default": "",
+            "title": "Cost Paid",
+            "type": "string"
+          },
+          "opposition": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EpisodeOpposition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "episode_index",
+          "development_version",
+          "arc_position",
+          "pressure_loop",
+          "protagonist_default_strategy",
+          "strategy_creates_problem",
+          "pressure_step",
+          "allowed_event_ids",
+          "retention_beat_ids",
+          "required_close_state"
+        ],
+        "title": "EpisodeContract",
+        "type": "object"
+      },
+      "EpisodeDramaturgy": {
+        "description": "Source-grounded short-drama intent before sentence-level shots exist.",
+        "properties": {
+          "genre_engine": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Genre Engine",
+            "type": "string"
+          },
+          "dramatic_question": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Dramatic Question",
+            "type": "string"
+          },
+          "cold_open": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Cold Open",
+            "type": "string"
+          },
+          "cold_open_source_quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Cold Open Source Quote",
+            "type": "string"
+          },
+          "status_before": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Status Before",
+            "type": "string"
+          },
+          "status_after": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Status After",
+            "type": "string"
+          },
+          "conflict_beats": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Conflict Beats",
+            "type": "array"
+          },
+          "reveal_order": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Reveal Order",
+            "type": "array"
+          },
+          "cliffhanger": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Cliffhanger",
+            "type": "string"
+          },
+          "narration_budget_ratio": {
+            "default": 0.2,
+            "maximum": 0.5,
+            "minimum": 0.0,
+            "title": "Narration Budget Ratio",
+            "type": "number"
+          },
+          "episode_mode": {
+            "$ref": "#/$defs/EpisodeMode",
+            "default": "pressure_episode"
+          },
+          "protagonist_choice": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Protagonist Choice",
+            "type": "string"
+          },
+          "choice_source_quote": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Choice Source Quote",
+            "type": "string"
+          },
+          "cost_paid": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Cost Paid",
+            "type": "string"
+          },
+          "cost_source_quote": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Cost Source Quote",
+            "type": "string"
+          },
+          "opposition": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EpisodeOpposition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "genre_engine",
+          "dramatic_question",
+          "cold_open",
+          "cold_open_source_quote",
+          "status_before",
+          "status_after",
+          "conflict_beats",
+          "cliffhanger"
+        ],
+        "title": "EpisodeDramaturgy",
+        "type": "object"
+      },
+      "EpisodeMode": {
+        "enum": [
+          "choice_episode",
+          "pressure_episode"
+        ],
+        "title": "EpisodeMode",
+        "type": "string"
+      },
+      "EpisodeOpposition": {
+        "properties": {
+          "opponent_name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Opponent Name",
+            "type": "string"
+          },
+          "goal": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Goal",
+            "type": "string"
+          },
+          "tactic": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Tactic",
+            "type": "string"
+          },
+          "source_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Source Event Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "opponent_name",
+          "goal",
+          "tactic",
+          "source_event_ids"
+        ],
+        "title": "EpisodeOpposition",
+        "type": "object"
+      },
+      "HandoffState": {
+        "properties": {
+          "knowledge": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Knowledge",
+            "type": "object"
+          },
+          "power": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Power",
+            "type": "object"
+          },
+          "relationship": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Relationship",
+            "type": "object"
+          },
+          "physical": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Physical",
+            "type": "object"
+          },
+          "ongoing_action": {
+            "default": "none",
+            "title": "Ongoing Action",
+            "type": "string"
+          }
+        },
+        "title": "HandoffState",
+        "type": "object"
+      },
+      "InformationState": {
+        "description": "Who knows one source-grounded fact and how that gap creates drama.",
+        "properties": {
+          "fact_id": {
+            "pattern": "^fact_\\d{3}$",
+            "title": "Fact Id",
+            "type": "string"
+          },
+          "statement": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Statement",
+            "type": "string"
+          },
+          "truth_status": {
+            "pattern": "^(confirmed|potential|misread)$",
+            "title": "Truth Status",
+            "type": "string"
+          },
+          "viewer_awareness": {
+            "pattern": "^(knows|suspects|misled|unaware)$",
+            "title": "Viewer Awareness",
+            "type": "string"
+          },
+          "character_awareness": {
+            "items": {
+              "$ref": "#/$defs/CharacterAwareness"
+            },
+            "title": "Character Awareness",
+            "type": "array"
+          },
+          "dramatic_use": {
+            "pattern": "^(viewer_leads|character_leads|simultaneous_reveal|misunderstanding|withheld)$",
+            "title": "Dramatic Use",
+            "type": "string"
+          },
+          "source_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Source Event Ids",
+            "type": "array"
+          },
+          "source_quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Quote",
+            "type": "string"
+          },
+          "reveal_beat_id": {
+            "default": "",
+            "title": "Reveal Beat Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fact_id",
+          "statement",
+          "truth_status",
+          "viewer_awareness",
+          "dramatic_use",
+          "source_event_ids",
+          "source_quote"
+        ],
+        "title": "InformationState",
+        "type": "object"
+      },
+      "MotionActionType": {
+        "description": "The visible dramatic job performed by one causal motion beat.",
+        "enum": [
+          "choose",
+          "refuse",
+          "confront",
+          "ask",
+          "move",
+          "reveal",
+          "react",
+          "wait",
+          "press"
+        ],
+        "title": "MotionActionType",
+        "type": "string"
+      },
+      "MotionBeat": {
+        "description": "One causally ordered performance beat inside a continuous shot.",
+        "properties": {
+          "phase": {
+            "pattern": "^(opening|development|resolution)$",
+            "title": "Phase",
+            "type": "string"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 14.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Seconds"
+          },
+          "actor": {
+            "default": "",
+            "maxLength": 80,
+            "title": "Actor",
+            "type": "string"
+          },
+          "target": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Target",
+            "type": "string"
+          },
+          "action_type": {
+            "$ref": "#/$defs/MotionActionType",
+            "default": "react"
+          },
+          "trigger": {
+            "default": "",
+            "title": "Trigger",
+            "type": "string"
+          },
+          "action": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "reaction": {
+            "default": "",
+            "maxLength": 180,
+            "title": "Reaction",
+            "type": "string"
+          },
+          "expression_transition": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Expression Transition",
+            "type": "string"
+          },
+          "end_state": {
+            "default": "",
+            "maxLength": 180,
+            "title": "End State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "action"
+        ],
+        "title": "MotionBeat",
+        "type": "object"
+      },
+      "PerformancePlan": {
+        "properties": {
+          "objective": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Objective",
+            "type": "string"
+          },
+          "start_state": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Start State",
+            "type": "string"
+          },
+          "motion_beats": {
+            "items": {
+              "$ref": "#/$defs/MotionBeat"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Motion Beats",
+            "type": "array"
+          },
+          "end_state": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "End State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "objective",
+          "start_state",
+          "motion_beats",
+          "end_state"
+        ],
+        "title": "PerformancePlan",
+        "type": "object"
+      },
+      "RetentionBeat": {
+        "properties": {
+          "beat_id": {
+            "pattern": "^beat_\\d{3}$",
+            "title": "Beat Id",
+            "type": "string"
+          },
+          "function": {
+            "pattern": "^(hook|question|pressure|escalation|payoff|reversal|cliffhanger)$",
+            "title": "Function",
+            "type": "string"
+          },
+          "target_start_ratio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Target Start Ratio",
+            "type": "number"
+          },
+          "target_end_ratio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Target End Ratio",
+            "type": "number"
+          },
+          "audience_question": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Audience Question",
+            "type": "string"
+          },
+          "promise": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Promise",
+            "type": "string"
+          },
+          "new_information_fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "New Information Fact Ids",
+            "type": "array"
+          },
+          "emotional_shift": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Emotional Shift",
+            "type": "string"
+          },
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "shot_indexes": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Shot Indexes",
+            "type": "array"
+          },
+          "source_quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Quote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "beat_id",
+          "function",
+          "target_start_ratio",
+          "target_end_ratio",
+          "audience_question",
+          "promise",
+          "emotional_shift",
+          "event_ids",
+          "source_quote"
+        ],
+        "title": "RetentionBeat",
+        "type": "object"
+      },
+      "RetentionPlan": {
+        "properties": {
+          "target_duration_seconds": {
+            "default": 60.0,
+            "maximum": 300.0,
+            "minimum": 10.0,
+            "title": "Target Duration Seconds",
+            "type": "number"
+          },
+          "max_attention_gap_ratio": {
+            "default": 0.25,
+            "exclusiveMinimum": 0.0,
+            "maximum": 0.5,
+            "title": "Max Attention Gap Ratio",
+            "type": "number"
+          },
+          "beats": {
+            "items": {
+              "$ref": "#/$defs/RetentionBeat"
+            },
+            "maxItems": 8,
+            "minItems": 4,
+            "title": "Beats",
+            "type": "array"
+          },
+          "ending_open_loop": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Ending Open Loop",
+            "type": "string"
+          }
+        },
+        "required": [
+          "beats",
+          "ending_open_loop"
+        ],
+        "title": "RetentionPlan",
+        "type": "object"
+      },
+      "SceneAudioPlan": {
+        "description": "Editorial sound intent for video-model native dialogue.",
+        "properties": {
+          "speech_strategy": {
+            "$ref": "#/$defs/SpeechStrategy",
+            "default": "native"
+          },
+          "voice_reference_id": {
+            "default": "",
+            "title": "Voice Reference Id",
+            "type": "string"
+          },
+          "delivery_intent": {
+            "default": "克制自然",
+            "title": "Delivery Intent",
+            "type": "string"
+          },
+          "pace": {
+            "default": "自然",
+            "title": "Pace",
+            "type": "string"
+          },
+          "energy": {
+            "default": 0.5,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Energy",
+            "type": "number"
+          },
+          "pauses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pauses",
+            "type": "array"
+          },
+          "music_cue": {
+            "default": "",
+            "title": "Music Cue",
+            "type": "string"
+          },
+          "ambience": {
+            "default": "",
+            "title": "Ambience",
+            "type": "string"
+          },
+          "sfx_events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sfx Events",
+            "type": "array"
+          },
+          "audio_beats": {
+            "items": {
+              "$ref": "#/$defs/AudioBeat"
+            },
+            "maxItems": 8,
+            "title": "Audio Beats",
+            "type": "array"
+          },
+          "ducking": {
+            "default": true,
+            "title": "Ducking",
+            "type": "boolean"
+          }
+        },
+        "title": "SceneAudioPlan",
+        "type": "object"
+      },
+      "ScriptTurn": {
+        "description": "One semantic utterance; subtitle pagination is deliberately separate.",
+        "properties": {
+          "role": {
+            "default": "narrator",
+            "title": "Role",
+            "type": "string"
+          },
+          "speaker_name": {
+            "default": "旁白",
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "speaking": {
+            "default": false,
+            "title": "Speaking",
+            "type": "boolean"
+          },
+          "delivery_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TurnDelivery"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "emotion": {
+            "default": "克制自然",
+            "title": "Emotion",
+            "type": "string"
+          },
+          "source_quote": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Source Quote",
+            "type": "string"
+          },
+          "derivation": {
+            "$ref": "#/$defs/TurnDerivation",
+            "default": "verbatim"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TurnDevice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "serves": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Serves",
+            "type": "array"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "ScriptTurn",
+        "type": "object"
+      },
+      "Shot": {
+        "properties": {
+          "index": {
+            "minimum": 1,
+            "title": "Index",
+            "type": "integer"
+          },
+          "narration": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Narration",
+            "type": "string"
+          },
+          "subtitle": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "visual_prompt": {
+            "title": "Visual Prompt",
+            "type": "string"
+          },
+          "motion_prompt": {
+            "title": "Motion Prompt",
+            "type": "string"
+          },
+          "characters": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Characters",
+            "type": "array"
+          },
+          "extras": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extras",
+            "type": "array"
+          },
+          "listeners": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Listeners",
+            "type": "array"
+          },
+          "location": {
+            "default": "",
+            "title": "Location",
+            "type": "string"
+          },
+          "source_quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Quote",
+            "type": "string"
+          },
+          "scene_job": {
+            "default": "推进",
+            "title": "Scene Job",
+            "type": "string"
+          },
+          "change": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Change",
+            "type": "string"
+          },
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "shot_scale": {
+            "default": "中近景",
+            "title": "Shot Scale",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/$defs/ScriptTurn"
+            },
+            "title": "Turns",
+            "type": "array"
+          },
+          "performance_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PerformancePlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "camera_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CameraPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "visual_strategy": {
+            "$ref": "#/$defs/VisualStrategy",
+            "default": "auto"
+          },
+          "keyframe_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Keyframe Reasons",
+            "type": "array"
+          },
+          "shot_intent": {
+            "$ref": "#/$defs/ShotIntent"
+          },
+          "audio_plan": {
+            "$ref": "#/$defs/SceneAudioPlan"
+          },
+          "script_open_state": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HandoffState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "script_close_state": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HandoffState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "index",
+          "narration",
+          "subtitle",
+          "visual_prompt",
+          "motion_prompt",
+          "source_quote"
+        ],
+        "title": "Shot",
+        "type": "object"
+      },
+      "ShotIntent": {
+        "properties": {
+          "dramatic_function": {
+            "default": "advance",
+            "pattern": "^(establish|advance|pressure|withhold|reveal|payoff|reaction|transition|cliffhanger)$",
+            "title": "Dramatic Function",
+            "type": "string"
+          },
+          "power_relation": {
+            "default": "未明确",
+            "title": "Power Relation",
+            "type": "string"
+          },
+          "emotion_target": {
+            "default": "保持关注",
+            "title": "Emotion Target",
+            "type": "string"
+          },
+          "information_fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Information Fact Ids",
+            "type": "array"
+          },
+          "viewer_focus": {
+            "default": "当前主要动作与反应",
+            "title": "Viewer Focus",
+            "type": "string"
+          },
+          "retention_beat_id": {
+            "default": "",
+            "title": "Retention Beat Id",
+            "type": "string"
+          }
+        },
+        "title": "ShotIntent",
+        "type": "object"
+      },
+      "ShowrunnerPlan": {
+        "description": "Commercial short-drama decisions made before shot execution.",
+        "properties": {
+          "planning_mode": {
+            "default": "planner",
+            "pattern": "^(planner|inferred_fallback)$",
+            "title": "Planning Mode",
+            "type": "string"
+          },
+          "retention": {
+            "$ref": "#/$defs/RetentionPlan"
+          },
+          "information_states": {
+            "items": {
+              "$ref": "#/$defs/InformationState"
+            },
+            "maxItems": 12,
+            "title": "Information States",
+            "type": "array"
+          },
+          "character_state_deltas": {
+            "items": {
+              "$ref": "#/$defs/CharacterStateDelta"
+            },
+            "maxItems": 12,
+            "title": "Character State Deltas",
+            "type": "array"
+          },
+          "episode_mode": {
+            "$ref": "#/$defs/EpisodeMode",
+            "default": "pressure_episode"
+          },
+          "protagonist_choice": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Protagonist Choice",
+            "type": "string"
+          },
+          "choice_source_quote": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Choice Source Quote",
+            "type": "string"
+          },
+          "cost_paid": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Cost Paid",
+            "type": "string"
+          },
+          "cost_source_quote": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Cost Source Quote",
+            "type": "string"
+          },
+          "opposition": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EpisodeOpposition"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "retention"
+        ],
+        "title": "ShowrunnerPlan",
+        "type": "object"
+      },
+      "SpeechStrategy": {
+        "description": "Whether spoken words are locked before video generation.",
+        "enum": [
+          "locked",
+          "native",
+          "adaptive"
+        ],
+        "title": "SpeechStrategy",
+        "type": "string"
+      },
+      "TurnDelivery": {
+        "description": "How an utterance is heard and whether it should drive visible lips.",
+        "enum": [
+          "narration",
+          "visible_dialogue",
+          "offscreen_dialogue",
+          "inner_voice",
+          "title_card",
+          "silent_action"
+        ],
+        "title": "TurnDelivery",
+        "type": "string"
+      },
+      "TurnDerivation": {
+        "description": "How a turn's text relates to the chapter text it is grounded in.\n\n``VERBATIM`` copies a quoted line out of the chapter.  ``DERIVED`` stages a\nnarrated passage as dialogue, action or reaction; it stays bound to the\nnarration it came from and may not introduce facts that narration does not\nalready carry.  Without this distinction the only legal move for a narrated\npassage is to become explanatory narration, which the short-drama profile\nthen budgets away, and the chapter's causal tissue disappears.",
+        "enum": [
+          "verbatim",
+          "abridged",
+          "derived"
+        ],
+        "title": "TurnDerivation",
+        "type": "string"
+      },
+      "TurnDevice": {
+        "enum": [
+          "listener_qa",
+          "crowd_proxy",
+          "half_line",
+          "evidence_object",
+          "spatial",
+          "consequence",
+          "inner_voice",
+          "narration"
+        ],
+        "title": "TurnDevice",
+        "type": "string"
+      },
+      "VisualStrategy": {
+        "description": "How a shot obtains its initial visual conditioning.",
+        "enum": [
+          "auto",
+          "direct-assets",
+          "scene-only",
+          "story-keyframe"
+        ],
+        "title": "VisualStrategy",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "video_title": {
+        "title": "Video Title",
+        "type": "string"
+      },
+      "hook": {
+        "title": "Hook",
+        "type": "string"
+      },
+      "summary": {
+        "title": "Summary",
+        "type": "string"
+      },
+      "shots": {
+        "items": {
+          "$ref": "#/$defs/Shot"
+        },
+        "minItems": 1,
+        "title": "Shots",
+        "type": "array"
+      },
+      "next_preview": {
+        "default": "敬请期待下一集",
+        "title": "Next Preview",
+        "type": "string"
+      },
+      "adaptation_ledger": {
+        "items": {
+          "$ref": "#/$defs/AdaptationLedgerItem"
+        },
+        "title": "Adaptation Ledger",
+        "type": "array"
+      },
+      "creative_profile": {
+        "default": "faithful-chronological-v1",
+        "title": "Creative Profile",
+        "type": "string"
+      },
+      "dramaturgy": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/EpisodeDramaturgy"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "showrunner_plan": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ShowrunnerPlan"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "episode_contract": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/EpisodeContract"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "video_title",
+      "hook",
+      "summary",
+      "shots"
+    ],
+    "title": "EpisodePlan",
+    "type": "object"
+  },
+  "AssetRecord": {
+    "properties": {
+      "asset_id": {
+        "title": "Asset Id",
+        "type": "string"
+      },
+      "kind": {
+        "title": "Kind",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "version": {
+        "default": "v001",
+        "title": "Version",
+        "type": "string"
+      },
+      "approval_status": {
+        "default": "approved",
+        "title": "Approval Status",
+        "type": "string"
+      },
+      "rights_status": {
+        "default": "project-generated",
+        "title": "Rights Status",
+        "type": "string"
+      },
+      "identity_invariants": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Identity Invariants",
+        "type": "array"
+      },
+      "state_variables": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "title": "State Variables",
+        "type": "object"
+      },
+      "reference_scope": {
+        "additionalProperties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": "Reference Scope",
+        "type": "object"
+      },
+      "spec_path": {
+        "title": "Spec Path",
+        "type": "string"
+      },
+      "primary_image": {
+        "title": "Primary Image",
+        "type": "string"
+      },
+      "secondary_image": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Secondary Image"
+      },
+      "prompt_sha256": {
+        "title": "Prompt Sha256",
+        "type": "string"
+      }
+    },
+    "required": [
+      "asset_id",
+      "kind",
+      "name",
+      "spec_path",
+      "primary_image",
+      "prompt_sha256"
+    ],
+    "title": "AssetRecord",
+    "type": "object"
+  },
+  "SeriesAssetManifest": {
+    "$defs": {
+      "AssetRecord": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "default": "v001",
+            "title": "Version",
+            "type": "string"
+          },
+          "approval_status": {
+            "default": "approved",
+            "title": "Approval Status",
+            "type": "string"
+          },
+          "rights_status": {
+            "default": "project-generated",
+            "title": "Rights Status",
+            "type": "string"
+          },
+          "identity_invariants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity Invariants",
+            "type": "array"
+          },
+          "state_variables": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "State Variables",
+            "type": "object"
+          },
+          "reference_scope": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Reference Scope",
+            "type": "object"
+          },
+          "spec_path": {
+            "title": "Spec Path",
+            "type": "string"
+          },
+          "primary_image": {
+            "title": "Primary Image",
+            "type": "string"
+          },
+          "secondary_image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Secondary Image"
+          },
+          "prompt_sha256": {
+            "title": "Prompt Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "kind",
+          "name",
+          "spec_path",
+          "primary_image",
+          "prompt_sha256"
+        ],
+        "title": "AssetRecord",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "schema_version": {
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "style_fingerprint": {
+        "title": "Style Fingerprint",
+        "type": "string"
+      },
+      "characters": {
+        "items": {
+          "$ref": "#/$defs/AssetRecord"
+        },
+        "title": "Characters",
+        "type": "array"
+      },
+      "locations": {
+        "items": {
+          "$ref": "#/$defs/AssetRecord"
+        },
+        "title": "Locations",
+        "type": "array"
+      },
+      "voice_assignments": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "title": "Voice Assignments",
+        "type": "object"
+      }
+    },
+    "required": [
+      "style_fingerprint",
+      "characters",
+      "locations",
+      "voice_assignments"
+    ],
+    "title": "SeriesAssetManifest",
+    "type": "object"
+  },
+  "ProductionPlan": {
+    "$defs": {
+      "ActionPhysicsPlan": {
+        "properties": {
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          },
+          "preparation": {
+            "title": "Preparation",
+            "type": "string"
+          },
+          "force": {
+            "title": "Force",
+            "type": "string"
+          },
+          "contact": {
+            "title": "Contact",
+            "type": "string"
+          },
+          "reaction": {
+            "title": "Reaction",
+            "type": "string"
+          },
+          "settling": {
+            "title": "Settling",
+            "type": "string"
+          },
+          "environment_feedback": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Environment Feedback",
+            "type": "array"
+          }
+        },
+        "required": [
+          "trigger",
+          "preparation",
+          "force",
+          "contact",
+          "reaction",
+          "settling"
+        ],
+        "title": "ActionPhysicsPlan",
+        "type": "object"
+      },
+      "AudioBeat": {
+        "description": "A relative, trigger-bound sound event inside one shot.",
+        "properties": {
+          "position_ratio": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Position Ratio",
+            "type": "number"
+          },
+          "cue_type": {
+            "pattern": "^(silence|ambience|impact|music_rise|music_cut|bass_drop|heartbeat|sfx|duck|release)$",
+            "title": "Cue Type",
+            "type": "string"
+          },
+          "cue": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Cue",
+            "type": "string"
+          },
+          "trigger": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Trigger",
+            "type": "string"
+          },
+          "retention_beat_id": {
+            "default": "",
+            "title": "Retention Beat Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position_ratio",
+          "cue_type",
+          "cue",
+          "trigger"
+        ],
+        "title": "AudioBeat",
+        "type": "object"
+      },
+      "CameraBeat": {
+        "properties": {
+          "phase": {
+            "pattern": "^(opening|development|resolution)$",
+            "title": "Phase",
+            "type": "string"
+          },
+          "trajectory": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Trajectory",
+            "type": "string"
+          },
+          "framing": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Framing",
+            "type": "string"
+          },
+          "parallax": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Parallax",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "trajectory",
+          "framing",
+          "parallax"
+        ],
+        "title": "CameraBeat",
+        "type": "object"
+      },
+      "CameraPlan": {
+        "properties": {
+          "mode": {
+            "default": "locked",
+            "pattern": "^(locked|motivated_subtle|motivated_emphasis)$",
+            "title": "Mode",
+            "type": "string"
+          },
+          "motivation": {
+            "default": "人物表演承担画面动态",
+            "maxLength": 180,
+            "title": "Motivation",
+            "type": "string"
+          },
+          "action_axis": {
+            "default": "沿首次建立的行动轴同侧取景",
+            "maxLength": 180,
+            "title": "Action Axis",
+            "type": "string"
+          },
+          "screen_direction": {
+            "default": "保持人物左右位置、视线和运动方向连续",
+            "maxLength": 180,
+            "title": "Screen Direction",
+            "type": "string"
+          },
+          "start_position": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Start Position",
+            "type": "string"
+          },
+          "camera_beats": {
+            "items": {
+              "$ref": "#/$defs/CameraBeat"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Camera Beats",
+            "type": "array"
+          },
+          "end_position": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "End Position",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_position",
+          "camera_beats",
+          "end_position"
+        ],
+        "title": "CameraPlan",
+        "type": "object"
+      },
+      "EpisodeSequenceContract": {
+        "properties": {
+          "sequence_version": {
+            "default": "hell-grind-adapted-v1",
+            "title": "Sequence Version",
+            "type": "string"
+          },
+          "sequence_goal": {
+            "title": "Sequence Goal",
+            "type": "string"
+          },
+          "exact_generation_count": {
+            "minimum": 1,
+            "title": "Exact Generation Count",
+            "type": "integer"
+          },
+          "ordered_group_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Ordered Group Ids",
+            "type": "array"
+          },
+          "narrative_progression": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Narrative Progression",
+            "type": "array"
+          },
+          "visual_motifs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Visual Motifs",
+            "type": "array"
+          },
+          "coverage_rhythm": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Coverage Rhythm",
+            "type": "array"
+          },
+          "camera_rhythm": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Camera Rhythm",
+            "type": "array"
+          },
+          "lighting_continuity": {
+            "title": "Lighting Continuity",
+            "type": "string"
+          },
+          "audio_continuity": {
+            "title": "Audio Continuity",
+            "type": "string"
+          },
+          "transition_rules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Transition Rules",
+            "type": "array"
+          },
+          "final_landing": {
+            "title": "Final Landing",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_goal",
+          "exact_generation_count",
+          "ordered_group_ids",
+          "narrative_progression",
+          "coverage_rhythm",
+          "camera_rhythm",
+          "lighting_continuity",
+          "audio_continuity",
+          "final_landing"
+        ],
+        "title": "EpisodeSequenceContract",
+        "type": "object"
+      },
+      "HandoffState": {
+        "properties": {
+          "knowledge": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Knowledge",
+            "type": "object"
+          },
+          "power": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Power",
+            "type": "object"
+          },
+          "relationship": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Relationship",
+            "type": "object"
+          },
+          "physical": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Physical",
+            "type": "object"
+          },
+          "ongoing_action": {
+            "default": "none",
+            "title": "Ongoing Action",
+            "type": "string"
+          }
+        },
+        "title": "HandoffState",
+        "type": "object"
+      },
+      "ImagePromptContract": {
+        "properties": {
+          "contract_version": {
+            "default": "hell-grind-adapted-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "purpose": {
+            "default": "shot_start_keyframe",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "exact_subject_count": {
+            "maximum": 6,
+            "minimum": 0,
+            "title": "Exact Subject Count",
+            "type": "integer"
+          },
+          "subject_asset_version_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Subject Asset Version Ids",
+            "type": "array"
+          },
+          "location_asset_version_id": {
+            "title": "Location Asset Version Id",
+            "type": "string"
+          },
+          "reference_scopes": {
+            "items": {
+              "$ref": "#/$defs/ReferenceScope"
+            },
+            "title": "Reference Scopes",
+            "type": "array"
+          },
+          "spatial_anchors": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Spatial Anchors",
+            "type": "array"
+          },
+          "action_moment": {
+            "title": "Action Moment",
+            "type": "string"
+          },
+          "composition": {
+            "title": "Composition",
+            "type": "string"
+          },
+          "perspective_focus": {
+            "title": "Perspective Focus",
+            "type": "string"
+          },
+          "lighting": {
+            "title": "Lighting",
+            "type": "string"
+          },
+          "color_material": {
+            "title": "Color Material",
+            "type": "string"
+          },
+          "risk_focus": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Risk Focus",
+            "type": "array"
+          },
+          "delivery": {
+            "default": "9:16 portrait JPEG keyframe; no burned-in text",
+            "title": "Delivery",
+            "type": "string"
+          }
+        },
+        "required": [
+          "exact_subject_count",
+          "location_asset_version_id",
+          "action_moment",
+          "composition",
+          "perspective_focus",
+          "lighting",
+          "color_material"
+        ],
+        "title": "ImagePromptContract",
+        "type": "object"
+      },
+      "MotionActionType": {
+        "description": "The visible dramatic job performed by one causal motion beat.",
+        "enum": [
+          "choose",
+          "refuse",
+          "confront",
+          "ask",
+          "move",
+          "reveal",
+          "react",
+          "wait",
+          "press"
+        ],
+        "title": "MotionActionType",
+        "type": "string"
+      },
+      "MotionBeat": {
+        "description": "One causally ordered performance beat inside a continuous shot.",
+        "properties": {
+          "phase": {
+            "pattern": "^(opening|development|resolution)$",
+            "title": "Phase",
+            "type": "string"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 14.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Seconds"
+          },
+          "actor": {
+            "default": "",
+            "maxLength": 80,
+            "title": "Actor",
+            "type": "string"
+          },
+          "target": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Target",
+            "type": "string"
+          },
+          "action_type": {
+            "$ref": "#/$defs/MotionActionType",
+            "default": "react"
+          },
+          "trigger": {
+            "default": "",
+            "title": "Trigger",
+            "type": "string"
+          },
+          "action": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "reaction": {
+            "default": "",
+            "maxLength": 180,
+            "title": "Reaction",
+            "type": "string"
+          },
+          "expression_transition": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Expression Transition",
+            "type": "string"
+          },
+          "end_state": {
+            "default": "",
+            "maxLength": 180,
+            "title": "End State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "action"
+        ],
+        "title": "MotionBeat",
+        "type": "object"
+      },
+      "PerformancePlan": {
+        "properties": {
+          "objective": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "Objective",
+            "type": "string"
+          },
+          "start_state": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Start State",
+            "type": "string"
+          },
+          "motion_beats": {
+            "items": {
+              "$ref": "#/$defs/MotionBeat"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Motion Beats",
+            "type": "array"
+          },
+          "end_state": {
+            "maxLength": 180,
+            "minLength": 1,
+            "title": "End State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "objective",
+          "start_state",
+          "motion_beats",
+          "end_state"
+        ],
+        "title": "PerformancePlan",
+        "type": "object"
+      },
+      "ProviderPromptAdapter": {
+        "properties": {
+          "adapter_version": {
+            "default": "runtime-compact-v1",
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "image_model": {
+            "title": "Image Model",
+            "type": "string"
+          },
+          "video_model": {
+            "title": "Video Model",
+            "type": "string"
+          },
+          "contract_sha256": {
+            "title": "Contract Sha256",
+            "type": "string"
+          },
+          "reference_order": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reference Order",
+            "type": "array"
+          },
+          "image_prompt": {
+            "title": "Image Prompt",
+            "type": "string"
+          },
+          "video_prompt": {
+            "title": "Video Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "image_model",
+          "video_model",
+          "contract_sha256",
+          "image_prompt",
+          "video_prompt"
+        ],
+        "title": "ProviderPromptAdapter",
+        "type": "object"
+      },
+      "ReferenceScope": {
+        "properties": {
+          "reference_id": {
+            "title": "Reference Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "inherit": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Inherit",
+            "type": "array"
+          },
+          "exclude": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclude",
+            "type": "array"
+          }
+        },
+        "required": [
+          "reference_id",
+          "kind"
+        ],
+        "title": "ReferenceScope",
+        "type": "object"
+      },
+      "RuntimeScene": {
+        "properties": {
+          "scene_id": {
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "index": {
+            "minimum": 1,
+            "title": "Index",
+            "type": "integer"
+          },
+          "location_asset_id": {
+            "title": "Location Asset Id",
+            "type": "string"
+          },
+          "narrative_job": {
+            "title": "Narrative Job",
+            "type": "string"
+          },
+          "shot_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Shot Ids",
+            "type": "array"
+          },
+          "spatial_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SceneSpatialContract"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "scene_id",
+          "index",
+          "location_asset_id",
+          "narrative_job"
+        ],
+        "title": "RuntimeScene",
+        "type": "object"
+      },
+      "RuntimeShot": {
+        "properties": {
+          "shot_id": {
+            "title": "Shot Id",
+            "type": "string"
+          },
+          "scene_id": {
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "index": {
+            "minimum": 1,
+            "title": "Index",
+            "type": "integer"
+          },
+          "narrative_job": {
+            "title": "Narrative Job",
+            "type": "string"
+          },
+          "location_asset_id": {
+            "title": "Location Asset Id",
+            "type": "string"
+          },
+          "source_quote": {
+            "title": "Source Quote",
+            "type": "string"
+          },
+          "shot_intent": {
+            "$ref": "#/$defs/ShotIntent"
+          },
+          "unit_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Unit Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "shot_id",
+          "scene_id",
+          "index",
+          "narrative_job",
+          "location_asset_id",
+          "source_quote",
+          "unit_ids"
+        ],
+        "title": "RuntimeShot",
+        "type": "object"
+      },
+      "RuntimeUnit": {
+        "properties": {
+          "unit_id": {
+            "title": "Unit Id",
+            "type": "string"
+          },
+          "episode_id": {
+            "title": "Episode Id",
+            "type": "string"
+          },
+          "scene_id": {
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "shot_id": {
+            "title": "Shot Id",
+            "type": "string"
+          },
+          "shot_index": {
+            "minimum": 1,
+            "title": "Shot Index",
+            "type": "integer"
+          },
+          "turn_index": {
+            "minimum": 1,
+            "title": "Turn Index",
+            "type": "integer"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "speaker_name": {
+            "title": "Speaker Name",
+            "type": "string"
+          },
+          "speaking": {
+            "title": "Speaking",
+            "type": "boolean"
+          },
+          "delivery_mode": {
+            "$ref": "#/$defs/TurnDelivery",
+            "default": "narration"
+          },
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "emotion": {
+            "title": "Emotion",
+            "type": "string"
+          },
+          "source_quote": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Quote",
+            "type": "string"
+          },
+          "character_asset_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Character Asset Ids",
+            "type": "array"
+          },
+          "location_asset_id": {
+            "title": "Location Asset Id",
+            "type": "string"
+          },
+          "location_name": {
+            "default": "",
+            "title": "Location Name",
+            "type": "string"
+          },
+          "voice": {
+            "title": "Voice",
+            "type": "string"
+          },
+          "visual_prompt": {
+            "title": "Visual Prompt",
+            "type": "string"
+          },
+          "motion_instruction": {
+            "default": "",
+            "title": "Motion Instruction",
+            "type": "string"
+          },
+          "motion_prompt": {
+            "title": "Motion Prompt",
+            "type": "string"
+          },
+          "keyframe_prompt": {
+            "title": "Keyframe Prompt",
+            "type": "string"
+          },
+          "actor_description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Actor Description"
+          },
+          "composition_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Composition Prompt"
+          },
+          "performance_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PerformancePlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "camera_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CameraPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "visual_strategy": {
+            "$ref": "#/$defs/VisualStrategy",
+            "default": "auto"
+          },
+          "keyframe_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Keyframe Reasons",
+            "type": "array"
+          },
+          "shot_intent": {
+            "$ref": "#/$defs/ShotIntent"
+          },
+          "audio_plan": {
+            "$ref": "#/$defs/SceneAudioPlan"
+          },
+          "action_physics_plan": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ActionPhysicsPlan"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "script_open_state": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HandoffState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "script_close_state": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HandoffState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "keyframe_path": {
+            "title": "Keyframe Path",
+            "type": "string"
+          },
+          "raw_video_path": {
+            "title": "Raw Video Path",
+            "type": "string"
+          },
+          "segment_path": {
+            "title": "Segment Path",
+            "type": "string"
+          },
+          "subtitle_alignment": {
+            "default": "pending",
+            "title": "Subtitle Alignment",
+            "type": "string"
+          },
+          "speech_start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Speech Start"
+          },
+          "speech_end": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Speech End"
+          },
+          "planned_seconds": {
+            "default": 4.0,
+            "maximum": 14.0,
+            "minimum": 4.0,
+            "title": "Planned Seconds",
+            "type": "number"
+          },
+          "performance_beat_indexes": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Performance Beat Indexes",
+            "type": "array"
+          },
+          "segment_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Segment Seconds"
+          },
+          "attempt": {
+            "default": 0,
+            "title": "Attempt",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unit_id",
+          "episode_id",
+          "scene_id",
+          "shot_id",
+          "shot_index",
+          "turn_index",
+          "role",
+          "speaker_name",
+          "speaking",
+          "text",
+          "emotion",
+          "source_quote",
+          "location_asset_id",
+          "voice",
+          "visual_prompt",
+          "motion_prompt",
+          "keyframe_prompt",
+          "keyframe_path",
+          "raw_video_path",
+          "segment_path"
+        ],
+        "title": "RuntimeUnit",
+        "type": "object"
+      },
+      "RuntimeVisualGroup": {
+        "description": "One continuous visual performance with video-model native audio.",
+        "properties": {
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "scene_id": {
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "shot_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Shot Ids",
+            "type": "array"
+          },
+          "unit_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Unit Ids",
+            "type": "array"
+          },
+          "location_asset_id": {
+            "title": "Location Asset Id",
+            "type": "string"
+          },
+          "character_asset_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Character Asset Ids",
+            "type": "array"
+          },
+          "spatial_anchor": {
+            "title": "Spatial Anchor",
+            "type": "string"
+          },
+          "combined_text": {
+            "minLength": 1,
+            "title": "Combined Text",
+            "type": "string"
+          },
+          "keyframe_prompt": {
+            "minLength": 1,
+            "title": "Keyframe Prompt",
+            "type": "string"
+          },
+          "motion_prompt": {
+            "minLength": 1,
+            "title": "Motion Prompt",
+            "type": "string"
+          },
+          "keyframe_path": {
+            "title": "Keyframe Path",
+            "type": "string"
+          },
+          "raw_video_path": {
+            "title": "Raw Video Path",
+            "type": "string"
+          },
+          "segment_path": {
+            "title": "Segment Path",
+            "type": "string"
+          },
+          "planned_seconds": {
+            "default": 4.0,
+            "maximum": 14.0,
+            "minimum": 4.0,
+            "title": "Planned Seconds",
+            "type": "number"
+          },
+          "segment_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Segment Seconds"
+          },
+          "visual_strategy": {
+            "$ref": "#/$defs/VisualStrategy",
+            "default": "auto"
+          },
+          "keyframe_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Keyframe Reasons",
+            "type": "array"
+          },
+          "shot_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ShotContract"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "image_contract": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ImagePromptContract"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "prompt_adapter": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ProviderPromptAdapter"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "group_id",
+          "scene_id",
+          "shot_ids",
+          "unit_ids",
+          "location_asset_id",
+          "spatial_anchor",
+          "combined_text",
+          "keyframe_prompt",
+          "motion_prompt",
+          "keyframe_path",
+          "raw_video_path",
+          "segment_path"
+        ],
+        "title": "RuntimeVisualGroup",
+        "type": "object"
+      },
+      "SceneAudioPlan": {
+        "description": "Editorial sound intent for video-model native dialogue.",
+        "properties": {
+          "speech_strategy": {
+            "$ref": "#/$defs/SpeechStrategy",
+            "default": "native"
+          },
+          "voice_reference_id": {
+            "default": "",
+            "title": "Voice Reference Id",
+            "type": "string"
+          },
+          "delivery_intent": {
+            "default": "克制自然",
+            "title": "Delivery Intent",
+            "type": "string"
+          },
+          "pace": {
+            "default": "自然",
+            "title": "Pace",
+            "type": "string"
+          },
+          "energy": {
+            "default": 0.5,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Energy",
+            "type": "number"
+          },
+          "pauses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pauses",
+            "type": "array"
+          },
+          "music_cue": {
+            "default": "",
+            "title": "Music Cue",
+            "type": "string"
+          },
+          "ambience": {
+            "default": "",
+            "title": "Ambience",
+            "type": "string"
+          },
+          "sfx_events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sfx Events",
+            "type": "array"
+          },
+          "audio_beats": {
+            "items": {
+              "$ref": "#/$defs/AudioBeat"
+            },
+            "maxItems": 8,
+            "title": "Audio Beats",
+            "type": "array"
+          },
+          "ducking": {
+            "default": true,
+            "title": "Ducking",
+            "type": "boolean"
+          }
+        },
+        "title": "SceneAudioPlan",
+        "type": "object"
+      },
+      "SceneSpatialContract": {
+        "properties": {
+          "location_version_id": {
+            "title": "Location Version Id",
+            "type": "string"
+          },
+          "time_of_day": {
+            "default": "unspecified",
+            "title": "Time Of Day",
+            "type": "string"
+          },
+          "zones": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Zones",
+            "type": "object"
+          },
+          "anchor_objects": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Anchor Objects",
+            "type": "array"
+          },
+          "allowed_asset_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Asset Ids",
+            "type": "array"
+          },
+          "lighting_source": {
+            "default": "approved location reference",
+            "title": "Lighting Source",
+            "type": "string"
+          },
+          "action_axis": {
+            "title": "Action Axis",
+            "type": "string"
+          },
+          "continuity_notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Continuity Notes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "location_version_id",
+          "action_axis"
+        ],
+        "title": "SceneSpatialContract",
+        "type": "object"
+      },
+      "ShotContract": {
+        "properties": {
+          "contract_version": {
+            "default": "hell-grind-adapted-v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "narrative_goal": {
+            "title": "Narrative Goal",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 14.0,
+            "title": "Duration Seconds",
+            "type": "number"
+          },
+          "visible_asset_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Visible Asset Ids",
+            "type": "array"
+          },
+          "audible_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Audible Roles",
+            "type": "array"
+          },
+          "reference_scopes": {
+            "items": {
+              "$ref": "#/$defs/ReferenceScope"
+            },
+            "title": "Reference Scopes",
+            "type": "array"
+          },
+          "open_state": {
+            "title": "Open State",
+            "type": "string"
+          },
+          "open_handoff": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HandoffState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "beat_timeline": {
+            "items": {
+              "$ref": "#/$defs/ShotContractBeat"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Beat Timeline",
+            "type": "array"
+          },
+          "close_state": {
+            "title": "Close State",
+            "type": "string"
+          },
+          "close_handoff": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HandoffState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "camera_start": {
+            "title": "Camera Start",
+            "type": "string"
+          },
+          "camera_path": {
+            "title": "Camera Path",
+            "type": "string"
+          },
+          "camera_end": {
+            "title": "Camera End",
+            "type": "string"
+          },
+          "continuity_in": {
+            "title": "Continuity In",
+            "type": "string"
+          },
+          "continuity_out": {
+            "title": "Continuity Out",
+            "type": "string"
+          },
+          "must_hold": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Must Hold",
+            "type": "array"
+          },
+          "changes_here": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Changes Here",
+            "type": "array"
+          },
+          "must_not_appear": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Must Not Appear",
+            "type": "array"
+          },
+          "risk_focus": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Risk Focus",
+            "type": "array"
+          },
+          "exact_dialogue": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Exact Dialogue",
+            "type": "array"
+          },
+          "external_audio_is_master": {
+            "default": true,
+            "title": "External Audio Is Master",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "narrative_goal",
+          "duration_seconds",
+          "open_state",
+          "beat_timeline",
+          "close_state",
+          "camera_start",
+          "camera_path",
+          "camera_end",
+          "continuity_in",
+          "continuity_out"
+        ],
+        "title": "ShotContract",
+        "type": "object"
+      },
+      "ShotContractBeat": {
+        "properties": {
+          "start_seconds": {
+            "minimum": 0.0,
+            "title": "Start Seconds",
+            "type": "number"
+          },
+          "end_seconds": {
+            "exclusiveMinimum": 0.0,
+            "title": "End Seconds",
+            "type": "number"
+          },
+          "actor_or_source": {
+            "title": "Actor Or Source",
+            "type": "string"
+          },
+          "trigger": {
+            "default": "",
+            "title": "Trigger",
+            "type": "string"
+          },
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "reaction": {
+            "default": "",
+            "title": "Reaction",
+            "type": "string"
+          },
+          "end_state": {
+            "default": "",
+            "title": "End State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_seconds",
+          "end_seconds",
+          "actor_or_source",
+          "action"
+        ],
+        "title": "ShotContractBeat",
+        "type": "object"
+      },
+      "ShotIntent": {
+        "properties": {
+          "dramatic_function": {
+            "default": "advance",
+            "pattern": "^(establish|advance|pressure|withhold|reveal|payoff|reaction|transition|cliffhanger)$",
+            "title": "Dramatic Function",
+            "type": "string"
+          },
+          "power_relation": {
+            "default": "未明确",
+            "title": "Power Relation",
+            "type": "string"
+          },
+          "emotion_target": {
+            "default": "保持关注",
+            "title": "Emotion Target",
+            "type": "string"
+          },
+          "information_fact_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Information Fact Ids",
+            "type": "array"
+          },
+          "viewer_focus": {
+            "default": "当前主要动作与反应",
+            "title": "Viewer Focus",
+            "type": "string"
+          },
+          "retention_beat_id": {
+            "default": "",
+            "title": "Retention Beat Id",
+            "type": "string"
+          }
+        },
+        "title": "ShotIntent",
+        "type": "object"
+      },
+      "SpeechStrategy": {
+        "description": "Whether spoken words are locked before video generation.",
+        "enum": [
+          "locked",
+          "native",
+          "adaptive"
+        ],
+        "title": "SpeechStrategy",
+        "type": "string"
+      },
+      "TurnDelivery": {
+        "description": "How an utterance is heard and whether it should drive visible lips.",
+        "enum": [
+          "narration",
+          "visible_dialogue",
+          "offscreen_dialogue",
+          "inner_voice",
+          "title_card",
+          "silent_action"
+        ],
+        "title": "TurnDelivery",
+        "type": "string"
+      },
+      "VisualStrategy": {
+        "description": "How a shot obtains its initial visual conditioning.",
+        "enum": [
+          "auto",
+          "direct-assets",
+          "scene-only",
+          "story-keyframe"
+        ],
+        "title": "VisualStrategy",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "schema_version": {
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "video_id": {
+        "title": "Video Id",
+        "type": "string"
+      },
+      "source_title": {
+        "title": "Source Title",
+        "type": "string"
+      },
+      "source_text_sha256": {
+        "title": "Source Text Sha256",
+        "type": "string"
+      },
+      "style_fingerprint": {
+        "title": "Style Fingerprint",
+        "type": "string"
+      },
+      "visual_style": {
+        "default": "",
+        "title": "Visual Style",
+        "type": "string"
+      },
+      "palette": {
+        "default": "",
+        "title": "Palette",
+        "type": "string"
+      },
+      "scenes": {
+        "items": {
+          "$ref": "#/$defs/RuntimeScene"
+        },
+        "minItems": 1,
+        "title": "Scenes",
+        "type": "array"
+      },
+      "shots": {
+        "items": {
+          "$ref": "#/$defs/RuntimeShot"
+        },
+        "minItems": 1,
+        "title": "Shots",
+        "type": "array"
+      },
+      "units": {
+        "items": {
+          "$ref": "#/$defs/RuntimeUnit"
+        },
+        "minItems": 1,
+        "title": "Units",
+        "type": "array"
+      },
+      "visual_groups": {
+        "items": {
+          "$ref": "#/$defs/RuntimeVisualGroup"
+        },
+        "title": "Visual Groups",
+        "type": "array"
+      },
+      "sequence_contract": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/EpisodeSequenceContract"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "video_id",
+      "source_title",
+      "source_text_sha256",
+      "style_fingerprint",
+      "scenes",
+      "shots",
+      "units"
+    ],
+    "title": "ProductionPlan",
+    "type": "object"
+  }
+}

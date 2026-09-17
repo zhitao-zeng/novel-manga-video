@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from novel_manga import __version__
-from novel_manga.models import EpisodeStatus, SubmissionManifest, VideoRecord
+from experiments.legacy.models import EpisodeStatus, SubmissionManifest, VideoRecord
 from novel_manga.safety import safe_visual_prompt, scan_source
 
 

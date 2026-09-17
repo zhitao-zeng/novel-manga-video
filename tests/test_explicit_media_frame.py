@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import pytest
 from novel_manga.config import Settings
-from novel_manga.models import StoryBible, Character
+from novel_manga.models.bible import StoryBible, Character
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.asset_builder import FramedAssetFactory
 from novel_manga.media.asset_style import AssetStyle

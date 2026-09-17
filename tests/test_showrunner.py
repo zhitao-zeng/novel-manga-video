@@ -1,14 +1,10 @@
 from experiments.legacy.creative_direction import SHORT_DRAMA_PROFILE, apply_creative_direction
-from novel_manga.models import (
-    ChapterDiagnosis,
-    ChapterEvent,
-    Episode,
-    EpisodeDramaturgy,
-    EpisodePlan,
-    ScriptTurn,
-    Shot,
-    StoryBible,
-)
+from experiments.legacy.models import ChapterDiagnosis, ChapterEvent
+from novel_manga.models.source import Episode
+from novel_manga.models.drama import EpisodeDramaturgy
+from novel_manga.models.episode import EpisodePlan, Shot
+from novel_manga.models.dialogue import ScriptTurn
+from novel_manga.models.bible import StoryBible
 from experiments.legacy.planner import OpenAICompatiblePlanner
 from experiments.legacy.script_planning import evaluate_script_quality
 

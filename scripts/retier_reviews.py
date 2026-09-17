@@ -29,7 +29,7 @@ from novel_manga.review.contracts import STORY_FATAL
 from review_evidence_thin import load_review_rules, segment_texts
 from novel_manga.review.policy import compose_feedback, fix_tier, flag_line
 from review_judges_thin import script_check  # noqa: E402
-from novel_manga.models import StoryBible  # noqa: E402
+from novel_manga.models.bible import StoryBible
 
 
 def main() -> int:

@@ -4,7 +4,7 @@ import math
 import re
 from dataclasses import dataclass
 
-from .models import Episode
+from novel_manga.models.source import Episode
 
 
 _CHAPTER_PATTERNS = (

@@ -1,7 +1,7 @@
 import json
 import tempfile
 from pathlib import Path
-from novel_manga.models import StoryBible, Character
+from novel_manga.models.bible import StoryBible, Character
 from novel_manga.config import Settings
 from novel_manga.providers.base import ImageResult
 from novel_manga.media.asset_builder import FramedAssetFactory

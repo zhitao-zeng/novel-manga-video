@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 import novel_manga.llm.client as model_client
-import novel_manga.models as review_models
+from novel_manga.models.bible import StoryBible as review_models_StoryBible
 import novel_manga.review.contracts as review_contracts
 import novel_manga.review.policy as review_policy
 import novel_manga.review.storage as review_storage
@@ -17,7 +17,7 @@ import review_judges_thin as review_judges
 def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     novel_dir = episode_dir.parent
     rules = review_evidence.load_review_rules(novel_dir)
-    bible = review_models.StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
+    bible = review_models_StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}
     plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))

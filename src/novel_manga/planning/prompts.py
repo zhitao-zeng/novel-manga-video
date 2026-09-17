@@ -1,7 +1,7 @@
 """planning.prompts responsibilities, extracted without changing requests or policy."""
 from __future__ import annotations
 from novel_manga.planning.context import PlannerContext
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 import novel_manga.planning.constants as pc_constants
 
 def render_brief(prompt: str, *, ctx: PlannerContext) -> str:

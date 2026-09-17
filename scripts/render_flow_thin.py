@@ -32,7 +32,7 @@ from pathlib import Path
 
 
 from novel_manga.config import Settings
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 from novel_manga.story.dialogue import rewritten_dialogue
 from novel_manga.media.common import log, reference_digests
 from novel_manga.media.adapters import FramedPhanRouter, FramedLocalH3

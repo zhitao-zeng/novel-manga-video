@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from novel_manga.models import Character, StoryBible
+from novel_manga.models.bible import Character, StoryBible
 import novel_manga.planning.validation as pc_validation
 from novel_manga.planning.context import PlannerContext
 import repair_flow_thin as repair

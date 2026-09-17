@@ -12,7 +12,7 @@ import novel_manga.llm.client as model_client
 import novel_manga.review.policy as review_policy
 import novel_manga.review.prompts as review_prompts
 import review_judges_thin as review_judges  # noqa: E402
-from novel_manga.models import Character, StoryBible  # noqa: E402
+from novel_manga.models.bible import Character, StoryBible
 
 PROMPT = ("【生成目标】生成一段横屏短剧片段，约12秒。核心主体是达克尼斯，"
           "主要事件是从“掌心裂开一张嘴巴，露出利齿”到“邪教徒们面面相觑”。\n【人物】<达克尼斯>只对应@图片1")

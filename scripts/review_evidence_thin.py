@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 from novel_manga.review.evidence import ClipEvidence
 import thin_phases
 from identity_context_thin import prompt_block as identity_prompt_block

@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import ledger_judges_thin as ledger_judges
 import ledger_store_thin as ledger_store  # noqa: E402
-import novel_manga.models as review_models
+from novel_manga.models.bible import StoryBible as review_models_StoryBible
 import novel_manga.review.policy as review_policy
 import review_episode_thin as review_episode
 import review_evidence_thin as review_evidence
@@ -53,7 +53,7 @@ def test_verify_answer_maps_to_the_review_shape():
                                     "lead_face_swapped": False, "ghost_text": False, "verdict": "obvious", "evidence": "图3-6 猫代替薇奥拉亲莱恩"})
     assert obvious["story_ok"] is False and obvious["story_kind"] == "动作落在错误的人物身上" and obvious["severity"] == "fail"
     assert obvious["feedback"].startswith("按原文修正剧情：") and obvious["verify"]["action_by_wrong_person"]
-    assert review_policy.fix_tier(obvious, review_models.StoryBible(novel_title="t", genre="g", visual_style="v", palette="p", style_fingerprint="f", characters=[], locations=[])) == "must_fix"
+    assert review_policy.fix_tier(obvious, review_models_StoryBible(novel_title="t", genre="g", visual_style="v", palette="p", style_fingerprint="f", characters=[], locations=[])) == "must_fix"
     subtle = review_policy.verify_to_verdict({"people": [], "same_person_twice": False, "species_or_gender_wrong": False, "action_by_wrong_person": False, "actor_missing": False,
                                    "lead_face_swapped": False, "ghost_text": True, "verdict": "subtle", "evidence": "发色偏棕"})
     assert subtle["story_ok"] is True and subtle["identity_ok"] is False and subtle["severity"] == "minor" and subtle["text_or_watermark"] is True

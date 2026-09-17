@@ -2,7 +2,7 @@
 from __future__ import annotations
 from .issues import PlanningIssue, PlanningCode, ValidationResult
 from novel_manga.planning.context import PlannerContext
-from novel_manga.models import StoryBible
+from novel_manga.models.bible import StoryBible
 import re
 from .source_checks import source_address, chapter_coverage
 from .normalization import cast_and_actions, normalize_turns, end_state_and_visual_checks

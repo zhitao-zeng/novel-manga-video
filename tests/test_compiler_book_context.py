@@ -1,7 +1,7 @@
 import packing_context_thin as packing_context
 import json
 from concurrent.futures import ThreadPoolExecutor
-from novel_manga.models import StoryBible, Character
+from novel_manga.models.bible import StoryBible, Character
 
 
 def test_packer_book_and_saved_lane_settings_are_independent(tmp_path):
