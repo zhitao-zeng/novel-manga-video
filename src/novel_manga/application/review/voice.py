@@ -24,16 +24,17 @@ from collections import defaultdict
 from pathlib import Path
 
 
-MODEL = "/mnt/disk1/zengzhitao/models/speaker/campplus_sv_zh-cn.onnx"
 MIN_SECONDS = 0.6          # CAM++ needs a little audio to be meaningful
 SAME_SPEAKER = 0.55        # the usual operating point for this model
 
 
 def extractor() -> sherpa_onnx.SpeakerEmbeddingExtractor:
     import sherpa_onnx
-    config = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=MODEL, num_threads=4, debug=False, provider="cpu")
+    from novel_manga.application.configuration import project_root, speaker_model_path
+    model = str(speaker_model_path(project_root()))
+    config = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=model, num_threads=4, debug=False, provider="cpu")
     if not config.validate():
-        raise SystemExit(f"speaker model not usable: {MODEL}")
+        raise SystemExit(f"speaker model not usable: {model}")
     return sherpa_onnx.SpeakerEmbeddingExtractor(config)
 
 

@@ -9,12 +9,13 @@ import novel_manga.repair.scheduling as schedule_rules
 import novel_manga.application.repair.manager_flow as repair_manager_flow
 import novel_manga.application.repair.manager_state as repair_manager_state
 import novel_manga.application.repair.manager_workers as repair_manager_workers
+from novel_manga.application.configuration import RuntimePaths, project_root
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["run", "status", "progress", "pause", "resume"])
     parser.add_argument("--novel-dir", type=Path, required=True)
-    parser.add_argument("--legacy-dir", type=Path, default=Path("/mnt/disk1/zengzhitao/tmp/fix"))
+    parser.add_argument("--legacy-dir", type=Path, default=RuntimePaths(project_root()).temporary / 'fix')
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument('--prepared-only', action='store_true', help='admit new episodes only after current H3 book preparation passes')
     parser.add_argument('--model-workers', type=int, choices=range(1, 13), default=12,

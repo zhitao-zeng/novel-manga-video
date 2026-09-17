@@ -11,6 +11,10 @@ def project_root() -> Path:
     return Path(os.environ.get('NOVEL_PROJECT_ROOT') or Path(__file__).resolve().parents[3]).resolve()
 
 
+def speaker_model_path(root: Path) -> Path:
+    return Path(os.environ.get('NOVEL_SPEAKER_MODEL') or root.parent / 'models/speaker/campplus_sv_zh-cn.onnx')
+
+
 @dataclass(frozen=True)
 class RuntimePaths:
     root: Path
