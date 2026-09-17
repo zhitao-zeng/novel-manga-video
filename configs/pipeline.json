@@ -42,7 +42,7 @@
           "max": 24,
           "start": 24
         },
-        "parallel": 12,
+        "parallel": 20,
         "note": "本地 H3 池（configs/h3_pool.json）：常驻实例 + 夜班 active 实例，按实例空位派活"
       },
       "h3a": {
@@ -131,6 +131,8 @@
       "urls": [
         "http://127.0.0.1:18120/v1",
         "http://127.0.0.1:18121/v1",
+        "http://127.0.0.1:18122/v1",
+        "http://127.0.0.1:18123/v1",
         "http://127.0.0.1:18124/v1"
       ],
       "waiting_high": 40,
@@ -158,11 +160,13 @@
       "title": "星海龙途",
       "active": true,
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-xinghai",
-      "render_keys": [],
+      "render_keys": [
+        "h3pool"
+      ],
       "planning": {
         "local": 1
       },
-      "blocks_max": 1,
+      "blocks_max": 0,
       "blocks_min": 0,
       "ranges": [
         {
@@ -182,16 +186,22 @@
           "plan_mode": 30
         }
       ],
-      "plan_only": true
+      "plan_only": false,
+      "paused_keys": [
+        "sd20",
+        "sd25",
+        "h3a",
+        "h3b",
+        "h3c",
+        "h3d"
+      ]
     },
     {
       "id": "wuyue",
       "title": "雾月秘典",
       "active": true,
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
-      "render_keys": [
-        "h3pool"
-      ],
+      "render_keys": [],
       "planning": {
         "local": 2
       },
@@ -210,6 +220,10 @@
         "h3b",
         "h3c",
         "h3d"
+      ],
+      "plan_only": true,
+      "pending_render_keys": [
+        "h3pool"
       ]
     },
     {
@@ -229,6 +243,17 @@
           "chapters": "2001-3848",
           "plan_mode": 15
         }
+      ],
+      "paused_keys": [
+        "sd20",
+        "sd25",
+        "h3a",
+        "h3b",
+        "h3c",
+        "h3d"
+      ],
+      "pending_render_keys": [
+        "h3pool"
       ]
     }
   ]

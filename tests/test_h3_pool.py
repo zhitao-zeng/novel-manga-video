@@ -103,6 +103,7 @@ def make_provider(tmp_path, handler, base_url="pool", **pool_overrides):
     provider = object.__new__(LocalH3MediaProvider)
     provider.settings = types.SimpleNamespace(video_model="minimax-h3-ref2va-turbo", request_timeout=30.0, poll_timeout=60.0)
     provider.client = httpx.Client(transport=httpx.MockTransport(handler))
+    provider.h3_client = provider.client
     provider.pool = H3Pool(write_pool(tmp_path, **pool_overrides)) if base_url == "pool" else None
     provider.base_url = "" if base_url == "pool" else base_url
     provider.ratio = "16:9"
@@ -170,6 +171,35 @@ def test_one_named_instance_still_renders_as_before(tmp_path):
     provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
     sidecar = json.loads((tmp_path / "clip.mp4.task.json").read_text(encoding="utf-8"))
     assert sidecar["endpoint"] == "http://10.0.0.7:7/v1/videos" and "instance" not in sidecar
+
+
+@pytest.mark.parametrize('resumed', [False, True])
+def test_polling_502_moves_both_new_and_resumed_tasks(tmp_path, monkeypatch, resumed):
+    status = {'broken': not resumed}
+    def handler(request):
+        if request.method == 'POST':
+            return httpx.Response(200, json={'id': request.url.host})
+        if request.url.path.endswith('/content'):
+            return httpx.Response(200, content=b'mp4')
+        if request.url.host == '10.0.0.1':
+            return httpx.Response(502) if status['broken'] else httpx.Response(200, json={'status':'queued'})
+        return httpx.Response(200, json={'status':'completed'})
+    provider, card = make_provider(tmp_path, handler)
+    monkeypatch.setattr(provider.pool, 'problem', lambda target: None)
+    monkeypatch.setattr(local_h3, 'POLL_SECONDS', 0.01)
+    first_listed_first(monkeypatch)
+    output = tmp_path / 'clip.mp4'
+    if resumed:
+        provider.settings.poll_timeout = 0.05
+        with pytest.raises(TimeoutError):
+            provider.create_video('prompt', None, output, 5, additional_images=(card,))
+        status['broken'] = True
+    provider.settings.poll_timeout = 5
+    # Public image traffic must not accidentally be used for any H3 request.
+    provider.client = httpx.Client(transport=httpx.MockTransport(lambda r: pytest.fail('wrong client')))
+    provider.create_video('prompt', None, output, 5, additional_images=(card,))
+    assert output.read_bytes() == b'mp4'
+    assert json.loads(output.with_suffix('.mp4.task.json').read_text())['endpoint'].startswith('http://10.0.0.2:2')
 
 
 def test_retries_change_only_seed_without_narrating_retry_instructions(tmp_path):

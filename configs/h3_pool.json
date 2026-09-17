@@ -58,17 +58,6 @@
         5,
         6
       ]
-    },
-    {
-      "name": "GPU016-B 两卡",
-      "url": "http://172.28.4.16:30022",
-      "slots": 2,
-      "host": "local",
-      "service": "zzt-h3-g16-b.service",
-      "gpus": [
-        2,
-        3
-      ]
     }
   ],
   "night_shift": {

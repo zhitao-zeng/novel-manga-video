@@ -51,7 +51,7 @@ NOTHING_ELSE = (
     "除此之外不得再说任何话，不得即兴发挥、不得重复台词、不得添加旁白或语气词。"
     "没有台词的时间里保持安静，只有环境声和动作音效。"
 )
-SHORT_EDGE = 544  # what the deployed four-step Ref2VA turbo build renders
+SHORT_EDGE = 768  # the deployed Ref2VA turbo LoRA is the 768p build; it renders native 1344x768
 MIN_SECONDS, MAX_SECONDS = 4, 15
 POLL_SECONDS = 3.0
 
@@ -77,6 +77,9 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
         self.pool = H3Pool(target[5:] or None) if target == "pool" or target.startswith("pool:") else None
         self.base_url = "" if self.pool else target.rstrip("/")
         self.ratio = ratio
+        # Internal generation and artifact traffic must not use the session's
+        # public-network proxy. The inherited image provider keeps its client.
+        self.h3_client = httpx.Client(timeout=settings.request_timeout, trust_env=False)
 
     # ---------------------------------------------------------------- inputs
     @staticmethod
@@ -108,7 +111,9 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
             "target": {"short_edge": SHORT_EDGE, "aspect_ratio": self.ratio,
                        "duration_seconds": float(seconds)},
             "num_outputs_per_prompt": 1,
-            "num_inference_steps": 5,
+            # Matched to the deployed 8step_v1.0_768p LoRA.  The previous 5 matched nothing:
+            # the build behind it was the four-step one.
+            "num_inference_steps": 8,
             "flow_shift": 12.0,
             "audio_flow_shift": 3.0,
         }
@@ -117,7 +122,7 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
     def _submit(self, payload: dict, base: str) -> str:
         def post() -> httpx.Response:
             try:
-                response = self.client.post(f"{base}/v1/videos", json=payload,
+                response = self.h3_client.post(f"{base}/v1/videos", json=payload,
                                             timeout=min(self.settings.request_timeout, 300.0))
             except httpx.TransportError as error:
                 raise InstanceUnavailable(f"local H3 at {base} unreachable: {type(error).__name__}") from error
@@ -138,9 +143,11 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
 
     def _state(self, task_id: str, base: str) -> dict | None:
         """The task's state, or None if the service has forgotten it."""
-        response = self.client.get(f"{base}/v1/videos/{task_id}")
+        response = self.h3_client.get(f"{base}/v1/videos/{task_id}")
         if response.status_code == 404:
             return None
+        if response.status_code >= 500:
+            raise InstanceUnavailable(f"local H3 at {base} returned HTTP {response.status_code} while polling")
         response.raise_for_status()
         return response.json()
 
@@ -193,14 +200,14 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                 # wait on it - or the pool would hand the instance more clips than its slots allow.
                 try:
                     state = self._state(task_id, base)
-                except httpx.TransportError as error:
+                except (httpx.TransportError, InstanceUnavailable) as error:
                     self.pool.cool_down(base, self.pool.unreachable_cooldown, f"lost while resuming: {type(error).__name__}")
                     state = None
                 status = str((state or {}).get("status", "")).lower()
                 if state is None:
                     task_id = None
                 elif status in {"completed", "succeeded", "success"}:
-                    self._download(f"{base}/v1/videos/{task_id}/content", output)
+                    self._download(f"{base}/v1/videos/{task_id}/content", output, client=self.h3_client)
                     return output
                 elif status not in {"failed", "error", "cancelled", "canceled"}:
                     slot = self.pool.hold(base, timeout=max(1.0, deadline - time.monotonic()))
@@ -239,7 +246,7 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                     })
                 try:
                     state = self._state(task_id, base)
-                except httpx.TransportError as error:
+                except (httpx.TransportError, InstanceUnavailable) as error:
                     if not self.pool:
                         raise
                     # The instance went away mid-clip - a night lease handed back, a restart: cool it
@@ -254,7 +261,7 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                     continue
                 status = str(state.get("status", "")).lower()
                 if status in {"completed", "succeeded", "success"}:
-                    self._download(f"{base}/v1/videos/{task_id}/content", output)
+                    self._download(f"{base}/v1/videos/{task_id}/content", output, client=self.h3_client)
                     return output
                 if status in {"failed", "error", "cancelled", "canceled"}:
                     detail = json.dumps(state.get("error") or state, ensure_ascii=False)[:400]
