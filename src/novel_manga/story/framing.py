@@ -1,4 +1,5 @@
 """Existing framing policy; never changes scene identities."""
+from .actions import action_participants
 
 def blocking_note(shot: dict) -> str:
     """Where each person in frame stands.  MiniMax's own guide asks for every subject's position in every shot, and
@@ -29,3 +30,45 @@ def blocking_note(shot: dict) -> str:
     if rest:
         parts.append(f"{'、'.join(rest)}只在后景侧身或背对镜头，不开口、不做主要动作")
     return "构图：" + "；".join(parts) + "。"
+
+
+
+def visible_speaker_shots(base, turns_out, visible, position):
+    """Keep the existing visible-speaker grouping and listener framing in reading order."""
+    normalized, warnings = [], []
+    def framed(shot_base: dict, speaker: str) -> dict:
+        """One visible speaker: only the speaker and the people the stage's actions involve stay in frame; the
+        rest are listeners (back to camera or off frame).  Two faces in one frame is where the renderer animates
+        the wrong mouth."""
+        acting = action_participants(shot_base["actions"])
+        keep = [c for c in shot_base["characters"] if c == speaker or c in acting]
+        listeners = [c for c in shot_base["characters"] if c not in keep]
+        if listeners:
+            warnings.append(f"{position}: {speaker} 说话，{listeners} 转为听者（背影或画外）")
+        return {**shot_base, "characters": keep or shot_base["characters"], "listeners": listeners if keep else []}
+
+    distinct_visible = list(dict.fromkeys(visible))
+    if len(distinct_visible) <= 1:
+        normalized.append({**(framed(base, distinct_visible[0]) if distinct_visible else base), "turns": turns_out})
+        return normalized, warnings
+    warnings.append(f"{position}: {len(distinct_visible)} visible speakers; split into consecutive shots")
+    groups: list[list[dict]] = []
+    current_speaker = None
+    for turn in turns_out:
+        if turn["delivery_mode"] == "visible_dialogue" and turn["speaker_name"] != current_speaker:
+            if groups and current_speaker is None:
+                groups[-1].append(turn)
+                current_speaker = turn["speaker_name"]
+                continue
+            groups.append([turn])
+            current_speaker = turn["speaker_name"]
+            continue
+        if not groups:
+            groups.append([])
+        groups[-1].append(turn)
+    for group in groups:
+        if group:
+            speaker = next((t["speaker_name"] for t in group if t["delivery_mode"] == "visible_dialogue" and t["speaker_name"]), "")
+            normalized.append({**(framed(base, speaker) if speaker else base), "turns": group})
+
+    return normalized, warnings

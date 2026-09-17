@@ -3,12 +3,11 @@ from __future__ import annotations
 from .issues import PlanningIssue, PlanningCode, ValidationResult
 from novel_manga.planning.context import PlannerContext
 from novel_manga.models import StoryBible
-from novel_manga.story.actions import action_participants
-from novel_manga.story.actions import action_text
-from novel_manga.story.actions import normalize_actions
-from novel_manga.story.actions import normalize_extras
 import re
-import novel_manga.planning.cast as pc_cast
+from .source_checks import source_address, chapter_coverage
+from .normalization import cast_and_actions, normalize_turns, end_state_and_visual_checks
+from .budget import validate_duration
+from novel_manga.story.framing import visible_speaker_shots
 import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.metrics as pc_metrics
 import novel_manga.planning.text as pc_text
@@ -104,168 +103,12 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
     normalized: list[dict] = []
     for position, shot in enumerate(shots, start=1):
         position = shot.get("label") or f"shot {position}"
-        segment_id = str(shot.get("segment_id", ""))
-        quote = str(shot.get("source_quote", "")).strip()
-        key = pc_text.quote_key(quote)
-        if len(key) > pc_constants.QUOTE_MAX_CHARS:
-            # Seventeen of the trial's redo errors were quotes over the cap.  The
-            # words are verbatim; only the length is wrong, so keep the head up
-            # to a sentence end rather than sending the chapter back for a redo.
-            quote = pc_text.trim_quote(quote)
-            warnings.append(f"{position}: source_quote {len(key)} chars, cut at a sentence end to {len(pc_text.quote_key(quote))}")
-            key = pc_text.quote_key(quote)
-        full_line = key in {pc_text.quote_key(q) for q in pc_text.chapter_quotes(chapter_text)}
-        # Length is judged on what the model wrote (punctuation included), the
-        # same count it was given in the schema; the key is only for matching.
-        if len(re.sub(r"[\s\u3000]+", "", quote)) < pc_constants.QUOTE_MIN_CHARS and not full_line:
-            errors.append(PlanningIssue(PlanningCode.QUOTE_TOO_SHORT, f"source_quote too short, need at least {pc_constants.QUOTE_MIN_CHARS} chars: {quote!r}", stage=position, field='source_quote'))
-        else:
-            found = [sid for sid, segment_key in segment_keys.items() if key in segment_key]
-            if segment_id in found:
-                pass
-            elif found:
-                warnings.append(f"{position}: source_quote belongs to {found[0]}, not {segment_id}; reassigned")
-                segment_id = found[0]
-            elif key in chapter_key:
-                warnings.append(f"{position}: source_quote spans a segment boundary; kept {segment_id}")
-            else:
-                # A quote that stitches two lines of the same exchange together
-                # (the narration between them dropped) is still provenance: every
-                # word is verbatim, so accept it and note which segment it lands in.
-                pieces = [pc_text.quote_key(piece) for piece in re.split(r"[\n\r]+", quote) if len(pc_text.quote_key(piece)) >= 4]
-                if pieces and all(piece in chapter_key for piece in pieces):
-                    owners = [sid for sid, segment_key in segment_keys.items() if pieces[0] in segment_key]
-                    if owners and segment_id not in owners:
-                        warnings.append(f"{position}: source_quote 由 {len(pieces)} 行原文拼成，归到 {owners[0]}")
-                        segment_id = owners[0]
-                    else:
-                        warnings.append(f"{position}: source_quote 由 {len(pieces)} 行原文拼成（中间的叙述被略去）")
-                else:
-                    nearest = pc_text.closest_source_line(quote, chapter_text)
-                    errors.append(PlanningIssue(PlanningCode.QUOTE_NOT_SOURCE, f"source_quote 不是原文（疑似改写）：{quote[:50]!r}。"
-                        + (f"最接近的原文句子是：{nearest!r}，请逐字复制这一句或它所在段落里的一段连续原文" if nearest else "请从对应区段逐字复制一段连续原文"), stage=position, field='source_quote'))
+        segment_id, quote = source_address(shot, position, segment_keys, chapter_key, chapter_text, errors, warnings)
         cited.setdefault(segment_id, []).append(position)
 
-        characters = list(dict.fromkeys(pc_cast.canonical(name, ctx=ctx) for name in shot.get("characters", []) if pc_cast.canonical(name, ctx=ctx) in names))
-        unknown = [str(name) for name in shot.get("characters", []) if pc_cast.canonical(name, ctx=ctx) not in names]
-        if unknown:
-            errors.append(PlanningIssue(PlanningCode.UNKNOWN_CHARACTERS, f"characters not in StoryBible: {unknown}", stage=position, field='characters'))
-        if shot.get("in_frame_given"):
-            added = []  # the stage said who is in the picture; a name in the event line (塞西娅在楼上) is not a presence
-        else:
-            characters, added = pc_cast.complete_characters(characters, shot, everyone, ctx=ctx)
-        if added:
-            warnings.append(f"{position}: characters 补上镜头描述里出现的 {added}")
-        # Extra descriptions are scene-local references, not entries in the
-        # portrait catalogue. Resolve them before global name aliases.
-        extras = [e for e in normalize_extras(shot.get('extras')) if pc_cast.canonical(e, ctx=ctx) not in names]
-        actions = normalize_actions(shot.get('actions'), aliases=ctx.aliases, extras=extras)
-        for action in actions:
-            for who in (action['actor'], action['target']):
-                if not shot.get('in_frame_given') and who in names and who not in characters:
-                    characters.append(who)
-                    warnings.append(f"{position}: actions 里的 {who} 补进 characters")
-        motion_text = str(shot.get("motion_prompt") or "").strip()
-        if actions:
-            # the event line names who does what to whom before anything else: that sentence is what the
-            # renderer and the reviewer read as 主要事件
-            line = action_text(actions)
-            motion_text = f"{line}。{motion_text}" if motion_text and line not in motion_text else (motion_text or line)
-        location = str(shot.get("location", ""))
-        if location not in location_map:
-            errors.append(PlanningIssue(PlanningCode.UNKNOWN_LOCATION, f"unknown location {location!r}; allowed: {list(location_map)}", stage=position, field='location'))
-
-        turns_out: list[dict] = []
-        visible: list[str] = []
-        for turn in shot.get("turns") or []:
-            if not isinstance(turn, dict):
-                continue
-            mode = str(turn.get("delivery_mode", ""))
-            speaker = pc_cast.canonical(turn.get("speaker_name", ""), ctx=ctx)
-            text = str(turn.get("text", "")).strip()
-            emotion = str(turn.get("emotion", "")).strip() or "克制自然"
-            if not text:
-                continue
-            if mode == "visible_dialogue":
-                if speaker in names:
-                    if speaker not in characters:
-                        characters.append(speaker)
-                        warnings.append(f"{position}: visible speaker {speaker} added to characters")
-                    visible.append(speaker)
-                elif speaker.startswith("无名") or speaker in ctx.anonymous_speakers:
-                    warnings.append(f"{position}: anonymous {speaker} cannot be visible; converted to offscreen")
-                    mode = "offscreen_dialogue"
-                else:
-                    errors.append(PlanningIssue(PlanningCode.VISIBLE_SPEAKER, f"visible speaker {speaker!r} is not a StoryBible character", stage=position, field='turns'))
-            elif mode == "offscreen_dialogue":
-                if not speaker:
-                    errors.append(PlanningIssue(PlanningCode.OFFSCREEN_SPEAKER_MISSING, f"offscreen_dialogue needs speaker_name", stage=position, field='turns'))
-                elif speaker not in names and not speaker.startswith("无名") and speaker not in ctx.anonymous_speakers:
-                    errors.append(PlanningIssue(PlanningCode.OFFSCREEN_SPEAKER_UNKNOWN, f"offscreen speaker {speaker!r} unknown; use a StoryBible name or 无名 role", stage=position, field='turns'))
-            elif mode in {"silent_action", "title_card"}:
-                speaker = ""
-            elif mode == "singing":
-                if speaker in names and speaker not in characters:
-                    characters.append(speaker)
-                if speaker not in names:
-                    errors.append(PlanningIssue(PlanningCode.SINGING_SPEAKER, f"singing 的 speaker_name 必须是 StoryBible 角色", stage=position, field='turns'))
-                if len(pc_text.compact(text)) > 12 and not re.search(r"哼|唱|旋律|曲调|歌声|声音|嗓|吟", text):  # a manner description names the singing; lyrics do not
-                    errors.append(PlanningIssue(PlanningCode.SINGING_TEXT, f"singing 的 text 疑似歌词：{text[:20]!r}，只写演唱方式（如“轻声哼唱一段温柔的无词旋律”），不得写歌词", stage=position, field='turns'))
-            elif mode == "chat_message":
-                if not speaker:
-                    errors.append(PlanningIssue(PlanningCode.CHAT_SPEAKER, f"chat_message needs speaker_name（发消息的人）", stage=position, field='turns'))
-                target = str(turn.get("chat_target") or "").strip()
-                if target and target not in names:
-                    warnings.append(f"{position}: chat_target {target!r} 不在 StoryBible，按群聊处理")
-                    turn["chat_target"] = ""
-                elif target and ctx.chat_self and speaker == ctx.chat_self and target != ctx.chat_self:
-                    pass  # the protagonist writing into a private chat: normal
-                elif target and ctx.chat_self and target == ctx.chat_self:
-                    # A private chat is titled with the other party, never with the protagonist.
-                    warnings.append(f"{position}: chat_target 写成了主角 {target!r}，按群聊处理")
-                    turn["chat_target"] = ""
-
-                if len(pc_text.compact(text)) > pc_constants.CHAT_MAX_CHARS:
-                    # A long message is cut, not rejected: the bubble just shows its first clause.
-                    cut = text[:pc_constants.CHAT_MAX_CHARS]
-                    boundary = max(cut.rfind(mark) for mark in "，。！？；：、,.!?;:")
-                    if boundary >= pc_constants.CHAT_MAX_CHARS // 2:
-                        cut = cut[:boundary + 1]
-                    cut = cut.rstrip("，,、；;：:") + "…"
-                    warnings.append(f"{position}: chat_message {len(pc_text.compact(text))} 字，截为 {cut!r}")
-                    text = cut
-            else:
-                errors.append(PlanningIssue(PlanningCode.DELIVERY_MODE, f"unknown delivery_mode {mode!r}", stage=position, field='turns'))
-                continue
-            pieces = pc_text.split_turn_text(text) if mode in {"visible_dialogue", "offscreen_dialogue"} else [text]
-            if len(pieces) > 1:
-                warnings.append(f"{position}: turn of {pc_text.spoken_chars(text)} chars split into {len(pieces)}")
-            for piece in pieces:
-                turns_out.append({"speaker_name": speaker, "delivery_mode": mode, "chat_target": str(turn.get("chat_target") or "").strip(), "text": piece, "emotion": emotion})
-        if not turns_out:
-            fallback = str(shot.get("motion_prompt") or shot.get("end_state") or "无声反应").strip()
-            turns_out = [{"speaker_name": "", "delivery_mode": "silent_action", "text": fallback[:60], "emotion": "克制自然"}]
-            warnings.append(f"{position}: no usable turns; added silent_action")
-
-        end_state = str(shot.get("end_state") or "").strip()
-        if not end_state:
-            end_state = str(shot.get("motion_prompt") or "").strip()[:80]
-            warnings.append(f"{position}: end_state missing; derived from motion_prompt")
-        has_chat = any(t.get("delivery_mode") == "chat_message" for t in turns_out)
-        for field in ("visual_prompt", "motion_prompt", "end_state", "camera", "light"):
-            value = str(shot.get(field) or "")
-            for pattern, label in pc_constants.FORBIDDEN_VISUAL:
-                if label == "可读文字" and has_chat:
-                    continue  # the phone screen is supposed to show the messages
-                match = pattern.search(value)
-                if match:
-                    detail = (f"{field} 含{label}描述（{match.group(0)}），图片和视频都不允许；"
-                               "去掉血迹和伤口，碑上的结果改写为无字的发光纹路")
-                    message = f"{position}: {detail}"
-                    if label == "可读文字" and (ctx.fast_tier or not ctx.text_on_props_gate):
-                        warnings.append("report only: " + message)  # fast tier or genre policy: a note, not a gate
-                    else:
-                        errors.append(PlanningIssue(PlanningCode.VISUAL_CONTENT, detail, stage=position, field=field))
+        characters, extras, actions, motion_text, location = cast_and_actions(shot, names, everyone, location_map, position, ctx, errors, warnings)
+        turns_out, visible = normalize_turns(shot, characters, names, position, ctx, errors, warnings)
+        end_state = end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings)
         base = {
             "clip_hint": shot.get("clip_hint"),
             "segment_id": segment_id,
@@ -285,90 +128,12 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "shot_scale": str(shot.get("shot_scale") or "中近景"),
             "origin_index": len(normalized) + 1,
         }
-        def framed(shot_base: dict, speaker: str) -> dict:
-            """One visible speaker: only the speaker and the people the stage's actions involve stay in frame; the
-            rest are listeners (back to camera or off frame).  Two faces in one frame is where the renderer animates
-            the wrong mouth."""
-            acting = action_participants(shot_base["actions"])
-            keep = [c for c in shot_base["characters"] if c == speaker or c in acting]
-            listeners = [c for c in shot_base["characters"] if c not in keep]
-            if listeners:
-                warnings.append(f"{position}: {speaker} 说话，{listeners} 转为听者（背影或画外）")
-            return {**shot_base, "characters": keep or shot_base["characters"], "listeners": listeners if keep else []}
+        framed, notes = visible_speaker_shots(base, turns_out, visible, position)
+        normalized.extend(framed)
+        warnings.extend(notes)
 
-        distinct_visible = list(dict.fromkeys(visible))
-        if len(distinct_visible) <= 1:
-            normalized.append({**(framed(base, distinct_visible[0]) if distinct_visible else base), "turns": turns_out})
-            continue
-        warnings.append(f"{position}: {len(distinct_visible)} visible speakers; split into consecutive shots")
-        groups: list[list[dict]] = []
-        current_speaker = None
-        for turn in turns_out:
-            if turn["delivery_mode"] == "visible_dialogue" and turn["speaker_name"] != current_speaker:
-                if groups and current_speaker is None:
-                    groups[-1].append(turn)
-                    current_speaker = turn["speaker_name"]
-                    continue
-                groups.append([turn])
-                current_speaker = turn["speaker_name"]
-                continue
-            if not groups:
-                groups.append([])
-            groups[-1].append(turn)
-        for group in groups:
-            if group:
-                speaker = next((t["speaker_name"] for t in group if t["delivery_mode"] == "visible_dialogue" and t["speaker_name"]), "")
-                normalized.append({**(framed(base, speaker) if speaker else base), "turns": group})
-
-    clip_seconds: dict[str, float] = {}
-    for shot in normalized:
-        clip_seconds[shot["clip_hint"]] = round(clip_seconds.get(shot["clip_hint"], 0.0) + pc_text.stage_seconds(shot["turns"], ctx=ctx), 2)
-    for clip_id, seconds in clip_seconds.items():
-        if seconds > ctx.max_clip_seconds + pc_constants.CLIP_SECONDS_TOLERANCE:
-            # The packer cuts overlong clips to this lane's duration limit.
-            warnings.append(
-                f"{clip_id}: 估算 {seconds} 秒超过单段上限 {int(ctx.max_clip_seconds)} 秒，打包时会自动拆成两段（report only）"
-            )
-    total_seconds = round(sum(clip_seconds.values()), 2)
-    if ctx.episode_seconds_min and 0 < ctx.episode_seconds_min - total_seconds <= pc_constants.EPISODE_FLOOR_TOLERANCE:
-        warnings.append(f"report only: 全集估算 {total_seconds} 秒，比下限 {ctx.episode_seconds_min:g} 秒少 "
-                        f"{ctx.episode_seconds_min - total_seconds:g} 秒，在 {pc_constants.EPISODE_FLOOR_TOLERANCE:g} 秒估时容差内，不重写")
-    elif ctx.episode_seconds_min and total_seconds < ctx.episode_seconds_min:
-        errors.append(PlanningIssue(PlanningCode.DURATION_BELOW_MINIMUM, f"全集估算只有 {total_seconds} 秒，低于本次要求的下限 {ctx.episode_seconds_min:g} 秒（目标约{ctx.episode_seconds_target:g}秒）；"
-            "把当前章还没拍到的事件补成阶段，把叙述里的来历、规则和动机多外化成角色对白或画外议论，"
-            "或给已有阶段增加有原文依据的问答，不得注水重复同一句意思"))
-    if total_seconds > ctx.episode_seconds_max and ctx.fast_tier:
-        warnings.append(f"report only: 全集估算 {total_seconds} 秒，快速档不返修，打包时按 {ctx.max_clip_seconds:g} 秒拆段")
-    elif total_seconds > ctx.episode_seconds_max:
-        stage_total = len(normalized)
-        spoken_total = sum(pc_text.spoken_chars(t["text"]) for s in normalized for t in s["turns"] if t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"})
-        scale = ctx.episode_seconds_target / total_seconds
-        stage_target = max(10, round(stage_total * scale))
-        errors.append(PlanningIssue(PlanningCode.DURATION_ABOVE_MAXIMUM, f"全集估算 {total_seconds} 秒，超过上限 {ctx.episode_seconds_max:g} 秒（目标约{ctx.episode_seconds_target:g}秒）。"
-            f"上一稿是 {stage_total} 个阶段、发声 {spoken_total} 字；本次压到 {stage_target} 个阶段左右、"
-            f"发声 {max(150, round(spoken_total * scale))} 字左右。做法是缩短台词：合并同一人的连续短句，删掉不带新信息的群众议论和感叹，"
-            "去掉只有反应没有事件的无声阶段；每个阶段最多两句短台词。不得为了缩短而删掉整个区段：每个区段仍须至少被一个阶段引用，一个都不能少。不得原样重发上一稿。"))
-    skipped_raw = raw.get("skipped_segments") or []
-    skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in skipped_raw if isinstance(item, dict)}
-    for segment_id in list(skipped):
-        if segment_id in cited:
-            warnings.append(f"{segment_id} listed as skipped but also cited; skip ignored")
-            skipped.pop(segment_id)
-    if len(skipped) > ctx.max_skipped:
-        errors.append(PlanningIssue(PlanningCode.SKIPPED_SEGMENTS, f"不允许跳过区段，skipped_segments 必须为空，但收到 {sorted(skipped)}：把这些区段各写进至少一个阶段（可以拉长集数）", field='skipped_segments'))
-    chat_speakers = re.findall(r"^([^\n：:]{2,8})[：:]", chapter_text, re.M)
-    chat_source_lines = len(chat_speakers)
-    # A chat has somebody speaking more than once; a stat block (法宝名称：…
-    # 法宝属性：… 法宝等级：…) has the same line shape but every label once.
-    looks_like_chat = chat_source_lines >= 5 and max((chat_speakers.count(s) for s in set(chat_speakers)), default=0) >= 2
-    if looks_like_chat and not any(turn["delivery_mode"] == "chat_message" for shot in normalized for turn in shot["turns"]):
-        errors.append(PlanningIssue(PlanningCode.MISSING_CHAT, f"本章原文有 {chat_source_lines} 行聊天消息（形如「昵称：内容」），但没有任何 chat_message："
-            "群聊和私聊必须用 chat_message 呈现（一个阶段最多八条），不得改写成画外音或角色自述", field='turns'))
-    uncited = [s["segment_id"] for s in segments if s["segment_id"] not in cited and s["segment_id"] not in skipped]
-    for segment_id in uncited:
-        segment = next(s for s in segments if s["segment_id"] == segment_id)
-        errors.append(PlanningIssue(PlanningCode.UNCITED_SEGMENT, f"{segment_id} is neither cited by any shot nor listed in skipped_segments; "
-            f"it begins with: {segment['text'][:40]!r}", segment_id=segment_id))
+    validate_duration(normalized, ctx, errors, warnings)
+    chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings)
     return ValidationResult(errors, warnings, normalized)
 
 
