@@ -163,13 +163,8 @@ def render(batch, chapter: int) -> None:
             production_common.log(f"ch{chapter}: content moderation blocked a clip twice; re-planning ({replans + 1}/{len(production_common.MODERATION_MARKERS)}) with a toned-down note"
                 + (" naming the refused lines" if targets else ""))
             from thin_profile import load_genre
-            batch.notes[str(chapter)] = production_common.MODERATION_NOTE + load_genre(batch.profile).get("moderation_note_extra", "") + targets
-            batch.args.replan = True
-            try:
-                batch.plan(chapter)
-            finally:
-                batch.args.replan = False
-                batch.notes.pop(str(chapter), None)
+            notes = production_common.MODERATION_NOTE + load_genre(batch.profile).get("moderation_note_extra", "") + targets
+            batch.plan(chapter, replan=True, notes=notes)
             if batch.rows[chapter].get("plan") == "planned":
                 batch.prepare_cards(chapter)
                 code, problem = batch.run(command, directory / "render.log")

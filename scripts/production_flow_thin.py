@@ -158,10 +158,11 @@ class Batch:
             raise SystemExit("no Qwen endpoint reachable (QWEN38_LOCAL_BASE_URL); start the Qwen containers first")
         production_common.log(f"Qwen endpoints alive: {len(alive)}/{len(qwen_endpoints())}")
 
-    def plan(self, chapter: int) -> None:
+    def plan(self, chapter: int, *, replan: bool | None = None, notes: str | None = None) -> None:
+        force_replan = self.args.replan if replan is None else replan
         row = self.rows[chapter]
         directory = self.episode_dir(chapter)
-        if self.plan_status(chapter) == "planned" and not self.args.replan:
+        if self.plan_status(chapter) == "planned" and not force_replan:
             row["plan"] = "kept"
             return
         if self.chapter(chapter).text_count < self.args.min_chapter_chars:
@@ -185,7 +186,7 @@ class Batch:
                    "--merge", str(max(1, self.args.merge))] + (["--tier", self.args.tier] if self.args.tier else [])
         if self.args.min_seconds:
             command += ["--min-seconds", str(self.args.min_seconds)]
-        notes = self.notes.get(str(chapter)) or self.notes.get("*")
+        notes = (self.notes.get(str(chapter)) or self.notes.get("*")) if notes is None else notes
         if notes:
             command += ["--notes", notes]
         code, problem = self.run(command, directory / "plan.log")
@@ -195,7 +196,7 @@ class Batch:
             row["plan"] = "failed"
             row["note"] = " | ".join(errors)[:240]
             production_common.log(f"ch{chapter}: planning FAILED: {row['note'][:160]}")
-            if self.args.replan:
+            if force_replan:
                 # A superseded plan must not be rendered in place of the one that failed.
                 for stale in ("clip_plan.json", "clip_plan.md", "thin_media_report.json", "media_qc_report.json"):
                     (directory / stale).unlink(missing_ok=True)
