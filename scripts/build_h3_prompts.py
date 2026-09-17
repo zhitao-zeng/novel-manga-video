@@ -93,12 +93,15 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             subject_of[ref["name"]] = picture
             # One instance, and nobody else wears this face: 雾月's most common defect (321 clips on 2026-09-14) was
             # the lead's face or coat on a second person, and the Chinese binding's "只出现一次" never reached H3.
-            defs.append(f"<Subject {picture}> is the character {ref['name']}, shown in <Picture {picture}>. "
+            # The name is decorative here (shots address <Subject N>), and H3 reads it out: the
+            # speech invented in wordless shots was largely these names.  The guide also asks for
+            # English everywhere outside <d>.
+            defs.append(f"<Subject {picture}> is the person shown in <Picture {picture}>. "
                         f"Take only the face, hair, build and clothing from <Picture {picture}>. Exactly one "
                         f"<Subject {picture}> appears in the video; no other person has <Subject {picture}>'s face, hair or clothes.")
         elif ref.get("role") == "location":
             picture += 1
-            defs.append(f"<Picture {picture}> is the setting {ref['name']}: take its architecture, ground, "
+            defs.append(f"<Picture {picture}> is the setting shown in it: take its architecture, ground, "
                         f"fixed props and light from it, and none of the people in it.")
     voice = 0
     for ref in (clip.get("references") or []):
@@ -143,16 +146,21 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str
         if ref.get("role") == "character" and ref["name"] in subject_of:
             n = subject_of[ref["name"]]
             retention.append(f"<Subject {n}>: fully_preserved - the identity, face, hair and clothing of <Picture {n}>; one instance in every shot it appears in.")
+    # The task prefix names what the references actually are; "audio reference" only when a voice
+    # reference is really attached.
+    has_audio = any(ref.get("role") == "voice" for ref in (clip.get("references") or []))
+    task = "[reference generation + audio reference]" if has_audio else "[reference generation]"
     return ("subject_definitions:\n" + "\n".join(defs)
-            + f"\n\nsummary:\n[reference generation + audio reference] A continuous {seconds}-second Chinese "
+            + f"\n\nsummary:\n{task} A continuous {seconds}-second Chinese "
               f"animated short-drama shot in {len(stages)} stages."
             + (f" Direction for this take: {note}" if note else "") + "\n\n"
               "retention_analysis:\n" + "\n".join(retention) + ("\n" if retention else "")
-            + "The setting comes from its own picture, none of the people in it. The only spoken words in this clip are "
-              "the Chinese text inside the <d> tags; everything else written here describes the picture and must not be spoken.\n\n"
+            + "The setting: fully_preserved - its architecture, fixed props and light come from its own "
+              "picture, and none of the people in it.\n\n"
               "detailed_description:\n" + "\n".join(body)
-            + "\n\noverall_soundscape:\nRoom tone and the physical sounds of the action described above. "
-              "No narrator, no voice-over, no speech other than the <d> lines.\n\n"
+            + "\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of "
+              "the action described above: footsteps, the rustle of clothing, the handling of objects, and the "
+              "air of the space.\n\n"
               "non_diegetic_music:\nNone.")
 
 

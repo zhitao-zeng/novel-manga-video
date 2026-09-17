@@ -14,6 +14,13 @@ MAX_MISSING = 0.5
 
 MIN_PEAK_DB = -35.0
 
+# A shot the script leaves wordless still comes back speaking: H3's ref2va task always
+# produces a voice track.  Neither measure alone finds it - the level counts ambience the
+# shot is supposed to have, and the recogniser reads words out of near-silence - so a shot
+# is only called out when it says something AND is loud enough to hear.
+UNSCRIPTED_MIN_CHARS = 5
+UNSCRIPTED_MIN_DB = -40.0
+
 SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")
 
 def speech_chunks(wav: Path, *, noise_db: float = -30.0, min_silence: float = 0.35, min_chunk: float = 0.4, pad: float = 0.15) -> list[list[float]]:
@@ -77,7 +84,10 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
         cached = {**json.loads(asr_path.read_text(encoding="utf-8")), "clip_id": clip["clip_id"], "video": str(video)}
         return cached
     mean_db, peak_db = audio_levels(wav)
-    chunks = speech_chunks(wav) if reference else []
+    # Listened to even with no line to compare against: the old guard meant a wordless shot
+    # was never transcribed, so nothing downstream could ever notice it talking.  Silence
+    # costs one ffmpeg pass here; only a shot with audible sound reaches the recogniser.
+    chunks = speech_chunks(wav)
     rows: list[dict] = []
     if chunks:
         segments_path = directory / "chunks.json"
@@ -102,6 +112,8 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
             issues.append(QualityIssue.VOICE_ENERGY_MISSING.code)
         if missing > MAX_MISSING:
             issues.append(missing_dialogue(missing, MAX_MISSING))
+    elif len(hypothesis_key) >= UNSCRIPTED_MIN_CHARS and (mean_db or -99) > UNSCRIPTED_MIN_DB:
+        issues.append(QualityIssue.UNSCRIPTED_SPEECH.code)
     result = {
         "clip_id": clip["clip_id"], "video": str(video), "duration": round(media_duration(video), 3),
         "reference": reference, "hypothesis": hypothesis, "cer": cer, "missing": missing, "mean_volume_db": mean_db, "max_volume_db": peak_db,
