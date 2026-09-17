@@ -12,16 +12,10 @@ from packing_context_thin import compiler_options
 LEAD_ROLES = {"主角", "女主角", "男主角"}
 
 
-_BODIES_CACHE: dict = {}
-
-
 def bodies_for(novel_dir, chapter) -> dict[str, tuple[str, str]]:
     """name -> (body's name, body's card) for cast members the entity ledger says act through someone else's body in
     this chapter (occupies_body / impersonates accepted for the book): the picture shows that body, so the clip
     references that card and describes that look.  Empty without a ledger or a card for the body."""
-    key = (str(novel_dir), int(chapter or 0))
-    if key in _BODIES_CACHE:
-        return _BODIES_CACHE[key]
     out: dict[str, tuple[str, str]] = {}
     try:
         from ledger_views_thin import snapshot
@@ -33,7 +27,6 @@ def bodies_for(novel_dir, chapter) -> dict[str, tuple[str, str]]:
                 out[row["name"]] = (str(entities.get(row["body"], {}).get("canonical") or row["body"]), str(row["card"]))
     except Exception:  # noqa: BLE001 - no ledger, chapter not read, or an old ledger layout: nothing changes
         out = {}
-    _BODIES_CACHE[key] = out
     return out
 
 

@@ -72,7 +72,6 @@ def test_seedream_scene_request_uses_landscape_size(tmp_path):
     assert requests[0]['size'] == '1920x1080'
 
 
-@pytest.mark.xfail(strict=True, reason='F04: body mapping remains cached across operations')
 def test_body_mapping_refreshes_after_ledger_changes(tmp_path, monkeypatch):
     (tmp_path / 'entity').mkdir()
     path = tmp_path / 'entity/entities.json'
