@@ -2,6 +2,9 @@
 missed their own takes, English (H3) prompts that carried Chinese the model read out, split parts that lost their
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
+from novel_manga.media import cache, generation
 from novel_manga.providers import phanrouter_tasks
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
@@ -221,13 +224,13 @@ def test_every_wording_a_run_can_choose_is_the_same_clip(tmp_path):
     base, soft, compliance = clip["prompt"], rc.soften_prompt(clip["prompt"]), rc.COMPLIANCE_SUFFIX
     for prompt in (base, base + rc.RETRY_SUFFIX, base + rc.RETRY_SUFFIX + compliance, base + compliance,
                    soft, soft + rc.RETRY_SUFFIX, soft + rc.RETRY_SUFFIX + compliance, soft + compliance):
-        assert seedance.request_matches(clip, saved(prompt), (), []), prompt[-40:]  # softened + compliance was paid again
-    assert not seedance.request_matches(clip, saved("【阶段1】另一段戏。"), (), [])
+        assert cache.request_matches(seedance.context, clip, saved(prompt), (), []), prompt[-40:]  # softened + compliance was paid again
+    assert not cache.request_matches(seedance.context, clip, saved('【阶段1】另一段戏。'), (), [])
     h3 = runner(tmp_path, local="pool")
     english = {**clip, "prompt_h3": "subject_definitions:\nNone.\n\ndetailed_description:\n[Shot 1] A man wipes his mouth."}
-    assert h3.request_matches(english, saved(english["prompt_h3"] + rc.RETRY_SUFFIX_H3 + " This is take 3."), (), [])
+    assert cache.request_matches(h3.context, english, saved(english['prompt_h3'] + rc.RETRY_SUFFIX_H3 + ' This is take 3.'), (), [])
     for prompt in (rc.soften_prompt(english["prompt_h3"]), english["prompt_h3"] + rc.RETRY_SUFFIX, english["prompt_h3"] + compliance):
-        assert not h3.request_matches(english, saved(prompt), (), [])  # Chinese H3 reads out: not this clip
+        assert not cache.request_matches(h3.context, english, saved(prompt), (), [])  # Chinese H3 reads out: not this clip
 
 
 def test_prescreen_leaves_an_english_prompt_alone(tmp_path):
@@ -291,8 +294,8 @@ def test_a_correction_goes_into_the_english_prompt_in_english(tmp_path, monkeypa
     prompt = "【阶段1】林凡推门走进大殿。【阶段2】林凡抬头看向王座。"
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": prompt, "request_seconds": 10, "references": [],
             "prompt_h3": "english", "prompt_h3_of": h3_source_digest(prompt)}
-    assert "【导演修正】" not in runner(tmp_path, local="pool", feedback={"clip_01": note}).clip_base(clip)  # H3 read it out
-    assert runner(tmp_path, feedback={"clip_01": note}).clip_base(clip).endswith(f"【导演修正】{note}")  # Seedance keeps it
+    assert "【导演修正】" not in generation.clip_base(runner(tmp_path, local='pool', feedback={'clip_01': note}).context, clip)  # H3 read it out
+    assert generation.clip_base(runner(tmp_path, feedback={'clip_01': note}).context, clip).endswith(f"【导演修正】{note}")  # Seedance keeps it
     assert not h3_prompt_outdated(clip) and h3_prompt_outdated(clip, note)  # a new correction rebuilds the English prompt
     # The correction rides along as one more numbered line of the same ask (a separate ask had the model commenting
     # on the tag list instead of translating), so one answer carries the shots and, last, the note.
@@ -311,12 +314,12 @@ def test_the_later_parts_of_a_split_stage_keep_the_characters_in_the_picture(mon
     monkeypatch.setattr(packing_context, 'MAX_STAGES', 3)
     three = long_stage(["我们走吧。" * 12] * 3, characters=["林凡", "苏晴", "王长老"],
                        visual_prompt="林凡、苏晴和王长老围坐在桌边", motion_prompt="三人低声交谈")
-    parts = packing_service.split_long_shot(three)
+    parts = ClipCompiler(compiler_options()).split_long_shot(three)
     assert len(parts) == 3
     for part in parts:
         raw = {"kind": "video", "location": "大殿", "shots": [part], "seconds": 10}
         assert packing_service.clip_cast(raw) == ["林凡", "苏晴", "王长老"]  # 苏晴 and 王长老 dropped to the background in parts 2-3
-    two = packing_service.split_long_shot(long_stage(["我们走吧。" * 12] * 3, characters=["林凡", "苏晴"], visual_prompt="林凡和苏晴站在门口"))
+    two = ClipCompiler(compiler_options()).split_long_shot(long_stage(['我们走吧。' * 12] * 3, characters=['林凡', '苏晴'], visual_prompt='林凡和苏晴站在门口'))
     assert all("仍在画面中" not in part["visual_prompt"] for part in two)  # nobody would drop: the wording stays as it was
 
 

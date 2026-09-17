@@ -1,4 +1,6 @@
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 from novel_manga.planning.issues import ValidationResult, PlanningIssue, PlanningCode
 
 import json
@@ -31,18 +33,18 @@ def _shot(index: int, clip_hint: str = "clip_1") -> dict:
 
 def test_short_clip_merge_preserves_shots_without_overflowing_stage_labels():
     shots = [_shot(i) for i in range(1, 8)]  # 6 stages + a 4-second tail
-    clips = packer.pack(shots)
+    clips = ClipCompiler(compiler_options()).pack(shots)
     assert [len(c["shots"]) for c in clips] == [6, 1]
     assert [s["index"] for c in clips for s in c["shots"]] == list(range(1, 8))
     for clip in clips:
         clip["request_seconds"] = int(clip["seconds"])
-        prompt = packer.compile_prompt(clip, SimpleNamespace(visual_style="国漫"), [], [], "庭院")
+        prompt = ClipCompiler(compiler_options()).compile_prompt(clip, SimpleNamespace(visual_style='国漫'), [], [], '庭院')
         assert prompt.count("【阶段") == len(clip["shots"])
 
 
 def test_short_clip_still_merges_when_six_stages_fit():
     shots = [_shot(i) for i in range(1, 6)] + [_shot(6, "clip_2")]
-    clips = packer.pack(shots)
+    clips = ClipCompiler(compiler_options()).pack(shots)
     assert len(clips) == 1
     assert [s["index"] for s in clips[0]["shots"]] == list(range(1, 7))
 
@@ -54,9 +56,9 @@ def test_short_clip_still_merges_when_six_stages_fit():
 ])
 def test_packer_does_not_guess_anatomy_from_species_words(description):
     shot = {**_shot(1), 'visual_prompt': description}
-    clip = packer.pack([shot])[0]
+    clip = ClipCompiler(compiler_options()).pack([shot])[0]
     clip['request_seconds'] = int(clip['seconds'])
-    prompt = packer.compile_prompt(clip, SimpleNamespace(visual_style='国漫'), [], [], '庭院')
+    prompt = ClipCompiler(compiler_options()).compile_prompt(clip, SimpleNamespace(visual_style='国漫'), [], [], '庭院')
     assert description in prompt
 
 

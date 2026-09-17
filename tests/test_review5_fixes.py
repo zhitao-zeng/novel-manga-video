@@ -1,5 +1,7 @@
 """Regressions for the September 14 review: preserve cuts/tier and enforce current review semantics."""
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 import novel_manga.application.repair.judges as repair_judges
@@ -89,7 +91,7 @@ def packed_episode(tmp_path: Path):
             "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d"}}}
     ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
     plan["clips"] = [packing_service.clip_entry(c, f"clip_{i:02d}", ctx)
-                     for i, c in enumerate(packing_service.pack(packing_service.prepared_shots(copy.deepcopy(old), episode), settings=ctx["compiler_options"]), 1)]
+                     for i, c in enumerate(ClipCompiler(ctx['compiler_options'] or compiler_options()).pack(packing_service.prepared_shots(copy.deepcopy(old), episode)), 1)]
     return novel, episode, old, new, plan
 
 
@@ -161,7 +163,7 @@ def test_an_unrelated_old_uncut_stage_does_not_change_or_block_split_repair(tmp_
     new["shots"].append(copy.deepcopy(extra))
     # Build the legacy entry as one full stage, without repacking it into new clips.
     ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
-    kept = packing_service.clip_entry({"kind": "video", "location": "大殿", "shots": [extra], "seconds": packing_service.shot_seconds(extra, settings=ctx["compiler_options"])}, "clip_04", ctx)
+    kept = packing_service.clip_entry({"kind": "video", "location": "大殿", "shots": [extra], "seconds": ClipCompiler(ctx['compiler_options'] or compiler_options()).shot_seconds(extra)}, "clip_04", ctx)
     kept.pop("shot_parts")
     plan["clips"].append(kept)
     merged, changed, why = completion.rebuild_in_place(episode, novel / "story_bible.json", old, new, plan)

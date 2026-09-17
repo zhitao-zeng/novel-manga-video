@@ -1,3 +1,6 @@
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
+from novel_manga.media import asset_inspection
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 import novel_manga.application.repair.context as repair_context
@@ -47,7 +50,7 @@ def split_episode(tmp_path, monkeypatch):
             "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d"}}}
     ctx = packing_context.context_for_plan(episode, episode.parent / "story_bible.json", plan)
     plan["clips"] = [packing_service.clip_entry(c, f"clip_{i:02d}", ctx)
-                     for i, c in enumerate(packing_service.pack(packing_service.prepared_shots(copy.deepcopy(script), episode), settings=ctx["compiler_options"]), 1)]
+                     for i, c in enumerate(ClipCompiler(ctx['compiler_options'] or compiler_options()).pack(packing_service.prepared_shots(copy.deepcopy(script), episode)), 1)]
     return episode, script, plan
 
 
@@ -89,7 +92,7 @@ def test_later_location_change_recuts_only_affected_range(split_episode):
     second['turns'][0]['text'] = '第二句。'
     script['shots'] = [first, second]
     ctx = packing_context.context_for_plan(episode, episode.parent / 'story_bible.json', plan)
-    packed = packing_service.pack(copy.deepcopy(script['shots']), settings=ctx['compiler_options'])
+    packed = ClipCompiler(ctx['compiler_options'] or compiler_options()).pack(copy.deepcopy(script['shots']))
     assert len(packed) == 1
     plan['clips'] = [packing_service.clip_entry(packed[0], 'clip_01', ctx)]
     # Unrelated entries and cached translations must survive even if they
@@ -108,7 +111,7 @@ def test_later_location_change_recuts_only_affected_range(split_episode):
     assert [next(r['name'] for r in c['references'] if r['role'] == 'location')
             for c in updated['clips'][:-1]] == ['大厅', '卧室']
     assert report['groups'] == [{'old': ['clip_01'], 'new': ['clip_01', 'clip_10'], 'source_indexes': [1, 2]}]
-    rebuilt = packing_service.shots_for_plan(updated, script['shots'], set(changed), settings=packing_context.context_for_plan(episode, episode.parent/'story_bible.json', updated)['compiler_options'])
+    rebuilt = ClipCompiler(packing_context.context_for_plan(episode, episode.parent / 'story_bible.json', updated)['compiler_options'] or compiler_options()).shots_for_plan(updated, script['shots'], set(changed))
     assert turn_stream(script['shots']) == turn_stream([s for cid in changed for s in rebuilt[cid]])
     assert not set(plan_issues(updated, script)) & set(changed)
 
@@ -230,7 +233,7 @@ def test_blocked_repack_restores_full_source_once_and_preserves_other_requests(s
                  'turns': [{'speaker_name': '林凡', 'delivery_mode': 'visible_dialogue', 'text': '保留这句。'}]}
     script['shots'].append(next_shot)
     ctx = packing_context.context_for_plan(episode, episode.parent / 'story_bible.json', plan)
-    good = packing_service.clip_entry(packing_service.pack([copy.deepcopy(next_shot)], settings=ctx['compiler_options'])[0], 'clip_10', ctx)
+    good = packing_service.clip_entry(ClipCompiler(ctx['compiler_options'] or compiler_options()).pack([copy.deepcopy(next_shot)])[0], 'clip_10', ctx)
     good.update(prompt_h3='existing request', prompt_h3_skip=True)
     plan['clips'].append(good)
     updated, report = blocked.repack(episode, plan, script)
@@ -319,7 +322,7 @@ def test_missing_image_keeps_its_pending_task(tmp_path):
     path = tmp_path / "turnaround.jpeg"
     task = path.with_suffix(".jpeg.task.json")
     task.write_text("pending")
-    assert renderer.ThinMediaRunner.purge_unreadable(tmp_path, paths=[path]) == []
+    assert asset_inspection.purge_unreadable(tmp_path, paths=[path]) == []
     assert task.read_text() == "pending"
 
 

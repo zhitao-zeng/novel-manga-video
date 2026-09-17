@@ -1,5 +1,7 @@
 """Repack only broken source-connected clip ranges, preserving other requests."""
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.story.compilation as compilation
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
@@ -63,7 +65,7 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
     for clip in plan.get('clips', []):
         if clip.get('kind') == 'video' and clip.get('shot_indexes') and (scope is None or clip['clip_id'] in scope):
             try:
-                packing_service.shots_for_plan(plan, shots, {clip['clip_id']}, settings=ctx.get("compiler_options"))
+                ClipCompiler(ctx.get('compiler_options') or compiler_options()).shots_for_plan(plan, shots, {clip['clip_id']})
             except ValueError:
                 targets.add(clip['clip_id'])
     if not targets:
@@ -81,7 +83,7 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
         if not indexes or indexes - set(by_index):
             raise ValueError(f'missing source stages: {sorted(indexes - set(by_index))}')
         selected = [copy.deepcopy(s) for s in shots if s['index'] in indexes]
-        packed = packing_service.pack(copy.deepcopy(selected), settings=ctx.get("compiler_options"))
+        packed = ClipCompiler(ctx.get('compiler_options') or compiler_options()).pack(copy.deepcopy(selected))
         if turn_stream(selected) != turn_stream([s for c in packed for s in c['shots']]):
             raise ValueError('repack changed source dialogue or its order')
         ids = [c['clip_id'] for c in original]

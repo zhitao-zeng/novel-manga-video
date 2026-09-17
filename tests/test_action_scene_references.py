@@ -1,3 +1,5 @@
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.service as packing_service
 import novel_manga.repair.execution as repair_execution
 import copy
@@ -38,9 +40,9 @@ def test_scene_action_survives_normalization_and_packing(monkeypatch, actor, tar
     assert not errors
     assert shots[0]['actions'] == stage['actions']
     assert shots[0]['characters'] == ['沈行舟']
-    clip = packing_service.pack(copy.deepcopy(shots))[0]
+    clip = ClipCompiler(compiler_options()).pack(copy.deepcopy(shots))[0]
     clip['request_seconds'] = int(clip['seconds'])
-    prompt = packing_service.compile_prompt(clip, bible, ['沈行舟'], [], '溪边')
+    prompt = ClipCompiler(compiler_options()).compile_prompt(clip, bible, ['沈行舟'], [], '溪边')
     assert actor + verb + target in prompt
     if target == '灰色野山羊':
         assert '沈行舟挥铲砍沈行舟' not in prompt

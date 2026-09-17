@@ -1,3 +1,5 @@
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.story.dialogue as story_dialogue
 import novel_manga.application.packing.service as packing_service
 import repair_manager_dispatch_thin as repair_manager_dispatch
@@ -122,7 +124,7 @@ def test_nonverbal_events_remain_audible_without_becoming_recited_dialogue():
     shot = {'turns': [{'speaker_name': '甲', 'delivery_mode': 'visible_dialogue', 'text': '阿嚏~'},
                       {'speaker_name': '甲', 'delivery_mode': 'visible_dialogue', 'text': '我感冒了。'}]}
     assert [t['text'] for t in story_dialogue.merged_turns(shot)] == ['我感冒了。']
-    assert '甲打喷嚏' in packing_service.sound_clause(shot)
+    assert '甲打喷嚏' in ClipCompiler(compiler_options()).sound_clause(shot)
     assert shot['sfx'].count('甲打喷嚏') == 1
     assert not story_dialogue.nonverbal_sound({'delivery_mode': 'visible_dialogue', 'text': '阿嚏，我感冒了。'})
     assert not story_dialogue.nonverbal_sound({'delivery_mode': 'visible_dialogue', 'text': '艾蕾娅！'})

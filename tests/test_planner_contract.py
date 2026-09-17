@@ -2,6 +2,8 @@
 event line, the ledger decides the chapter's candidates when it has read the chapter, and the packer's second
 reference view stays off unless asked for."""
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.assets as packing_assets
 import novel_manga.application.packing.service as packing_service
 
@@ -70,7 +72,7 @@ def test_one_visible_speaker_keeps_only_the_speaker_in_frame():
     plan = pc_outputs.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章", ctx=planner_ctx)
     assert plan.shots[0].listeners == ["塞西娅"]
     clip = {"request_seconds": 15, "shots": [{**shots[0], "visual_prompt": "莱恩说话", "motion_prompt": "莱恩说话", "end_state": "塞西娅沉默"}]}
-    assert "本阶段只有莱恩·格雷正脸入镜；塞西娅只露背影或在画外，不入近景、嘴不动" in packing_service.compile_prompt(clip, b, ["莱恩·格雷"], [], "夜莺广场：河边的小广场")
+    assert "本阶段只有莱恩·格雷正脸入镜；塞西娅只露背影或在画外，不入近景、嘴不动" in ClipCompiler(compiler_options()).compile_prompt(clip, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
     stage["actions"] = [{"actor": "莱恩·格雷", "action": "握住手腕", "target": "塞西娅"}]
     validation = pc_validation.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     _, _, shots2 = validation.errors, validation.warnings, validation.shots
@@ -94,7 +96,7 @@ def test_uncarded_extras_are_kept_by_description_and_reach_the_prompt():
     plan = pc_outputs.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章", ctx=planner_ctx)
     assert plan.shots[0].extras == ["戴眼镜的灰发老妇人"]
     clip = {"request_seconds": 15, "shots": [{**shots[0], "visual_prompt": "莱恩站在门口", "motion_prompt": "老妇人递信", "end_state": "莱恩接信"}]}
-    prompt = packing_service.compile_prompt(clip, b, ["莱恩·格雷"], [], "夜莺广场：河边的小广场")
+    prompt = ClipCompiler(compiler_options()).compile_prompt(clip, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
     assert "另加1位无参考图的配角（按描述画，不得画成具名人物的样子）：戴眼镜的灰发老妇人" in prompt
     assert "本阶段无参考图的配角：戴眼镜的灰发老妇人（按描述画）" in prompt
 
@@ -159,12 +161,12 @@ def test_every_stage_with_two_or_more_people_says_where_they_stand():
     shot = {"segment_id": "seg_1", "shot_scale": "中近景", "visual_prompt": "两人在桌边", "motion_prompt": "薇奥拉公主吻住莱恩·格雷", "end_state": "莱恩避开",
             "camera": "桌边", "light": "灯", "sfx": "无", "characters": ["薇奥拉公主", "莱恩·格雷", "塞西娅"],
             "actions": [{"actor": "薇奥拉公主", "action": "吻住", "target": "莱恩·格雷"}], "turns": [], "listeners": [], "extras": []}
-    prompt = packing_service.compile_prompt({"request_seconds": 10, "shots": [shot]}, b, ["薇奥拉公主", "莱恩·格雷", "塞西娅"], [], "夜莺广场：河边的小广场")
+    prompt = ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [shot]}, b, ['薇奥拉公主', '莱恩·格雷', '塞西娅'], [], '夜莺广场：河边的小广场')
     assert "构图：薇奥拉公主在画面左侧前景，莱恩·格雷在右侧前景，两人侧面相对、各占一侧；塞西娅只在后景侧身或背对镜头，不开口、不做主要动作。" in prompt
     solo = {**shot, "characters": ["莱恩·格雷"], "actions": []}
-    assert "构图：莱恩" not in packing_service.compile_prompt({"request_seconds": 10, "shots": [solo]}, b, ["莱恩·格雷"], [], "夜莺广场：河边的小广场")
+    assert "构图：莱恩" not in ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [solo]}, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
     alone_among = {**shot, "characters": ["莱恩·格雷", "塞西娅"], "actions": [{"actor": "莱恩·格雷", "action": "推开门", "target": ""}]}
-    assert "构图：莱恩·格雷在前景居中；塞西娅只在后景侧身或背对镜头" in packing_service.compile_prompt({"request_seconds": 10, "shots": [alone_among]}, b, ["莱恩·格雷", "塞西娅"], [], "夜莺广场：河边的小广场")
+    assert "构图：莱恩·格雷在前景居中；塞西娅只在后景侧身或背对镜头" in ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [alone_among]}, b, ['莱恩·格雷', '塞西娅'], [], '夜莺广场：河边的小广场')
     reached = {**shot, "actions": [{"actor": "薇奥拉公主", "action": "吻住", "target": "莱恩·格雷"}, {"actor": "莱恩·格雷", "action": "推开", "target": "塞西娅"}]}
-    later = packing_service.compile_prompt({"request_seconds": 10, "shots": [reached]}, b, ["薇奥拉公主", "莱恩·格雷", "塞西娅"], [], "夜莺广场：河边的小广场")
+    later = ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [reached]}, b, ['薇奥拉公主', '莱恩·格雷', '塞西娅'], [], '夜莺广场：河边的小广场')
     assert "构图：薇奥拉公主在画面左侧前景，莱恩·格雷在右侧前景，两人侧面相对、各占一侧。" in later and "塞西娅只在后景" not in later

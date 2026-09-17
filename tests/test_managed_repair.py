@@ -1,3 +1,4 @@
+from novel_manga.media import cache
 import novel_manga.story.source_identity as source_identity_rules
 import novel_manga.application.repair.judges as repair_judges
 import repair_manager_dispatch_thin as repair_manager_dispatch
@@ -180,8 +181,8 @@ def test_explicit_generation_retry_invalidates_old_cache_without_spoken_instruct
     r.context.settings=SimpleNamespace(local_h3_base_url='pool');r.context.novel_dir=tmp_path;r.context.feedback={}
     clip={'clip_id':'a','request_seconds':5,'repair_take':1,'prompt_h3':'same instruction'}
     saved={'duration':5,'prompt':'same instruction','references':[],'reference_sha256':[]}
-    assert not r.request_matches(clip,saved,[],[])
-    assert r.request_matches(clip,{**saved,'repair_take':1},[],[])
+    assert not cache.request_matches(r.context, clip, saved, [], [])
+    assert cache.request_matches(r.context, clip, {**saved, 'repair_take': 1}, [], [])
 
 
 def test_contradictory_request_is_blocked_before_acquiring_a_generation_slot(tmp_path,monkeypatch):

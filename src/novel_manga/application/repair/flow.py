@@ -11,6 +11,8 @@ One small model call per failed clip does that; the storyboard shots of that cli
 (cuts unchanged), the clip is rebuilt from its recorded shot indexes, and only its request changes.
 """
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 from novel_manga.application.configuration import project_root
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
@@ -72,7 +74,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 merged.append(before)
                 continue
             try:
-                pieces = packing_service.shots_for_plan(plan, shots, {before["clip_id"]}, settings=ctx.get("compiler_options")).get(before["clip_id"], [])
+                pieces = ClipCompiler(ctx.get('compiler_options') or compiler_options()).shots_for_plan(plan, shots, {before['clip_id']}).get(before["clip_id"], [])
             except ValueError as error:
                 skipped.append(f"{before['clip_id']}: {str(error)[:80]}")
                 pieces = []
@@ -80,7 +82,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 merged.append(before)
                 continue
             clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,
-                    "seconds": round(sum(packing_service.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
+                    "seconds": round(sum(ClipCompiler(ctx.get('compiler_options') or compiler_options()).shot_seconds(p) for p in pieces), 2)}
             after = packing_service.clip_entry(clip, before["clip_id"], ctx)
             crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])), context=ctx["identity_data"].context)
             if crowds:

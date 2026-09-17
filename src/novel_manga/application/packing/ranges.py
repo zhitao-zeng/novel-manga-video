@@ -6,6 +6,8 @@ Only legacy entries with repeated source indexes or oversized shared stages are 
 be recovered from the whole plan are left alone and reported.
 """
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.story.compilation as compilation
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
@@ -43,10 +45,10 @@ def recover(episode_dir: Path, plan: dict, script: dict) -> tuple[dict, list[str
             after = before
             if cid in targets:
                 try:
-                    pieces = packing_service.shots_for_plan(plan, shots, {cid}, settings=ctx.get("compiler_options"))[cid]
+                    pieces = ClipCompiler(ctx.get('compiler_options') or compiler_options()).shots_for_plan(plan, shots, {cid})[cid]
                     if not any(p.get("split_part", [1, 1])[1] > 1 for p in pieces):
                         raise ValueError("no recoverable sibling ranges")
-                    seconds = round(sum(packing_service.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)
+                    seconds = round(sum(ClipCompiler(ctx.get('compiler_options') or compiler_options()).shot_seconds(p) for p in pieces), 2)
                     if seconds > ctx["compiler_options"].max_clip_seconds:
                         raise ValueError("recovered range still exceeds clip limit")
                     raw = {"kind": "video", "location": before.get("location") or pieces[0]["location"],

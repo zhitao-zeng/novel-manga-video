@@ -13,6 +13,7 @@ Every remote task keeps its .task.json sidecar and every step skips work whose
 output already exists, so a rerun resumes instead of paying again.
 """
 from __future__ import annotations
+from novel_manga.media import generation
 from novel_manga.application.configuration import project_root
 from novel_manga.media import retries as clip_retries
 import novel_manga.application.rendering.attempt as clip_attempts
@@ -66,39 +67,10 @@ CHAT_CONTEXT_MESSAGES = 2   # earlier messages shown above the new ones on a cha
 CHAT_HISTORY_EPISODES = 3   # how far back to look for them
 
 
-
-
-
-
-
-
-
-
-
 # ---- subtitle helpers (v16) ----
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 MAX_CER = 0.5          # kept in the report; no longer gates
-
-
-
-
-
-
 
 
 PLAN_WRITE_LOCK = threading.Lock()
@@ -107,22 +79,6 @@ PLAN_WRITE_LOCK = threading.Lock()
 
 
 FEEDBACK_FILE = "review_feedback.json"  # {clip_id: 导演修正}, written by the automatic episode review
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def lexicon_aliases() -> dict[str, str]:
@@ -140,17 +96,6 @@ def lexicon_aliases() -> dict[str, str]:
     return aliases
 
 
-
-
-
-
-
-
-
-
-
-
-
 def prescreen_prompt(prompt: str) -> float:
     """Ask the local Qwen whether the prompt is likely to trip the video service's
     content filter (violence, gore, sexual content, gambling, drugs, politics)."""
@@ -163,15 +108,6 @@ def prescreen_prompt(prompt: str) -> float:
     except Exception as error:  # noqa: BLE001 - the prescreen is advisory
         log(f"prescreen skipped ({type(error).__name__})")
         return 0.0
-
-
-
-
-
-
-
-
-
 
 
 class ThinMediaRunner:
@@ -248,12 +184,6 @@ class ThinMediaRunner:
     def build_assets(self, clips=None):
         return media_assets.build_assets(self.context, clips)
 
-    @staticmethod
-    def purge_unreadable(root: Path, *, paths=None) -> list[Path]:
-        return asset_inspection.purge_unreadable(root, paths=paths)
-
-    def broken_assets(self, manifest, *, paths=None) -> list[Path]:
-        return asset_inspection.broken_assets(self.context, manifest, paths=paths)
 
     def save_clip_plan(self) -> None:
         """Write the plan back without the runner's own bookkeeping keys."""
@@ -293,11 +223,7 @@ class ThinMediaRunner:
         return True
 
     # ---- one clip ----
-    def uses_h3_prompt(self, clip: dict) -> bool:
-        return generation.uses_h3_prompt(self.context, clip)
 
-    def clip_base(self, clip: dict) -> str:
-        return generation.clip_base(self.context, clip)
 
     def retry_suffix(self, clip: dict, attempt: int) -> str:
         return generation.retry_suffix(self.context, clip, attempt)
@@ -310,22 +236,12 @@ class ThinMediaRunner:
         from novel_manga.application.profiles import h3_prompt_outdated
         if h3_prompt_outdated(clip, note):
             raise RuntimeError('H3 correction needs a current English translation before generating a new take')
-        if self.uses_h3_prompt(clip):
+        if generation.uses_h3_prompt(self.context, clip):
             return False
         clip.pop('prompt_h3_skip', None)
         self.save_clip_plan()
         return True
 
-    @staticmethod
-    def without_retry(prompt: str) -> str:
-        return cache.without_retry(prompt)
-
-    @staticmethod
-    def references_match(saved: dict, references, digests: list[str]) -> bool:
-        return cache.references_match(saved, references, digests)
-
-    def request_matches(self, clip: dict, saved: dict, references, digests: list[str]) -> bool:
-        return cache.request_matches(self.context, clip, saved, references, digests)
 
     def cached_take(self, clip: dict, attempt: int) -> bool:
         return cache.cached_take(self.context, clip, attempt)
@@ -353,17 +269,12 @@ class ThinMediaRunner:
         Not an English (H3) prompt: the local model has no filter to get past, and the softening - Chinese
         substitutions and a Chinese compliance paragraph - rewrote its <d> lines and was read out as dialogue (雾月,
         2026-09-11/12: 329 clips in finals carried it, 30 of them audibly)."""
-        return (self.context.prescreen and not self.context.cache_only and not self.uses_h3_prompt(clip)
+        return (self.context.prescreen and not self.context.cache_only and not generation.uses_h3_prompt(self.context, clip)
                 and not clip.get("_softened") and not clip.get("_prescreened"))
 
     def clip_prompt(self, clip: dict) -> str:
         return generation.clip_prompt(self.context, clip)
 
-    def chosen_voices(self, clip: dict) -> tuple[list[tuple[int, Path]], list[str], float]:
-        return generation.chosen_voices(self.context, clip)
-
-    def reference_voices(self, clip: dict) -> tuple[Path, ...]:
-        return generation.reference_voices(self.context, clip)
 
     def generate_clip(self, clip: dict, attempt: int) -> Path:
         if not self.context.cache_only:
@@ -401,7 +312,7 @@ class ThinMediaRunner:
             raise CacheMiss(f"{clip['clip_id']} attempt {attempt}: not in the cache")
         if self.english_correction_for_new_take(clip):
             return self.generate_clip(clip, attempt)
-        if self.uses_h3_prompt(clip):
+        if generation.uses_h3_prompt(self.context, clip):
             from novel_manga.story.h3 import request_issues
             contradictions = request_issues(clip)
             if contradictions:
@@ -555,42 +466,7 @@ class ThinMediaRunner:
         return {"clip_id": clip["clip_id"], "attempts": attempts, "selected": selected}
 
     # ---- assembly ----
-    def script_lines(self, clip_id: str) -> list[str]:
-        return subtitles.script_lines(self.context, clip_id)
 
-    @staticmethod
-    def align_chunks(lines: list[str], chunks: list[dict], threshold: float = MIN_LINE_SIMILARITY) -> list[tuple[dict, str | None, float, list[tuple[int, str]]]]:
-        return subtitles.align_chunks(lines, chunks, threshold)
-
-    def subtitle_events(self, clip_id: str, analysis: dict) -> list[dict]:
-        return subtitles.subtitle_events(self.context, clip_id, analysis)
-
-    def _font(self, size: int):
-        return postprocess._font(self.context, size)
-
-    def landscape_cover(self, background: Path, output: Path, novel_title: str, art_title: str, label: str) -> Path:
-        return postprocess.landscape_cover(self.context, background, output, novel_title, art_title, label)
-
-    def landscape_card(self, background: Path, output: Path, novel_title: str, label: str, subtitle: str) -> Path:
-        return postprocess.landscape_card(self.context, background, output, novel_title, label, subtitle)
-
-    def frame(self, video: Path, second: float, output: Path) -> Path:
-        return postprocess.frame(self.context, video, second, output)
-
-    def chat_history(self, clip_id: str) -> dict[str, list[dict]]:
-        return postprocess.chat_history(self.context, clip_id)
-
-    def chat_segments(self, clip_id: str, clip_video: Path) -> list[dict]:
-        return postprocess.chat_segments(self.context, clip_id, clip_video)
-
-    def title_card_image(self, text: str, background: Path | None, output: Path) -> Path:
-        return postprocess.title_card_image(self.context, text, background, output)
-
-    def title_card_segment(self, clip: dict, background: Path | None) -> dict:
-        return postprocess.title_card_segment(self.context, clip, background)
-
-    def story_segments(self, results: list[dict]) -> list[dict]:
-        return postprocess.story_segments(self.context, results)
 
     def assemble(self, results: list[dict]) -> AssemblyResult:
         from novel_manga.application.repair.delivery import assembly_directory

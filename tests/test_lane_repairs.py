@@ -2,6 +2,7 @@
 blocks, English (H3) prompts and their voices, retakes, the render-run count, corrections, card reuse,
 the card manifest, review errors and the voice bank."""
 from __future__ import annotations
+from novel_manga.media import cache, generation
 import conductor_dispatch_thin as conductor_dispatch
 import conductor_state_thin as conductor_state
 import production_render_thin as production_render
@@ -335,8 +336,8 @@ def test_local_retries_do_not_add_spoken_director_notes(tmp_path):
     assert h3.retry_suffix(clip, 1) == h3.retry_suffix(clip, 2) == h3.retry_suffix(clip, 3) == ""
     assert seedance.retry_suffix(clip, 2) == seedance.retry_suffix(clip, 3) == rc.RETRY_SUFFIX
     for suffix in (h3.retry_suffix(clip, 2), h3.retry_suffix(clip, 4), rc.RETRY_SUFFIX):
-        assert h3.without_retry("prompt" + suffix) == "prompt"
-    assert h3.without_retry('prompt' + rc.RETRY_SUFFIX_H3 + ' This is take 4.') == 'prompt'
+        assert cache.without_retry('prompt' + suffix) == "prompt"
+    assert cache.without_retry('prompt' + rc.RETRY_SUFFIX_H3 + ' This is take 4.') == 'prompt'
 
 
 def test_a_free_lane_gives_cached_failures_fresh_takes(tmp_path, monkeypatch):
@@ -377,14 +378,14 @@ def test_audio_tags_point_at_the_voices_the_request_carries(tmp_path, monkeypatc
                  "<Audio 2> is the voice-timbre reference for <Subject 2>.\n"
                  "<Audio 3> is the voice-timbre reference for <Subject 3>.\n\nsummary:\nA shot.")
     clip = video_clip(references=voices, lines=lines, prompt_h3=prompt_h3)
-    assert [p.stem for p in r.reference_voices(clip)] == ["卡拉", "莱恩"]  # most-spoken first; 比尔 is over budget
-    base = r.clip_base(clip)
+    assert [p.stem for p in generation.reference_voices(r.context, clip)] == ["卡拉", "莱恩"]  # most-spoken first; 比尔 is over budget
+    base = generation.clip_base(r.context, clip)
     assert "<Audio 1> is the voice-timbre reference for <Subject 3>." in base
     assert "<Audio 2> is the voice-timbre reference for <Subject 1>." in base
     assert "<Subject 2>" not in base and base.endswith("summary:\nA shot.")
     duo = video_clip(references=voices[:2], lines=[{"speaker_name": "莱恩", "text": "长一点的台词"}, {"speaker_name": "比尔", "text": "短"}],
                      prompt_h3="<Audio 1> is 莱恩.\n<Audio 2> is 比尔.")
-    assert r.clip_base(duo) == duo["prompt_h3"]  # voices already go out in plan order: nothing changes
+    assert generation.clip_base(r.context, duo) == duo["prompt_h3"]  # voices already go out in plan order: nothing changes
 
 
 def test_a_video_of_a_redrawn_card_is_not_taken_from_another_attempt(tmp_path, monkeypatch):

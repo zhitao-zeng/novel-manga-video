@@ -19,6 +19,8 @@ Without --apply it only counts; --no-pack rewrites the storyboard but leaves the
 --rebuild-existing also checks plans whose storyboard was already completed by an earlier run.
 """
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 from novel_manga.application.configuration import project_root
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
@@ -92,7 +94,7 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
     if len(shots) != len(old_script.get("shots") or []):
         return None, [], "shot count differs"
     try:
-        clip_shots = packing_service.shots_for_plan(old_plan, shots, settings=ctx.get("compiler_options"))
+        clip_shots = ClipCompiler(ctx.get('compiler_options') or compiler_options()).shots_for_plan(old_plan, shots)
     except ValueError as error:
         return None, [], str(error)
     # The plan remembers which shots each clip covers; the clip is rebuilt from exactly those, so the cuts are
@@ -105,7 +107,7 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
             rebuilt.append(before)
             continue
         clip = {"kind": "video", "location": before.get("location") or pieces[0]["location"], "shots": pieces,
-                "seconds": round(sum(packing_service.shot_seconds(p, settings=ctx.get("compiler_options")) for p in pieces), 2)}
+                "seconds": round(sum(ClipCompiler(ctx.get('compiler_options') or compiler_options()).shot_seconds(p) for p in pieces), 2)}
         rebuilt.append(packing_service.clip_entry(clip, before["clip_id"], ctx))
     merged, changed = splice_plans(old_plan, {"clips": rebuilt})
     if merged is None:

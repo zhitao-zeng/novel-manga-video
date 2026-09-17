@@ -19,6 +19,8 @@ for 星海 and 雾月 is quality, so their parts asked for expression cards the 
 stopped at "reference image missing"; --rebuild-parts builds the parts of episodes split earlier again.
 """
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 from novel_manga.application.configuration import project_root
 import novel_manga.story.compilation as compilation
 import novel_manga.application.packing.context as packing_context
@@ -56,12 +58,12 @@ def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGI
     for clip in plan["clips"]:
         parts = []
         if is_target(clip, margin) and clip["shot_indexes"][0] in shots_by_index:
-            parts = packing_service.split_long_shot(copy.deepcopy(shots_by_index[clip["shot_indexes"][0]]), settings=settings)
+            parts = ClipCompiler(settings or compiler_options()).split_long_shot(copy.deepcopy(shots_by_index[clip['shot_indexes'][0]]))
         if len(parts) > 1:
             split[clip["clip_id"]] = []
             for part in parts:
                 new_id = f"clip_{len(clips) + 1:02d}"
-                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packing_service.shot_seconds(part, settings=settings), 2)}
+                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(ClipCompiler(settings or compiler_options()).shot_seconds(part), 2)}
                 clips.append(build_entry(raw, new_id, clip["clip_id"]))
                 split[clip["clip_id"]].append(new_id)
         else:
@@ -254,11 +256,11 @@ def rebuild_parts(episode_dir: Path, tier: str | None, apply: bool) -> dict | No
     clips = list(plan["clips"])
     replaced = 0
     for old_id, part_ids in record["split"].items():
-        parts = packing_service.split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]["shot_indexes"][0]]), settings=ctx.get("compiler_options"))
+        parts = ClipCompiler(ctx.get('compiler_options') or compiler_options()).split_long_shot(copy.deepcopy(by_index[clips[position[part_ids[0]]]['shot_indexes'][0]]))
         if len(parts) != len(part_ids):
             return {"skipped": f"{old_id} splits into {len(parts)} parts now, not {len(part_ids)}"}
         for part_id, part in zip(part_ids, parts):
-            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(packing_service.shot_seconds(part, settings=ctx.get("compiler_options")), 2)}
+            raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(ClipCompiler(ctx.get('compiler_options') or compiler_options()).shot_seconds(part), 2)}
             entry = packing_service.clip_entry(raw, part_id, ctx, override=ctx["overrides"].get(part_id, {}))
             current = clips[position[part_id]]
             # Only a part whose pictures change - its cast or its reference cards - takes the new entry.  The others

@@ -1,6 +1,9 @@
 """Regressions from the 2026-09-11 review of the Seedance lines and the packer (issues 16-21), and the
 cache-only rebuild that puts the dropped title cards back into finished episodes."""
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
+from novel_manga.media import postprocess
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 import conductor_dispatch_thin as conductor_dispatch
@@ -121,7 +124,7 @@ def test_a_stage_too_long_for_one_clip_is_split_between_its_lines(monkeypatch):
     monkeypatch.setattr(packing_context, 'MAX_CLIP_SECONDS', 15.0)
     monkeypatch.setattr(packing_context, 'MAX_STAGES', 3)
     shot = long_stage(["我们走吧。" * 12] * 6)
-    assert packing_service.shot_seconds(shot) > 60
+    assert ClipCompiler(compiler_options()).shot_seconds(shot) > 60
     compiler = ClipCompiler(packing_context.compiler_options())
     clips = compiler.pack([shot])
     assert len(clips) == 6 and all(clip["seconds"] <= 15.0 for clip in clips)
@@ -135,7 +138,7 @@ def test_a_line_longer_than_a_clip_is_cut_at_sentence_ends(monkeypatch):
     monkeypatch.setattr(packing_context, 'MAX_CLIP_SECONDS', 15.0)
     monkeypatch.setattr(packing_context, 'MAX_STAGES', 3)
     text = "这一句话有十个字符吗。" * 20
-    clips = packing_service.pack([long_stage([text])])
+    clips = ClipCompiler(compiler_options()).pack([long_stage([text])])
     pieces = [turn["text"] for clip in clips for stage in clip["shots"] for turn in stage["turns"]]
     assert "".join(pieces) == text and all(piece.endswith("。") for piece in pieces)
     assert len(pieces) > 1 and all(clip["seconds"] <= 15.0 for clip in clips)
@@ -162,7 +165,7 @@ def test_the_plans_title_cards_are_cut_in_where_the_plan_puts_them(tmp_path, mon
                       {"clip_id": "clip_03", "kind": "video"}]}
     r = title_runner(tmp_path, plan, monkeypatch)
     results = [{"clip_id": c, "selected": {"video": str(tmp_path / f"{c}.mp4")}} for c in ("clip_01", "clip_03")]
-    segments = r.story_segments(results)
+    segments = postprocess.story_segments(r.context, results)
     assert [(s["unit_id"], s["role"]) for s in segments] == [("clip_01", "dialogue"), ("clip_02", "title"), ("clip_03", "dialogue")]
     assert segments[1]["duration"] == 3.0 and segments[1]["subtitle_events"] == []
     with Image.open(tmp_path / "work" / "titles" / "clip_02.jpeg") as image:

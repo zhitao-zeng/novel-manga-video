@@ -20,7 +20,8 @@ def test_corrected_new_take_leaves_old_chinese_mode_only_with_matching_english()
     c={'clip_id':'c','prompt':'原分镜','prompt_h3_skip':True,'prompt_h3':'English picture and direction',
        'prompt_h3_of':h3_source_digest('原分镜',r.context.feedback['c'])}
     assert r.english_correction_for_new_take(c)
-    assert r.uses_h3_prompt(c) and 'prompt_h3_skip' not in c
+    from novel_manga.media.generation import uses_h3_prompt
+    assert uses_h3_prompt(r.context, c) and 'prompt_h3_skip' not in c
     assert not r.english_correction_for_new_take(c)
 
 

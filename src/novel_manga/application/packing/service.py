@@ -11,47 +11,6 @@ from novel_manga.application.packing.assets import build_references, bodies_for
 from novel_manga.application.identity.store import load_chapter
 from novel_manga.application.identity.phases import chapter_of, phase_labels
 
-def shot_seconds(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.shot_seconds(*args, **kwargs)
-    return result
-
-
-def _cut_checks(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler._cut_checks(*args, **kwargs)
-    return result
-
-
-def split_long_shot(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.split_long_shot(*args, **kwargs)
-    return result
-
-
-def pack(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.pack(*args, **kwargs)
-    return result
-
-
-def absorb_small_clips(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.absorb_small_clips(*args, **kwargs)
-    return result
-
-
-def screen_clause(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.screen_clause(*args, **kwargs)
-    return result
-
-
-def sound_clause(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.sound_clause(*args, **kwargs)
-    return result
-
 
 def clip_cast(clip, *, settings=None):
     cast, background = ClipCompiler(settings or compiler_options()).select_cast(clip)
@@ -60,21 +19,9 @@ def clip_cast(clip, *, settings=None):
     return cast
 
 
-def compile_prompt(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.compile_prompt(*args, **kwargs)
-    return result
-
-
 def prepared_shots(script: dict, episode_dir: Path, *, identity_data=None) -> list[dict]:
     from novel_manga.application.identity.scene import prepare_scene
     return prepare_scene(script, episode_dir, identity_data=identity_data).shots
-
-
-def shots_for_plan(*args, settings=None, **kwargs):
-    compiler = ClipCompiler(settings or compiler_options())
-    result = compiler.shots_for_plan(*args, **kwargs)
-    return result
 
 
 def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None) -> dict:
@@ -111,7 +58,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
     ))
     references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"))
-    prompt = compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"], settings=options)
+    prompt = ClipCompiler(options).compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])
     lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
     lint = {k: v for k, v in lint.items() if v}
     lines = [

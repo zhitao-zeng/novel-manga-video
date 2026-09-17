@@ -1,3 +1,5 @@
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 import novel_manga.application.identity.store as identity_store_thin
@@ -64,7 +66,7 @@ def test_split_long_line_keeps_its_confirmed_owner(monkeypatch):
     pass
     monkeypatch.setattr(packing_context,'MAX_CLIP_SECONDS',5)
     shot={'index':1,'characters':['乙'],'turns':[{'speaker_name':'乙','delivery_mode':'visible_dialogue','text':'这句话很长，需要分成多段来表达，但说话者始终是同一个人。'}]}
-    parts=packing_service.split_long_shot(shot)
+    parts=ClipCompiler(compiler_options()).split_long_shot(shot)
     bindings=binding.clip_bindings(parts)
     assert len(parts)>1 and all(r['speaker_name']=='乙' for r in bindings)
     assert ''.join(r['text'] for r in bindings)==shot['turns'][0]['text']

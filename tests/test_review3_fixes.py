@@ -2,6 +2,8 @@
 thin_batch and the conductor, reviews before the conductor stops, previews only a person can finish, unconfirmed
 submissions, the continuity of split stages, failed H3 rebuilds, corrections after a re-plan."""
 from __future__ import annotations
+from novel_manga.story.compilation import ClipCompiler
+from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.flow as packing_flow
 import novel_manga.application.packing.service as packing_service
@@ -187,7 +189,7 @@ def test_the_later_parts_of_a_split_stage_carry_on_instead_of_repeating_its_acti
     shot = {"index": 5, "location": "屋内", "segment_id": "seg_01", "shot_scale": "中景", "visual_prompt": "林凡站在屋内门边",
             "motion_prompt": "林凡推门走出去", "end_state": "林凡站在门外台阶上",
             "turns": [{"delivery_mode": "visible_dialogue", "speaker_name": "林凡", "text": "我们走吧。" * 12}] * 3}
-    parts = packing_service.split_long_shot(shot)
+    parts = ClipCompiler(compiler_options()).split_long_shot(shot)
     assert len(parts) == 3 and parts[0]["motion_prompt"] == "林凡推门走出去" and parts[0]["visual_prompt"] == "林凡站在屋内门边"
     for part in parts[1:]:
         assert "推门" not in part["motion_prompt"] and "林凡站在门外台阶上" in part["visual_prompt"]
