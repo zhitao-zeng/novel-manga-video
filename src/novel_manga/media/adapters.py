@@ -25,6 +25,9 @@ class FramedPhanRouter(PhanRouterMediaProvider):
             body = kw.get("json")
             if ratio and isinstance(body, dict) and "aspectRatio" in body:
                 kw = {**kw, "json": {**body, "aspectRatio": ratio}}
+            elif ratio and isinstance(body, dict) and "size" in body:
+                size = {"9:16": "1080x1920", "16:9": "1920x1080"}[ratio]
+                kw = {**kw, "json": {**body, "size": size}}
             return original_post(url, *a, **kw)
 
         self.client.post = post

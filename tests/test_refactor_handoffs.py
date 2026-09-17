@@ -56,7 +56,6 @@ def test_dialogue_rewrite_preserves_ownership_and_noop_inputs():
     assert rewritten_dialogue({**clip, **fields}, [{'old': '开门。', 'new': '开一下门。'}]) == {}
 
 
-@pytest.mark.xfail(strict=True, reason='F03: Seedream ignores landscape scene frame')
 def test_seedream_scene_request_uses_landscape_size(tmp_path):
     requests = []
     def post(url, **kwargs):
