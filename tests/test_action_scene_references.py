@@ -32,8 +32,9 @@ def test_scene_action_survives_normalization_and_packing(monkeypatch, actor, tar
              'turns': [{'speaker_name': '', 'delivery_mode': 'silent_action', 'text': '挥铲迎击', 'emotion': '惊恐', 'chat_target': ''}]}
     raw = {'clips': [{'clip_id': 'c', 'location': '溪边', 'characters': ['沈行舟'], 'avoid': '', 'stages': [stage]}],
            'skipped_segments': []}
-    errors, _, shots = pc_validation.validate_and_normalize(raw, [{'segment_id': 'seg_1', 'text': source}],
+    validation = pc_validation.validate_and_normalize(raw, [{'segment_id': 'seg_1', 'text': source}],
                                                       bible, {'溪边': bible.locations[0]}, source, ctx=planner_ctx)
+    errors, _, shots = validation.errors, validation.warnings, validation.shots
     assert not errors
     assert shots[0]['actions'] == stage['actions']
     assert shots[0]['characters'] == ['沈行舟']

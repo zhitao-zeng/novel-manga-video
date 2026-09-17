@@ -28,6 +28,7 @@ import novel_manga.planning.metrics as pc_metrics
 import novel_manga.planning.prompts as pc_prompts
 import novel_manga.planning.text as pc_text
 import novel_manga.planning.validation as pc_validation
+import novel_manga.planning.decisions as pc_decisions
 import planner_context_thin as planner_context
 import planner_requests_thin as planner_requests
 
@@ -270,27 +271,22 @@ def run(args, ctx: PlannerContext) -> int:
         except (json.JSONDecodeError, ValueError) as error:
             final_errors = [f"response is not one JSON object: {type(error).__name__}: {error}"]
             attempts.append({"attempt": attempt, **meta, "errors": final_errors})
-            repair = {"validation_errors": final_errors}
-            if meta.get("finish_reason") == "length":
-                # The draft was cut off, not malformed: without saying so the
-                # next attempt is just as long and fails the same way.
-                repair["instruction"] = ("上一稿超过输出长度上限被截断。本次压缩篇幅：每个字段只写必要内容，camera 和 light 在机位或光源不变时写"
-                                         "\"同上\"，avoid 每段不超过 3 项，台词句子不加长；不得减少区段覆盖。")
+            repair = pc_decisions.invalid_response_feedback(final_errors, meta.get("finish_reason"))
             continue
-        errors, warnings, shots = pc_validation.validate_and_normalize(raw, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
+        validation = pc_validation.validate_and_normalize(raw, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
+        errors, warnings, shots = validation.errors, validation.warnings, validation.shots
         fingerprint = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         resent = attempts and attempts[-1].get("fingerprint") == fingerprint
         attempts.append({"attempt": attempt, **meta, "errors": errors, "warnings": warnings, "fingerprint": fingerprint, "resent_previous": bool(resent)})
         print(json.dumps({"attempt": attempt, **meta, "error_count": len(errors), "warning_count": len(warnings)}, ensure_ascii=False), flush=True)
-        if errors and attempt == args.max_redo + 1 and all("低于本次要求的下限" in e for e in errors):
-            # The length floor is a preference, not a gate: on the last redo a
-            # slightly short chapter is accepted and the shortfall reported.
-            warnings = [*warnings, *("report only: " + e for e in errors)]
-            errors = []
-            attempts[-1]["errors"] = []
+        decision = pc_decisions.decide_validation(validation, final_attempt=attempt == args.max_redo + 1,
+                    patch_rounds=patch_rounds, patch_seconds_left=patch_seconds_left, allow_floor_waiver=True)
+        if decision.floor_waived:
+            errors, warnings = decision.errors, decision.warnings
+            attempts[-1]["errors"] = errors
             attempts[-1]["floor_waived"] = True
-        patchable = pc_validation.patchable_errors(errors) if errors else None
-        while patchable and patch_rounds < pc_constants.PATCH_ROUNDS and patch_seconds_left > 0:
+        patchable = decision.targets
+        while patchable:
             # Nearly every redo trigger in the trial was local - a forgotten
             # segment, a blood word in one start_state, a paraphrased quote, a
             # missing speaker.  Fix those stages with one small call and re-check
@@ -310,32 +306,27 @@ def run(args, ctx: PlannerContext) -> int:
                 break
             finally:
                 patch_seconds_left = max(0.0, patch_seconds_left - (time.monotonic() - patch_started))
-            errors, warnings, shots = pc_validation.validate_and_normalize(patched, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
+            validation = pc_validation.validate_and_normalize(patched, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
+            errors, warnings, shots = validation.errors, validation.warnings, validation.shots
             attempts[-1].setdefault("patches", []).append({**summary, "errors_after": len(errors), "errors": errors[:6]})
             print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False), flush=True)
             raw = patched  # the next round, or the full redo, starts from the improved draft
-            patchable = pc_validation.patchable_errors(errors) if errors else None
+            decision = pc_decisions.decide_validation(validation, final_attempt=attempt == args.max_redo + 1,
+                        patch_rounds=patch_rounds, patch_seconds_left=patch_seconds_left)
+            patchable = decision.targets
         if not errors and ctx.strict_plan:
-            strict = pc_validation.strict_plan_errors(shots, episode.source_text, segments, raw, ctx=ctx)
-            if strict and attempt == args.max_redo + 1:
-                warnings = [*warnings, *("report only (strict gate waived on the last attempt): " + e for e in strict)]
-                attempts[-1]["strict_waived"] = strict
-            elif strict:
-                errors = strict
-                attempts[-1]["errors"] = strict
-                print(json.dumps({"attempt": attempt, "strict_errors": strict}, ensure_ascii=False), flush=True)
+            strict = pc_validation.strict_plan_issues(shots, episode.source_text, segments, raw, ctx=ctx)
+            strict_decision = pc_decisions.decide_strict(strict, final_attempt=attempt == args.max_redo + 1)
+            if strict_decision.strict_waived:
+                warnings = [*warnings, *strict_decision.warnings]
+                attempts[-1]["strict_waived"] = strict_decision.strict_waived
+            elif strict_decision.issues:
+                errors = strict_decision.errors
+                attempts[-1]["errors"] = errors
+                print(json.dumps({"attempt": attempt, "strict_errors": errors}, ensure_ascii=False), flush=True)
         if errors:
             final_errors = errors
-            repair = {
-                "instruction": "上一稿未通过硬门检查。逐条修复 validation_errors，其余内容尽量保持不变；source_quote 必须从对应区段逐字复制。",
-                "validation_errors": errors,
-                "previous_response": raw,
-            }
-            if resent:
-                # The model echoed its previous draft; feedback is not landing.
-                # Withhold the draft so it has to write the plan again.
-                repair.pop("previous_response")
-                repair["instruction"] = "上一稿被原样重发，未做任何修改。本次不提供上一稿，请按 validation_errors 里的数字要求从头重写一份符合规模的剧本。"
+            repair = pc_decisions.revision_feedback(errors, raw, resent=bool(resent))
             continue
         result = (raw, shots, warnings)
         break

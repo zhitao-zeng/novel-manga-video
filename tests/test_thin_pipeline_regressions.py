@@ -1,4 +1,5 @@
 from __future__ import annotations
+from novel_manga.planning.issues import ValidationResult, PlanningIssue, PlanningCode
 
 import json
 from types import SimpleNamespace
@@ -161,7 +162,7 @@ def test_chapter_repair_budget_survives_full_draft_retries(monkeypatch, tmp_path
 
     monkeypatch.setattr(planner_requests, "call_model", draft)
     monkeypatch.setattr('identity_flow_thin.resolve_chapter', lambda *a, **k: {})
-    monkeypatch.setattr(pc_validation, "validate_and_normalize", lambda *args, **kwargs: (["clip_1 stage 1: missing speaker"], [], []))
+    monkeypatch.setattr(pc_validation, "validate_and_normalize", lambda *args, **kwargs: ValidationResult([PlanningIssue(PlanningCode.VISIBLE_SPEAKER, "missing speaker", stage="clip_1 stage 1")], [], []))
     monkeypatch.setattr(planner_requests, "patch_plan", failed_patch)
     monkeypatch.setattr(sys, "argv", ["plan_chapter_thin.py", str(source), "--novel-id", "demo",
                         "--bible", str(bible), "--output-root", str(tmp_path / "out"), "--max-redo", "2"])

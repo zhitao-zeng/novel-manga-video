@@ -94,13 +94,10 @@ SEPARATE_MAX_PAIRS = 3
 CAST_RECENT_CHAPTERS = 3  # a character on screen this recently stays offered even when this chapter does not name them
 
 
-UNCITED_ERROR = re.compile(r"^(seg_\d+) is neither cited by any shot")
 
 
-STAGE_ERROR = re.compile(r"^([A-Za-z0-9_\-]{1,24} stage \d+): ")
 
 
-CLIP_LEVEL_ERROR = re.compile(r"characters not in StoryBible|unknown location")
 
 
 PATCH_ROUNDS = 3  # small repair calls per chapter before a full re-plan is the only option left

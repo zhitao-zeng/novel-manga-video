@@ -61,11 +61,13 @@ def test_subsecond_floor_shortfall_does_not_trigger_a_full_rewrite(monkeypatch):
     args = (raw, [{"segment_id": "seg_1", "text": text}], bible, {"庭院": bible.locations[0]}, text)
     seconds = pc_text.stage_seconds(stage["turns"], ctx=planner_ctx)
     monkeypatch.setattr(planner_ctx, 'episode_seconds_min', seconds + 0.25)
-    errors, warnings, _ = pc_validation.validate_and_normalize(*args, ctx=planner_ctx)
+    validation = pc_validation.validate_and_normalize(*args, ctx=planner_ctx)
+    errors, warnings, _ = validation.errors, validation.warnings, validation.shots
     assert not errors
     assert any("估时容差内，不重写" in warning for warning in warnings)
     monkeypatch.setattr(planner_ctx, 'episode_seconds_min', seconds + 2.25)
-    errors, _, _ = pc_validation.validate_and_normalize(*args, ctx=planner_ctx)
+    validation = pc_validation.validate_and_normalize(*args, ctx=planner_ctx)
+    errors, _, _ = validation.errors, validation.warnings, validation.shots
     assert any("低于本次要求的下限" in error for error in errors)
 
 
