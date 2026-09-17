@@ -100,7 +100,7 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
 
 
 def test_named_silent_lead_does_not_become_a_crowd_reference():
-    from h3_request_checks import source_crowds
+    from novel_manga.story.h3 import source_crowds
     clip={'references':[{'role':'character','name':'年轻女仆'},{'role':'character','name':'蒂法'}]}
     bible={'characters':[{'name':'年轻女仆','role':'群演/背景角色'},{'name':'蒂法','role':'贴身女仆'}]}
     result=source_crowds(clip,bible,'她的背后跟着两位同样穿着女仆裙装的年轻女仆。')

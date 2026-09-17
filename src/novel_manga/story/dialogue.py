@@ -132,32 +132,10 @@ def clip_bindings(shots: list[dict]) -> list[dict]:
             for stage, shot in enumerate(shots, 1) for turn in merged_turns(shot)
             if turn['delivery_mode'] in {'visible_dialogue','offscreen_dialogue'}]
 
-def subject_map(clip: dict) -> dict:
-    result, picture = {}, 0
-    for ref in clip.get('references', []):
-        if ref.get('role') in {'character','location'}:
-            picture += 1
-        if ref.get('role') == 'character' and ref['name'] not in clip.get('crowd_roles', {}):
-            result[ref['name']] = picture
-    return result
+def indexed_pictures(clip: dict):
+    return enumerate((r for r in clip.get('references', []) if r.get('role') in {'character', 'location'}), 1)
 
-def final_dialogue_issues(clip: dict) -> list[str]:
-    if 'dialogue_bindings' not in clip or not clip.get('prompt_h3'):
-        return []
-    subjects = subject_map(clip)
-    body = clip['prompt_h3'].split('detailed_description:',1)[-1].split('overall_soundscape:',1)[0]
-    actual = []
-    for block in re.finditer(r'\[Shot (\d+)\](.*?)(?=\[Shot \d+\]|\Z)', body, re.S):
-        for speech in re.finditer(r'(?:(?:<Subject (\d+)>)|(?:An off-screen voice))\s+\(S\d+\)\s+says'
-                                  r'( in an off-screen voiceover)?\s*<d>\[Chinese\]\s*(.*?)</d>', block[2], re.S):
-            actual.append((int(block[1]), int(speech[1]) if speech[1] else None,
-                           bool(speech[2]) or speech[1] is None, normalize_text(speech[3])))
-    expected = [(r['stage'], subjects.get(r['speaker_name']),
-                 r['delivery_mode']=='offscreen_dialogue' or r['speaker_name'] not in subjects,
-                 normalize_text(r['text'])) for r in clip['dialogue_bindings']]
-    if body.count('<d>') != len(actual):
-        return ['dialogue binding: final request contains speech without an identified owner']
-    if len(actual) != len(expected):
-        return [f'dialogue binding: expected {len(expected)} lines, final request has {len(actual)}']
-    return [f'dialogue binding: line {i} disagrees with the packed source owner, stage or words'
-            for i, (want, got) in enumerate(zip(expected, actual), 1) if want != got]
+
+def subject_map(clip: dict) -> dict:
+    return {ref['name']: picture for picture, ref in indexed_pictures(clip)
+            if ref['role'] == 'character' and ref['name'] not in clip.get('crowd_roles', {})}

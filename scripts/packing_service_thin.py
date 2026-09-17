@@ -147,7 +147,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "listeners": list(dict.fromkeys(l for shot in clip["shots"] for l in (shot.get("listeners") or []))),
         "extras": list(dict.fromkeys(e for shot in clip["shots"] for e in (shot.get("extras") or []))),
     }
-    from h3_request_checks import source_crowds
+    from novel_manga.story.h3 import source_crowds
     data = ctx.get('identity_data')
     data = data if data is not None else load_chapter(ctx['episode_dir'])
     segments = data.segments

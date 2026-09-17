@@ -17,7 +17,7 @@ from novel_manga.util import atomic_write_json
 from novel_manga.util import read_json as read
 from review_store_thin import current_takes
 import repair_history as history
-from h3_request_checks import request_issues, correction
+from novel_manga.story.h3 import request_issues, correction
 from repair_inputs_thin import RepairInputs
 
 MAX_GENERATED_TAKES = 3

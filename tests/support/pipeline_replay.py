@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-import build_h3_prompts as h3
+import build_h3_prompts as translation
+from novel_manga.story import h3
 from novel_manga.media import cache, generation
 from novel_manga.repair.policy import diagnosed_decision
 
@@ -38,5 +39,5 @@ def clip_requests(root: Path) -> dict:
     output['repair_routes'] = {cause: [diagnosed_decision({'cause': cause}, repeated).action
                                       for repeated in (False, True)]
                                for cause in ('generation_mismatch', 'source_attribution', 'request_mismatch')}
-    output['translation_contract'] = {'shots': h3.ASK, 'note': h3.NOTE_ASK, 'schema': h3.SCHEMA}
+    output['translation_contract'] = {'shots': translation.ASK, 'note': translation.NOTE_ASK, 'schema': translation.SCHEMA}
     return output

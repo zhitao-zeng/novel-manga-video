@@ -55,7 +55,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     from clip_readiness import plan_issues
     from novel_manga.media.common import reference_digests
     from novel_manga.review.policy import verify_to_verdict
-    from h3_request_checks import request_issues,source_crowds
+    from novel_manga.story.h3 import request_issues,source_crowds
 
     novel = directory.parent
     instructions = {**read(directory/'source_recheck_instructions.json',{}),

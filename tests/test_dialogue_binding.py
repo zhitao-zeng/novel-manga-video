@@ -7,8 +7,8 @@ from pathlib import Path
 
 from novel_manga.util import atomic_write_json
 import dialogue_binding as binding
-from build_h3_prompts import compose
-from h3_request_checks import request_issues
+from novel_manga.story.h3 import compose
+from novel_manga.story.h3 import request_issues
 
 
 def fixture(tmp_path):

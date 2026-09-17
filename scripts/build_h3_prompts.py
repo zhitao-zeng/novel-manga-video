@@ -40,11 +40,8 @@ from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
 from thin_runs import corrections  # noqa: E402
 
 from novel_manga.util import atomic_write_json  # noqa: E402
-from h3_request_checks import request_issues
+from novel_manga.story.h3 import request_issues, stages_of, subject_lines, compose, tag_names, clean_note, CJK
 
-STAGE = re.compile(r"【阶段[^】]*】(.*?)(?=【阶段|画面呈现|$)", re.S)
-SOUND = re.compile(r"声音：.*?(?=结束时：|$)", re.S)
-TURN = re.compile(r"中文普通话，([^，]*)，(.*?)(?:开口说|说)：\{([^}]*)\}(，画面中无人开口)?")
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots"],
           "properties": {"shots": {"type": "array", "items": {"type": "string"}}}}
 ASK = ("Translate each numbered Chinese shot description into ONE English sentence that states only what the "
@@ -65,142 +62,22 @@ NOTE_ASK = ("Rewrite this director's correction for one video clip as a direct i
             "to whom, who appears exactly once, who is absent. Never describe the mistake, the previous take or what "
             "'the director notes'. Refer to each character by the tag given below, never by name. Never quote dialogue. "
             "Reply with the instruction only - no commentary and no remarks about the tag list; a character without a tag is left out.\n\n")
-CJK = re.compile(r"[\u4e00-\u9fff]")
 
 
-def stages_of(prompt: str) -> list[tuple[str, list[tuple[str, str, bool]]]]:
-    """Each stage as (visual Chinese text, [(speaker, line, offscreen)])."""
-    out = []
-    for block in STAGE.findall(prompt):
-        turns = [(who.strip(), text.strip(), bool(off)) for _, who, text, off in TURN.findall(block)]
-        visual = re.sub(r"\s+", " ", SOUND.sub("", block)).strip(" 。")
-        out.append((visual, turns))
-    return out
 
 
-def subject_lines(clip: dict) -> tuple[list[str], dict]:
-    """The subject_definitions block, and the name -> <Subject N> map the shots will use."""
-    defs, subject_of, picture = [], {}, 0
-    for ref in (clip.get("references") or []):
-        if ref.get("role") == "character":
-            picture += 1
-            crowd=clip.get('crowd_roles',{}).get(ref['name'])
-            if crowd:
-                defs.append(f"<Picture {picture}> provides shared clothing only for {crowd['count'] or 'several'} distinct unnamed supporting people. "
-                            'Their faces and hairstyles must be different from each other and must not copy the face in this picture. '
-                            'For a pair, one has a narrow face and the other a broad face. This is a clothing reference, not one repeated identity.')
-                continue
-            subject_of[ref["name"]] = picture
-            # One instance, and nobody else wears this face: 雾月's most common defect (321 clips on 2026-09-14) was
-            # the lead's face or coat on a second person, and the Chinese binding's "只出现一次" never reached H3.
-            # The name is decorative here (shots address <Subject N>), and H3 reads it out: the
-            # speech invented in wordless shots was largely these names.  The guide also asks for
-            # English everywhere outside <d>.
-            defs.append(f"<Subject {picture}> is the person shown in <Picture {picture}>. "
-                        f"Take only the face, hair, build and clothing from <Picture {picture}>. Exactly one "
-                        f"<Subject {picture}> appears in the video; no other person has <Subject {picture}>'s face, hair or clothes.")
-        elif ref.get("role") == "location":
-            picture += 1
-            defs.append(f"<Picture {picture}> is the setting shown in it: take its architecture, ground, "
-                        f"fixed props and light from it, and none of the people in it.")
-    voice = 0
-    for ref in (clip.get("references") or []):
-        if ref.get("role") == "voice":
-            voice += 1
-            if ref["name"] in subject_of:
-                defs.append(f"<Audio {voice}> is the voice-timbre reference for <Subject {subject_of[ref['name']]}>.")
-    return defs, subject_of
 
 
-def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str:
-    """The six sections MiniMax's own guide prescribes (skills/h3-prompt-writing/references/ref-en.txt), and only
-    those: a `director_note` section is not in the format, so a correction goes into the summary.  Speakers carry
-    stable (Sx) ids next to their subject tag; an off-screen line uses the guide's exact phrase and is followed by
-    the statement that the on-screen characters' lips stay closed (the "wrong mouth moves" defect)."""
-    defs, subject_of = subject_lines(clip)
-    speaker_ids: dict = {}
-
-    def sid(key: str) -> str:
-        if key not in speaker_ids:
-            speaker_ids[key] = f"(S{len(speaker_ids) + 1})"
-        return speaker_ids[key]
-
-    body = []
-    for index, ((_, turns), text) in enumerate(zip(stages, english), 1):
-        if 'dialogue_bindings' in clip:
-            turns = [(r['speaker_name'],r['text'],r['delivery_mode']=='offscreen_dialogue')
-                     for r in clip['dialogue_bindings'] if r['stage']==index]
-        body.append(f"[Shot {index}] {text}")
-        for who, line, offscreen in turns:
-            if who in subject_of and not offscreen:
-                body.append(f"<Subject {subject_of[who]}> {sid(who)} says <d>[Chinese] {line}</d>")
-            elif who in subject_of:
-                body.append(f"<Subject {subject_of[who]}> {sid(who)} says in an off-screen voiceover <d>[Chinese] {line}</d> "
-                            "The on-screen characters' lips remain closed.")
-            else:
-                body.append(f"An off-screen voice {sid(who or 'off-screen')} says in an off-screen voiceover <d>[Chinese] {line}</d> "
-                            "The on-screen characters' lips remain closed.")
-    seconds = clip.get("request_seconds")
-    retention = []
-    for ref in (clip.get("references") or []):
-        if ref.get("role") == "character" and ref["name"] in subject_of:
-            n = subject_of[ref["name"]]
-            retention.append(f"<Subject {n}>: fully_preserved - the identity, face, hair and clothing of <Picture {n}>; one instance in every shot it appears in.")
-    # The task prefix names what the references actually are; "audio reference" only when a voice
-    # reference is really attached.
-    has_audio = any(ref.get("role") == "voice" for ref in (clip.get("references") or []))
-    task = "[reference generation + audio reference]" if has_audio else "[reference generation]"
-    return ("subject_definitions:\n" + "\n".join(defs)
-            + f"\n\nsummary:\n{task} A continuous {seconds}-second Chinese "
-              f"animated short-drama shot in {len(stages)} stages."
-            + (f" Direction for this take: {note}" if note else "") + "\n\n"
-              "retention_analysis:\n" + "\n".join(retention) + ("\n" if retention else "")
-            + "The setting: fully_preserved - its architecture, fixed props and light come from its own "
-              "picture, and none of the people in it.\n\n"
-              "detailed_description:\n" + "\n".join(body)
-            + "\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of "
-              "the action described above: footsteps, the rustle of clothing, the handling of objects, and the "
-              "air of the space.\n\n"
-              "non_diegetic_music:\nNone.")
 
 
 def warn(clip: dict, message: str) -> None:
     print(f"  {clip.get('clip_id', '?')}: H3 prompt {message}", file=sys.stderr, flush=True)
 
 
-def tag_names(text: str, naming: str) -> str:
-    """Resolve full names and unambiguous short forms to their supplied subject tags."""
-    names, shorts = {}, {}
-    for line in naming.splitlines():
-        if " = " not in line:
-            continue
-        name, tag = (part.strip() for part in line.split(" = ", 1))
-        if name:
-            names[name] = tag
-            short = name.split("·")[0]
-            if len(short) >= 2:
-                shorts.setdefault(short, set()).add(tag)
-    mapping = {**{name: next(iter(tags)) for name, tags in shorts.items() if len(tags) == 1}, **names}
-    if not mapping:
-        return text
-    # One longest-first replacement: 林凡 must not consume 林凡青, and a
-    # shared abbreviated name must not silently choose one of two people.
-    pattern = re.compile("|".join(re.escape(name) for name in sorted(mapping, key=len, reverse=True)))
-    return pattern.sub(lambda match: mapping[match.group()], text)
 
 
-META = re.compile(r"tag list|translat|original text|system prompt|the user|please verify|contradiction|instruction says", re.I)
 
 
-def clean_note(text: str, naming: str) -> str:
-    """The instruction without the model's asides.  Asked to map names to tags itself, the model answered with
-    commentary - "a character name (莱恩·格雷) that is not in the provided tag list, I have translated it as
-    <Subject 1>", "the user's request contains a contradiction" - and the CJK check threw the whole answer away
-    three tries in a row (雾月 pilot, 2026-09-13: six episodes looping).  Names become tags, a sentence that
-    talks about the task or still carries Chinese is dropped, the rest must be non-empty."""
-    text = tag_names(text, naming)
-    kept = [part for part in re.split(r"(?<=[.;!?])\s+", text) if part.strip() and not CJK.search(part) and not META.search(part)]
-    return " ".join(kept).strip()
 
 
 def english_note(note: str, naming: str) -> str:

@@ -402,7 +402,7 @@ class ThinMediaRunner:
         if self.english_correction_for_new_take(clip):
             return self.generate_clip(clip, attempt)
         if self.uses_h3_prompt(clip):
-            from h3_request_checks import request_issues
+            from novel_manga.story.h3 import request_issues
             contradictions = request_issues(clip)
             if contradictions:
                 if not hasattr(self.context, '_blocked_clips'):

@@ -129,7 +129,7 @@ def prepare(output, case, arm):
     from novel_manga.repair.execution import framing_signature
     from dialogue_binding import apply_confirmed_speakers
     from build_h3_prompts import convert
-    from h3_request_checks import request_issues
+    from novel_manga.story.h3 import request_issues
     from thin_profile import h3_prompt_outdated
     frozen=Path(read(output/'manifest.json')['frozen_novel']);dest=output/'runs'/case['id']/arm
     if (dest/'prepared.json').exists():

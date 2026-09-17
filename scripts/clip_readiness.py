@@ -181,7 +181,7 @@ def current_blocks(directory: Path) -> dict:
     plan = read(directory / "clip_plan.json", {})
     if record.get('inputs') != input_state(directory,plan):
         return {}
-    from h3_request_checks import request_issues
+    from novel_manga.story.h3 import request_issues
     clips={c['clip_id']:c for c in plan.get('clips',[])}
     return {cid:reasons for cid,reasons in record['blocked_clips'].items()
             if not all(r.startswith('request:') for r in reasons) or request_issues(clips.get(cid,{}))}

@@ -1,7 +1,7 @@
 """Load chapter evidence before applying shared dialogue rules."""
 from pathlib import Path
 from novel_manga.story.dialogue import (
-    POLICY, apply_bindings, clip_bindings, final_dialogue_issues, subject_map,
+    POLICY, apply_bindings, clip_bindings,
     confirmed_bindings as resolve_bindings,
 )
 

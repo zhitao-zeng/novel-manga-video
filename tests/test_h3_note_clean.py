@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from build_h3_prompts import clean_note, tag_names  # noqa: E402
+from novel_manga.story.h3 import clean_note, tag_names  # noqa: E402
 
 NAMING = "莱恩·格雷 = <Subject 1>\n琥珀·高德 = <Subject 2>\n"
 

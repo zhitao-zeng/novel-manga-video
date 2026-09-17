@@ -6,7 +6,7 @@ import pytest
 
 from novel_manga.util import atomic_write_json
 from clip_readiness import reference_issues
-from h3_request_checks import source_crowds
+from novel_manga.story.h3 import source_crowds
 
 
 def test_source_confirmed_type_blocks_but_old_design_judgments_are_not_source_truth(tmp_path):

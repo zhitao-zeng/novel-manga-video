@@ -15,7 +15,7 @@ import repair_history as history
 import repair_flow_thin as repair
 import novel_manga.repair.scheduling as schedule_rules
 import repair_manager_flow_thin as repair_manager_flow
-from h3_request_checks import request_issues
+from novel_manga.story.h3 import request_issues
 from thin_profile import plan_fingerprint
 from novel_manga.review.storage import take_identity
 
@@ -74,8 +74,8 @@ def test_two_distinct_people_and_repeated_mentions_are_allowed():
 
 
 def test_plural_role_uses_wardrobe_without_copying_one_identity():
-    from h3_request_checks import source_crowds
-    from build_h3_prompts import subject_lines,compose
+    from novel_manga.story.h3 import source_crowds
+    from novel_manga.story.h3 import subject_lines,compose
     from thin_profile import h3_source_digest,h3_prompt_outdated
     clip={'clip_id':'c','references':[{'role':'character','name':'警员'},{'role':'character','name':'侍者'}],
           'lines':[],'prompt':'original','request_seconds':5}

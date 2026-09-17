@@ -8,7 +8,7 @@ import httpx
 import pytest
 import packing_assets_thin as packing
 import render_flow_thin as flow
-from h3_request_checks import request_issues
+from novel_manga.story.h3 import request_issues
 from novel_manga.config import Settings
 from novel_manga.media.adapters import FramedPhanRouter
 

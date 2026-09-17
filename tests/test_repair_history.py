@@ -246,7 +246,7 @@ def test_actor_tags_are_resolved_before_visual_translation(monkeypatch):
 
 
 def test_name_prefixes_and_ambiguous_abbreviations_do_not_swap_actors():
-    from build_h3_prompts import tag_names
+    from novel_manga.story.h3 import tag_names
     assert tag_names("林凡青看着林凡", "林凡 = <Subject 1>\n林凡青 = <Subject 2>") == "<Subject 2>看着<Subject 1>"
     naming = "莱恩·格雷 = <Subject 1>\n莱恩·史密斯 = <Subject 2>"
     assert tag_names("莱恩·格雷看着莱恩·史密斯，莱恩开口", naming) == "<Subject 1>看着<Subject 2>，莱恩开口"

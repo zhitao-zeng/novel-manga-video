@@ -48,7 +48,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
     """Rebuild only the named clips from their recorded shot indexes; every other clip keeps its entry (and request)."""
     with REBUILD_LOCK:
         ctx = packing_context.context_for_plan(episode_dir, bible_path, plan)
-        from h3_request_checks import source_crowds
+        from novel_manga.story.h3 import source_crowds
         bible_data=ctx['bible'].model_dump()
         source_segments={str(s.get('segment_id')):s.get('text','') for s in ctx['identity_data'].segments}
         shots = packing_service.prepared_shots(copy.deepcopy(script), episode_dir, identity_data=ctx.get("identity_data"))

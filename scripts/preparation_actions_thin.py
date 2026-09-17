@@ -123,7 +123,7 @@ def ensure_cards(directory, plan):
 def translate_and_check(directory, plan, answer):
     from build_h3_prompts import convert
     from thin_profile import h3_prompt_outdated
-    from h3_request_checks import request_issues
+    from novel_manga.story.h3 import request_issues
     from clip_readiness import inspect_episode
     plan_path = directory / "clip_plan.json"
     record(directory, 'translating', audit=answer)
