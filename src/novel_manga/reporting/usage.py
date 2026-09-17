@@ -85,7 +85,8 @@ def materials(directory: Path, report: dict) -> list[dict]:
                 if previous[name] in ('unknown', None) and row[name] not in ('unknown', None):
                     previous[name] = row[name]
             previous['selected'] |= row['selected']
-            if previous['duration_source'] in ('missing', 'request') and row['duration_source'] in ('report', 'analysis'):
+            if (previous['duration_source'] == 'missing' and row['duration_source'] != 'missing'
+                    or previous['duration_source'] == 'request' and row['duration_source'] in ('report', 'analysis')):
                 previous['seconds'], previous['duration_source'] = row['seconds'], row['duration_source']
             if task_key:
                 previous['identity'] = task_key
