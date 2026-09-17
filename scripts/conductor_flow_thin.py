@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import time
+from novel_manga.application.configuration import RuntimePaths
 import conductor_capacity_thin as conductor_capacity
 import conductor_common_thin as conductor_common
 import conductor_dispatch_thin as conductor_dispatch
@@ -19,7 +20,7 @@ class Conductor:
         self.plan_only = plan_only  # reading, planning and cards only: no rendering lanes
         self.novel_dir = (conductor_common.REPO / config["novel_dir"]).resolve()
         self.novel_id = self.novel_dir.name
-        self.tmp = Path(config.get("tmp_dir", "/mnt/disk1/zengzhitao/tmp/conductor"))
+        self.tmp = Path(config.get("tmp_dir", RuntimePaths(conductor_common.REPO).temporary / "conductor"))
         self.tmp.mkdir(parents=True, exist_ok=True)
         self.procs: dict[str, subprocess.Popen] = {}
         self.keys = {k["name"]: k for k in config["keys"]}
@@ -111,35 +112,3 @@ class Conductor:
                         conductor_workers.stop(self, name, "all ranges finished")
                 return
             time.sleep(self.cfg.get("tick_seconds", 90))
-
-
-def config_for_novel(pipeline: dict, novel_id: str) -> dict:
-    """Build one novel's conductor config out of the shared pipeline description."""
-    novels = {n["id"]: n for n in pipeline.get("novels", [])}
-    if novel_id not in novels:
-        raise SystemExit(f"{novel_id} is not in the pipeline file: {sorted(novels)}")
-    novel = novels[novel_id]
-    resources = pipeline.get("resources", {})
-    video = resources.get("video_keys", {})
-    models = resources.get("planning_models", {})
-    missing = [k for k in novel.get("render_keys", []) if k not in video] + \
-              [m for m in novel.get("planning", {}) if m not in models]
-    if missing:
-        raise SystemExit(f"{novel_id} asks for resources that are not defined: {missing}")
-    defaults = pipeline.get("defaults", {})
-    planning = {**defaults.get("planning", {}),
-                "blocks_max": novel.get("blocks_max", 0), "blocks_min": novel.get("blocks_min", 0),
-                "models": [{**models[name], "slots": slots} for name, slots in novel.get("planning", {}).items()]}
-    return {
-        "novel_dir": f"outputs/{novel_id}",
-        "tmp_dir": novel.get("tmp_dir", f"/mnt/disk1/zengzhitao/tmp/conductor-{novel_id}"),
-        "tick_seconds": pipeline.get("tick_seconds", 90),
-        "round_gap_seconds": pipeline.get("round_gap_seconds", 120),
-        "keys": [{"name": name, **video[name]} for name in novel.get("render_keys", [])],
-        "ranges": novel["ranges"],
-        "planning": planning,
-        "qwen": defaults.get("qwen", {}),
-        "aimd": defaults.get("aimd", {}),
-        "review": defaults.get("review", {}),
-        "render": defaults.get("render", {}),
-    }

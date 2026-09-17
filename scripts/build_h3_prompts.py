@@ -32,9 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "scripts")]
-os.environ.setdefault("QWEN38_LOCAL_BASE_URL", ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)))
-os.environ.setdefault("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project")
-os.environ.setdefault("QWEN38_LOCAL_API_KEY_VAR", "H3_PROMPT_NO_KEY")
+from novel_manga.application.configuration import h3_translation_endpoint
 from novel_manga.model_client import ask_json  # noqa: E402
 from thin_profile import h3_prompt_outdated, h3_source_digest  # noqa: E402
 from thin_runs import corrections  # noqa: E402
@@ -85,7 +83,7 @@ def english_note(note: str, naming: str) -> str:
     '' when the translation fails or still carries Chinese.  The names are swapped for their tags before the ask,
     so the model has nothing left to map and nothing to remark on."""
     try:
-        answer = ask_json([{"type": "text", "text": NOTE_ASK + naming + "\n" + tag_names(note, naming)}], NOTE_SCHEMA, name="h3note", max_tokens=400)
+        answer = ask_json([{"type": "text", "text": NOTE_ASK + naming + "\n" + tag_names(note, naming)}], NOTE_SCHEMA, name="h3note", max_tokens=400, settings=h3_translation_endpoint())
     except Exception:  # noqa: BLE001 - convert asks again
         return ""
     return clean_note(str(answer.get("note") or "").strip(), naming)
@@ -133,7 +131,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         feedback = ('\nThe previous output failed: ' + problem +
                     '. Use only the declared Subject tags; groups described without a Subject tag stay distinct unnamed people.\n') if problem else ''
         question = [{"type": "text", "text": ASK + extra + feedback + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
-        answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines))
+        answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines), settings=h3_translation_endpoint())
         return [str(s).strip() for s in (answer.get("shots") or [])]
 
     problem = ""

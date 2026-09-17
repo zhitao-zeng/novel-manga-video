@@ -1,0 +1,191 @@
+{
+  "xinghai": {
+    "novel_dir": "outputs/xinghai",
+    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-xinghai",
+    "tick_seconds": 90,
+    "round_gap_seconds": 120,
+    "keys": [
+      {
+        "name": "h3pool",
+        "model": "minimax-h3-ref2va-turbo",
+        "key_var": "",
+        "base_url": "pool",
+        "clip_cap": 15,
+        "pool": "h3pool",
+        "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/h3pool",
+        "inflight": {
+          "min": 24,
+          "max": 24,
+          "start": 24
+        },
+        "parallel": 20,
+        "note": "本地 H3 池（configs/h3_pool.json）：常驻实例 + 夜班 active 实例，按实例空位派活"
+      }
+    ],
+    "ranges": [
+      {
+        "chapters": "1-480",
+        "plan_mode": 30
+      },
+      {
+        "chapters": "481-800",
+        "plan_mode": 15
+      },
+      {
+        "chapters": "801-1200",
+        "plan_mode": 30
+      },
+      {
+        "chapters": "1201-1600",
+        "plan_mode": 30
+      }
+    ],
+    "planning": {
+      "block_size": 63,
+      "margin": 20,
+      "blocks_max": 0,
+      "blocks_min": 0,
+      "models": [
+        {
+          "base": "http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http://127.0.0.1:18124/v1",
+          "model": "Qwen3.8-27B-Project",
+          "slots": 1,
+          "note": "本机 5 个端口，同时还要给渲染的提交前预审留余量"
+        }
+      ]
+    },
+    "qwen": {
+      "urls": [
+        "http://127.0.0.1:18120/v1",
+        "http://127.0.0.1:18121/v1",
+        "http://127.0.0.1:18122/v1",
+        "http://127.0.0.1:18123/v1",
+        "http://127.0.0.1:18124/v1"
+      ],
+      "waiting_high": 40,
+      "waiting_low": 5,
+      "card_waits_high": 3
+    },
+    "aimd": {
+      "window_seconds": 600,
+      "decrease_at": 5,
+      "increase_after_seconds": 600,
+      "increase_step": 2,
+      "park_after_seconds": 1800,
+      "park_seconds": 3600
+    },
+    "review": {
+      "parallel": 3
+    },
+    "render": {
+      "prescreen": true
+    }
+  },
+  "wuyue": {
+    "novel_dir": "outputs/wuyue",
+    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
+    "tick_seconds": 90,
+    "round_gap_seconds": 120,
+    "keys": [],
+    "ranges": [
+      {
+        "chapters": "1-2043",
+        "plan_mode": 15
+      }
+    ],
+    "planning": {
+      "block_size": 63,
+      "margin": 20,
+      "blocks_max": 2,
+      "blocks_min": 1,
+      "models": [
+        {
+          "base": "http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http://127.0.0.1:18124/v1",
+          "model": "Qwen3.8-27B-Project",
+          "slots": 2,
+          "note": "本机 5 个端口，同时还要给渲染的提交前预审留余量"
+        }
+      ]
+    },
+    "qwen": {
+      "urls": [
+        "http://127.0.0.1:18120/v1",
+        "http://127.0.0.1:18121/v1",
+        "http://127.0.0.1:18122/v1",
+        "http://127.0.0.1:18123/v1",
+        "http://127.0.0.1:18124/v1"
+      ],
+      "waiting_high": 40,
+      "waiting_low": 5,
+      "card_waits_high": 3
+    },
+    "aimd": {
+      "window_seconds": 600,
+      "decrease_at": 5,
+      "increase_after_seconds": 600,
+      "increase_step": 2,
+      "park_after_seconds": 1800,
+      "park_seconds": 3600
+    },
+    "review": {
+      "parallel": 3
+    },
+    "render": {
+      "prescreen": true
+    }
+  },
+  "zhutian-card": {
+    "novel_dir": "outputs/zhutian-card",
+    "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor",
+    "tick_seconds": 90,
+    "round_gap_seconds": 120,
+    "keys": [],
+    "ranges": [
+      {
+        "chapters": "2001-3848",
+        "plan_mode": 15
+      }
+    ],
+    "planning": {
+      "block_size": 63,
+      "margin": 20,
+      "blocks_max": 4,
+      "blocks_min": 2,
+      "models": [
+        {
+          "base": "http://172.28.4.81:8038/v1",
+          "model": "Qwen3.8-Flash-Next",
+          "key_var": "GPU81_QWEN_API_KEY",
+          "slots": 2,
+          "note": "别人的机器，最多 2 个请求"
+        }
+      ]
+    },
+    "qwen": {
+      "urls": [
+        "http://127.0.0.1:18120/v1",
+        "http://127.0.0.1:18121/v1",
+        "http://127.0.0.1:18122/v1",
+        "http://127.0.0.1:18123/v1",
+        "http://127.0.0.1:18124/v1"
+      ],
+      "waiting_high": 40,
+      "waiting_low": 5,
+      "card_waits_high": 3
+    },
+    "aimd": {
+      "window_seconds": 600,
+      "decrease_at": 5,
+      "increase_after_seconds": 600,
+      "increase_step": 2,
+      "park_after_seconds": 1800,
+      "park_seconds": 3600
+    },
+    "review": {
+      "parallel": 3
+    },
+    "render": {
+      "prescreen": true
+    }
+  }
+}

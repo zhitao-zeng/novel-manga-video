@@ -155,12 +155,9 @@ def adopt(manager):
 
 
 def command(manager, job: dict) -> tuple[list[str], dict]:
-    from novel_manga.util import load_dotenv
+    from novel_manga.application.configuration import repair_environment
     from thin_profile import reference_image_env
-    load_dotenv(ROOT / ".env")
-    env = dict(os.environ, PYTHONPATH="src:scripts", NOVEL_VIDEO_MODEL="minimax-h3-ref2va-turbo",
-               NOVEL_LOCAL_H3_URL="pool", NOVEL_INFLIGHT_POOL="h3pool", NOVEL_REVIEW_MODE="verify",
-               NOVEL_INFLIGHT_DIR=str(manager.legacy.parent / "inflight/h3pool"), NOVEL_CLIP_SECONDS_MAX="15", PHANROUTER_VIDEO_KEY_VAR="")
+    env, options = repair_environment(ROOT, manager.legacy)
     env.update(reference_image_env(env))
     python = str(ROOT / ".venv/bin/python")
     episodes = ",".join(map(str, job["episodes"]))
@@ -204,7 +201,7 @@ def command(manager, job: dict) -> tuple[list[str], dict]:
     return [python, "scripts/thin_batch.py", "--novel-dir", str(manager.novel), "--chapters", episodes,
             "--stage", "render", "--tier", "fast", "--merge", "1", "--parallel", "1" if len(job["episodes"]) == 1 else "12", "--workers", "0",
             "--card-parallel", "1" if len(job["episodes"]) == 1 else "6", "--no-recurring-cards",
-            "--inflight", "24", "--plan-mode", "15", "--no-prescreen", "--prune"] + (
+            "--inflight", str(options["inflight"]), "--plan-mode", str(options["clip_cap"]), "--no-prescreen", "--prune"] + (
                 ["--rerender"] if job["kind"] == "recovery" and job.get("recovery_kind") == "technical" else []) + (
                 ["--cache-only"] if job.get("cache_only") else []), env
 

@@ -13,6 +13,8 @@ import subprocess
 import sys
 import time
 
+from .application.configuration import RuntimePaths
+
 FLOWS = ('production', 'prepare', 'repair')
 ENTRIES = {'production': 'conductor_thin.py', 'prepare': 'prepare_h3_book.py',
            'repair': 'manage_repair_thin.py'}
@@ -52,11 +54,11 @@ def argument(args, flag, default=None):
 
 
 def novel_directory(root, spec):
-    return (root / spec.get('novel_dir', f"outputs/{spec['id']}")).resolve()
+    return RuntimePaths(root).novel(spec)
 
 
 def production_directory(root, spec):
-    return (root / spec.get('tmp_dir', f"/mnt/disk1/zengzhitao/tmp/conductor-{spec['id']}")).resolve()
+    return RuntimePaths(root).production(spec)
 
 
 def controllers(root, spec, flow, rows):

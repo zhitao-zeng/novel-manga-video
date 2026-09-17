@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import re
+from novel_manga.application.configuration import RuntimePaths, dashboard_novels
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-TMP = Path("/mnt/disk1/zengzhitao/tmp")
+TMP = RuntimePaths(ROOT).temporary
 
 
 CACHE_SECONDS = 20
@@ -20,11 +21,7 @@ PORT = 18900
 UI_VERSION = "batch-control-20260916"
 
 
-NOVELS = [
-    {"id": "zhutian-card", "title": "诸天万象录", "conductor": TMP / "conductor" / "conductor.log"},
-    {"id": "xinghai", "title": "星海龙途", "conductor": TMP / "conductor-xinghai" / "conductor.log"},
-    {"id": "wuyue", "title": "雾月秘典", "conductor": None},
-]
+NOVELS = dashboard_novels(ROOT)
 
 
 MODEL_NAMES = {
@@ -36,7 +33,7 @@ MODEL_NAMES = {
 HOST_NAMES = {"local": "gpu16"}  # the night shift's id for this box; everyone calls it gpu16
 
 
-TITLES = {"zhutian-card": "诸天万象录", "xinghai": "星海龙途", "wuyue": "雾月秘典"}
+TITLES = {novel['id']: novel['title'] for novel in NOVELS}
 
 
 TICK = re.compile(r"tick:\s*(.+)")

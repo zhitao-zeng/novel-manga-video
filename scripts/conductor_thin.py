@@ -6,6 +6,7 @@ import sys
 import json
 import conductor_common_thin as conductor_common
 import conductor_flow_thin as conductor_flow
+from novel_manga.application.configuration import config_for_novel
 
 def main() -> int:
     conductor_common.load_dotenv(conductor_common.REPO / ".env")  # before any worker inherits os.environ
@@ -21,7 +22,7 @@ def main() -> int:
         if not args.novel:
             raise SystemExit("--pipeline needs --novel")
         pipeline = json.loads(Path(args.pipeline).read_text(encoding="utf-8"))
-        config = conductor_flow.config_for_novel(pipeline, args.novel)
+        config = config_for_novel(pipeline, args.novel, root=conductor_common.REPO)
         entry = next(n for n in pipeline["novels"] if n["id"] == args.novel)
         plan_only = args.plan_only or bool(entry.get("plan_only"))
     elif args.config:

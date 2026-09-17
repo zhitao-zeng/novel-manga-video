@@ -152,6 +152,14 @@
     },
     "render": {
       "prescreen": true
+    },
+    "repair": {
+      "model": "minimax-h3-ref2va-turbo",
+      "base_url": "pool",
+      "pool": "h3pool",
+      "clip_cap": 15,
+      "inflight": 24,
+      "review_mode": "verify"
     }
   },
   "novels": [
@@ -194,7 +202,8 @@
         "h3b",
         "h3c",
         "h3d"
-      ]
+      ],
+      "display_order": 1
     },
     {
       "id": "wuyue",
@@ -224,7 +233,9 @@
       "plan_only": true,
       "pending_render_keys": [
         "h3pool"
-      ]
+      ],
+      "display_order": 2,
+      "conductor_log": false
     },
     {
       "id": "zhutian-card",
@@ -254,7 +265,8 @@
       ],
       "pending_render_keys": [
         "h3pool"
-      ]
+      ],
+      "display_order": 0
     }
   ]
 }

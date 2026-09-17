@@ -26,13 +26,13 @@ GENRE_REJECTS: list[str] = []  # from the genre preset; appended to 【不要】
 GENRE_CROWD = ""
 
 
-MAX_CLIP_SECONDS = float(os.environ.get("NOVEL_CLIP_SECONDS_MAX", "30") or 30)
+MAX_CLIP_SECONDS = 30.0
 
 
-SOFT_CUT_SECONDS = 18.0 if MAX_CLIP_SECONDS > 15 else round(MAX_CLIP_SECONDS * 0.6, 1)
+SOFT_CUT_SECONDS = 18.0
 
 
-MAX_STAGES = 6 if MAX_CLIP_SECONDS > 15 else 3
+MAX_STAGES = 6
 
 
 DEFAULT_ANON_VOICE = {
@@ -50,7 +50,7 @@ ANON_VOICE = dict(DEFAULT_ANON_VOICE)
 PACKER_VERSION = "thin-packer-2026-09-12+split-keeps-cast"
 
 
-PACK_MODE = os.environ.get("NOVEL_PACK_MODE", "execution").strip() or "execution"
+PACK_MODE = "execution"
 
 
 MIN_STANDALONE_SECONDS = 8.0
@@ -68,10 +68,16 @@ CHAT_SCREEN: dict = {
 VOICES: dict[str, str] = {}  # character -> series_assets/voices/<name>.wav, from the voice bank
 
 
-def compiler_options(frame=None, *, planning_context=None):
+def compiler_options(frame=None, *, planning_context=None, environ=None):
     entities = planning_context or PlannerContext.from_env()
-    return CompilerOptions(max_clip_seconds=MAX_CLIP_SECONDS, soft_cut_seconds=SOFT_CUT_SECONDS,
-        max_stages=MAX_STAGES, pack_mode=PACK_MODE, min_standalone_seconds=MIN_STANDALONE_SECONDS,
+    env = os.environ if environ is None else environ
+    cap = float(env.get('NOVEL_CLIP_SECONDS_MAX', MAX_CLIP_SECONDS) or 30)
+    seconds_from_env = 'NOVEL_CLIP_SECONDS_MAX' in env
+    soft_cut = (18.0 if cap > 15 else round(cap * 0.6, 1)) if seconds_from_env else SOFT_CUT_SECONDS
+    stages = (6 if cap > 15 else 3) if seconds_from_env else MAX_STAGES
+    mode = str(env.get('NOVEL_PACK_MODE', PACK_MODE)).strip() or 'execution'
+    return CompilerOptions(max_clip_seconds=cap, soft_cut_seconds=soft_cut,
+        max_stages=stages, pack_mode=mode, min_standalone_seconds=MIN_STANDALONE_SECONDS,
         chat_screen=copy.deepcopy(CHAT_SCREEN), anon_voice=copy.deepcopy(ANON_VOICE),
         genre_rejects=list(GENRE_REJECTS), genre_crowd=GENRE_CROWD,
         entity_forms=copy.deepcopy(entities.entity_forms), entity_generic=copy.deepcopy(entities.entity_generic),
