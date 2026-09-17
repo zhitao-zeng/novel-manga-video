@@ -33,9 +33,9 @@ def main():
                           "workers_to_keep": snapshot["workers"], "current_batches": {"A": snapshot["a_batch"], "B": snapshot["b_batch"]}}, ensure_ascii=False, indent=2))
     elif args.action == "progress":
         # Read-only with respect to production files and the coordinator's state.
-        repair_manager_state.refresh(manager, write=False)
-        report = {"generated_at": time.strftime("%F %T"), "total_episodes": len(manager.inspection_rows),
-                  **manager.state["summary"]["inspection"], "episodes": manager.inspection_rows}
+        snapshot = repair_manager_state.read_snapshot(manager)
+        report = {"generated_at": time.strftime("%F %T"), "total_episodes": len(snapshot.inspection_rows),
+                  **snapshot.state["summary"]["inspection"], "episodes": snapshot.inspection_rows}
         manager.directory.mkdir(parents=True, exist_ok=True)
         path = manager.directory / "inspection_progress.json"
         atomic_write_json(path, report)

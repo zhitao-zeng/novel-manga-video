@@ -15,8 +15,8 @@ def test_manager_does_not_inspect_or_write_outside_scope(tmp_path,monkeypatch):
     for n in [1,2]:(novel/f'book_{n}').mkdir()
     touched=[]
     monkeypatch.setattr(thin_runs,'episode_status',lambda d,*a:touched.append(d.name) or 'no_plan')
-    monkeypatch.setattr(review_store,'reconcile',lambda *a,**k:({},{}))
-    m=repair_manager_flow.Manager(novel,tmp_path/'legacy');repair_manager_state.refresh(m, write=False)
+    monkeypatch.setattr(review_store,'read_reconciled',lambda *a,**k:({},{},{}))
+    m=repair_manager_flow.Manager(novel,tmp_path/'legacy');repair_manager_state.install_snapshot(m, repair_manager_state.read_snapshot(m))
     assert touched==['book_1'] and set(m.info)=={1}
     assert m.state['summary']['total']==1
     assert not (novel/'book_2/episode_review.json').exists()

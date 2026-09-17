@@ -1,0 +1,25 @@
+"""Advance eligible episode records, preserving review -> history -> publication order."""
+from __future__ import annotations
+import repair_manager_state_thin as state
+import review_store_thin as reviews
+import repair_history as history
+import repair_delivery_thin as delivery
+
+
+def advance(manager):
+    scan = state.begin_scan(manager)
+    for n, directory in state.eligible_episodes(manager, scan):
+        try:
+            observed = state.read_episode(manager, scan, n, directory)
+            if n not in scan.busy:
+                reviews.write_reconciled(directory, observed.previous, observed.review)
+                history.observe(directory, observed.review, observed.takes)
+                delivery.publish_if_ready(directory, observed.review, observed.takes)
+            # Publication and history can affect readiness: read it after those
+            # updates, at the same point as the original per-episode loop.
+            state.inspect_episode(manager, scan, observed)
+        except (OSError, ValueError, KeyError):
+            state.mark_unreadable(scan, n)
+    snapshot = state.finish_scan(manager, scan)
+    state.install_snapshot(manager, snapshot)
+    return snapshot

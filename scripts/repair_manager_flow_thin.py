@@ -10,7 +10,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 import novel_manga.repair.scheduling as schedule_rules
 import repair_manager_dispatch_thin as repair_manager_dispatch
-import repair_manager_state_thin as repair_manager_state
+import repair_manager_progression_thin as repair_manager_progression
 import repair_manager_workers_thin as repair_manager_workers
 
 class Manager:
@@ -70,7 +70,7 @@ class Manager:
             while True:
                 changed = repair_manager_workers.reap(self)
                 if changed or time.monotonic() - self.last_refresh > 30:
-                    repair_manager_state.refresh(self)
+                    repair_manager_progression.advance(self)
                 paused = (self.directory / "pause").exists()
                 self.state["status"] = "paused" if paused else "running"
                 if not paused:

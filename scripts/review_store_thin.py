@@ -60,13 +60,23 @@ def current_takes(directory: Path, plan: dict, review: dict) -> dict:
     return result
 
 
-def reconcile(directory: Path, local: dict, flash: dict, *, write: bool = True) -> tuple[dict, dict]:
+def read_reconciled(directory: Path, local: dict, flash: dict) -> tuple[dict, dict, dict]:
     plan = read(directory / "clip_plan.json", {})
     previous = read(directory / "episode_review.json", {})
     takes = current_takes(directory, plan, previous)
     result = reconciliation.reconcile_review(directory, plan, previous, takes, local, flash)
-    if write and result != previous:
+    return previous, result, takes
+
+
+def write_reconciled(directory: Path, previous: dict, result: dict):
+    if result != previous:
         atomic_write_json(directory / "episode_review.json", result)
+
+
+def reconcile(directory: Path, local: dict, flash: dict, *, write: bool = True) -> tuple[dict, dict]:
+    previous, result, takes = read_reconciled(directory, local, flash)
+    if write:
+        write_reconciled(directory, previous, result)
     return result, takes
 
 

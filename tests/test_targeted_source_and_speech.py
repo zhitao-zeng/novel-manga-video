@@ -1,3 +1,4 @@
+import repair_manager_progression_thin as repair_manager_progression
 import repair_manager_dispatch_thin as repair_manager_dispatch
 import repair_manager_state_thin as repair_manager_state
 import repair_manager_workers_thin as repair_manager_workers
@@ -67,7 +68,7 @@ def test_current_full_delivery_finishes_despite_an_old_failed_scan(tmp_path,monk
         m.info={1:{}}
         m.state['summary']={'deliverable_precise':1}
         m.last_refresh=time.monotonic()
-    monkeypatch.setattr(repair_manager_state,'refresh',refresh)
+    monkeypatch.setattr(repair_manager_progression,'advance',refresh)
     monkeypatch.setattr(repair_manager_workers,'reap',lambda manager:False)
     monkeypatch.setattr(repair_manager_dispatch,'schedule',lambda manager:None)
     monkeypatch.setattr(repair_manager_workers,'launch',lambda manager:None)

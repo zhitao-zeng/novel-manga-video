@@ -1,0 +1,579 @@
+{
+  "query": {
+    "state": {
+      "novel": "<root>/book",
+      "legacy_dir": "<root>/old",
+      "phase": 1,
+      "passes": {},
+      "jobs": [
+        {
+          "kind": "fill",
+          "status": "running",
+          "episodes": [
+            2
+          ],
+          "id": "busy",
+          "step": 0
+        },
+        {
+          "kind": "recovery",
+          "status": "done",
+          "episodes": [
+            3
+          ],
+          "id": "recovery",
+          "step": 0,
+          "outcome": "visual_error"
+        }
+      ],
+      "next_id": 1,
+      "scan_started": true,
+      "fill_failures": {},
+      "recovery_attempts": {},
+      "targeted_recovery": [],
+      "plan_queue": {
+        "6": {
+          "clip_01": [
+            "blocked"
+          ]
+        }
+      },
+      "summary": {
+        "total": 6,
+        "deliverable_precise": 1,
+        "must_fix_clips": 1,
+        "unverified_clips": 0,
+        "technical": {
+          "unreadable": 1,
+          "done": 2,
+          "done_with_warnings": 1,
+          "plan_blocked": 1,
+          "stale": 1
+        },
+        "held_episodes": [
+          4
+        ],
+        "plan_blocked_episodes": [
+          6
+        ],
+        "plan_blocked_clips": 1,
+        "repair_ready_clips": 2,
+        "repair_blocked_clips": 0,
+        "residual_episodes": [],
+        "inspection": {
+          "episode_buckets": {
+            "unreadable": 1,
+            "passed": 2,
+            "checked_with_errors": 1,
+            "technical_pending": 2
+          },
+          "clips": {
+            "total": 5,
+            "passed": 4,
+            "failed": 1,
+            "unchecked": 0,
+            "unconfirmed_candidates": 0,
+            "flash_pending": 0
+          },
+          "episodes_with_confirmed_errors": 1,
+          "error_episodes_still_partly_unchecked": 0,
+          "episodes_with_no_precise_check": 0,
+          "processed_episodes_now_passed": 0
+        },
+        "recovery": {
+          "plan": {},
+          "references": {},
+          "technical": {},
+          "residual": {},
+          "identity": {},
+          "binding": {},
+          "speech": {},
+          "review": {},
+          "source": {},
+          "managed": {},
+          "entities": {}
+        },
+        "recovery_outcomes": {
+          "visual_error": 1
+        },
+        "shared_audit": {}
+      }
+    },
+    "info": {
+      "4": {
+        "status": "unreadable",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": false,
+        "held": true,
+        "ready": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      },
+      "1": {
+        "status": "done",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": false,
+        "held": false,
+        "ready": true,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      },
+      "3": {
+        "status": "done_with_warnings",
+        "bad": 1,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": false,
+        "held": false,
+        "ready": true,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [
+          "clip_01"
+        ],
+        "managed_blocked": {}
+      },
+      "6": {
+        "status": "plan_blocked",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": false,
+        "held": false,
+        "ready": false,
+        "plan_blocked": true,
+        "exposure_due": false,
+        "managed_clips": [
+          "clip_01"
+        ],
+        "managed_blocked": {}
+      },
+      "2": {
+        "status": "done",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": true,
+        "held": false,
+        "ready": true,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      },
+      "5": {
+        "status": "stale",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": true,
+        "deliverable": false,
+        "held": false,
+        "ready": false,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      }
+    },
+    "inspection": [
+      {
+        "episode": 1,
+        "status": "done",
+        "bucket": "passed",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 2,
+        "status": "done",
+        "bucket": "passed",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 3,
+        "status": "done_with_warnings",
+        "bucket": "checked_with_errors",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 4,
+        "status": "unreadable",
+        "bucket": "unreadable",
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0,
+        "processed_cycles": 0
+      },
+      {
+        "episode": 5,
+        "status": "stale",
+        "bucket": "technical_pending",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 6,
+        "status": "plan_blocked",
+        "bucket": "technical_pending",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      }
+    ],
+    "calls": []
+  },
+  "advance": {
+    "state": {
+      "novel": "<root>/book",
+      "legacy_dir": "<root>/old",
+      "phase": 1,
+      "passes": {},
+      "jobs": [
+        {
+          "kind": "fill",
+          "status": "running",
+          "episodes": [
+            2
+          ],
+          "id": "busy",
+          "step": 0
+        },
+        {
+          "kind": "recovery",
+          "status": "done",
+          "episodes": [
+            3
+          ],
+          "id": "recovery",
+          "step": 0,
+          "outcome": "visual_error"
+        }
+      ],
+      "next_id": 1,
+      "scan_started": true,
+      "fill_failures": {},
+      "recovery_attempts": {},
+      "targeted_recovery": [],
+      "plan_queue": {
+        "6": {
+          "clip_01": [
+            "blocked"
+          ]
+        }
+      },
+      "summary": {
+        "total": 6,
+        "deliverable_precise": 2,
+        "must_fix_clips": 1,
+        "unverified_clips": 0,
+        "technical": {
+          "unreadable": 1,
+          "done": 2,
+          "done_with_warnings": 1,
+          "plan_blocked": 1,
+          "stale": 1
+        },
+        "held_episodes": [
+          4
+        ],
+        "plan_blocked_episodes": [
+          6
+        ],
+        "plan_blocked_clips": 1,
+        "repair_ready_clips": 2,
+        "repair_blocked_clips": 0,
+        "residual_episodes": [],
+        "inspection": {
+          "episode_buckets": {
+            "unreadable": 1,
+            "passed": 2,
+            "checked_with_errors": 1,
+            "technical_pending": 2
+          },
+          "clips": {
+            "total": 5,
+            "passed": 4,
+            "failed": 1,
+            "unchecked": 0,
+            "unconfirmed_candidates": 0,
+            "flash_pending": 0
+          },
+          "episodes_with_confirmed_errors": 1,
+          "error_episodes_still_partly_unchecked": 0,
+          "episodes_with_no_precise_check": 0,
+          "processed_episodes_now_passed": 0
+        },
+        "recovery": {
+          "plan": {},
+          "references": {},
+          "technical": {},
+          "residual": {},
+          "identity": {},
+          "binding": {},
+          "speech": {},
+          "review": {},
+          "source": {},
+          "managed": {},
+          "entities": {}
+        },
+        "recovery_outcomes": {
+          "visual_error": 1
+        },
+        "shared_audit": {}
+      }
+    },
+    "info": {
+      "4": {
+        "status": "unreadable",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": false,
+        "held": true,
+        "ready": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      },
+      "1": {
+        "status": "done",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": true,
+        "held": false,
+        "ready": true,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      },
+      "3": {
+        "status": "done_with_warnings",
+        "bad": 1,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": false,
+        "held": false,
+        "ready": true,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [
+          "clip_01"
+        ],
+        "managed_blocked": {}
+      },
+      "6": {
+        "status": "plan_blocked",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": false,
+        "held": false,
+        "ready": false,
+        "plan_blocked": true,
+        "exposure_due": false,
+        "managed_clips": [
+          "clip_01"
+        ],
+        "managed_blocked": {}
+      },
+      "2": {
+        "status": "done",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": false,
+        "deliverable": true,
+        "held": false,
+        "ready": true,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      },
+      "5": {
+        "status": "stale",
+        "bad": 0,
+        "unverified": 0,
+        "flash_pending": 0,
+        "can_fill": true,
+        "deliverable": false,
+        "held": false,
+        "ready": false,
+        "plan_blocked": false,
+        "exposure_due": false,
+        "managed_clips": [],
+        "managed_blocked": {}
+      }
+    },
+    "inspection": [
+      {
+        "episode": 1,
+        "status": "done",
+        "bucket": "passed",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 2,
+        "status": "done",
+        "bucket": "passed",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 3,
+        "status": "done_with_warnings",
+        "bucket": "checked_with_errors",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 4,
+        "status": "unreadable",
+        "bucket": "unreadable",
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0,
+        "processed_cycles": 0
+      },
+      {
+        "episode": 5,
+        "status": "stale",
+        "bucket": "technical_pending",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      },
+      {
+        "episode": 6,
+        "status": "plan_blocked",
+        "bucket": "technical_pending",
+        "processed_cycles": 0,
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "unchecked": 0,
+        "unconfirmed_candidates": 0,
+        "flash_pending": 0
+      }
+    ],
+    "calls": [
+      [
+        "review",
+        1
+      ],
+      [
+        "history",
+        1
+      ],
+      [
+        "publish",
+        1
+      ],
+      [
+        "review",
+        3
+      ],
+      [
+        "history",
+        3
+      ],
+      [
+        "publish",
+        3
+      ],
+      [
+        "review",
+        6
+      ],
+      [
+        "history",
+        6
+      ],
+      [
+        "publish",
+        6
+      ],
+      [
+        "review",
+        5
+      ],
+      [
+        "history",
+        5
+      ],
+      [
+        "publish",
+        5
+      ]
+    ]
+  }
+}
