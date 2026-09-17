@@ -1,12 +1,34 @@
 """Pure dialogue ownership and request binding rules."""
 from __future__ import annotations
 import re
+import copy
 from novel_manga.runtime_backends import normalize_text
 from .identity import canonical_entity
 
 POLICY = 'grounded-dialogue-binding-v1'
 TERMINAL_PUNCT = "。！？…!?"
 SFX_ONLY = re.compile(r"^[\u4e00-\u9fff]{1,5}声$")
+
+
+def rewritten_dialogue(clip: dict, edits: list[dict]) -> dict:
+    """Return changed dialogue fields together, preserving ownership and source addresses."""
+    lines = copy.deepcopy(clip.get('lines', []))
+    bindings = copy.deepcopy(clip.get('dialogue_bindings', []))
+    for edit in edits:
+        old, new = edit.get('old'), edit.get('new', '')
+        if not old:
+            continue
+        for row in [*lines, *bindings]:
+            if old in str(row.get('text', '')):
+                row['text'] = str(row['text']).replace(old, new)
+    if lines == clip.get('lines', []) and bindings == clip.get('dialogue_bindings', []):
+        return {}
+    result = {}
+    if 'lines' in clip:
+        result.update(lines=lines, spoken_text=''.join(str(line.get('text', '')) for line in lines))
+    if 'dialogue_bindings' in clip:
+        result['dialogue_bindings'] = bindings
+    return result
 
 def nonverbal_sound(turn: dict) -> str:
     """A standalone sneeze/bark is a sound event, not Chinese words to recite."""

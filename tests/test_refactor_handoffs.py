@@ -25,7 +25,6 @@ def test_subject_mentions_without_declarations_still_fail():
     assert request_issues(clip) == ['subject 1 has no identity definition']
 
 
-@pytest.mark.xfail(strict=True, reason='F02: moderation edits leave old speech reference')
 def test_moderation_edit_updates_persisted_dialogue_fields(monkeypatch):
     runner = object.__new__(flow.ThinMediaRunner)
     runner.context = SimpleNamespace(bible=SimpleNamespace(characters=[]), settings=SimpleNamespace())
@@ -38,6 +37,23 @@ def test_moderation_edit_updates_persisted_dialogue_fields(monkeypatch):
     assert runner.repair_refused_prompt(clip, 2)
     assert saved[0]['spoken_text'] == '新的对白'
     assert saved[0]['dialogue_bindings'][0]['text'] == '新的对白'
+
+
+def test_dialogue_rewrite_preserves_ownership_and_noop_inputs():
+    from novel_manga.story.dialogue import rewritten_dialogue
+    clip = {'lines': [{'speaker_name': '甲', 'text': '开门。'}, {'speaker_name': '乙', 'text': '请进。'}],
+            'spoken_text': '开门。请进。', 'dialogue_bindings': [
+                {'stage': 1, 'source_stage': 7, 'speaker_name': '甲', 'text': '开门。'},
+                {'stage': 2, 'source_stage': 9, 'speaker_name': '乙', 'text': '请进。'}]}
+    before = copy.deepcopy(clip)
+    fields = rewritten_dialogue(clip, [{'old': '开门。', 'new': '开一下门。'}])
+    assert clip == before
+    assert fields['spoken_text'] == '开一下门。请进。'
+    assert fields['dialogue_bindings'][0] == {**before['dialogue_bindings'][0], 'text': '开一下门。'}
+    assert fields['dialogue_bindings'][1] == before['dialogue_bindings'][1]
+    assert rewritten_dialogue(clip, []) == {}
+    assert rewritten_dialogue(clip, [{'old': '不在台词里', 'new': '不新增'}]) == {}
+    assert rewritten_dialogue({**clip, **fields}, [{'old': '开门。', 'new': '开一下门。'}]) == {}
 
 
 @pytest.mark.xfail(strict=True, reason='F03: Seedream ignores landscape scene frame')

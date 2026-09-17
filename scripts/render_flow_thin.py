@@ -33,6 +33,7 @@ from pathlib import Path
 
 from novel_manga.config import Settings
 from novel_manga.models import StoryBible
+from novel_manga.story.dialogue import rewritten_dialogue
 from novel_manga.media.common import log, reference_digests
 from novel_manga.media.adapters import FramedPhanRouter, FramedLocalH3
 from novel_manga.media.asset_builder import FramedAssetFactory
@@ -280,13 +281,8 @@ class ThinMediaRunner:
         text, line_edits = repaired
         clip.setdefault("prompt_before_repair", clip["prompt"])
         clip["prompt"] = text
-        # Subtitles and the speech gate read clip["lines"], so a line the rewrite
-        # had to change is changed there too - otherwise the episode would caption
-        # words nobody says.
-        for edit in line_edits:
-            for line in clip.get("lines", []):
-                if edit["old"] in str(line.get("text", "")):
-                    line["text"] = str(line["text"]).replace(edit["old"], edit["new"])
+        # Subtitles, speech evaluation and H3 bindings must describe the same accepted words.
+        clip.update(rewritten_dialogue(clip, line_edits))
         if line_edits:
             log(f"{clip['clip_id']}: repaired lines {[e['new'] for e in line_edits]}")
         # The plan is the cache key of a clip: keeping the accepted wording there
