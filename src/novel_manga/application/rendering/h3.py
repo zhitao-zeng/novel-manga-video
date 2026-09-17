@@ -38,7 +38,7 @@ from novel_manga.application.profiles import h3_prompt_outdated, h3_source_diges
 from novel_manga.application.production.runs import corrections
 
 from novel_manga.util import atomic_write_json  # noqa: E402
-from novel_manga.story.h3 import request_issues, stages_of, subject_lines, compose, tag_names, clean_note, CJK
+from novel_manga.story.h3 import request_issues, stages_of, subject_lines, compose, tag_names, clean_note, CJK, CHARACTER_TRAIT
 
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots"],
           "properties": {"shots": {"type": "array", "items": {"type": "string"}}}}
@@ -116,7 +116,14 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         warn(clip, "FAILED: the Chinese prompt has no 【阶段】 block to translate")
         return False
     _, subject_of = subject_lines(clip)
-    naming = "".join(f"{name} = <Subject {n}>\n" for name, n in subject_of.items())
+    # The name alone does not say what the character IS.  In a book where most of the cast are
+    # dragons, a translator given only "奥尔德 = <Subject 2>" has to guess, and it guessed wrong:
+    # a human was written with claws, a tail and dragon scales.  The Chinese prompt already carries
+    # each character's 辨识特征 in its 【人物】 block, which the 【阶段】 slice never passed along.
+    traits = dict(CHARACTER_TRAIT.findall(prompt))
+    naming = "".join(
+        f"{name} = <Subject {n}>" + (f" ({traits[name]})" if traits.get(name) else "") + "\n"
+        for name, n in subject_of.items())
     picture=0
     for ref in clip.get('references',[]):
         if ref.get('role') in {'character','location'}:

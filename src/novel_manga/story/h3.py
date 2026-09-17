@@ -9,6 +9,9 @@ DECLARED_SUBJECT = re.compile(re.escape(SUBJECT_DECLARATION)
                              .replace(re.escape('{subject}'), r'(\d+)')
                              .replace(re.escape('{picture}'), r'\d+'))
 
+CHARACTER_TRAIT = re.compile(r"([^\s，。；<>]{1,12})的辨识特征[:：]\s*([^。\n]{1,80})")
+
+
 STAGE = re.compile(r"【阶段[^】]*】(.*?)(?=【阶段|画面呈现|$)", re.S)
 
 

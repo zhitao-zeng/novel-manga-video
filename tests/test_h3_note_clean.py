@@ -4,10 +4,25 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from novel_manga.story.h3 import clean_note, tag_names  # noqa: E402
 
 NAMING = "莱恩·格雷 = <Subject 1>\n琥珀·高德 = <Subject 2>\n"
+
+
+def test_translation_receives_current_character_traits(monkeypatch):
+    from novel_manga.application.rendering import h3
+    calls = []
+    def answer(parts, schema, **kwargs):
+        calls.append(parts[0]['text'])
+        return {'shots': ['<Subject 1> stands by a doorway.']}
+    monkeypatch.setattr(h3, 'ask_json', answer)
+    clip = {'clip_id': 'c', 'request_seconds': 15,
+            'prompt': '【人物】\n阿甲的辨识特征：人类少年，黑发。\n【阶段1】阿甲站在门边。画面呈现',
+            'references': [{'role': 'character', 'name': '阿甲'}]}
+    assert h3.convert(clip)
+    assert '阿甲 = <Subject 1> (人类少年，黑发)' in calls[0]
+    assert '<Subject 1> stands by a doorway.' in clip['prompt_h3']
+    assert not h3.convert(clip) and len(calls) == 1
 
 
 def test_commentary_with_a_chinese_name_is_reduced_to_the_instruction():
