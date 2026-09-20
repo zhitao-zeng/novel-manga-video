@@ -153,6 +153,7 @@ def extract_locations(chapter_text: str, known_locations: list[str]) -> list[dic
         # plate is reused by every shot in that place, so one scene's state would be baked into all of them.
         "描述写这个地方长期不变的样子，当成一张没有人的背景板来写：不要写任何人、人群、人影或剪影，"
         "也不要写只属于本段这一场戏的临时状态（摊开的行李、摆出来的东西、正在发生的事）。"
+        "写到碑文、匾额、招牌、书页这类本来有字的东西时，写成看不出字形的样子（风化的刻痕、磨平的笔画、模糊的符号），不要写可辨读的文字——地点卡的判定会把可读文字判成缺陷。"
         "另给每个地点判断 time_of_day（本段在此发生时通常是白天、夜晚、黄昏、清晨，说不清写不定）和 main_light"
         "（主光源，如 煤气灯、壁炉、窗外日光、篝火、洞顶天光、手机屏幕；按原文写，没写就按地点常识）。"
         + (f"已有的地点名：{recent}。如果本段的地点就是其中之一，name 必须原样使用已有名字。" if recent else "")
