@@ -11,6 +11,9 @@ import novel_manga.application.production.flow as production_flow
 import novel_manga.application.production.render as production_render
 import novel_manga.application.production.reports as production_reports
 
+import novel_manga.planning.audit as pc_audit
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", required=True, help="outputs/<novel-id> created by build_bible_thin.py")
@@ -51,6 +54,8 @@ def main() -> int:
     parser.add_argument("--inflight", type=int, default=20, help="global cap on clips in flight across all rendering episodes (0 = none)")
     parser.add_argument("--no-prescreen", dest="prescreen", action="store_false", default=True, help="skip the local content-filter prescreen of prompts")
     parser.add_argument("--no-moderation-repair", dest="moderation_repair", action="store_false", default=True, help="skip the bisect-and-rewrite rescue of prompts the text filter refuses")
+    parser.add_argument("--no-audit", dest="audit", action="store_false", default=True,
+                        help="渲染前不做结构检查（地点有没有描写、镜头的地点和角色在不在圣经里、时长在不在 4–15 秒）")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
 
@@ -59,6 +64,13 @@ def main() -> int:
     chapters = production_common.parse_chapters(args.chapters)
     batch.rows = {chapter: {} for chapter in chapters}
     production_common.log(f"{batch.novel_id}: chapters {chapters[0]}..{chapters[-1]} ({len(chapters)}), stage {args.stage}, source {batch.source.name}")
+    if args.audit and not args.dry_run and args.stage in ("all", "render"):
+        problems = pc_audit.blocking_problems(batch.novel_dir)
+        for problem in problems:
+            production_common.log(f"审查不通过 · {problem.where} · {problem.rule}：{problem.detail}")
+        if problems:
+            production_common.log(f"{len(problems)} 处问题会让成片出错，先修再渲；确认要照渲就加 --no-audit")
+            return 1
     if args.stage == "all":
         batch.stream(chapters)  # plan one chapter, render it while the next is planned
         return production_reports.report(batch, chapters)
