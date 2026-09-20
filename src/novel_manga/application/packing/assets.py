@@ -81,8 +81,14 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
             anchor = anchor_of(name, bible, character=look, prefer=changed)
             bindings.append(
-                f"<{name}>{body_note}对应@图片{first}和@图片{second}：@图片{first}定五官、发型、年龄感和肤色，"
-                f"@图片{second}定身体比例、服装版型、主色和配饰；两张都不采用背景、姿势和构图；"
+                # Which card defines what follows what each card actually draws: turnaround.jpeg is the
+                # head-to-toe casting shot (asset_prompts.character_prompt) and expressions.jpeg the
+                # chest-up portrait that stops at the collar (asset_prompts.expression_prompt).  These
+                # two clauses used to be the other way round, asking the bust for body proportions and
+                # the cut of a costume it does not show; a reference that does not show a part leaves
+                # the model to invent it (2026-09-20 A/B: a shot given only the bust lost the sash).
+                f"<{name}>{body_note}对应@图片{first}和@图片{second}：@图片{second}定五官、发型、年龄感和肤色，"
+                f"@图片{first}定身体比例、服装版型、主色和配饰；两张都不采用背景、姿势和构图；"
                 # The single-view binding always said this; the two-view one - every lead - did not, and 408 of
                 # 雾月's 574 doppelganger clips show an extra person wearing the lead's face.
                 "画面中其他任何人都不得使用这两张图的相貌、发型或服装，该角色只能出现一次"
