@@ -16,19 +16,23 @@ import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.contracts as pc_contracts
 import novel_manga.planning.prompts as pc_prompts
 import novel_manga.planning.validation as pc_validation
+from novel_manga.planning.methods import get_method
+from novel_manga.planning.methods.base import StoryMethod
+from novel_manga.planning.methods.blueprint import blueprint_schema, blueprint_prompt, validate_blueprint, normalize_blueprint
+from novel_manga.planning.methods.prompts import screenplay_prompt
 
-class IncompleteOutlineError(RuntimeError):
-    def __init__(self, attempts: list[dict]):
-        self.attempts = attempts
-        super().__init__("first-pass outline incomplete: " + "; ".join(attempts[-1]["errors"]))
+from novel_manga.planning.methods.errors import IncompleteOutlineError
 
 
 def generate_outline(client: httpx.Client, endpoints: list[str], headers: dict, *, model: str, payload: dict,
-                     mode: str, max_tokens: int, timeout: float, seed: int | None = None) -> tuple[str, list[dict]]:
+                     mode: str, max_tokens: int, timeout: float, seed: int | None = None,
+                     method: StoryMethod | None = None) -> tuple[str, list[dict]]:
     """Normal completion and an explicit complete artifact are prerequisites for pass two."""
     segment_ids = [s["segment_id"] for s in payload["segments"]]
-    schema = pc_contracts.outline_schema(mode, segment_ids)
+    schema = blueprint_schema(method, payload['segments']) if method else pc_contracts.outline_schema(mode, segment_ids)
+    instructions = blueprint_prompt(method) if method else pc_prompts.outline_prompt(mode)
     attempts = []
+    draft_for_retry = None
     deadline = time.monotonic() + timeout
     original_timeout = client.timeout
     for limit in dict.fromkeys((max_tokens, max(max_tokens, min(max_tokens * 2, 8192)))):
@@ -42,16 +46,32 @@ def generate_outline(client: httpx.Client, endpoints: list[str], headers: dict, 
             "model": model, "temperature": 0.3, "max_tokens": limit,
             **({"seed": seed} if seed is not None else {}),
             "chat_template_kwargs": {"enable_thinking": False},
-            "response_format": {"type": "json_schema", "json_schema": {"name": "chapter_outline", "strict": True, "schema": schema}},
-            "messages": [{"role": "system", "content": pc_prompts.outline_prompt(mode) + reminder},
+            "response_format": {"type": "json_schema", "json_schema": {"name": f"chapter_outline_{method.key}" if method else "chapter_outline", "strict": True, "schema": schema}},
+            "messages": [{"role": "system", "content": instructions + reminder},
                          {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
         }
+        if method and draft_for_retry is not None:
+            request['messages'].append({'role': 'user', 'content':
+                '下面是上次已完整输出但尚未通过检查的提纲，仅修上方指出的错误区段，保留其余已成立的创作决策。'
+                '原文优先于待修稿；仍按当前Schema输出全部beats_by_segment，编号由代码生成。\n待修稿：'
+                + json.dumps(draft_for_retry, ensure_ascii=False)})
         try:
             client.timeout = httpx.Timeout(remaining)
             response = post_any(client, endpoints, headers, request)
             choice = response["choices"][0]
             content = choice["message"].get("content") or ""
-            errors = pc_contracts.validate_outline(content, mode, segment_ids)
+            if method:
+                row['model_content_chars'] = len(content)
+                try:
+                    normalized = normalize_blueprint(json.loads(content), payload['segments'])
+                    content = json.dumps(normalized, ensure_ascii=False)
+                    errors = validate_blueprint(content, method, payload['segments'])
+                    if choice.get('finish_reason') == 'stop':
+                        draft_for_retry = normalized
+                except (ValueError, TypeError, AttributeError) as error:
+                    errors = [str(error)]
+            else:
+                errors = pc_contracts.validate_outline(content, mode, segment_ids)
             if choice.get("finish_reason") != "stop":
                 errors.insert(0, f"finish_reason={choice.get('finish_reason')}")
             row.update(finish_reason=choice.get("finish_reason"), content_chars=len(content), usage=response.get("usage", {}), errors=errors)
@@ -117,6 +137,8 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
                  "offscreen_dialogue 和 chat_message 必须写 speaker_name；台词从原文取；只用给出的人物名，格式和已有阶段一致。")
     parts.append(f"分镜大纲：{json.dumps(outline, ensure_ascii=False)}")
     parts.append(f"可用人物：{names}")
+    if ctx.story_blueprint:
+        parts.append("保留每阶段的beat_id，不丢失该拍的动作和出口；提纲：" + json.dumps(ctx.story_blueprint, ensure_ascii=False))
     shown: list[str] = list(missing_ids)
     for label, errs in faulty.items():
         clip_index, stage_index = slots[label]
@@ -146,9 +168,26 @@ def qwen_default() -> str:
     return "__all__"
 
 
-def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 4096, notes: str = "", grammar: dict | None = None, profile: dict | None = None, fast: bool = False, outline_mode: str = "coverage", seed: int | None = None, ctx: PlannerContext) -> tuple[str, dict]:
+def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 4096, notes: str = "", grammar: dict | None = None, profile: dict | None = None, fast: bool = False, outline_mode: str = "coverage", seed: int | None = None, ctx: PlannerContext, scene_script: dict | None = None) -> tuple[str, dict]:
+    method = get_method(ctx.story_method or (profile or {}).get('story_method'))
+    ctx.story_blueprint = {}
+    if method:
+        from novel_manga.application.planning.method_pipeline import generate
+        from novel_manga.llm.config import endpoint_key
+        key = endpoint_key()
+        enriched = {**payload, 'production_profile': profile or payload.get('production_profile', {})}
+        if grammar:
+            enriched['visual_grammar'] = grammar
+        return generate(method=method, payload=enriched, model=model,
+                        endpoints=endpoint_order(payload.get('chapter_title', '')) if base_url == qwen_default() else [base_url],
+                        headers={'Authorization': f'Bearer {key}'} if key else {}, post=post_any,
+                        max_tokens=max_tokens, scene_tokens=analysis_tokens, timeout=timeout, seed=seed, notes=notes, ctx=ctx,
+                        scene_script=scene_script)
+    if scene_script is not None:
+        raise ValueError('复用分场稿需要指定创作方法')
     frame = frame_spec(profile) if profile else FRAMES["9:16"]
-    system_prompt = pc_prompts.render_brief(ctx.system_prompt, ctx=ctx).replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
+    brief = screenplay_prompt(method) if method else ctx.system_prompt
+    system_prompt = pc_prompts.render_brief(brief, ctx=ctx).replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
     system_prompt += f"\n\n【画幅】{frame['text']}。{frame['composition']}。"
     if grammar:
         system_prompt += f"\n\n【全书视觉语法，camera 和 light 字段必须与之一致】{pc_prompts.grammar_text(grammar)}"
@@ -166,7 +205,11 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
         analysis, outline_attempts = generate_outline(
             client, endpoints, headers, model=model, payload=payload, mode=outline_mode,
             max_tokens=analysis_tokens, timeout=timeout, seed=seed,
+            **({'method': method} if method else {}),
         )
+        if method:
+            ctx.story_blueprint = json.loads(analysis)
+            schema = pc_contracts.bind_blueprint_schema(schema, ctx.story_blueprint)
         analysis_seconds = round(time.monotonic() - started, 1)
         body = post_any(client, endpoints, headers, {
             "model": model,
@@ -198,7 +241,8 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
         "analysis_seconds": analysis_seconds,
         "seconds": round(time.monotonic() - started, 1),
         "analysis": analysis,
-        "outline_mode": outline_mode,
+        "outline_mode": f"method:{method.key}" if method else outline_mode,
         "seed": seed,
+        **({'story_method': method.describe()} if method else {}),
     }
     return content, meta

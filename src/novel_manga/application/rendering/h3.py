@@ -132,12 +132,27 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         if crowd and ref.get('role')=='character':
             naming+=f"{ref['name']} = the {crowd['count'] or 'several'} distinct unnamed supporting people wearing the clothing from <Picture {picture}>\n"
     visuals = [tag_names(visual, naming) for visual, _ in stages]
+    directed = bool(clip.get('scene_ids'))
+    if directed:
+        # Unlike spoken lines, authored physical sound cues must survive the
+        # SOUND removal above and reach H3 in English, in their own shot.
+        if len(clip.get('shot_sound', [])) != len(stages):
+            warn(clip, 'FAILED: authored sound does not match shot count')
+            return False
+        visuals = [visual + (' 同期声：' + tag_names(clip['shot_sound'][i], naming) if clip['shot_sound'][i] else '')
+                   for i, visual in enumerate(visuals)]
     tagged = tag_names(note, naming) if note else ""
 
     def ask_lines(lines: list[str], extra: str) -> list[str]:
         feedback = ('\nThe previous output failed: ' + problem +
                     '. Use only the declared Subject tags; groups described without a Subject tag stay distinct unnamed people.\n') if problem else ''
-        question = [{"type": "text", "text": ASK + extra + feedback + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
+        ask = ASK
+        if directed:
+            ask = ask.replace('states only what the camera sees:', 'states what the camera sees and the physical sounds it hears:')
+            ask += ('Preserve each shot\'s physical sound sources, their onset, fading or stopping. '
+                    'Preserve explicitly scripted breath, crying, animal calls or wordless humming. '
+                    'Use only English outside the separately bound spoken dialogue; add no new spoken content.\n')
+        question = [{"type": "text", "text": ask + extra + feedback + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
         answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines), settings=h3_translation_endpoint())
         return [str(s).strip() for s in (answer.get("shots") or [])]
 
@@ -168,7 +183,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         except Exception as error:  # noqa: BLE001 - asked again, and reported if it keeps failing
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
-        if len(english) == len(visuals) and all(english):
+        if len(english) == len(visuals) and all(english) and not (directed and any(CJK.search(s) for s in english)):
             candidate = compose(clip, english, stages, '')
             conflicts = request_issues({**clip, 'prompt_h3':candidate})
             if not conflicts:

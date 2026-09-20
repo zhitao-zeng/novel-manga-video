@@ -48,16 +48,24 @@ def source_address(shot, position, segment_keys, chapter_key, chapter_text, erro
     return segment_id, quote
 
 
-def chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings):
+def chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings, *, known_speakers=()):
     skipped_raw = raw.get("skipped_segments") or []
     skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in skipped_raw if isinstance(item, dict)}
     for segment_id in list(skipped):
         if segment_id in cited:
             warnings.append(f"{segment_id} listed as skipped but also cited; skip ignored")
             skipped.pop(segment_id)
-    if len(skipped) > ctx.max_skipped:
+    reviewed_scene = (ctx.story_blueprint.get('version') == 'scene-screenplay-v2'
+                      and ctx.story_blueprint.get('review', {}).get('completed')
+                      and not ctx.story_blueprint['review'].get('issues'))
+    if len(skipped) > ctx.max_skipped and not reviewed_scene:
         errors.append(PlanningIssue(PlanningCode.SKIPPED_SEGMENTS, f"不允许跳过区段，skipped_segments 必须为空，但收到 {sorted(skipped)}：把这些区段各写进至少一个阶段（可以拉长集数）", field='skipped_segments'))
-    chat_speakers = re.findall(r"^([^\n：:]{2,8})[：:]", chapter_text, re.M)
+    colon_lines = re.findall(r"^([^\n：:]{2,8})[：:]([^\n]*)", chapter_text, re.M)
+    # A named character's explicit quoted speech is prose, even when it has
+    # its own line. Repetition of '人物说：“台词”' is not evidence of a chat UI.
+    prose_labels = {str(name) + '说' for name in known_speakers}
+    chat_speakers = [label for label, body in colon_lines
+                     if not (label.strip() in prose_labels and body.lstrip().startswith(('“', '「', '『', '"')))]
     chat_source_lines = len(chat_speakers)
     # A chat has somebody speaking more than once; a stat block (法宝名称：…
     # 法宝属性：… 法宝等级：…) has the same line shape but every label once.

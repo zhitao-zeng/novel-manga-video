@@ -6,12 +6,16 @@ import hashlib
 import re
 import novel_manga.planning.constants as pc_constants
 
+def spoken_turn_seconds(text: str) -> float:
+    return spoken_chars(text) / 4.0 + 1.0
+
+
 def stage_seconds(turns: list[dict], *, ctx: PlannerContext) -> float:
     seconds = 1.0
     for turn in turns:
         mode = turn.get("delivery_mode")
         if mode in {"visible_dialogue", "offscreen_dialogue"}:
-            seconds += spoken_chars(str(turn.get("text", ""))) / 4.0 + 1.0
+            seconds += spoken_turn_seconds(str(turn.get("text", "")))
         elif mode == "silent_action":
             seconds += 3.0
         elif mode == "chat_message":

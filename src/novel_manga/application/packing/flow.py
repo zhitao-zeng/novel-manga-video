@@ -43,8 +43,10 @@ def carry_corrections(old_plan: dict | None, plan: dict, feedback_path: Path) ->
 
 def run(args) -> int:
     episode_dir = args.episode_dir.resolve()
-    ctx = load_context(episode_dir, args.bible, args.grammar, args.style, args.frame, args.tier)
     script = json.loads((episode_dir / 'chapter_script.json').read_text(encoding='utf-8'))
+    from novel_manga.planning.storyboard import require_bound_storyboard
+    require_bound_storyboard(script)
+    ctx = load_context(episode_dir, args.bible, args.grammar, args.style, args.frame, args.tier)
     plan, decisions = compile_plan(script, ctx)
     clips, totals = plan['clips'], plan['totals']
     try:

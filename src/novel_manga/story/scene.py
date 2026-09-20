@@ -117,7 +117,11 @@ def resolve_scene(script: dict | ResolvedScene, context: SceneContext) -> Resolv
     # from the last concrete value in reading order so that the first stage of
     # every clip states its light and camera explicitly.
     last: dict[str, str] = {}
+    last_scene = None
     for shot in shots:
+        if shot.get('scene_id') and shot['scene_id'] != last_scene:
+            last.clear()
+        last_scene = shot.get('scene_id')
         for field in ("camera", "light"):
             value = re.sub(r"\s+", "", shot.get(field, "") or "").strip("；。")
             if value and value != "同上":

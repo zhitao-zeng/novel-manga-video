@@ -31,6 +31,17 @@ import novel_manga.planning.validation as pc_validation
 import novel_manga.planning.decisions as pc_decisions
 import novel_manga.application.planning.context as planner_context
 import novel_manga.application.planning.requests as planner_requests
+from novel_manga.planning.methods import get_method
+from novel_manga.planning.methods.blueprint import blueprint_schema, blueprint_prompt, validate_blueprint
+
+
+def save_method_artifacts(directory, ctx, attempt):
+    if not ctx.method_artifacts:
+        return
+    target = directory / f'method_attempt_{attempt:02d}'
+    target.mkdir(exist_ok=True)
+    for name, value in ctx.method_artifacts.items():
+        atomic_write_json(target / f'{name}.json', value)
 
 def run(args, ctx: PlannerContext) -> int:
     ctx.episode_seconds_min = args.min_seconds
@@ -59,7 +70,15 @@ def run(args, ctx: PlannerContext) -> int:
     chapter_text = episode.source_text
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
-    profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
+    profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier,
+                           story_method=getattr(args, 'story_method', None))
+    try:
+        method = get_method(profile.get('story_method'))
+    except ValueError as error:
+        raise PlanningInputError(str(error)) from error
+    ctx.story_method = method.key if method else ''
+    ctx.story_blueprint = {}
+    ctx.method_artifacts = {}
     genre = load_genre(profile)
     ctx.anonymous_speakers = list(genre.get("anonymous_roles") or pc_constants.DEFAULT_ANONYMOUS_SPEAKERS)
     ctx.system_prompt = pc_constants.DEFAULT_SYSTEM_PROMPT
@@ -75,6 +94,18 @@ def run(args, ctx: PlannerContext) -> int:
         planning_budget = pc_budget.configure_budget(episode.text_count, fast=fast, min_seconds=args.min_seconds, ctx=ctx)
     except ValueError as error:
         raise PlanningInputError(str(error)) from error
+    if method:
+        # A method may tell the chapter through action and silence. The existing
+        # duration/source checks remain; a speech quota must not invent dialogue.
+        ctx.spoken_range = (0, ctx.spoken_range[1])
+        planning_budget['spoken_chars'] = list(ctx.spoken_range)
+        planning_budget['episode_max_seconds'] = getattr(args, 'max_seconds', None)
+    elif getattr(args, 'max_seconds', None) is not None:
+        ctx.episode_seconds_max = args.max_seconds
+        planning_budget['episode_max_seconds'] = args.max_seconds
+    if getattr(args, 'max_seconds', None) is not None:
+        ctx.episode_seconds_target = min(ctx.episode_seconds_target, args.max_seconds)
+        planning_budget['episode_target_seconds'] = ctx.episode_seconds_target
     ctx.chat_self, ctx.chat_card_mode = "", True
     chat_screen_path = novel_dir / "chat_screen.json"
     if chat_screen_path.is_file():
@@ -201,6 +232,7 @@ def run(args, ctx: PlannerContext) -> int:
     identity_context = prompt_context(episode_dir, names, data=identity_data)
     payload = {
         "policy": ctx.policy,
+        **({'story_method': {'id': method.key, 'version': method.version, 'name': method.name}} if method else {}),
         "chapter_index": episode.index,
         "chapter_title": episode.source_title,
         "chapter_chars": episode.text_count,
@@ -234,6 +266,12 @@ def run(args, ctx: PlannerContext) -> int:
     print(json.dumps({"segments": [{k: v for k, v in s.items() if k != "text"} for s in segments], "characters": names, "locations": list(location_map), "bible_size": [len(full_bible.characters), len(full_bible.locations)], "recap_chapters": [r.get("chapter") for r in previous_recap], "visual_grammar": (grammar or {}).get("name"), "profile": profile}, ensure_ascii=False), flush=True)
     if args.dry_run:
         atomic_write_json(episode_dir / "request_dry_run.json", payload)
+        if method:
+            from novel_manga.planning.methods.scenes import screenplay_schema, screenplay_prompt, screenplay_input
+            atomic_write_json(episode_dir / 'method_request_dry_run.json', {
+                'method': method.describe(), 'system': screenplay_prompt(method),
+                'schema': screenplay_schema(payload), 'payload': screenplay_input(payload, args.notes),
+            })
         return 0
 
     started = time.monotonic()
@@ -250,17 +288,30 @@ def run(args, ctx: PlannerContext) -> int:
         if args.replay and attempt == 1:
             content = Path(args.replay).read_text(encoding="utf-8")
             meta = {"replayed_from": str(args.replay)}
+            if method:
+                replay = Path(args.replay)
+                number = re.search(r'response_attempt_(\d+)', replay.name)
+                outline_path = replay.parent / f'analysis_attempt_{number.group(1) if number else "01"}.txt'
+                if not outline_path.is_file():
+                    raise PlanningInputError('method replay needs its adjacent analysis_attempt_NN.txt outline')
+                outline = outline_path.read_text(encoding='utf-8')
+                problems = validate_blueprint(outline, method, payload['segments'])
+                if problems:
+                    raise PlanningInputError('invalid method replay outline: ' + '; '.join(problems))
+                ctx.story_blueprint = json.loads(outline)
         else:
             try:
                 content, meta = planner_requests.call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema,
-                                           max_tokens=args.max_tokens, timeout=args.timeout, analysis_tokens=args.outline_tokens,
+                                           max_tokens=args.max_tokens, timeout=args.timeout, analysis_tokens=args.outline_tokens or (8192 if method else 4096),
                                            notes=args.notes, grammar=grammar, profile=profile, fast=fast, outline_mode=args.outline_mode, seed=args.seed, ctx=ctx)
             except planner_requests.IncompleteOutlineError as error:
+                save_method_artifacts(episode_dir, ctx, attempt)
                 final_errors = [str(error)]
                 attempts.append({"attempt": attempt, "stage": "outline", "outline_complete": False,
                                  "outline_attempts": error.attempts, "errors": final_errors})
                 print(json.dumps({"status": "incomplete_outline", "attempt": attempt, "errors": final_errors}, ensure_ascii=False), flush=True)
                 break  # no second pass or outer full-draft retry of an unfinished outline
+        save_method_artifacts(episode_dir, ctx, attempt)
         raw_path.write_text(content, encoding="utf-8")
         if meta.get("analysis"):
             (episode_dir / f"analysis_attempt_{attempt:02d}.txt").write_text(meta.pop("analysis"), encoding="utf-8")
@@ -285,7 +336,9 @@ def run(args, ctx: PlannerContext) -> int:
             errors, warnings = decision.errors, decision.warnings
             attempts[-1]["errors"] = errors
             attempts[-1]["floor_waived"] = True
-        patchable = decision.targets
+        # A scene-led draft is repaired before projection. Rewriting one legacy
+        # stage here would silently diverge from its accepted scene/turn owner.
+        patchable = None if ctx.story_blueprint.get('version') == 'scene-screenplay-v2' else decision.targets
         while patchable:
             # Nearly every redo trigger in the trial was local - a forgotten
             # segment, a blood word in one start_state, a paraphrased quote, a
@@ -358,18 +411,22 @@ def run(args, ctx: PlannerContext) -> int:
         "policy": ctx.policy,
         "model": args.model,
         "planning_budget": planning_budget,
-        "outline_mode": args.outline_mode,
+        "outline_mode": f"method:{method.key}" if method else args.outline_mode,
+        **({'story_method': method.describe()} if method else {}),
         "seed": args.seed,
         "episode_index": episode.index,
         "source_text_sha256": pc_text.sha256_text(episode.source_text),
         "style_fingerprint": bible.style_fingerprint,
         "hard_gates": {"source_coverage": "passed", "cast_and_speakers": "passed"},
+        **({'story_method_checks': {'source_ownership': 'passed', 'beat_coverage': 'passed',
+                                    'semantic_quality_review': 'passed' if ctx.story_blueprint.get('review', {}).get('completed') else 'not_run'}} if method else {}),
         "metrics": report_metrics,
         "warnings": [*warnings, *pc_validation.soft_warnings(report_metrics, ctx=ctx)],
         "attempts": attempts,
         "elapsed_seconds": round(time.monotonic() - started, 1),
     }
-    atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped})
+    atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped,
+        **({'story_method': method.describe(), 'story_blueprint': ctx.story_blueprint} if method else {})})
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
     with open(recap_path.with_suffix(".lock"), "w") as lock:  # planners may run in parallel
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -381,6 +438,11 @@ def run(args, ctx: PlannerContext) -> int:
                 sorted({name for shot in shots for name in shot.get("characters", []) or []}),
                 sorted({shot["location"] for shot in shots if shot.get("location")}))
     atomic_write_json(episode_dir / "episode_plan.json", plan.model_dump(mode="json"))
-    (episode_dir / "chapter_script.md").write_text(pc_outputs.render_markdown(raw, shots, report, episode.source_title), encoding="utf-8")
+    (episode_dir / "chapter_script.md").write_text(pc_outputs.render_markdown(raw, shots, report, episode.source_title,
+        blueprint=ctx.story_blueprint if method else None), encoding="utf-8")
+    if ctx.story_blueprint.get('version') == 'scene-screenplay-v2':
+        from novel_manga.planning.methods.scenes import render_screenplay
+        (episode_dir / 'scene_script.md').write_text(render_screenplay(ctx.story_blueprint), encoding='utf-8')
+    (episode_dir / 'planning_failed.json').unlink(missing_ok=True)
     print(json.dumps({"status": "passed", "episode_dir": str(episode_dir), "metrics": report_metrics, "elapsed_seconds": report["elapsed_seconds"]}, ensure_ascii=False, indent=2))
     return 0

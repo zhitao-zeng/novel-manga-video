@@ -8,6 +8,7 @@ from .source_checks import source_address, chapter_coverage
 from .normalization import cast_and_actions, normalize_turns, end_state_and_visual_checks
 from .budget import validate_duration
 from novel_manga.story.framing import visible_speaker_shots
+from novel_manga.planning.methods.blueprint import validate_application
 import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.metrics as pc_metrics
 import novel_manga.planning.text as pc_text
@@ -30,12 +31,13 @@ def flatten_clips(raw: dict) -> list[dict]:
                     "clip_hint": clip_id,
                     "label": f"{clip_id} stage {stage_number}",
                     "location": clip.get("location", ""),
-                    "characters": list(stage.get("in_frame") or clip.get("characters") or []),
-                    "in_frame_given": bool(stage.get("in_frame")),
+                    "characters": list(stage.get("in_frame", []) if stage.get('scene_id') else (stage.get("in_frame") or clip.get("characters") or [])),
+                    "in_frame_given": ('in_frame' in stage) if stage.get('scene_id') else bool(stage.get("in_frame")),
                     "actions": [a for a in (stage.get("actions") or []) if isinstance(a, dict)],
                     "extras": [str(e).strip() for e in (stage.get("extras") or []) if str(e).strip()],
                     "segment_id": stage.get("segment_id", ""),
                     "source_quote": stage.get("source_quote", ""),
+                    **({"beat_id": stage["beat_id"]} if "beat_id" in stage else {}),
                     "visual_prompt": stage.get("start_state", ""),
                     "motion_prompt": stage.get("event", ""),
                     "end_state": stage.get("end_state", ""),
@@ -45,6 +47,8 @@ def flatten_clips(raw: dict) -> list[dict]:
                     "sfx": stage.get("sfx", ""),
                     "shot_scale": stage.get("shot_scale", "中近景"),
                     "turns": list(stage.get("turns") or []),
+                    **{k: stage[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
+                       'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut') if k in stage},
                 }
             )
     return shots
@@ -85,6 +89,9 @@ def stage_slots(raw: dict) -> dict[str, tuple[int, int]]:
 def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, location_map: dict[str, str], chapter_text: str,
                            everyone: list[str] | None = None, *, ctx: PlannerContext) -> ValidationResult:
     errors: list[PlanningIssue] = []
+    if ctx.story_blueprint:
+        errors.extend(PlanningIssue(PlanningCode.METHOD_CONTRACT, message)
+                      for message in validate_application(raw, ctx.story_blueprint))
     warnings: list[str] = []
     names = [character.name for character in bible.characters]
     everyone = list(everyone) if everyone else names  # the whole bible: a description may name someone the slice left out
@@ -105,6 +112,13 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         position = shot.get("label") or f"shot {position}"
         segment_id, quote = source_address(shot, position, segment_keys, chapter_key, chapter_text, errors, warnings)
         cited.setdefault(segment_id, []).append(position)
+        if ctx.story_blueprint.get('version') == 'scene-screenplay-v2':
+            for ref in shot.get('source_refs', []):
+                sid, evidence = ref.get('segment_id'), pc_text.quote_key(ref.get('source_quote', ''))
+                if not evidence or evidence not in segment_keys.get(sid, ''):
+                    errors.append(PlanningIssue(PlanningCode.METHOD_CONTRACT, f'{position}: 场景来源引用无效'))
+                elif position not in cited.setdefault(sid, []):
+                    cited[sid].append(position)
 
         characters, extras, actions, motion_text, location = cast_and_actions(shot, names, everyone, location_map, position, ctx, errors, warnings)
         turns_out, visible = normalize_turns(shot, characters, names, position, ctx, errors, warnings)
@@ -112,6 +126,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         base = {
             "clip_hint": shot.get("clip_hint"),
             "segment_id": segment_id,
+            **({"beat_id": shot["beat_id"]} if "beat_id" in shot else {}),
             "source_quote": quote,
             "location": location,
             "characters": characters,
@@ -127,13 +142,24 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "sfx": str(shot.get("sfx") or "").strip(),
             "shot_scale": str(shot.get("shot_scale") or "中近景"),
             "origin_index": len(normalized) + 1,
+            **{k: shot[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
+               'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut') if k in shot},
+            **({'in_frame': characters} if shot.get('scene_id') else {}),
         }
         framed, notes = visible_speaker_shots(base, turns_out, visible, position)
         normalized.extend(framed)
         warnings.extend(notes)
 
     validate_duration(normalized, ctx, errors, warnings)
-    chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings)
+    if ctx.story_blueprint and ctx.story_blueprint.get('version') != 'scene-screenplay-v2':
+        owners = {b['beat_id']: b['segment_id'] for b in ctx.story_blueprint['beats']}
+        for shot in normalized:
+            bid = shot.get('beat_id')
+            if bid in owners and owners[bid] != shot['segment_id']:
+                errors.append(PlanningIssue(PlanningCode.METHOD_CONTRACT,
+                    f"{bid} source ownership changed during quote normalization; correct its source_quote"))
+    chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings,
+                     known_speakers=[*names, *ctx.aliases])
     return ValidationResult(errors, warnings, normalized)
 
 

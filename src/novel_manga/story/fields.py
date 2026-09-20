@@ -60,3 +60,12 @@ FIELD_INSTRUCTIONS = {'planning': '8b. '
 
 def field_instructions(entry):
     return FIELD_INSTRUCTIONS[entry]
+
+
+def dialogue_instructions():
+    """Delivery semantics also used before a screenplay is split into shots."""
+    return ("delivery_mode必须按实际发声填写：人物真实开口说话用visible_dialogue；"
+            "确实来自画外且画内不对口型的台词用offscreen_dialogue；"
+            "chat_message仅用于原文真实的屏幕聊天消息；singing仅用于明确的无歌词哼唱，"
+            "它的text只能写哼唱方式，不能放普通台词。喃喃自语仍是说话，不是singing。"
+            "没有对白时turns=[]，不能把动作或导演说明塞进台词。")

@@ -20,7 +20,8 @@ def metrics(shots: list[dict], chapter_text: str, segments: list[dict], skipped:
                     verbatim += chars
                 speakers[turn["speaker_name"]] = speakers.get(turn["speaker_name"], 0) + 1
     coverage = {
-        segment["segment_id"]: [shot["origin_index"] for shot in shots if shot["segment_id"] == segment["segment_id"]]
+        segment["segment_id"]: [shot["origin_index"] for shot in shots if shot["segment_id"] == segment["segment_id"]
+                               or any(r['segment_id'] == segment['segment_id'] for r in shot.get('source_refs', []))]
         for segment in segments
     }
     return {

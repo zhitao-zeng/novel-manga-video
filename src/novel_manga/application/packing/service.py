@@ -20,6 +20,8 @@ def clip_cast(clip, *, settings=None):
 
 
 def prepared_shots(script: dict, episode_dir: Path, *, identity_data=None) -> list[dict]:
+    from novel_manga.planning.storyboard import require_bound_storyboard
+    require_bound_storyboard(script)
     from novel_manga.application.identity.scene import prepare_scene
     return prepare_scene(script, episode_dir, identity_data=identity_data).shots
 
@@ -58,8 +60,10 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
     ))
     references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"))
+    if any(s.get('scene_id') for s in clip['shots']):
+        location_binding = location_binding.replace('、固定道具和光线', '和地形；时间、光线和可移动道具以本场逐镜描述为准')
     prompt = ClipCompiler(options).compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])
-    lint = {shot["index"]: lint_stage(shot) for shot in clip["shots"]}
+    lint = {shot["index"]: lint_stage(shot, camera_policy=options.camera_policy) for shot in clip["shots"]}
     lint = {k: v for k, v in lint.items() if v}
     lines = [
         {"speaker_name": turn["speaker_name"], "delivery_mode": turn["delivery_mode"], "text": turn["text"]}
@@ -94,6 +98,16 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "listeners": list(dict.fromkeys(l for shot in clip["shots"] for l in (shot.get("listeners") or []))),
         "extras": list(dict.fromkeys(e for shot in clip["shots"] for e in (shot.get("extras") or []))),
     }
+    if any(s.get('scene_id') for s in clip['shots']):
+        entry.update(scene_ids=list(dict.fromkeys(s['scene_id'] for s in clip['shots'])),
+                     shot_ids=[s['shot_id'] for s in clip['shots']],
+                     shot_sound=['；'.join(filter(None, [s.get('sfx', ''),
+                         *[t['speaker_name'] + '：' + t['text'] for t in s['turns'] if t['delivery_mode'] == 'singing']]))
+                         for s in clip['shots']],
+                     shot_timing=[{'seconds': s['duration_seconds'], 'cut': s.get('cut', '')} for s in clip['shots']],
+                     scene_time=clip['shots'][0].get('scene_time', ''),
+                     animation_style=ctx['profile'].get('style', '3d'))
+        entry['segment_ids'] = list(dict.fromkeys(r['segment_id'] for s in clip['shots'] for r in s.get('source_refs', [])))
     from novel_manga.story.h3 import source_crowds
     data = ctx.get('identity_data')
     data = data if data is not None else load_chapter(ctx['episode_dir'])
@@ -118,6 +132,8 @@ def compile_plan(script: dict, context: dict) -> tuple[dict, dict]:
     options = compiler.options
     limits = {'max_clip_seconds': options.max_clip_seconds, 'soft_cut_seconds': options.soft_cut_seconds,
               'max_stages': options.max_stages}
+    if options.camera_policy != 'fixed':
+        limits['camera_policy'] = options.camera_policy
     plan = {'policy': POLICY, 'phases': phase_labels(clips), 'limits': limits,
             'totals': plan_totals(clips, shots, context), 'clips': clips}
     decisions = {'packer_version': PACKER_VERSION, 'pack_mode': options.pack_mode,

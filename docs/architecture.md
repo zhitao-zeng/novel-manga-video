@@ -36,6 +36,7 @@ flowchart TD
 | `application/configuration.py`、`profiles.py` | 运行配置组装、路径和小说级策略 |
 | `story` | 共享字段、身份、动作、对白、构图、场景解析及中文/H3 表达 |
 | `planning` | 请求字段、预算、归一化、原文验证和修订决策 |
+| `planning/methods` | 六种可选创作方法、分场正文、导演拆镜及来源/对白交接；不读文件或请求模型 |
 | `entities`、`review`、`repair` | 各领域的证据、判定和内存候选；不反向调度 |
 | `media` | 资产、生成、缓存、音频、字幕、后期和重试规则 |
 | `providers` | 图片/视频请求、任务恢复、下载、H3 实例池 |

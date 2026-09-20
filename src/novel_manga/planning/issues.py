@@ -6,6 +6,7 @@ from enum import Enum
 
 class PlanningCode(Enum):
     NO_STAGES = ('no_stages', 'chapter')
+    METHOD_CONTRACT = ('method_contract', 'chapter')
     QUOTE_TOO_SHORT = ('quote_too_short', 'stage')
     QUOTE_NOT_SOURCE = ('quote_not_source', 'stage')
     UNKNOWN_CHARACTERS = ('unknown_characters', 'clip')

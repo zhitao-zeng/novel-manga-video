@@ -128,13 +128,25 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     voices = load_voices(episode_dir.parent)
     load_entity_index(episode_dir.parent, chapter_of(episode_dir), ctx=planner_ctx, identity_data=identity_data)
     profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
+    # The method is frozen with the screenplay, not retroactively applied to old
+    # chapters when a book changes its default method.
+    script_path = episode_dir / 'chapter_script.json'
+    script = json.loads(script_path.read_text()) if script_path.is_file() else {}
+    method = script.get('story_method') or {}
+    if method:
+        profile.update(script.get('profile') or {})
+        profile.update({k: v for k, v in {'style': style, 'frame': frame, 'tier': tier}.items() if v})
+        profile['story_method'] = method['id']
+    else:
+        profile.pop('story_method', None)
     genre = load_genre(profile)
     options = replace(compiler_options(frame_spec(profile), planning_context=planner_ctx),
         chat_screen=chat_screen, voices=voices,
         genre_rejects=[x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x],
         genre_crowd=genre.get("crowd_default", ""),
         anon_voice={**DEFAULT_ANON_VOICE, **(genre.get("anon_voice") or {})},
-        two_view_cast_limit=0 if is_fast(profile) else 2)
+        two_view_cast_limit=0 if is_fast(profile) else 2,
+        camera_policy='authored' if method else 'fixed')
     if limits is not None:
         options = replace(options, **limits)
     overrides_path = episode_dir / "clip_overrides.json"
@@ -153,6 +165,7 @@ def context_for_plan(episode_dir: Path, bible_path: Path, plan: dict) -> dict:
     cap = float(saved.get("max_clip_seconds") or (15 if "-15s" in plan.get("policy", "") else 30))
     limits = {"max_clip_seconds": cap,
               "max_stages": int(saved.get("max_stages") or (3 if cap <= 15 else 6)),
-              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or cap * 0.6)}
+              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or cap * 0.6),
+              "camera_policy": saved.get('camera_policy', 'fixed')}
     return load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"),
                         tier=profile.get("tier"), limits=limits)

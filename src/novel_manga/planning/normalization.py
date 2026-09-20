@@ -26,7 +26,7 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
                 characters.append(who)
                 warnings.append(f"{position}: actions 里的 {who} 补进 characters")
     motion_text = str(shot.get("motion_prompt") or "").strip()
-    if actions:
+    if actions and not shot.get('scene_id'):
         # the event line names who does what to whom before anything else: that sentence is what the
         # renderer and the reviewer read as 主要事件
         line = action_text(actions)

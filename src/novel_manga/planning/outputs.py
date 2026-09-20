@@ -73,7 +73,7 @@ def to_episode_plan(raw: dict, shots: list[dict], location_map: dict[str, str], 
 
 
 
-def render_markdown(raw: dict, shots: list[dict], report: dict, chapter_title: str) -> str:
+def render_markdown(raw: dict, shots: list[dict], report: dict, chapter_title: str, *, blueprint: dict | None = None) -> str:
     lines = [
         f"# {raw.get('video_title') or chapter_title}",
         "",
@@ -84,9 +84,25 @@ def render_markdown(raw: dict, shots: list[dict], report: dict, chapter_title: s
         f"镜数 {report['metrics']['shot_count']} · turn {report['metrics']['turn_count']} · 发声字数 {report['metrics']['spoken_chars']} · 逐字率 {report['metrics']['verbatim_ratio']}",
         "",
     ]
+    beats = {b['beat_id']: b for b in (blueprint or {}).get('beats', [])}
+    if blueprint:
+        lines.extend([f"创作方法：{report.get('story_method', {}).get('name', blueprint['method_id'])}", ""])
+        contract = blueprint.get('episode_contract') or {}
+        for key, title in (('goal', '人物目标'), ('obstacle', '阻力'), ('outcome', '本集结果'), ('exit_state', '交接状态')):
+            lines.append(f"{title}：{contract.get(key, '')}")
+        lines.append('')
     for index, shot in enumerate(shots, start=1):
         cast = "、".join(shot["characters"]) or "无人物"
         lines.append(f"## 镜{index} · {shot.get('clip_hint') or ''} · {shot['location']} · {shot['shot_scale']} · {cast}")
+        if shot.get('scene_id'):
+            lines.append(f"导演镜号：{shot['shot_id']} · {shot['scene_time']} · {shot['duration_seconds']:g}秒")
+            lines.append(f"本镜职责：{shot['purpose']}；切点：{shot['cut']}")
+            if shot.get('timing_adjustment'):
+                lines.append(f"时长分配：导演预算 {shot['timing_adjustment']['director_seconds']:g} 秒，按现有发声估时补至 {shot['duration_seconds']:g} 秒，台词不变。")
+        if shot.get('beat_id') in beats:
+            beat = beats[shot['beat_id']]
+            lines.append(f"叙事职责（{shot['beat_id']}）：{beat['purpose']}")
+            lines.append(f"衔接：{beat['transition']} · {beat['continuity_from'] or '开场'}")
         lines.append(f"开始时：{shot['visual_prompt']}")
         lines.append(f"主要事件：{shot['motion_prompt']}")
         lines.append(f"结束时：{shot['end_state']}")

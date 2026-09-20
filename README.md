@@ -55,6 +55,8 @@ uv run pytest
 
 ## 代码与维护
 
+章节规划可通过 `--story-method shanyin|community|drama|dream|leos|visual` 选择六种本地编剧/导演方法，也可在小说 `profile.json` 设置 `story_method` 供批量流程继承。用 `scripts/plan_chapter_thin.py --list-methods` 查看，完整用法见[本地剧本方法](docs/story-methods.md)。默认规划方式保持不变。
+
 正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
 
 - [当前架构与修改位置](docs/architecture.md)：职责、依赖、配置来源和产物写入者。

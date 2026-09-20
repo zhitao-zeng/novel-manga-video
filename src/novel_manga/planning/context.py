@@ -30,6 +30,9 @@ class PlannerContext:
     entity_generic: dict[str,bool] = field(default_factory=dict)
     forms_index: dict = field(default_factory=dict)
     max_skipped: int = 0
+    story_method: str = ""
+    story_blueprint: dict = field(default_factory=dict)
+    method_artifacts: dict = field(default_factory=dict)
 
     @classmethod
     def from_env(cls) -> PlannerContext:

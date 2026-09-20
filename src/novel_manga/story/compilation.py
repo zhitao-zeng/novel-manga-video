@@ -28,6 +28,7 @@ class CompilerOptions:
     frame: dict = field(default_factory=dict)
     voices: dict = field(default_factory=dict)
     two_view_cast_limit: int = 2
+    camera_policy: str = "fixed"
 
 
 NO_SUBTITLES = "不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条"
@@ -36,7 +37,7 @@ STRIP_PUNCT = r"[\s　，。！？；：、…—,.!?;:\"“”'‘’（）()]"
 
 STAGE_LABELS = ["一", "二", "三", "四", "五", "六"]
 
-EXECUTION_RULES = ("location", "duration", "stage_limit")
+EXECUTION_RULES = ("location", "scene_boundary", "duration", "stage_limit")
 
 SENTENCE_END = re.compile(r"(?<=[。！？!?…；;])")
 
@@ -87,7 +88,7 @@ def text_chunks(text: str, limit: int) -> list[str]:
             chunks.append(unit)
     return chunks
 
-def lint_stage(shot: dict) -> list[str]:
+def lint_stage(shot: dict, *, camera_policy: str = "fixed") -> list[str]:
     """Restraint test: the stage must still stand once adjectives are removed."""
     issues = []
     start, event, end = shot.get("visual_prompt", ""), shot.get("motion_prompt", ""), shot.get("end_state", "")
@@ -98,7 +99,7 @@ def lint_stage(shot: dict) -> list[str]:
         issues.append("no_camera_position")
     if len(compact(camera)) > 60 or len(compact(light)) > 60:
         issues.append("camera_or_light_over_60_chars")
-    if CAMERA_MOVE.search(camera + event + start):
+    if camera_policy != "authored" and CAMERA_MOVE.search(camera + event + start):
         issues.append("camera_move_words")
     if ABSTRACT.search(start + event + end):
         issues.append("abstract_wording")
@@ -174,6 +175,8 @@ class ClipCompiler:
     compact = staticmethod(compact)
 
     def shot_seconds(self, shot: dict) -> float:
+        if shot.get('scene_id') and 'duration_seconds' in shot:
+            return float(shot['duration_seconds'])
         seconds = 1.0
         for turn in shot["turns"]:
             mode = turn["delivery_mode"]
@@ -195,6 +198,7 @@ class ClipCompiler:
         """Every cut condition the packer tests, in the order it tests them."""
         return {
             "location": shot["location"] != current["location"],
+            "scene_boundary": last.get('scene_id') != shot.get('scene_id'),
             "clip_hint": bool(shot.get("clip_hint") and shot.get("clip_hint") != last.get("clip_hint")),
             "duration": current["seconds"] + seconds > self.options.max_clip_seconds,
             "stage_limit": len(current["shots"]) >= self.options.max_stages,
@@ -312,6 +316,7 @@ class ClipCompiler:
                     if (
                         neighbour["kind"] == "video"
                         and neighbour["location"] == clip["location"]
+                        and neighbour['shots'][0].get('scene_id') == clip['shots'][0].get('scene_id')
                         and neighbour["seconds"] + clip["seconds"] <= self.options.max_clip_seconds
                         and len(neighbour["shots"]) + len(clip["shots"]) <= self.options.max_stages
                     ):
@@ -442,6 +447,9 @@ class ClipCompiler:
                              f"除此之外不出现任何人（老者、路人、随从、背景人物都不要）{others}。")
             else:
                 lines.append(f"【人数】画面中始终只有这{len(cast)}位人物：{cast_text}；无名角色只在画外发声、不入镜；不出现任何未列出的人（老者、路人、随从、背景人物都不要）{others}。")
+            if any(s.get('scene_id') for s in shots):
+                lines[-1] = (f"【人物范围】本段可出现的具名人物：{cast_text}；每阶段仅按该镜入镜列表呈现，"
+                             "不因提供了人物参考图就让人物在每个镜头出现。")
         if clip.get("identity_notes"):
             lines.append("【身份区分】" + self.compact(clip["identity_notes"]) + "。")
         if clip.get("background_only"):
@@ -457,8 +465,12 @@ class ClipCompiler:
             label = STAGE_LABELS[index]
             if index == 0:
                 head = f"{shot['shot_scale']}开场。开始时：{self.compact(shot['visual_prompt'])}"
+            elif shot.get('scene_id'):
+                head = f"剪辑切至{shot['shot_scale']}。本镜起点：{self.compact(shot['visual_prompt'])}"
             else:
                 head = f"切至{shot['shot_scale']}。承接上一阶段：{self.compact(shots[index - 1]['end_state'])}。画面：{self.compact(shot['visual_prompt'])}"
+            if shot.get('scene_id'):
+                head += f"。故事时间：{self.compact(shot['scene_time'])}"
             def carried(field: str, label: str) -> str:
                 value = self.compact(shot.get(field, ""))
                 if not value:
@@ -474,20 +486,26 @@ class ClipCompiler:
                            if shot.get("listeners") else "")
             lines.append(
                 f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{self.compact(shot['motion_prompt'])}。"
-                f"{blocking_note(shot)}{extras_note}{listen_note}"
+                f"{('入镜：' + ('、'.join(shot.get('in_frame', shot['characters'])) or '无具名人物') + '。') if shot.get('scene_id') else blocking_note(shot)}{extras_note}{listen_note}"
                 f"{self.screen_clause(shot)}声音：{self._sound_clause(shot)}。结束时：{self.compact(shot['end_state'])}。"
             )
         scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))
         ambience = list(dict.fromkeys(shot["sfx"] for shot in shots if shot.get("sfx")))
         ambience_text = "、".join(ambience) if ambience else "现场环境声"
         lines.append(f"画面呈现{(grammar or {}).get('style_line') or bible.visual_style}。")
-        lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")
+        if self.options.camera_policy == 'authored':
+            lines.append(f"镜头采用{frame['text']}；每个阶段按该镜已写明的机位与运动执行，未写运动则固定。"
+                         f"只在阶段边界切镜，不为交替景别添加切镜；{frame['composition']}；人物、双手与道具的变化按动作过程连续发生。")
+        else:
+            lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")
         lines.append(f"声音包括角色对白、<{ambience_text}>和与动作同步的音效；无背景音乐。")
         if any(self.chat_turns(shot) for shot in shots) and str(self.options.chat_screen.get("render", "card")) != "card":
             group = f"群名「{self.options.chat_screen['group_name']}」、" if self.options.chat_screen.get("group_name") else ""
             lines.append(f"【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；除手机屏幕上的{group}昵称和指定的聊天消息外，画面中不出现其他文字、数字、字幕、Logo或水印；屏幕上的消息文字必须与指定内容逐字一致、简体中文、无乱码，昵称在气泡上方而不在气泡内；聊天界面在各阶段保持同一布局；不出现血液和伤口；不新增具名人物。")
         else:
             lines.append("【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。")
+        if self.options.camera_policy == 'authored':
+            lines[-1] = lines[-1].replace('固定道具位置', '道具归属及动作造成的位置变化')
         avoid = [self.compact(shot.get("avoid", "")) for shot in shots if shot.get("avoid")]
         avoid = list(dict.fromkeys(a for a in avoid if a))
         rejects = [str(r) for r in (grammar or {}).get("rejects", []) if r]

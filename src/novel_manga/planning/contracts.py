@@ -6,6 +6,7 @@ from novel_manga.story.fields import cast_field
 from novel_manga.story.fields import extras_field
 from novel_manga.story.fields import turn_field
 import json
+import copy
 import novel_manga.planning.constants as pc_constants
 
 def outline_schema(mode: str, segment_ids: list[str]) -> dict:
@@ -50,6 +51,11 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "actions": actions_field(),
         },
     }
+    if ctx.story_blueprint:
+        beats = [b['beat_id'] for b in ctx.story_blueprint.get('beats', []) if b['segment_id'] in segment_ids]
+        if beats:
+            stage['properties']['beat_id'] = {'type': 'string', 'enum': beats}
+            stage['required'].append('beat_id')
     clip = {
         "type": "object",
         "additionalProperties": False,
@@ -87,6 +93,16 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             },
         },
     }
+
+
+def bind_blueprint_schema(schema: dict, blueprint: dict) -> dict:
+    """The first pass finishes before its beat IDs can constrain the final request."""
+    bound = copy.deepcopy(schema)
+    stage = bound['properties']['clips']['items']['properties']['stages']['items']
+    stage['properties']['beat_id'] = {'type': 'string', 'enum': [b['beat_id'] for b in blueprint['beats']]}
+    if 'beat_id' not in stage['required']:
+        stage['required'].append('beat_id')
+    return bound
 
 
 def validate_outline(content: str, mode: str, segment_ids: list[str]) -> list[str]:

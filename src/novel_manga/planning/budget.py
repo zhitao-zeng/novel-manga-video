@@ -51,11 +51,19 @@ def budget_requirements(*, ctx: PlannerContext) -> dict:
     }
 
 
+def directed_duration_problem(seconds: float, maximum: float | None) -> str | None:
+    if maximum is not None and seconds > maximum:
+        return (f'全片计划{seconds:g}秒，超出明确指定的{maximum:g}秒上限。'
+                '保留主线与结尾，调整实际镜长或删除重复表达；不得截断台词、删整场或把跨时空事件塞进一镜。')
+    return None
+
+
 
 def validate_duration(normalized, ctx, errors, warnings):
     clip_seconds: dict[str, float] = {}
     for shot in normalized:
-        clip_seconds[shot["clip_hint"]] = round(clip_seconds.get(shot["clip_hint"], 0.0) + pc_text.stage_seconds(shot["turns"], ctx=ctx), 2)
+        seconds = float(shot['duration_seconds']) if shot.get('scene_id') and 'duration_seconds' in shot else pc_text.stage_seconds(shot["turns"], ctx=ctx)
+        clip_seconds[shot["clip_hint"]] = round(clip_seconds.get(shot["clip_hint"], 0.0) + seconds, 2)
     for clip_id, seconds in clip_seconds.items():
         if seconds > ctx.max_clip_seconds + pc_constants.CLIP_SECONDS_TOLERANCE:
             # The packer cuts overlong clips to this lane's duration limit.
@@ -70,7 +78,13 @@ def validate_duration(normalized, ctx, errors, warnings):
         errors.append(PlanningIssue(PlanningCode.DURATION_BELOW_MINIMUM, f"全集估算只有 {total_seconds} 秒，低于本次要求的下限 {ctx.episode_seconds_min:g} 秒（目标约{ctx.episode_seconds_target:g}秒）；"
             "把当前章还没拍到的事件补成阶段，把叙述里的来历、规则和动机多外化成角色对白或画外议论，"
             "或给已有阶段增加有原文依据的问答，不得注水重复同一句意思"))
-    if total_seconds > ctx.episode_seconds_max and ctx.fast_tier:
+    if ctx.story_blueprint.get('version') == 'scene-screenplay-v2':
+        problem = directed_duration_problem(total_seconds, ctx.story_blueprint.get('episode_seconds_max'))
+        if problem:
+            errors.append(PlanningIssue(PlanningCode.DURATION_ABOVE_MAXIMUM, problem))
+        elif total_seconds > ctx.episode_seconds_target:
+            warnings.append(f'导演计划{total_seconds:g}秒，高于参考目标{ctx.episode_seconds_target:g}秒；未擅自删剧情或压缩台词。')
+    elif total_seconds > ctx.episode_seconds_max and ctx.fast_tier:
         warnings.append(f"report only: 全集估算 {total_seconds} 秒，快速档不返修，打包时按 {ctx.max_clip_seconds:g} 秒拆段")
     elif total_seconds > ctx.episode_seconds_max:
         stage_total = len(normalized)
