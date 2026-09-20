@@ -16,6 +16,9 @@ from zipfile import ZipFile
 
 NS = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+# A shot is numbered 1, 2, S03; a footer's first cell is empty or a sentence (合计：101 秒 / 12 镜).
+SHOT_ID = re.compile(r"[A-Za-z0-9._-]{1,8}")
+
 HEADERS = {
     "镜号": "authored_id",
     "摄影角度": "camera_angle",
@@ -89,15 +92,17 @@ def read_workbook(path: Path) -> list[StoryboardSheet]:
                 if not any(cells.get(c, "") for c in columns.values()):
                     continue
                 own = {field: cells.get(column, "") for field, column in columns.items()}
-                if (columns["edit_seconds"] in formulas
-                        and not any(own[f] for f in HEADERS.values() if f not in {"authored_id", "edit_seconds"})):
-                    # The workbook's SUM footer is a note, not a shot. Its
-                    # cached total must not replace the sum of actual cuts.
-                    if own["authored_id"]:
-                        notes.append(own["authored_id"])
-                    continue
                 row_number = int(row.attrib["r"])
                 where = f"{sheet.get('name')}!{row_number}"
+                if not own["motion_prompt"].strip() and not own["location"].strip():
+                    # A total line under the table: it has no picture and no place, so it cannot be a
+                    # shot, and its cached total must not replace the sum of the actual cuts.  This
+                    # used to be recognised by its SUM formula, until the brief told authors to write
+                    # plain numbers and 总预算（秒）：105 started looking like a shot with no 镜号.
+                    if SHOT_ID.fullmatch(own["authored_id"].strip()):
+                        raise ValueError(f"{where}: 镜号 {own['authored_id']!r} 这一行没有画面内容，也没有场景")
+                    notes.extend(value for value in own.values() if value.strip())
+                    continue
                 shot_id = own["authored_id"]
                 if not shot_id or shot_id in seen:
                     raise ValueError(f"{where}: 镜号缺失或重复 {shot_id!r}")

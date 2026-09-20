@@ -20,7 +20,8 @@ R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 P = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 
-def workbook(path, *, strings="str", budget="2", duplicate=False, budget_formula=False):
+def workbook(path, *, strings="str", budget="2", duplicate=False, budget_formula=False,
+             footer_formula=True, footer_id="版本总计"):
     """Small source fixture: cold open → flashback → return, then a sound exit."""
     book = ET.Element(f"{{{S}}}workbook")
     ET.SubElement(ET.SubElement(book, f"{{{S}}}sheets"), f"{{{S}}}sheet",
@@ -63,10 +64,12 @@ def workbook(path, *, strings="str", budget="2", duplicate=False, budget_formula
             ET.SubElement(cell, f"{{{S}}}f").text = "0"
             ET.SubElement(cell, f"{{{S}}}v").text = "999"
     footer = ET.SubElement(data, f"{{{S}}}row", {"r": "9"})
-    cell = ET.SubElement(footer, f"{{{S}}}c", {"r": "A9", "t": "str"})
-    ET.SubElement(cell, f"{{{S}}}v").text = "版本总计"
+    if footer_id:
+        cell = ET.SubElement(footer, f"{{{S}}}c", {"r": "A9", "t": "str"})
+        ET.SubElement(cell, f"{{{S}}}v").text = footer_id
     cell = ET.SubElement(footer, f"{{{S}}}c", {"r": "I9", "t": "n"})
-    ET.SubElement(cell, f"{{{S}}}f").text = "SUM(I4:I7)"
+    if footer_formula:
+        ET.SubElement(cell, f"{{{S}}}f").text = "SUM(I4:I7)"
     ET.SubElement(cell, f"{{{S}}}v").text = "999"
     with ZipFile(path, "w") as z:
         for name, root in (("xl/workbook.xml", book), ("xl/_rels/workbook.xml.rels", rels),
@@ -150,3 +153,20 @@ def test_unbound_draft_cannot_become_a_silent_plan_or_invalidate_old_media(tmp_p
     assert json.loads((tmp_path / "clip_plan.json").read_text()) == {"existing": "keep"}
     assert json.loads((tmp_path / "thin_media_report.json").read_text()) == {"existing": "keep"}
     require_bound_storyboard({"shots": []})  # Existing novel route remains unchanged.
+
+
+@pytest.mark.parametrize("footer_id", ["版本总计", "合计：101 秒 / 12 镜", ""])
+def test_a_total_row_is_a_note_however_it_was_written(tmp_path, footer_id):
+    # The brief tells the author to write plain numbers, so the SUM formula the reader used to key
+    # on is gone.  What makes a total row a note is that it has no picture and no place.
+    path = workbook(tmp_path / "plain.xlsx", footer_formula=False, footer_id=footer_id)
+    sheet = read_workbook(path)[0]
+    assert [row["authored_id"] for row in sheet.rows] == ["C01", "A04", "E11", "F29"]
+    assert sum(int(row["edit_seconds"]) for row in sheet.rows) == 2 + 3 + 4 + 7
+
+
+def test_a_numbered_row_with_no_picture_and_no_place_is_a_broken_shot(tmp_path):
+    # Skipping it would drop a shot silently; the sheet is refused instead.
+    path = workbook(tmp_path / "broken.xlsx", footer_formula=False, footer_id="C09")
+    with pytest.raises(ValueError, match="C09"):
+        read_workbook(path)
