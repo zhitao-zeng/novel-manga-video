@@ -237,6 +237,7 @@ def run(args, ctx: PlannerContext) -> int:
     segment_ids = [segment["segment_id"] for segment in segments]
     # A bound sheet is not re-planned: the model answers one object per authored shot with only the
     # fields the import left empty, and never sees a schema that would let it rewrite the cuts.
+    ctx.authored_storyboard = bool(authored)
     schema = (pc_binding.bind_schema(authored, names, list(location_map), segment_ids, ctx=ctx) if authored
               else pc_contracts.build_schema(names, list(location_map), segment_ids, ctx=ctx))
     from novel_manga.application.identity.context import prompt_context

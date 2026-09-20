@@ -84,6 +84,9 @@ def validate_duration(normalized, ctx, errors, warnings):
             errors.append(PlanningIssue(PlanningCode.DURATION_ABOVE_MAXIMUM, problem))
         elif total_seconds > ctx.episode_seconds_target:
             warnings.append(f'导演计划{total_seconds:g}秒，高于参考目标{ctx.episode_seconds_target:g}秒；未擅自删剧情或压缩台词。')
+    elif total_seconds > ctx.episode_seconds_max and ctx.authored_storyboard:
+        warnings.append(f"report only: 全集估算 {total_seconds} 秒，高于上限 {ctx.episode_seconds_max:g} 秒；"
+                        "分镜是人写的，时长按作者的镜头表走，不压缩")
     elif total_seconds > ctx.episode_seconds_max and ctx.fast_tier:
         warnings.append(f"report only: 全集估算 {total_seconds} 秒，快速档不返修，打包时按 {ctx.max_clip_seconds:g} 秒拆段")
     elif total_seconds > ctx.episode_seconds_max:
