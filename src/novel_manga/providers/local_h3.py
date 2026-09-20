@@ -189,6 +189,12 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                 task_path.replace(task_path.with_suffix(".stale.json"))
         if self.pool and task_id and (not base or self.pool.excluded(base)):
             task_id = None  # held by an instance taken out of the pool: render it elsewhere
+        elif task_id and not self.pool and base != self.base_url:
+            # Naming a single instance says where this run renders.  A task cached against another
+            # one - left by a pool run, or by a run aimed elsewhere - has no cool-down to release it
+            # and no second instance to move to, so resuming it waits out the whole timeout on a
+            # machine this run never chose.  Drop it and submit here instead.
+            task_id, base = None, self.base_url
 
         slot, instance, status = None, None, "pending"
         submitted = time.monotonic()
