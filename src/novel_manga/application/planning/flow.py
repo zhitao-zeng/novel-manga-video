@@ -179,15 +179,10 @@ def run(args, ctx: PlannerContext) -> int:
         except (OSError, ValueError):
             added_at = {}
 
-    def short_of(full: str) -> str:
-        return full.split("：", 1)[0].strip()
-
-    known = [full for full in full_bible.locations if added_at.get(short_of(full), 0) <= episode.index]
-    sliced_locations = [full for full in known
-                        if named_here(short_of(full)) or short_of(full) in recent_locations
-                        or episode.index - pc_constants.CAST_RECENT_CHAPTERS <= added_at.get(short_of(full), -1) <= episode.index]
-    if not sliced_locations:
-        sliced_locations = sorted(known, key=lambda full: -added_at.get(short_of(full), 0))[:6] or full_bible.locations[:6]
+    sliced_locations = planner_context.offered_locations(
+        list(full_bible.locations), chapter=episode.index, named_here=named_here,
+        recent=set(recent_locations), added_at=added_at,
+        window=pc_constants.CAST_RECENT_CHAPTERS)
     bible = full_bible.model_copy(update={"characters": sliced_characters, "locations": sliced_locations})
     location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
     names = [character.name for character in bible.characters]

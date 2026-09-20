@@ -6,6 +6,7 @@ from pathlib import Path
 import fcntl
 import json
 import novel_manga.planning.constants as pc_constants
+import novel_manga.planning.places as pc_places
 
 def load_separate_pairs(novel_dir: Path) -> list[tuple[str, str]]:
     """Character pairs this novel's review record says the generator cannot tell apart."""
@@ -121,8 +122,9 @@ def cast_history(novel_dir: Path) -> dict:
     return index
 
 
-def recent_names(group: dict, chapter: int, window: int) -> set[str]:
-    return {name for name, chapters in group.items() if any(chapter - window <= int(c) < chapter for c in chapters)}
+# The rule itself lives in the planning layer, where the brief writer can reach it too.
+recent_names = pc_places.recently_used
+offered_locations = pc_places.offered_locations
 
 
 def record_cast(novel_dir: Path, chapter: int, characters: list[str], locations: list[str]) -> None:
