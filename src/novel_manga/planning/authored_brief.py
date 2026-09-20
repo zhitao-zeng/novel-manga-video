@@ -217,7 +217,7 @@ def chapter_text(novel: dict, chapter: int) -> str:
     return "\n".join(lines[here:min(later) if later else None]).strip() + "\n"
 
 
-def write_brief(novel_dir: Path, chapter: int, out_dir: Path) -> list[Path]:
+def write_brief(novel_dir: Path, chapter: int, out_dir: Path, skill: str = "") -> list[Path]:
     novel = json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))
     bible = json.loads((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     profile = json.loads((novel_dir / "profile.json").read_text(encoding="utf-8"))
@@ -246,4 +246,54 @@ def write_brief(novel_dir: Path, chapter: int, out_dir: Path) -> list[Path]:
         path = out_dir / name
         path.write_text(body, encoding="utf-8")
         written.append(path)
+    if skill:
+        # Beside input/, not inside it: this is what drives the run, not something the agent reads.
+        path = out_dir.parent / "prompt.txt"
+        path.write_text(run_prompt(skill, novel, chapter), encoding="utf-8")
+        written.append(path)
     return written
+
+
+# Each installed skill set is driven by one sentence; everything else about the run is the same.
+SKILL_TASKS = {
+    "drama": "请使用本项目 .claude/skills/ 下已安装的 Drama Skills 这一组 Skill"
+             "（short-drama 开头的那些，入口是 short-drama：原著分析、开发、写作、分镜等）"
+             "完成任务：把 input/source.txt（小说《{title}》{chapter_title}全文）"
+             "改编成系列短剧的第 {n} 集，并按这套 Skill 的方法做出分镜表。",
+    "community": "请使用本项目 .claude/skills/ 下已安装的 shortfilm-prompt（社区短片提示词 Skill）"
+                 "完成任务：把 input/source.txt（小说《{title}》{chapter_title}全文）"
+                 "改编成系列短剧的第 {n} 集，并按这套 Skill 的方法做出分镜表。",
+    "dream": "请使用本项目 .claude/skills/ 下已安装的 zy-cinematic-realism（造梦师电影化写实 Skill）"
+             "完成任务：把 input/source.txt（小说《{title}》{chapter_title}全文）"
+             "改编成系列短剧的第 {n} 集，并按这套 Skill 的方法做出分镜表。",
+    "leos": "请使用本项目 .claude/skills/ 下已安装的 Leos 六部门导演组 Skill "
+            "完成任务：把 input/source.txt（小说《{title}》{chapter_title}全文）"
+            "改编成系列短剧的第 {n} 集，并按这套 Skill 的方法做出分镜表。",
+    "visual": "请使用本项目 .claude/skills/ 下已安装的 Visual Skills 的视频 Skill（video）"
+              "完成任务：把 input/source.txt（小说《{title}》{chapter_title}全文）"
+              "改编成系列短剧的第 {n} 集，并按这套 Skill 的方法做出分镜表。",
+    "shanyin": "请使用本项目 .claude/skills/ 下已安装的两个 Skill 完成任务：\n"
+               "1. 先用 screenwriting-master（山音超级编剧大师），把 input/source.txt"
+               "（小说《{title}》{chapter_title}全文）改编成系列短剧第 {n} 集的剧本；\n"
+               "2. 再用 director-master（山音超级导演大师），从这个剧本出发完成导演流程，做出分镜表。",
+}
+
+RUN_PROMPT = """这是一次无人值守的批量运行，没有人会回复你，不要停下来等待回答。
+
+{task}
+
+具体要求见 input/任务说明.md，人物、地点与画风见 input/人物地点与画风.md。开始前先把这三个输入文件完整读一遍，再读 Skill 的说明，按 Skill 自己规定的流程和格式来做。
+
+Skill 中凡是要求"暂停、等待用户指令"、"向用户提问确认"或"需要用户明确授权后才能继续"的地方：先按该 Skill 自己的自检标准检查并修正，然后视为用户已确认、已授权，继续下一步；需要用户做的选择，由你根据原著内容自行决定，并把选择和理由写进对应的输出文件。
+
+所有过程文件和最终结果都写进 output/ 目录。完成后在 output/运行记录.md 里总结。
+"""
+
+
+def run_prompt(skill: str, novel: dict, chapter: int) -> str:
+    if skill not in SKILL_TASKS:
+        raise ValueError(f"不认识的 skill {skill!r}；有的是 {sorted(SKILL_TASKS)}")
+    titles = {int(c["index"]): c.get("title", "") for c in novel.get("chapters", [])}
+    task = SKILL_TASKS[skill].format(title=novel.get("title", ""), n=chapter,
+                                     chapter_title=titles.get(chapter, f"第 {chapter} 章"))
+    return RUN_PROMPT.format(task=task)

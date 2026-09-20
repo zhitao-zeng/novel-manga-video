@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from novel_manga.llm.client import ask_json  # noqa: E402
+from novel_manga.planning import authored_brief as brief  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
 
 WINDOW = 420      # characters of source kept around each hit
@@ -50,17 +51,43 @@ def tokens(name: str) -> list[str]:
     return sorted(out, key=len, reverse=True)
 
 
+def search_text(novel: dict, whole: str, chapters: list[int]) -> str:
+    """The chapters a location is planned for, or the whole book when nothing says where it is.
+
+    Looking for it where the story puts it beats looking everywhere: 楼走廊 matches a villa'"'"'s landing
+    in a later chapter, and reading those passages is how a dorm corridor ends up undescribed.
+    """
+    if not chapters:
+        return whole
+    pieces = []
+    for chapter in chapters:
+        try:
+            pieces.append(brief.chapter_text(novel, chapter))
+        except (ValueError, KeyError, OSError):
+            continue
+    return "\n".join(pieces) or whole
+
+
 def passages(text: str, name: str) -> tuple[list[str], str]:
+    """Windows of source around the rarest piece of the name that the text actually contains.
+
+    Taking the first usable piece meant the leftmost of the longest, which favours a generic prefix:
+    南昌大学 over 舍楼走廊.  For a place name the rarest piece is the specific one.
+    """
+    found = []
     for piece in tokens(name):
         spots = [m.start() for m in re.finditer(re.escape(piece), text)]
         if not spots or len(spots) > 400:       # a piece this common is not this place
             continue
-        hits = []
-        for spot in spots[:MAX_HITS]:
-            chunk = text[max(0, spot - WINDOW // 2): spot + WINDOW // 2]
-            hits.append(chunk.replace("　", "").replace("\n", " "))
-        return hits, piece
-    return [], ""
+        found.append((len(spots), -len(piece), piece, spots))
+    if not found:
+        return [], ""
+    _, _, piece, spots = min(found)
+    hits = []
+    for spot in spots[:MAX_HITS]:
+        chunk = text[max(0, spot - WINDOW // 2): spot + WINDOW // 2]
+        hits.append(chunk.replace("　", "").replace("\n", " "))
+    return hits, piece
 
 
 SCHEMA = {
@@ -91,7 +118,10 @@ def describe(name: str, hits: list[str], genre: str, current: str = "") -> dict:
               "这张图会被这本书的很多镜头反复当背景板用，所以只写这个地方长期不变的样子：\n"
               "- 不写任何人、人群、人影、剪影；\n"
               "- 不写某一场戏里才有的临时状态（比如摊开的行李、摆在桌上的东西、正在发生的事）；\n"
-              "- 只写原文支持的东西，原文没写的宁可不写，不要补想象的细节。\n"
+              "- 只写原文支持的东西，原文没写的宁可不写，不要补想象的细节；\n"
+              "- 但地点名本身就说清了这是哪一类场所时（车站出口、宿舍走廊、食堂、公路这些现实中常见的地方），"
+              "可以按这一类场所通常固定有的建筑、材质和光线来写——这是布景，不是情节。"
+              "不要添加原文没有的人、事件、招牌文字或独有的陈设。\n"
               "写到碑文、匾额、招牌、书页这类本来有字的东西时，写成看不出字形的样子（风化的刻痕、磨平的笔画、模糊的符号），不要写可辨读的文字——地点卡的判定会把可读文字判成缺陷。"
               + ("grounded 填的是「有没有原文段落支持你补充的新细节」；没有就填 false，"
                  "但 description 一定要给出改好的那一句，不能因为证据不足就把原句原样退回。"
@@ -114,6 +144,13 @@ def main() -> int:
     novel = json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))
     text = Path(novel["source"]).read_text(encoding="utf-8")
     genre = json.loads((novel_dir / "profile.json").read_text(encoding="utf-8")).get("genre", "")
+    cast_path = novel_dir / "cast_index.json"
+    used_in: dict[str, list[int]] = {}
+    if cast_path.is_file():
+        try:
+            used_in = json.loads(cast_path.read_text(encoding="utf-8")).get("locations", {})
+        except (OSError, ValueError):
+            used_in = {}
 
     flagged: set[str] = set()
     if args.from_audit:
@@ -136,7 +173,7 @@ def main() -> int:
         if not wanted:
             out.append(entry)
             continue
-        hits, piece = passages(text, name)
+        hits, piece = passages(search_text(novel, text, used_in.get(name, [])), name)
         if not hits and not current:
             out.append(entry)
             skipped.append(name)

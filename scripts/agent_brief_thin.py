@@ -40,6 +40,8 @@ def main() -> int:
     parser.add_argument("--chapters", help="例如 1-5 或 1,3,5")
     parser.add_argument("--out", type=Path, help="写到这个目录（配合 --chapter）")
     parser.add_argument("--out-template", help="多章时的目录模板，用 {n} 代表章号")
+    parser.add_argument("--skill", default="",
+                        help="同时写出启动提示词 prompt.txt：drama/community/dream/leos/visual/shanyin")
     args = parser.parse_args()
 
     novel_dir = args.novel_dir if args.novel_dir.is_absolute() else ROOT / args.novel_dir
@@ -51,7 +53,7 @@ def main() -> int:
 
     for chapter in wanted:
         out = Path(args.out_template.format(n=chapter)) if args.out_template else args.out
-        for path in write_brief(novel_dir, chapter, out):
+        for path in write_brief(novel_dir, chapter, out, args.skill):
             print(f"  第{chapter}章 → {path}  {path.stat().st_size} 字节")
     return 0
 
