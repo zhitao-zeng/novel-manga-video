@@ -28,7 +28,7 @@ def main(*, context: PlannerContext | None = None) -> int:
     parser.add_argument("--max-tokens", type=int, default=int(os.environ.get("NOVEL_PLAN_MAX_TOKENS") or (12000 if ctx.short_clips else 9000)),
                         help="completion budget; the 15 s mode writes 6-8 clips and needs more room (chapter 381 was cut off three times at 9000)")
     parser.add_argument("--timeout", type=float, default=900.0)
-    parser.add_argument("--max-redo", type=int, default=1)
+    parser.add_argument("--max-redo", type=int, default=4)
     parser.add_argument("--min-seconds", type=float, default=0.0, help="reject a plan shorter than this (drives the redo)")
     parser.add_argument("--max-seconds", type=float, help="explicit episode ceiling; story methods otherwise use a duration target, not a hard 105s limit")
     parser.add_argument("--notes", default="", help="director feedback injected into this chapter's request")

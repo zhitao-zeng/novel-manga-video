@@ -23,7 +23,9 @@ def main() -> int:
     parser.add_argument("--stage", choices=("all", *production_common.PLAN_STAGES), default="all")
     parser.add_argument("--parallel", type=int, default=3, help="episodes rendered at the same time")
     parser.add_argument("--workers", type=int, default=0, help="clips submitted at once per episode; 0 = one slot per clip (the global --inflight cap still applies)")
-    parser.add_argument("--max-redo", type=int, default=2, help="planner redo rounds")
+    parser.add_argument("--max-redo", type=int, default=5,
+                        help="planner redo rounds; a long chapter needs three or four to come "
+                             "down to the episode cap, and only a chapter that failed pays for one")
     parser.add_argument("--min-seconds", type=float, default=0.0, help="planner floor for the episode estimate")
     parser.add_argument("--notes-json", help='director notes per chapter: {"3": "...", "*": "for every chapter"}')
     parser.add_argument("--plan-mode", type=int, choices=(15, 30), default=None,
