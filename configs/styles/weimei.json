@@ -1,0 +1,10 @@
+{
+  "name": "唯美",
+  "render_family": "3d",
+  "visual_style": "美型半写实3D CG，乙女游戏过场动画质感：偶像化的美型面孔，光滑通透的瓷肌带柔和光泽，适度放大的眼睛、清晰虹膜与柔和眼神光，小巧精致的鼻子与柔软唇形，大块柔软的发束并有细发丝反光；布料、皮革与金属细节干净、打光柔和；无描边。不是平面卡通，不是普通3D游戏模型，不是照片",
+  "card_suffix": "。整体是美型半写实三维CG角色（乙女游戏过场动画质感）：光滑通透的瓷肌带柔和光泽，适度放大的眼睛与柔和眼神光，大块柔软的发束带细发丝反光，无描边；绝不是平面卡通、普通三维游戏模型或真人照片",
+  "source_en": "Style: beautified semi-realistic 3D CG in the look of a 3D otome-game cutscene, rendered like Image 1: an idol-like beautified face with smooth luminous porcelain skin and a soft sheen, moderately enlarged expressive eyes with clear irises and soft catchlights, a small refined nose, soft lips, hair in large soft clumps with fine strands catching the light; fabrics, leather and metal detailed but clean and softly lit; no outlines. Not a flat cartoon, not a plain 3D game model, not a photograph.",
+  "source_ref": "experiments/agent-skill-sandbox/assets/STYLE_APPROVED.md §2 风格块（原文）",
+  "review": "中文措辞是英文原文的中译草稿，正在用样卡复核；source_en 是用户认可的原文，不要改",
+  "prompt_fingerprint": false
+}

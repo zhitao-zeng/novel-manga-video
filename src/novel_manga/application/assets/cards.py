@@ -25,7 +25,7 @@ from novel_manga.media.asset_policy import ModerationRejected
 from novel_manga.media.asset_style import AssetStyle
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
-from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, styled_bible
+from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, load_style, style_names, styled_bible
 
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models.bible import StoryBible
@@ -52,7 +52,7 @@ def main() -> int:
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--assets", required=True, help="comma-separated asset ids, e.g. character_041,location_012")
     parser.add_argument("--review", action="store_true", help="judge the cards and apply the one bounded fix")
-    parser.add_argument("--style", choices=("2d", "3d"))
+    parser.add_argument("--style", choices=tuple(style_names()))
     parser.add_argument("--frame", choices=("9:16", "16:9"))
     parser.add_argument("--tier", choices=("quality", "fast"))
     args = parser.parse_args()
@@ -60,12 +60,13 @@ def main() -> int:
     novel_dir = args.novel_dir.resolve()
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
-    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"])
+    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"],
+                                       style=load_style(profile, novel_dir))
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     settings = dc_replace(settings, width=frame["width"], height=frame["height"])
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     if (novel_dir / "profile.json").is_file():
-        bible = styled_bible(bible, profile)
+        bible = styled_bible(bible, profile, novel_dir)
     provider = FramedPhanRouter(settings, frame)
     factory = FramedAssetFactory(settings, provider, style=asset_style)
     root = novel_dir / "series_assets"

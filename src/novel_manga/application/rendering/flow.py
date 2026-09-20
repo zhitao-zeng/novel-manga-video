@@ -59,7 +59,7 @@ from novel_manga.util import atomic_write_json, media_duration
 import novel_manga.application.rendering.moderation as moderation_repair
 from dataclasses import replace as dc_replace
 
-from novel_manga.application.profiles import frame_spec, h3_prompt_fingerprint, is_fast, load_genre, load_profile, plan_fingerprint, styled_bible
+from novel_manga.application.profiles import frame_spec, h3_prompt_fingerprint, is_fast, load_genre, load_profile, load_style, plan_fingerprint, styled_bible
 from novel_manga.application.profiles import MAX_HOLD_SECONDS, media_qc_ignores
 
 POLICY = "thin-media-v22-coverage-gate"
@@ -125,10 +125,11 @@ class ThinMediaRunner:
         # Canvas follows the frame; everything downstream (mux scale/crop, ASS
         # PlayRes, QC resolution) reads settings.width/height.
         self.context.settings = dc_replace(settings, width=self.context.frame_spec["width"], height=self.context.frame_spec["height"])
-        self.context.bible = styled_bible(bible, self.context.profile) if (novel_dir / "profile.json").is_file() else bible
+        self.context.bible = styled_bible(bible, self.context.profile, novel_dir) if (novel_dir / "profile.json").is_file() else bible
         self.context.fast = is_fast(self.context.profile)
         genre = load_genre(self.context.profile)
-        self.context.asset_style = AssetStyle.for_genre(genre, frame_text=self.context.frame_spec["text"])
+        self.context.asset_style = AssetStyle.for_genre(genre, frame_text=self.context.frame_spec["text"],
+                                                        style=load_style(self.context.profile, novel_dir))
         self.context.softening_rules = [*media_policy.SOFTEN, *((re.compile(pattern), replacement) for pattern, replacement in genre.get('soften', []))]
         self.context.voice_budget = generation.voice_budget_seconds()
         self.context._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)

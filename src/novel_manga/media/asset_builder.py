@@ -6,7 +6,7 @@ from novel_manga.models.bible import StoryBible
 from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from ..util import atomic_write_json
 from .common import sha256_text, log
-from .asset_style import AssetStyle
+from .asset_style import AssetStyle, wants_3d_card as _wants_3d_card
 from .asset_specs import character_spec, location_spec
 from .asset_prompts import character_prompt, expression_prompt as make_expression_prompt, location_prompt
 from .asset_images import ensure_image
@@ -21,7 +21,9 @@ class FramedAssetFactory:
         self.style = style or AssetStyle()
 
     def _location_prompt(self, bible, location):
-        prompt = location_prompt(bible, location)
+        prompt = location_prompt(bible, location,
+                                 family=self.style.render_family, direction=self.style.render_direction,
+                                 fingerprint=self.style.prompt_fingerprint)
         frame = self.style.frame_text
         return prompt.replace('9:16', frame.split('屏')[-1]).replace('竖屏', frame[:2]) if frame != '竖屏9:16' else prompt
 
@@ -70,8 +72,10 @@ class FramedAssetFactory:
                 bible, character.name, character.appearance, character.base_costume or character.wardrobe,
                 visual_archetype=character.visual_archetype, face_anchors=character.face_anchors, silhouette=character.silhouette,
                 hair=character.hair, palette=character.palette, motion_signature=character.motion_signature,
+                family=self.style.render_family, direction=self.style.render_direction,
+                fingerprint=self.style.prompt_fingerprint,
             ) + guard
-            if "3D" in bible.visual_style or "三维" in bible.visual_style:
+            if _wants_3d_card(self.style, bible):
                 # Modern-dress 3D cards came out near-photoreal and were then
                 # redrawn by the review; ask for the animated look up front.
                 prompt += self.style.card_style_suffix_3d
@@ -79,7 +83,9 @@ class FramedAssetFactory:
             invariants, state, scope = spec['identity_invariants'], spec['state_variables'], spec['reference_scope']
             atomic_write_json(directory / "spec.json", spec)
             primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master)
-            expression_prompt = make_expression_prompt(bible, character.name, character.expression_profile)
+            expression_prompt = make_expression_prompt(bible, character.name, character.expression_profile,
+                                                   family=self.style.render_family, direction=self.style.render_direction,
+                                                   fingerprint=self.style.prompt_fingerprint)
             # Fast production uses one main character card, including when an
             # old expression sheet happens to remain on disk.
             secondary = self.ensure_card(expression_prompt, directory / "expressions.jpeg", reference=primary.path) if expressions else None

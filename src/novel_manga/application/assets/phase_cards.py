@@ -24,11 +24,11 @@ from pathlib import Path
 from novel_manga.media.asset_style import CARD_STYLE_SUFFIX_3D
 from novel_manga.media.asset_builder import FramedAssetFactory
 from novel_manga.media.asset_policy import ModerationRejected
-from novel_manga.media.asset_style import AssetStyle
+from novel_manga.media.asset_style import AssetStyle, wants_3d_card
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
 from novel_manga.application.identity.phases import load_phases, phased
-from novel_manga.application.profiles import frame_spec, load_genre, load_profile, styled_bible
+from novel_manga.application.profiles import frame_spec, load_genre, load_profile, load_style, style_names, styled_bible
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models.bible import StoryBible
 
@@ -58,7 +58,7 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="redraw a variant that already has an image (the old one is moved aside)")
     parser.add_argument("--dry-run", action="store_true", help="write spec.json and print the prompt, draw nothing")
     parser.add_argument("--expressions", action="store_true", help="also draw expressions.jpeg for variants that have a turnaround (a lead's second view)")
-    parser.add_argument("--style", choices=("2d", "3d"))
+    parser.add_argument("--style", choices=tuple(style_names()))
     parser.add_argument("--frame", choices=("9:16", "16:9"))
     parser.add_argument("--tier", choices=("quality", "fast"))
     args = parser.parse_args()
@@ -73,12 +73,13 @@ def main() -> int:
 
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
-    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"])
+    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"],
+                                       style=load_style(profile, novel_dir))
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     settings = dc_replace(settings, width=frame["width"], height=frame["height"])
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     if (novel_dir / "profile.json").is_file():
-        bible = styled_bible(bible, profile)
+        bible = styled_bible(bible, profile, novel_dir)
     provider = FramedPhanRouter(settings, frame)
     factory = FramedAssetFactory(settings, provider, style=asset_style)
     style_master = settings.style_master_path
@@ -112,8 +113,10 @@ def main() -> int:
                 bible, look.name, look.appearance, look.base_costume or look.wardrobe,
                 visual_archetype=look.visual_archetype, face_anchors=look.face_anchors, silhouette=look.silhouette,
                 hair=look.hair, palette=look.palette, motion_signature=look.motion_signature,
+                family=asset_style.render_family, direction=asset_style.render_direction,
+                fingerprint=asset_style.prompt_fingerprint,
             ) + guard
-            if "3D" in bible.visual_style or "三维" in bible.visual_style:
+            if wants_3d_card(asset_style, bible):
                 prompt += CARD_STYLE_SUFFIX_3D
             directory.mkdir(parents=True, exist_ok=True)
             spec = {
@@ -161,7 +164,8 @@ def main() -> int:
                 look = phased(character, phase)
                 started = time.monotonic()
                 try:
-                    factory.ensure_card(factory._expression_prompt(bible, look.name, look.expression_profile), sheet, reference=primary)
+                    factory.ensure_card(factory._expression_prompt(bible, look.name, look.expression_profile,
+                                                               family=asset_style.render_family, direction=asset_style.render_direction), sheet, reference=primary)
                     status = "expressions built"
                 except Exception as error:  # noqa: BLE001
                     status = f"expressions error: {type(error).__name__}: {str(error)[:120]}"

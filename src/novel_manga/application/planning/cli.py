@@ -6,6 +6,7 @@ import os
 import sys
 import json
 from pathlib import Path
+from novel_manga.application.profiles import style_names
 from novel_manga.planning.context import PlannerContext
 from novel_manga.application.planning.requests import qwen_default
 from novel_manga.application.planning.flow import run, PlanningInputError
@@ -32,7 +33,7 @@ def main(*, context: PlannerContext | None = None) -> int:
     parser.add_argument("--max-seconds", type=float, help="explicit episode ceiling; story methods otherwise use a duration target, not a hard 105s limit")
     parser.add_argument("--notes", default="", help="director feedback injected into this chapter's request")
     parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <output-root>/<novel-id>/visual_grammar.json when present")
-    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
+    parser.add_argument("--style", choices=tuple(style_names()), help="override profile.json style")
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")

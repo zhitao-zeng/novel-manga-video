@@ -12,6 +12,7 @@ Title-card shots become separate card segments rendered in post.
 Writes clip_plan.json and clip_plan.md.  No model call, no remote call.
 """
 from __future__ import annotations
+from novel_manga.application.profiles import style_names
 from novel_manga.application.configuration import project_root
 
 import argparse
@@ -25,7 +26,7 @@ def main() -> int:
     parser.add_argument("--episode-dir", type=Path, required=True)
     parser.add_argument("--bible", type=Path, required=True)
     parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <novel dir>/visual_grammar.json when present")
-    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
+    parser.add_argument("--style", choices=tuple(style_names()), help="override profile.json style")
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     args = parser.parse_args()

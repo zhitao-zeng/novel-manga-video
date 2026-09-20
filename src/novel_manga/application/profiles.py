@@ -1,6 +1,7 @@
 """Per-novel production profile for the thin pipeline: art style and frame.
 
-`outputs/<novel>/profile.json` holds {"style": "2d"|"3d", "frame": "9:16"|"16:9"}.
+`outputs/<novel>/profile.json` holds {"style": <a package in configs/styles>, "frame": "9:16"|"16:9"};
+`outputs/<novel>/style.json` is that package as this book was built with it.
 Every thin script reads it; command-line flags override per run.  The style
 text is what the asset factory routes on, so it must contain a 2D token for
 2d and a 3D token (and no 2D token) for 3d.
@@ -51,8 +52,8 @@ def load_profile(novel_dir: Path, **overrides) -> dict:
     profile.update({key: value for key, value in overrides.items() if value})
     if profile["frame"] not in FRAMES:
         raise ValueError(f"profile.frame must be one of {list(FRAMES)}")
-    if profile["style"] not in STYLE_VISUAL:
-        raise ValueError(f"profile.style must be one of {list(STYLE_VISUAL)}")
+    if profile["style"] not in style_names():
+        raise ValueError(f"profile.style must be one of {style_names()}")
     if profile.get("tier", "quality") not in TIERS:
         raise ValueError(f"profile.tier must be one of {TIERS}")
     profile.setdefault("tier", "quality")
@@ -118,9 +119,36 @@ def frame_spec(profile: dict) -> dict:
     return FRAMES[profile["frame"]]
 
 
-def styled_bible(bible, profile: dict):
-    """Return the bible with visual_style replaced by the profile's style text."""
-    return bible.model_copy(update={"visual_style": STYLE_VISUAL[profile["style"]]})
+def style_names() -> list[str]:
+    """Selectable styles: the packages in configs/styles, plus the legacy 2d/3d names."""
+    packs = sorted(path.stem for path in STYLES_DIR.glob("*.json")) if STYLES_DIR.is_dir() else []
+    return packs + [name for name in STYLE_VISUAL if name not in packs]
+
+
+def load_style(profile: dict | None, novel_dir: Path | None = None) -> dict:
+    """The style this book is actually drawn in.
+
+    A book that has its own style.json keeps it: editing a package in configs/styles
+    changes what the next book starts from, never a book already under way (its cards
+    and its style_fingerprint were made with the text it was built with)."""
+    if novel_dir is not None:
+        own = Path(novel_dir) / "style.json"
+        if own.is_file():
+            return json.loads(own.read_text(encoding="utf-8"))
+    key = (profile or {}).get("style") or DEFAULTS["style"]
+    path = STYLES_DIR / f"{key}.json"
+    if not path.is_file() and STYLES_DIR.is_dir():
+        # legacy profile.style ("3d") resolves to the package that declares it
+        path = next((c for c in sorted(STYLES_DIR.glob("*.json"))
+                     if json.loads(c.read_text(encoding="utf-8")).get("legacy_style") == key), path)
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return {"name": STYLE_NAME.get(key, key), "render_family": key, "visual_style": STYLE_VISUAL[key]}
+
+
+def styled_bible(bible, profile: dict, novel_dir: Path | None = None):
+    """Return the bible with visual_style replaced by this book's style text."""
+    return bible.model_copy(update={"visual_style": load_style(profile, novel_dir)["visual_style"]})
 
 
 def plan_fingerprint(plan: dict) -> str:
@@ -179,6 +207,7 @@ def h3_prompt_fingerprint(plan: dict) -> str:
 
 
 GENRES_DIR = project_root() / "configs" / "genres"
+STYLES_DIR = project_root() / "configs" / "styles"
 
 
 def load_genre(profile: dict | None) -> dict:

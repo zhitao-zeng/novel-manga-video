@@ -11,7 +11,7 @@ from novel_manga.config import Settings
 from novel_manga.runtime_backends import normalize_text
 from novel_manga.models.bible import StoryBible
 from novel_manga.media.asset_inspection import cards_sheet
-from novel_manga.application.profiles import load_profile
+from novel_manga.application.profiles import load_profile, style_names
 from novel_manga.application.rendering.flow import ThinMediaRunner
 
 
@@ -28,7 +28,7 @@ def main() -> int:
     parser.add_argument("--retake-failed", action="store_true", help="give clips whose cached takes all failed the speech gate fresh takes this run (always so on a local-H3 lane; on a paid one every take is paid for)")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--assets-only", action="store_true", help="build the cards this episode needs, write series_assets/cards_sheet.jpg for review, and stop before any video")
-    parser.add_argument("--style", choices=("2d", "3d"), help="override profile.json style")
+    parser.add_argument("--style", choices=tuple(style_names()), help="override profile.json style")
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     args = parser.parse_args()

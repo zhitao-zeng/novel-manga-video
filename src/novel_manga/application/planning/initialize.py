@@ -7,7 +7,8 @@ and locations from the novel.  This script then writes everything the three
 thin scripts read from ``outputs/<novel-id>/``:
 
     story_bible.json     characters, locations, visual_style (from the profile style)
-    profile.json         {"style": "2d"|"3d", "frame": "9:16"|"16:9"}
+    profile.json         {"style": <configs/styles 里的包名>, "frame": "9:16"|"16:9"}
+    style.json           this book's own copy of that style package
     visual_grammar.json  copied from configs/templates, location_time keys pre-filled
     story_bible.md       the bible as a table, for the human review before any card is paid for
     novel.json           source path, sha256 and the chapter split (check it is the split you expect)
@@ -28,7 +29,7 @@ import sys
 import time
 from pathlib import Path
 
-from novel_manga.application.profiles import DEFAULTS, STYLE_NAME, STYLE_VISUAL, detect_genre, load_genre
+from novel_manga.application.profiles import DEFAULTS, STYLE_NAME, STYLE_VISUAL, detect_genre, load_genre, load_style, style_names
 
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.ingest import read_novel  # noqa: E402
@@ -59,7 +60,7 @@ def build_bible(novel, style: str) -> StoryBible:
         raise SystemExit("NOVEL_LLM_BASE_URL / NOVEL_LLM_API_KEY are not set; run `set -a; source .env; set +a` first")
     print(json.dumps({"bible_model": settings.llm_model, "base_url": settings.llm_base_url}, ensure_ascii=False), flush=True)
     bible = BibleBuilder(settings).build_bible(novel)
-    style_text = STYLE_VISUAL[style]
+    style_text = load_style({"style": style})["visual_style"]
     return bible.model_copy(update={"visual_style": style_text, "style_fingerprint": fingerprint(novel.title, style_text, bible.characters)})
 
 
@@ -92,7 +93,7 @@ def main() -> int:
     parser.add_argument("source", help="novel text (.md/.txt/.docx/.pdf) with 第X章 headings")
     parser.add_argument("--novel-id", required=True, help="output directory name under --output-root, e.g. doupo-2d")
     parser.add_argument("--title", required=True, help="the novel's title as it should appear on covers")
-    parser.add_argument("--style", choices=tuple(STYLE_VISUAL), default=DEFAULTS["style"])
+    parser.add_argument("--style", choices=tuple(style_names()), default=DEFAULTS["style"])
     parser.add_argument("--frame", choices=("9:16", "16:9"), default=DEFAULTS["frame"])
     parser.add_argument("--output-root", default="outputs")
     parser.add_argument("--force", action="store_true", help="rebuild the bible even if story_bible.json exists")
@@ -134,6 +135,11 @@ def main() -> int:
         if "genre" not in current:
             current["genre"] = genre_key
             atomic_write_json(profile_path, current)
+    style_path = novel_dir / "style.json"
+    if not style_path.is_file():
+        # The book keeps the style it was built with; editing configs/styles later
+        # starts the next book differently and leaves this one alone.
+        atomic_write_json(style_path, load_style(profile))
     grammar_path = novel_dir / "visual_grammar.json"
     if not grammar_path.is_file():
         grammar = json.loads((TEMPLATES / "visual_grammar.json").read_text(encoding="utf-8"))
