@@ -18,6 +18,7 @@ POLICY = "thin-clip-plan-v12-six-stages" + ("-15s" if os.environ.get("NOVEL_CLIP
 
 
 TWO_VIEW_CAST_LIMIT = 2
+TWO_VIEWS = "off"
 
 
 GENRE_REJECTS: list[str] = []  # from the genre preset; appended to 【不要】
@@ -82,7 +83,7 @@ def compiler_options(frame=None, *, planning_context=None, environ=None):
         genre_rejects=list(GENRE_REJECTS), genre_crowd=GENRE_CROWD,
         entity_forms=copy.deepcopy(entities.entity_forms), entity_generic=copy.deepcopy(entities.entity_generic),
         aliases=dict(entities.aliases), frame=dict(frame or frame_spec({'frame':'9:16'})),
-        voices=dict(VOICES), two_view_cast_limit=TWO_VIEW_CAST_LIMIT)
+        voices=dict(VOICES), two_view_cast_limit=TWO_VIEW_CAST_LIMIT, two_views=TWO_VIEWS)
 
 
 def load_grammar(path: Path | None, episode_dir: Path) -> dict | None:
@@ -146,6 +147,7 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
         genre_crowd=genre.get("crowd_default", ""),
         anon_voice={**DEFAULT_ANON_VOICE, **(genre.get("anon_voice") or {})},
         two_view_cast_limit=0 if is_fast(profile) else 2,
+        two_views=str(profile.get('two_views', TWO_VIEWS)),
         camera_policy='authored' if method else 'fixed')
     if limits is not None:
         options = replace(options, **limits)

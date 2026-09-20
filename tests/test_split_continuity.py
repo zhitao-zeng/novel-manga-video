@@ -96,7 +96,7 @@ def packed_episode(tmp_path: Path):
 
 @pytest.mark.parametrize("metadata", ["recorded", "legacy", "split_tool"])
 def test_cast_completion_preserves_each_split_parts_lines_and_fast_tier(tmp_path, metadata, monkeypatch):
-    monkeypatch.setenv("NOVEL_TWO_VIEWS", "1")
+    monkeypatch.setattr(packing_context, "TWO_VIEWS", "all")
     novel, episode, old, new, plan = packed_episode(tmp_path)
     for asset in ("character_001", "character_002"):
         sheet = novel / "series_assets/characters" / asset / "expressions.jpeg"

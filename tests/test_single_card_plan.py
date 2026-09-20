@@ -83,10 +83,10 @@ def test_fast_factory_does_not_build_or_reuse_expression_sheet(tmp_path, monkeyp
     assert old.read_bytes() == b"unused old expression sheet"
 
 
-def test_fast_lead_does_not_get_an_extra_sheet_from_old_environment(tmp_path, monkeypatch):
+def test_fast_lead_does_not_get_an_extra_sheet(tmp_path, monkeypatch):
     pass
     monkeypatch.setattr(packing_context, 'TWO_VIEW_CAST_LIMIT', 0)
-    monkeypatch.setenv("NOVEL_TWO_VIEWS", "1")
+    monkeypatch.setattr(packing_context, "TWO_VIEWS", "all")
     bible = StoryBible(novel_title="测试", genre="奇幻", visual_style="2D", palette="蓝",
                        style_fingerprint="test", locations=["房间：木桌"],
                        characters=[Character(name="甲", role="主角", appearance="黑发", wardrobe="白衣")])

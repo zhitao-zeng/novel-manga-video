@@ -17,6 +17,10 @@ from pathlib import Path
 
 DEFAULTS = {"style": "2d", "frame": "9:16", "tier": "quality", "genre": "generic"}
 TIERS = ("quality", "fast")
+# Which characters get the second reference view (expressions.jpeg) beside the turnaround.
+# Off by default: the second view sharpens identity but a crowded shot then carries twice the
+# reference images and the model starts blending faces.
+TWO_VIEWS = ("off", "leads", "all")
 MAX_HOLD_SECONDS = 6.0
 
 
@@ -56,7 +60,12 @@ def load_profile(novel_dir: Path, **overrides) -> dict:
         raise ValueError(f"profile.style must be one of {style_names()}")
     if profile.get("tier", "quality") not in TIERS:
         raise ValueError(f"profile.tier must be one of {TIERS}")
+    if profile.get("two_views", "off") not in TWO_VIEWS:
+        raise ValueError(f"profile.two_views must be one of {TWO_VIEWS}")
     profile.setdefault("tier", "quality")
+    # deliberately not setdefault: the profile dict is written into chapter_script.json and printed in
+    # the planner trace, so adding a key to it changes those artefacts for every book.  Readers default
+    # it themselves (packing.context.compiler_options).
     return profile
 
 

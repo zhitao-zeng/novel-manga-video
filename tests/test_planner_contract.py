@@ -5,6 +5,7 @@ from __future__ import annotations
 from novel_manga.story.compilation import ClipCompiler
 from novel_manga.application.packing.context import compiler_options
 import novel_manga.application.packing.assets as packing_assets
+import novel_manga.application.packing.context as packing_context
 import novel_manga.application.packing.service as packing_service
 
 import json
@@ -130,10 +131,10 @@ def test_second_view_is_off_unless_asked(monkeypatch, tmp_path):
     cards = tmp_path / "series_assets" / "characters" / "character_001"
     cards.mkdir(parents=True)
     (cards / "expressions.jpeg").write_bytes(b"x")
-    monkeypatch.delenv("NOVEL_TWO_VIEWS", raising=False)
+    monkeypatch.setattr(packing_context, "TWO_VIEWS", "off")
     refs, _, _ = packing_assets.build_references(["莱恩·格雷"], "夜莺广场", b, {"夜莺广场": b.locations[0]}, novel_dir=tmp_path)
     assert [r["path"] for r in refs if r["role"] == "character"] == ["series_assets/characters/character_001/turnaround.jpeg"]
-    monkeypatch.setenv("NOVEL_TWO_VIEWS", "1")
+    monkeypatch.setattr(packing_context, "TWO_VIEWS", "all")
     refs, _, _ = packing_assets.build_references(["莱恩·格雷"], "夜莺广场", b, {"夜莺广场": b.locations[0]}, novel_dir=tmp_path)
     assert [r["path"] for r in refs if r["role"] == "character"][-1].endswith("expressions.jpeg")
 

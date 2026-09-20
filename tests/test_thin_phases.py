@@ -57,7 +57,7 @@ def test_phased_lays_the_look_over_a_copy():
 
 def test_plan_references_follow_the_chapter(tmp_path, monkeypatch):
     monkeypatch.setattr(packing_context, 'TWO_VIEW_CAST_LIMIT', 2)
-    monkeypatch.setenv("NOVEL_TWO_VIEWS", "1")
+    monkeypatch.setattr(packing_context, "TWO_VIEWS", "all")
     novel_dir = novel(tmp_path)
     sheet = novel_dir / "series_assets/characters/character_002/expressions.jpeg"
     sheet.parent.mkdir(parents=True, exist_ok=True)

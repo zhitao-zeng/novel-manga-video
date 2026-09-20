@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
-import os
 from novel_manga.models.bible import StoryBible
 from novel_manga.story.compilation import anchor_of, compact
 from novel_manga.application.identity.phases import load_phases, phase_for, phased
@@ -46,7 +45,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     # actors, give each one its turnaround only.
     # Off unless asked for: the second view never proved itself and doubled the reference count; the fast
     # tier renders from the turnaround alone (NOVEL_TWO_VIEWS=1 restores the old behaviour for new plans).
-    two_views = len(cast) <= settings.two_view_cast_limit and os.environ.get("NOVEL_TWO_VIEWS", "").strip() == "1"
+    two_views = settings.two_views == "all" and len(cast) <= settings.two_view_cast_limit
     # A character with phases (series_assets/phases.json) references the card of the phase this chapter is in,
     # and the anchor describes that look - 沈玄川 is white-haired from ch1406, his base card is not.
     phases = identity_data.catalog.phases if identity_data is not None else load_phases(novel_dir) if novel_dir is not None else {}
@@ -70,7 +69,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg",
                            **({"phase": str(phase.get("label", ""))} if phase else {})})
         sheet = novel_dir is not None and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
-        lead_sheet = settings.two_view_cast_limit > 0 and sheet and name in leads and os.environ.get("NOVEL_TWO_VIEWS", "").strip() == "1"
+        lead_sheet = settings.two_views in ("leads", "all") and settings.two_view_cast_limit > 0 and sheet and name in leads
         # Only a sheet that exists is referenced: the fast tier never draws one at render time (the full tier
         # did, which is what the old "phase is None" clause assumed), and a plan that promises a missing file
         # fails the pre-render check for the whole episode.  Without a novel_dir to look at, keep the old rule.

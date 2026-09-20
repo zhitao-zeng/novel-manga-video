@@ -28,6 +28,7 @@ class CompilerOptions:
     frame: dict = field(default_factory=dict)
     voices: dict = field(default_factory=dict)
     two_view_cast_limit: int = 2
+    two_views: str = "off"
     camera_policy: str = "fixed"
 
 
