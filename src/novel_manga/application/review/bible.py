@@ -149,6 +149,10 @@ def extract_locations(chapter_text: str, known_locations: list[str]) -> list[dic
     prompt = (
         "列出这段小说里发生场景的地点：能画成一张空场景图的具体地方（如 楚家广场、山崖之巅、赤岩城药材店），每个给一句可画的视觉描述"
         "（空间、主要物件、时间与光线）和本段在此发生的场景数。不要列泛指的地点（路上、远处、门口）。"
+        # The description is pasted straight into the empty-scene card prompt, which forbids people; and the
+        # plate is reused by every shot in that place, so one scene's state would be baked into all of them.
+        "描述写这个地方长期不变的样子，当成一张没有人的背景板来写：不要写任何人、人群、人影或剪影，"
+        "也不要写只属于本段这一场戏的临时状态（摊开的行李、摆出来的东西、正在发生的事）。"
         "另给每个地点判断 time_of_day（本段在此发生时通常是白天、夜晚、黄昏、清晨，说不清写不定）和 main_light"
         "（主光源，如 煤气灯、壁炉、窗外日光、篝火、洞顶天光、手机屏幕；按原文写，没写就按地点常识）。"
         + (f"已有的地点名：{recent}。如果本段的地点就是其中之一，name 必须原样使用已有名字。" if recent else "")

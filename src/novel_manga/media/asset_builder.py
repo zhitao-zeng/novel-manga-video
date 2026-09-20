@@ -13,17 +13,38 @@ from .asset_images import ensure_image
 from .asset_policy import ModerationRejected, moderation_error, SCRUB_WORDS, SAFE_SUFFIX
 from .asset_records import merge_manifest
 
+def load_location_time(novel_dir) -> dict:
+    """The book's curated time and main light per location, or nothing if it was never filled."""
+    import json
+    from pathlib import Path
+    path = Path(novel_dir) / "visual_grammar.json"
+    if not path.is_file():
+        return {}
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8")).get("location_time") or {}
+    except ValueError:
+        return {}
+    return {name: text for name, text in rows.items() if str(text).strip()}
+
+
 class FramedAssetFactory:
     """Asset factory whose scene-card prompt names the frame instead of 9:16."""
 
-    def __init__(self, settings, provider, *, style: AssetStyle | None = None):
+    def __init__(self, settings, provider, *, style: AssetStyle | None = None, location_time: dict | None = None):
         self.settings, self.provider = settings, provider
         self.style = style or AssetStyle()
+        # visual_grammar.json's location_time, which review/verify.py checks a rendered clip against.
+        # Without it here the card is drawn at whatever hour the model picks, and the review then
+        # faults the clip for an hour nobody ever asked the card for.
+        self.location_time = dict(location_time or {})
 
     def _location_prompt(self, bible, location):
         prompt = location_prompt(bible, location,
                                  family=self.style.render_family, direction=self.style.render_direction,
                                  fingerprint=self.style.prompt_fingerprint)
+        when = self.location_time.get(str(location).split('：', 1)[0].strip(), '')
+        if when:
+            prompt += f'时段与主光源：{when}。'
         frame = self.style.frame_text
         return prompt.replace('9:16', frame.split('屏')[-1]).replace('竖屏', frame[:2]) if frame != '竖屏9:16' else prompt
 

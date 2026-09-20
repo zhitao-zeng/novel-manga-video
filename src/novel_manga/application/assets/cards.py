@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 from novel_manga.media.policy import RATE_LIMIT_RE
-from novel_manga.media.asset_builder import FramedAssetFactory
+from novel_manga.media.asset_builder import FramedAssetFactory, load_location_time
 from novel_manga.media.asset_policy import ModerationRejected
 from novel_manga.media.asset_style import AssetStyle
 from novel_manga.media.adapters import FramedPhanRouter
@@ -68,7 +68,8 @@ def main() -> int:
     if (novel_dir / "profile.json").is_file():
         bible = styled_bible(bible, profile, novel_dir)
     provider = FramedPhanRouter(settings, frame)
-    factory = FramedAssetFactory(settings, provider, style=asset_style)
+    factory = FramedAssetFactory(settings, provider, style=asset_style,
+                                 location_time=load_location_time(novel_dir))
     root = novel_dir / "series_assets"
     (root / ".locks").mkdir(parents=True, exist_ok=True)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 from ..providers.phanrouter_tasks import SubmissionUncertain
-from .asset_builder import FramedAssetFactory
+from .asset_builder import FramedAssetFactory, load_location_time
 from .asset_inspection import purge_unreadable, broken_assets
 from . import asset_repair
 from .asset_policy import ModerationRejected, ASSET_BUILD_ROUNDS, ASSET_RETRY_SECONDS
@@ -22,7 +22,8 @@ def build_assets(ctx, clips=None):
         required_images.update(ctx.novel_dir / "series_assets" / "characters" / asset / name
                                for asset in character_ids & built_characters for name in ("turnaround.jpeg", "expressions.jpeg"))
     log(f"assets: {len(character_ids)} character cards + {len(location_ids)} locations")
-    factory = FramedAssetFactory(ctx.settings, ctx.provider, style=ctx.asset_style)
+    factory = FramedAssetFactory(ctx.settings, ctx.provider, style=ctx.asset_style,
+                                 location_time=load_location_time(ctx.novel_dir))
     log(f"profile: style={ctx.profile['style']} frame={ctx.profile['frame']} canvas={ctx.settings.width}x{ctx.settings.height}")
     # Purge unreadable images BEFORE the factory runs.  A corrupt card is
     # not just a bad output: the factory feeds a character turnaround in as

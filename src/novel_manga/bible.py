@@ -274,7 +274,9 @@ class BibleBuilder:
             "face_anchors写3-5个不可漂移的五官锚点，silhouette、hair、palette和base_costume必须彼此可区分，"
             "signature_prop只填写原文支持或不改变剧情的识别物，expression_profile描述表情幅度，"
             "motion_signature描述角色惯用姿态和动作节奏，voice_profile_id填写稳定的声音角色标识。"
-            "场景locations应是可生成空场资产的地点名，不把人物动作写进地点。"
+            "场景locations每条写成「地点名：一句空场描写」：冒号前是全书唯一的地点名，冒号后写这个地方的"
+            "建筑结构、空间布局、关键物品与材质、时段与主光源方向。整条会原样用作空场卡的提示词——只写名字，"
+            "模型就只能自己编。不把人物和人物动作写进地点。"
             "所有角色必须是健康、非色情、非血腥的统一国漫画风。严格输出 JSON。"
         )
         user = (
