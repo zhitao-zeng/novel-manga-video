@@ -36,6 +36,17 @@ SCENE_JOBS = ["建立", "推进", "对峙", "揭示", "反转", "决定", "收�
 SHOT_SCALES = ["特写", "近景", "中近景", "中景", "全景"]
 
 
+AUTHORED_STORYBOARD_USAGE = (
+    "authored_storyboard 是已经定稿的分镜表。这一集不需要你重新分镜：镜头、景别、机位、时长都定了，"
+    "你看不到也改不了它们，bindings 里每个镜号只填这一镜缺的那几项。"
+    "逐镜填：这一镜取自原文哪一段（segment_id）和它在该段里的逐字引文（source_quote）；"
+    "「场景」那一列要落到 available_locations 里的一个地点（location）；"
+    "画面里真正出现的具名角色（in_frame）、没有角色卡的无名人物（extras）、谁对谁做了什么（actions）；"
+    "把「台词 / 声音」一列拆开——说出口的进 turns（delivery_mode 按实际发声填），非人声的进 sfx；"
+    "再写这一镜开始和结束时画面的状态（start_state、end_state）和光（light）。"
+    "bindings 的条数必须等于镜数，每个镜号出现且只出现一次。"
+)
+
 DELIVERY_MODES = ["visible_dialogue", "offscreen_dialogue", "silent_action", "title_card", "chat_message", "singing"]
 
 

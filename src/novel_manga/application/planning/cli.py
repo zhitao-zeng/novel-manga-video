@@ -46,6 +46,8 @@ def main(*, context: PlannerContext | None = None) -> int:
                         help="local writing/directing method; otherwise inherit profile.json")
     parser.add_argument("--list-methods", action="store_true", help="list local story methods without loading a novel")
     parser.add_argument("--storyboard-sheet", help="faithfully import this XLSX sheet as an authored draft; no model calls")
+    parser.add_argument("--bind-storyboard", help="plan this chapter against an authored XLSX: the model fills the bindings import_script leaves empty and keeps the authored cuts")
+    parser.add_argument("--bind-sheet", help="which sheet of --bind-storyboard to bind; only needed when the workbook has more than one")
     args = parser.parse_args()
     if args.list_methods:
         print(json.dumps([m.describe() for m in METHODS.values()], ensure_ascii=False, indent=2))

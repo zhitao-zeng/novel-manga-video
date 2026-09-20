@@ -38,6 +38,9 @@ def main() -> int:
                         help="skip judging cards before rendering (by default every card is judged once it is built and fixed once if flagged)")
     parser.add_argument("--grow-bible", dest="grow_bible", action="store_true", default=True, help="before planning a chapter, add its new proper-named characters and locations to the bible (default)")
     parser.add_argument("--no-grow-bible", dest="grow_bible", action="store_false")
+    parser.add_argument("--no-eager-cards", dest="eager_cards", action="store_false", default=True,
+                        help="grow the bible without starting cards for what it grows: the assets stage then draws only the cast the scripts actually reference. "
+                             "Growth adds everyone the chapter names, including people the story only mentions, and their cards are paid for on sight")
     parser.add_argument("--prune", action="store_true", help="after an episode is assembled, delete its intermediate audio, stale clips and review frames (keeps clip.mp4 + asr.json for the cache)")
     parser.add_argument("--volume-size", type=int, default=50, help="write volume_review_N.md every N chapters (bible growth, suggestions, flags)")
     parser.add_argument("--min-chapter-chars", type=int, default=300, help="chapters shorter than this (author notes) are skipped")

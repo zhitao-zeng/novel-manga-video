@@ -125,6 +125,29 @@ def read_workbook(path: Path) -> list[StoryboardSheet]:
     return sheets
 
 
+def authored_payload(sheet: StoryboardSheet) -> dict:
+    """The authored cuts for a planning request: the nine columns as written, in sheet order.
+
+    import_script maps them to production field names and leaves the bindings empty; the planner is
+    given the author's own column labels instead, so nothing reads as a field it may rewrite.
+    """
+    return {
+        "sheet": sheet.name,
+        "notes": list(sheet.notes),
+        "shots": [{
+            "镜号": row["authored_id"],
+            "摄影角度": row["camera_angle"],
+            "景别": row["shot_scale"],
+            "画面内容 / 动作": row["motion_prompt"],
+            "场景": row["location"],
+            "台词 / 声音": row["authored_sound"],
+            "机位 / 运镜 / 连续性": row["camera"],
+            "叙事目的": row["narrative_purpose"],
+            "预算秒": row["edit_seconds"],
+        } for row in sheet.rows],
+    }
+
+
 def import_script(sheet: StoryboardSheet, *, style: str, frame: str) -> dict:
     """Map authored fields to the chapter script without creative normalization.
 

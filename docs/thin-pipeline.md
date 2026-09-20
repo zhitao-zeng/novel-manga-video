@@ -2,7 +2,7 @@
 
 ## 当前版本的流水线（2026-09-07，试水版）
 
-三个阶段，前两个只用本地 Qwen（不花钱），第三个花 Seedance / 图片生成的钱。每个阶段都可断点续跑，已完成的章会跳过。
+三个阶段。第一个只用本地 Qwen。**第二个不是免费的**：圣经长出新角色或新地点时，规划阶段会立刻开始画它们的卡（`production/flow.py` 的 `grow`，理由是新的具名角色通常一两章内就出场）——要免费跑规划必须加 `--no-grow-bible`。第三个花 Seedance / 图片生成的钱。每个阶段都可断点续跑，已完成的章会跳过。
 
 ```
 原文 txt ──► 0. 建圣经 build_bible_thin.py（前 5 章，一次）
@@ -67,11 +67,14 @@ export PYTHONPATH=src:scripts
    产物在 `outputs/doupo-2d/`：`story_bible.json`、`story_bible.md`（人读）、`profile.json`（含自动检测的题材 `genre`，可改或用 `--genre` 指定）、`visual_grammar.json`（模板加题材禁忌，`location_time` 已按地点预填键名）、`novel.json`（记录原文路径和切章结果）；群聊类题材还会生成 `chat_screen.json`。
    **审 `story_bible.md`**：名字、主要角色是否齐、外貌服装有没有原文依据、地点能否画成空场、切章对不对。直接改 `story_bible.json`。
 3. **填视觉语法**：`visual_grammar.json` 的 `location_time` 给每个地点写时间和主光源（如"夜，银月为主光，灯火为次光"），否则规划器会自己决定昼夜，容易与地点卡冲突。`style_line` 留空即用 profile 的画风句。
-4. **第一章剧本**（不花钱）：
+4. **第一章剧本**（本身不花钱，但见下方警告）：
    ```bash
    .venv/bin/python scripts/thin_batch.py --novel-dir outputs/doupo-2d --chapters 1 --stage plan
    ```
    看 `outputs/doupo-2d/doupo-2d_1/chapter_script.md` 和 `clip_plan.md`（每段完整提示词）。要改方向就用 `--notes-json`（`{"1": "导演意见"}`）加 `--replan` 重来。
+
+   ⚠️ **规划前的圣经生长会提前画卡，这一步会花钱。** 只想看剧本就加 `--no-grow-bible`。
+   那条"新的具名角色一两章内就出场"的假设并不总成立：《超品相师》第 1 章讲的是诸葛亮的传说，生长出诸葛亮、魏延、司马懿、导游四人并各画了卡，而圣经给司马懿标的定位就是"背景提及"。
 5. **建卡**（花图片钱，角色 ×2 张 + 地点 ×1 张）：
    ```bash
    .venv/bin/python scripts/thin_batch.py --novel-dir outputs/doupo-2d --chapters 1 --stage assets

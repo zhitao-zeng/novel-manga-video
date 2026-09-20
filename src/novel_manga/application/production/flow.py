@@ -90,11 +90,13 @@ class Batch:
                 before = json.loads(self.bible.read_text(encoding="utf-8"))
                 grow_bible(self.novel_dir, self.chapter(chapter).source_text, chapter)
                 after = json.loads(self.bible.read_text(encoding="utf-8"))
-            # New proper-named characters and locations almost always appear
-            # within a chapter or two: start their cards now, ahead of the episode.
+            # New proper-named characters and locations usually appear within a chapter or two, so their
+            # cards are started here rather than at the assets stage.  Usually, not always: 超品相师's first
+            # chapter is about a legend, and growth added 诸葛亮, 魏延, 司马懿 and 导游 - the bible's own note on
+            # 司马懿 reads "背景提及" - each of which was then drawn and paid for.  --no-eager-cards defers them.
             new_ids = [f"character_{i:03d}" for i in range(len(before["characters"]) + 1, len(after["characters"]) + 1)]
             new_ids += [f"location_{i:03d}" for i in range(len(before["locations"]) + 1, len(after["locations"]) + 1)]
-            if new_ids and not self.args.dry_run:
+            if new_ids and not self.args.dry_run and getattr(self.args, "eager_cards", True):
                 self.cards.want(new_ids)
         except Exception as error:  # noqa: BLE001 - growth is best effort; planning still works with the bible as is
             production_common.log(f"ch{chapter}: bible growth failed ({type(error).__name__}: {str(error)[:120]}); planning with the current bible")

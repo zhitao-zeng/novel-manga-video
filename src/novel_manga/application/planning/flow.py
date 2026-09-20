@@ -22,6 +22,7 @@ import time
 import novel_manga.planning.budget as pc_budget
 import novel_manga.planning.cast as pc_cast
 import novel_manga.planning.constants as pc_constants
+import novel_manga.planning.binding as pc_binding
 import novel_manga.planning.contracts as pc_contracts
 import novel_manga.planning.outputs as pc_outputs
 import novel_manga.planning.metrics as pc_metrics
@@ -227,7 +228,22 @@ def run(args, ctx: PlannerContext) -> int:
     volumes_path = novel_dir / "volumes.json"
     volumes = json.loads(volumes_path.read_text(encoding="utf-8")) if volumes_path.is_file() else []
     previous_volumes = [row for row in volumes if int(row.get("to", 0)) < episode.index][-2:]
-    schema = pc_contracts.build_schema(names, list(location_map), [segment["segment_id"] for segment in segments], ctx=ctx)
+    authored = None
+    if getattr(args, "bind_storyboard", None):
+        from novel_manga.planning.storyboard import authored_payload, read_workbook
+        try:
+            sheets = read_workbook(Path(args.bind_storyboard))
+        except (ValueError, OSError) as error:
+            raise PlanningInputError(str(error)) from error
+        sheet = next((s for s in sheets if s.name == args.bind_sheet), None) if args.bind_sheet else (sheets[0] if len(sheets) == 1 else None)
+        if sheet is None:
+            raise PlanningInputError("请用 --bind-sheet 选择分镜工作表：" + "、".join(s.name for s in sheets))
+        authored = authored_payload(sheet)
+    segment_ids = [segment["segment_id"] for segment in segments]
+    # A bound sheet is not re-planned: the model answers one object per authored shot with only the
+    # fields the import left empty, and never sees a schema that would let it rewrite the cuts.
+    schema = (pc_binding.bind_schema(authored, names, list(location_map), segment_ids, ctx=ctx) if authored
+              else pc_contracts.build_schema(names, list(location_map), segment_ids, ctx=ctx))
     from novel_manga.application.identity.context import prompt_context
     identity_context = prompt_context(episode_dir, names, data=identity_data)
     payload = {
@@ -250,6 +266,7 @@ def run(args, ctx: PlannerContext) -> int:
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
         **({"previous_episode_ending": previous_ending, "previous_episode_ending_usage": "这是上一集最后一个画面的状态（地点、在场的人、结束时的动作）。本集开场如果是同一场景可以直接接上，不必重新交代；换了场景就忽略。"} if previous_ending else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
+        **({"authored_storyboard": authored, "authored_storyboard_usage": pc_constants.AUTHORED_STORYBOARD_USAGE} if authored else {}),
         **({"ledger_snapshot": ledger_snapshot} if ledger_snapshot else {}),
         "quoted_lines_that_must_be_kept": pc_text.chapter_quotes(episode.source_text),
         "requirements": {
@@ -319,6 +336,8 @@ def run(args, ctx: PlannerContext) -> int:
             if re.search(r"\s{2000,}", content):
                 raise ValueError("constrained decoding derailed into whitespace (finish_reason=%s)" % meta.get("finish_reason"))
             raw = planner_requests.extract_json(content)
+            if authored:
+                raw = pc_binding.merge(authored, raw)
         except (json.JSONDecodeError, ValueError) as error:
             final_errors = [f"response is not one JSON object: {type(error).__name__}: {error}"]
             attempts.append({"attempt": attempt, **meta, "errors": final_errors})
