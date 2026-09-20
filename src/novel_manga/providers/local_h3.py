@@ -34,6 +34,7 @@ from .base import ImageResult
 from .h3_pool import H3Pool
 from .h3_pool import release as release_slot
 from .phanrouter import PhanRouterMediaProvider
+from .phanrouter_video import audio_data_url
 
 # The planner writes @图片N and @音频N; H3 addresses its inputs as <Picture N> and <Audio N>.
 # Both are positional and the caller hands over the references in the order the plan numbered
@@ -100,7 +101,7 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
         seconds = max(MIN_SECONDS, min(MAX_SECONDS, math.ceil(duration)))
         conditions = [{"type": "image", "role": "reference", "uri": self._image_data_url(path)}
                       for path in images]
-        conditions += [{"type": "audio", "role": "reference", "uri": self._audio_data_url(path)}
+        conditions += [{"type": "audio", "role": "reference", "uri": audio_data_url(path)}
                        for path in audios]
         return {
             "model": self.settings.video_model,

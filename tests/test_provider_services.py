@@ -8,6 +8,36 @@ from novel_manga.providers.base import ImageResult
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 
 
+def test_local_h3_reference_voice_reaches_the_video_request(tmp_path):
+    import base64
+    from novel_manga.providers.local_h3 import LocalH3MediaProvider
+
+    voice = tmp_path / 'reference.wav'
+    voice.write_bytes(b'RIFF-fixed-reference-audio')
+    provider = LocalH3MediaProvider(Settings(video_model='minimax-h3-ref2va-turbo'), 'http://h3.invalid')
+    calls = []
+    def handle(request):
+        if request.method == 'POST':
+            calls.append(json.loads(request.content))
+            return httpx.Response(200, json={'id': 'voice-reference-task'})
+        if request.url.path.endswith('/content'):
+            return httpx.Response(200, content=b'generated-video')
+        return httpx.Response(200, json={'status': 'completed'})
+    provider.h3_client.close()
+    provider.h3_client = httpx.Client(transport=httpx.MockTransport(handle), trust_env=False)
+    try:
+        output = tmp_path / 'clip.mp4'
+        provider.create_video('A person speaks.', None, output, 6, reference_audios=(voice,))
+        assert output.read_bytes() == b'generated-video'
+        condition, = calls[0]['conditions']
+        assert condition['type'] == 'audio' and condition['role'] == 'reference'
+        assert condition['uri'].startswith('data:audio/wav;base64,')
+        assert base64.b64decode(condition['uri'].split(',', 1)[1]) == voice.read_bytes()
+    finally:
+        provider.client.close()
+        provider.h3_client.close()
+
+
 def frozen_providers():
     results={}
     for model in ['doubao-seedance-2-0','doubao-seedance-2-5','MiniMax-H3','image','doubao-seedream-5.0-lite']:
