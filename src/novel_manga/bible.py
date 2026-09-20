@@ -106,6 +106,23 @@ def _validate_story_bible(data: dict, novel: NovelDocument) -> StoryBible:
                 "field": f"characters.{index}",
                 "message": "name, appearance, and wardrobe must be non-empty",
             })
+    # The whole entry is pasted into the empty-scene card prompt, so a bare name tells the image
+    # model nothing and silently drops every rule the description carries.  Only the shape is
+    # enforced here; whether a description is rich enough is the audit's call, and it can route a
+    # thin one to a rewrite without failing the build.
+    location_names: list[str] = []
+    for index, location in enumerate(bible.locations):
+        name, _, description = str(location).partition("：")
+        location_names.append(name.strip())
+        if not name.strip() or not description.strip():
+            issues.append({
+                "field": f"locations.{index}",
+                "message": ("each location must read 名字：一句空场描写 - the name before the colon, and "
+                            "after it the structure, layout, key objects and materials, time of day and "
+                            "main light of the empty place"),
+            })
+    if len(set(location_names)) != len(location_names):
+        issues.append({"field": "locations", "message": "location names must be unique"})
     if issues:
         raise ValueError(json.dumps({"domain_errors": issues}, ensure_ascii=False))
     return bible.model_copy(

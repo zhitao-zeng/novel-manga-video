@@ -67,7 +67,7 @@ def main() -> None:
                         "wardrobe": "蓝色风衣",
                     }
                 ],
-                "locations": ["门外"],
+                "locations": ["门外：门前一小片夯土空地，一道木门嵌在土墙里，夜里只有门缝漏出的光。"],
                 "continuity_rules": ["角色与场景保持一致"],
                 "style_fingerprint": "filled-by-runtime",
             }
