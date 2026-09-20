@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from novel_manga.llm.client import ask_json  # noqa: E402
 from novel_manga.planning.audit import (  # noqa: E402
     LEVEL_ORDER, Audit, check_characters, check_clip_plan, check_locations_structure,
-    check_storyboard)
+    check_storyboard, split_location)
 from novel_manga.review.endpoints import judge_settings  # noqa: E402
 
 # gpu81's Flash-Next is shared with everything else that judges; two at a time is its whole budget.
@@ -103,6 +103,77 @@ def judge_locations(pairs: list[tuple[str, str]], judge: str, audit: Audit) -> N
                           answer.get("transient_evidence", ""))
 
 
+
+FIT_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["fits", "evidence", "belongs_to"],
+    "properties": {
+        "fits": {"type": "boolean"},
+        "evidence": {"type": "string"},
+        "belongs_to": {"type": "string"},
+    },
+}
+
+FIT_PROMPT = (
+    "一个镜头要在某个地点拍摄，下面是这个地点的空场描写，和这一镜要拍的原文。"
+    "请判断：原文里的这件事，可能发生在这个地点吗？\n"
+    "- fits：能发生就 true。原文明确写在别处（例如原文说在火车站，地点却是车厢内），填 false。\n"
+    "- evidence：填 false 时，原样抄出原文里说明它发生在别处的那一小段；true 时写空字符串。\n"
+    "- belongs_to：填 false 时，按原文写出这件事实际发生的地方（用原文的说法即可）；true 时写空字符串。\n"
+    "原文没有明说地点、也不与这个地点冲突时，算 true。\n"
+    "原文如果是人物在讲述、回忆或转述别处发生的事（导游讲典故、角色回忆往事、旁人转述），"
+    "镜头拍的是讲述者所在的地方，不是故事里的地方，算 true。\n只输出 JSON。\n\n"
+    "地点：{location}\n"
+    "地点描写：{description}\n"
+    "这一镜的原文：{quote}"
+)
+
+
+def judge_shot_places(novel_dir: Path, bible: dict, judge: str, audit: Audit) -> None:
+    known = {name: description for name, description in
+             (split_location(entry) for entry in bible.get("locations", []))}
+    jobs: list[tuple[str, str, str]] = []
+    for episode_dir in sorted(p for p in novel_dir.glob("*") if p.is_dir()):
+        # chapter_script.json exists as soon as the chapter is planned; clip_plan.json only after
+        # packing, and the answer is worth having while re-planning is still cheap.
+        for name, key in (("chapter_script.json", "shots"), ("clip_plan.json", "clips")):
+            path = episode_dir / name
+            if not path.is_file():
+                continue
+            try:
+                items = json.loads(path.read_text(encoding="utf-8")).get(key, [])
+            except (OSError, ValueError):
+                break
+            for number, item in enumerate(items, 1):
+                location = str(item.get("location") or "").strip()
+                quotes = [str(item.get("source_quote") or "").strip()] + [
+                    str(stage.get("source_quote") or "").strip() for stage in (item.get("stages") or [])]
+                quote = " ".join(q for q in quotes if q)[:300]
+                if location and quote:
+                    jobs.append((f"{episode_dir.name}/{item.get('clip_id') or item.get('shot_id') or number}",
+                                 location, quote))
+            break
+
+    settings = judge_settings(judge)
+
+    def one(job: tuple[str, str, str]):
+        where, location, quote = job
+        try:
+            return job, ask_json([{"type": "text", "text": FIT_PROMPT.format(
+                location=location, description=known.get(location, ""), quote=quote)}],
+                FIT_SCHEMA, name="shot_place", max_tokens=400, settings=settings)
+        except Exception as error:
+            return job, f"{type(error).__name__}: {error}"
+
+    with ThreadPoolExecutor(max_workers=JUDGE_WORKERS) as pool:
+        for (where, location, _), answer in pool.map(one, jobs):
+            if isinstance(answer, str):
+                audit.add("提醒", where, "地点是否对得上没跑成", answer)
+            elif not answer.get("fits"):
+                audit.add("错", where, "镜头拍在了原文没发生的地方",
+                          f"排在 {location}，按原文应该在 {answer.get('belongs_to') or '别处'}",
+                          answer.get("evidence", ""))
+
 # --------------------------------------------------------------------------- entry
 
 
@@ -128,6 +199,7 @@ def main() -> int:
                          bible, audit, args.storyboard_glob)
     if args.judge != "none" and describable:
         judge_locations(describable, args.judge, audit)
+        judge_shot_places(novel_dir, bible, args.judge, audit)
 
     audit.findings.sort(key=lambda f: (LEVEL_ORDER.get(f.level, 9), f.where))
     counts = {level: sum(1 for f in audit.findings if f.level == level) for level in LEVEL_ORDER}
