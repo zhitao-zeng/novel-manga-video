@@ -14,7 +14,11 @@ class PhanRouterMediaProvider(MediaProvider):
     def __init__(self, settings: Settings, *, ratio="9:16", resolution="720p"):
         self.settings = settings
         self.video_ratio, self.video_resolution = ratio, resolution
-        self.client = httpx.Client(timeout=settings.request_timeout)
+        # Direct, like the other providers' clients: the inherited shell proxy tunnels
+        # every call, and it cuts the TLS connection part-way through a multi-megabyte
+        # card download (UNEXPECTED_EOF_WHILE_READING).  .env lists the host in NO_PROXY,
+        # but httpx reads the lowercase no_proxy, which the shell does not set.
+        self.client = httpx.Client(timeout=settings.request_timeout, trust_env=False)
         self.video_headers = {
             "Authorization": f"Bearer {settings.phanrouter_api_key}"
         }
