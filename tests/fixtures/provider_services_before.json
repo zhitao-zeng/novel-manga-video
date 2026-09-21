@@ -262,7 +262,7 @@
           "model": "doubao-seedream-5.0-lite",
           "prompt": "角色画像",
           "n": 1,
-          "size": "1080x1920",
+          "size": "1440x2560",
           "watermark": false,
           "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCABgAEADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAYJ/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AnuA1TQ4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//Z"
         }
@@ -278,7 +278,7 @@
         "kind": "image",
         "model": "doubao-seedream-5.0-lite",
         "endpoint": "/v1/images/generations",
-        "request_sha256": "5f8208656b4fc2a70bae72b13ccd4a8360a1cf55d9201dd25f542e01a617a9a4"
+        "request_sha256": "e6fce7df6a0e62113d155cd1ffbae2d1d3f20c900d6a8acd9c0a077f61afdfe0"
       }
     }
   }

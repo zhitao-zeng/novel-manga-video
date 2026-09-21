@@ -33,7 +33,9 @@ def test_asset_kind_decides_request_frame_and_requests_are_isolated(tmp_path, mo
                            style_fingerprint='fixed', characters=[Character(name='甲', appearance='青衣', wardrobe='青衣')],
                            locations=['庭院'])
         factory.build_selected(tmp_path / 'series_assets', bible, {'character_001'}, {'location_001'}, expressions=False)
-        key, portrait, landscape = ('size', '1080x1920', '1920x1080') if model.startswith('doubao-seedream') else ('aspectRatio', '9:16', '16:9')
+        # Seedream is sized in pixels and enforces a floor the shared 1080x1920 frame is under;
+        # see tests/test_card_fallback.py for the floor itself.
+        key, portrait, landscape = ('size', '1440x2560', '2560x1440') if model.startswith('doubao-seedream') else ('aspectRatio', '9:16', '16:9')
         assert [r[key] for r in requests] == [portrait, landscape]
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(lambda pair: provider.create_image(pair[0], tmp_path / f'{pair[0]}.jpeg', aspect_ratio=pair[1]),

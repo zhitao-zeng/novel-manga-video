@@ -18,6 +18,30 @@ import novel_manga.application.production.reports as production_reports
 import novel_manga.application.profiles as thin_profile
 import novel_manga.application.production.runs as thin_runs
 
+# A Python traceback opens with a banner and closes with the line that says what went wrong.
+# Scanning the tail backwards for "Traceback" matched the banner, so a batch log recorded
+# every refused card as "ch1: card build FAILED: Traceback (most recent call last):" - four
+# such lines in a row, none of them saying which card, which model, or why - while the
+# reason sat in the episode's own render.log where nobody was looking.
+TRACEBACK_BANNERS = (
+    "Traceback (most recent call last):",
+    "During handling of the above exception, another exception occurred:",
+    "The above exception was the direct cause of the following exception:",
+)
+FAILURE_MARKERS = re.compile(r"Error|Exception|Rejected|FAILED|planning_failed")
+
+
+def failure_line(tail: list[str], limit: int = 200) -> str:
+    """The line a failed run is about: the exception itself, not the banner above it."""
+    for line in reversed(tail):
+        text = line.strip()
+        if not text or line[:1].isspace() or text in TRACEBACK_BANNERS or text.startswith('File "'):
+            continue
+        if FAILURE_MARKERS.search(text):
+            return text[:limit]
+    return ""
+
+
 class Batch:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -112,8 +136,7 @@ class Batch:
             handle.flush()
             completed = subprocess.run(command, cwd=production_common.ROOT, env=self.env, stdout=handle, stderr=subprocess.STDOUT, text=True)
         tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
-        problem = next((line for line in reversed(tail) if re.search(r"Error|FAILED|planning_failed|Traceback", line)), "")
-        return completed.returncode, problem[:200]
+        return completed.returncode, failure_line(tail)
 
     def plan_stage(self, chapters: list[int]) -> None:
         """--stage plan: up to --plan-parallel chapters at once, as --stage all does - it used to be a plain loop

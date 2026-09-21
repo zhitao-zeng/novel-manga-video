@@ -69,7 +69,7 @@ def test_seedream_scene_request_uses_landscape_size(tmp_path):
             provider.create_image('scene', tmp_path / 'establishing.jpeg', aspect_ratio='16:9')
         finally:
             provider.client.close()
-    assert requests[0]['size'] == '1920x1080'
+    assert requests[0]['size'] == '2560x1440'
 
 
 def test_body_mapping_refreshes_after_ledger_changes(tmp_path, monkeypatch):

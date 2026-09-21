@@ -240,7 +240,7 @@ def test_seedream_image_submit_download_and_sanitized_metadata(tmp_path) -> None
     assert result.path == output
     assert result.public_url == "https://media.test/frame.jpeg"
     assert submitted["model"] == "doubao-seedream-5.0-lite"
-    assert submitted["size"] == "1080x1920"
+    assert submitted["size"] == "1440x2560"
     assert submitted["watermark"] is False
     assert submitted["image"].startswith("data:image/jpeg;base64,")
     with Image.open(output) as image:

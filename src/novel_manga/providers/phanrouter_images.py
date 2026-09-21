@@ -10,10 +10,18 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageOps
 from ..util import atomic_write_json
-from .base import ImageResult, image_dimensions
+from .base import ImageResult
 from .downloads import download_file
 from .phanrouter_tasks import (SUBMIT_TIMEOUT_SECONDS, PURGED_STATUSES, SubmissionUncertain,
                               unconfirmed, held_message, submit_once, submit_recorded, task_data)
+
+# Seedream refuses anything under 3,686,400 pixels, and the frame sizes the other backends
+# share (1080x1920) are barely half of that: the request comes back 400 on the size parameter
+# before the model has seen the prompt.  These are the same two ratios at the smallest size
+# Seedream accepts, so a card drawn here still matches the rest of the series frame for frame.
+SEEDREAM_PIXEL_FLOOR = 3_686_400
+SEEDREAM_DIMENSIONS = {"9:16": (1440, 2560), "16:9": (2560, 1440)}
+
 
 def poll_image_url(settings, client, image_headers, task_id: str) -> str:
     deadline = time.monotonic() + settings.poll_timeout
@@ -122,7 +130,7 @@ def create_seedream_image(
         "model": settings.image_model,
         "prompt": prompt,
         "n": 1,
-        "size": "x".join(map(str, image_dimensions(aspect_ratio))),
+        "size": "x".join(map(str, SEEDREAM_DIMENSIONS[aspect_ratio])),
         "watermark": False,
     }
     if reference is not None:

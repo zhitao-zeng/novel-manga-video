@@ -48,6 +48,10 @@ class Settings:
     phanrouter_api_key: str | None = None
     phanrouter_image_api_key: str | None = None
     image_model: str = "gpt-image-2"
+    # gpt-image-2 refuses a trademarked character outright - the refusal is about who is in
+    # the picture, not how the prompt is worded, so the toned-down retry cannot reach it and
+    # the chapter is lost.  Seedream draws them.  Empty disables the fallback.
+    card_fallback_image_model: str = "doubao-seedream-4.5"
     video_model: str = "sd2.5"
     local_h3_base_url: str | None = None
     final_audio_policy: str = NATIVE_DIALOGUE_POLICY
@@ -145,6 +149,9 @@ class Settings:
             phanrouter_image_api_key=os.getenv("PHANROUTER_IMAGE_API_KEY"),
             image_model=os.getenv(
                 "NOVEL_IMAGE_MODEL", os.getenv("PHANROUTER_IMAGE_MODEL", cls.image_model)
+            ),
+            card_fallback_image_model=os.getenv(
+                "NOVEL_CARD_FALLBACK_IMAGE_MODEL", cls.card_fallback_image_model
             ),
             video_model=os.getenv(
                 "NOVEL_VIDEO_MODEL", os.getenv("PHANROUTER_VIDEO_MODEL", cls.video_model)
