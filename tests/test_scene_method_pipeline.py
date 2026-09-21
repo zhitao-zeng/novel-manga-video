@@ -291,7 +291,7 @@ def test_v2_cli_replay_writes_both_scene_screenplay_and_director_artifacts(tmp_p
 
 
 @pytest.mark.parametrize('method,maximum,expected', [
-    ('leos', None, None), ('leos', 140, 140), ('leos', 60, 60), ('default', None, 105),
+    ('leos', None, None), ('leos', 140, 140), ('leos', 60, 60), ('default', None, 120),
 ])
 def test_cli_preview_uses_the_actual_creative_budget_without_render_quotas(tmp_path, monkeypatch, method, maximum, expected):
     import sys

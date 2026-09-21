@@ -23,7 +23,13 @@ def configure_budget(text_count: int, *, fast: bool, min_seconds: float = 0.0, c
     ctx.stage_range = (2, 3) if ctx.short_clips else ((3, 5) if fast else (4, 6))
     ctx.spoken_range = ((180, 300) if ctx.episode_seconds_target <= 90 else (240, 400)) if fast else (220, 300)
     ctx.episode_seconds_min = max(min_seconds, ctx.episode_seconds_target - 25 if fast else 0)
-    ctx.episode_seconds_max = min(210.0 if fast else 105.0, ctx.clip_range[1] * ctx.max_clip_seconds)
+    # The target is what the planner aims at; the ceiling is what it may not cross.  They were 15
+    # seconds apart, so a dense chapter hit the wall on its first draft and was sent back to cut
+    # something - 24 of this book's 100 episodes came out between 95 and 105 seconds, squeezed,
+    # while 38 finished under 80 because their chapters are short and the ceiling never mattered.
+    # 120 is not a loosening so much as the number the structure already allows: both lanes reach
+    # it (4 clips x 30 s and 8 x 15 s), and the 105 was written over the top of that.
+    ctx.episode_seconds_max = min(210.0 if fast else 120.0, ctx.clip_range[1] * ctx.max_clip_seconds)
     if ctx.episode_seconds_target > ctx.episode_seconds_max:
         raise ValueError(f"目标 {ctx.episode_seconds_target:g} 秒超过本档规划上限 {ctx.episode_seconds_max:g} 秒")
     return {

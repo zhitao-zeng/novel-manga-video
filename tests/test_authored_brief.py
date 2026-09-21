@@ -69,7 +69,9 @@ def test_the_budget_in_the_pack_is_the_budget_the_gate_will_use(book, tmp_path, 
     write_brief(book, 1, tmp_path / "input", "shanyin")
     note = (tmp_path / "input" / "任务说明.md").read_text(encoding="utf-8")
     budget = episode_budget("原文" * 100, {"tier": "quality"})
-    assert budget["ceiling"] == 105 and budget["target"] == 90
+    # the target is what the planner aims at, the ceiling what it may not cross; 15 seconds apart
+    # was close enough that a dense chapter hit the wall on its first draft
+    assert budget["ceiling"] == 120 and budget["target"] == 90
     assert f"不超过 {budget['ceiling']:g} 秒" in note
     assert f"{budget['spoken_low']}–{budget['spoken_high']} 字" in note
 
