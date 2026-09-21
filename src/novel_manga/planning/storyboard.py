@@ -29,6 +29,12 @@ SOUND_PREFIX = "声音："
 # voice with the mouth closed, which is the offscreen delivery, not a separate mode.
 DELIVERY_LABELS = {"说": "visible_dialogue", "画外音": "offscreen_dialogue",
                    "内心独白": "offscreen_dialogue", "唱": "singing", "聊天消息": "chat_message"}
+# Other spellings of those five that an author has actually written, each seen in a real sheet.  The
+# first chapter the sandbox wrote on its own used 画外音 three times and 画外 three times in one
+# table; the meaning is not in doubt, and refusing it would send a person to look at every chapter
+# for the sake of one character.  This is a list of what has been observed, not of what might be
+# meant: a label that is not here is still reported, which is how the next one gets added.
+DELIVERY_SPELLINGS = {"画外": "画外音"}
 
 
 @dataclass(frozen=True)
@@ -65,6 +71,7 @@ def authored_sound(cell: str) -> AuthoredSound:
             problems.append((line, "要写成 说话人（发声方式）：“台词”"))
             continue
         manner = [part.strip() for part in match.group(2).split("、")]
+        manner[0] = DELIVERY_SPELLINGS.get(manner[0], manner[0])
         if manner[0] not in DELIVERY_LABELS:
             problems.append((line, f"发声方式写的是 {manner[0]!r}，只能是 {'/'.join(DELIVERY_LABELS)}"))
             continue

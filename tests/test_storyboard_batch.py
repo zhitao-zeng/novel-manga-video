@@ -64,7 +64,16 @@ def write_xlsx(path, worksheets, header=None):
 def book(tmp_path):
     novel = tmp_path / "book"
     novel.mkdir()
+    (novel / "story_bible.json").write_text(json.dumps({
+        "novel_title": "测试", "genre": "通用", "visual_style": "美漫", "palette": "冷蓝",
+        "style_fingerprint": "test", "locations": ["哥谭大学阶梯教室：下坡式地面上成排的深色长条木桌"],
+        "characters": [{"name": "席勒", "role": "人物", "appearance": "黑发", "wardrobe": "外套"}]},
+        ensure_ascii=False), encoding="utf-8")
     return novel, {"runs_root": str(tmp_path / "runs"), "parallel": {"day": 2, "night": 4}}
+
+
+def locations(novel):
+    return json.loads((novel / "story_bible.json").read_text(encoding="utf-8"))["locations"]
 
 
 def candidate(novel, config, chapter, *files, worksheets=None):
@@ -160,6 +169,119 @@ def test_what_a_person_chose_is_left_exactly_as_they_chose_it(book):
     accepted, reason = agent_storyboard.auto_accept(episode, config=config)
     assert reason == "" and accepted.accepted_by == "person"
     assert agent_storyboard.state_path(episode).read_text(encoding="utf-8") == before
+
+
+# ---- the places a take invents ---------------------------------------------------------------------
+
+# The two proposals on record, as the agent wrote them.  The brief fixes no layout and they differ.
+CH11 = """# 新增地点
+
+本集（第 11 章）实际出现了《人物地点与画风》名单中没有的两个地点，按规则自行命名并登记空场描写。
+
+## 1. 莫森街区小巷的二层阳台
+
+莫森街区小巷内侧一栋老式公寓楼的第二层：突出的木质阳台，木质栏杆漆面剥落，檐口垂着一线雨水，阳台门是一扇旧玻璃木门。时段为深夜，主光源为巷口路灯的昏黄光。
+
+## 2. 贫民住宅楼外
+
+哥谭贫民区一栋四至五层破旧住宅楼的外立面夜间空景：斑驳脱落的灰黑外墙，成排小窗与外挂的空调外机。主光源为住户窗光与远处一盏路灯。
+
+## 使用说明（分镜表「场景」列对应）
+
+- 镜 1、2、3 → 莫森街区小巷的二层阳台
+- 镜 8 → 贫民住宅楼外
+"""
+
+CH10 = """# 新增地点
+
+本章原文有三场课堂戏，名单里没有**教室**。按任务规则新增一个地点：
+
+## 哥谭大学教室
+
+**「场景」列写法（必须一字不差）：** 哥谭大学教室
+
+**空场描写（长期不变的样子，无人物）：**
+
+哥谭大学主楼内的一间阶梯大教室。整面墙的高大拱形木框窗常年蒙着雨痕，透进冷灰的日光；下坡式地面上成排的深色长条木桌与连体座椅。主光源为拱窗天光。
+
+**本集镜位：** 镜 1（白天）。
+"""
+
+
+def test_the_description_is_found_under_either_of_the_layouts_the_agent_has_used():
+    assert agent_storyboard.proposed_description(CH11, "贫民住宅楼外").startswith("哥谭贫民区一栋四至五层破旧住宅楼")
+    assert agent_storyboard.proposed_description(CH11, "莫森街区小巷的二层阳台").endswith("昏黄光。")
+    found = agent_storyboard.proposed_description(CH10, "哥谭大学教室")
+    assert found.startswith("哥谭大学主楼内的一间阶梯大教室") and "一字不差" not in found and "镜位" not in found
+
+
+def test_a_section_that_is_not_a_place_is_not_mistaken_for_one():
+    """使用说明 sits under the same kind of heading as the places do."""
+    assert agent_storyboard.proposed_description(CH11, "使用说明") == ""
+    assert agent_storyboard.proposed_description(CH11, "凉亭") == ""
+
+
+def accepted_with(novel, config, chapter, place, proposal=None):
+    shots = [[*SHOTS[0][:4], place, *SHOTS[0][5:]], SHOTS[1]]
+    episode = candidate(novel, config, chapter, "分镜表.xlsx", worksheets={f"第{chapter}集": shots})
+    if proposal is not None:
+        (tmp_runs(config) / agent_storyboard.run_name(novel.name, chapter, "shanyin") / "output" / "新增地点.md"
+         ).write_text(proposal, encoding="utf-8")
+    agent_storyboard.auto_accept(episode, config=config)
+    return episode
+
+
+def test_a_place_the_take_invented_goes_into_the_bible_after_everything_already_there(book):
+    """Ids are positions: a place may only ever be added at the end."""
+    novel, config = book
+    before = locations(novel)
+    episode = accepted_with(novel, config, 11, "贫民住宅楼外", CH11)
+    added, problem = agent_storyboard.place_new_locations(novel, episode, config=config)
+    assert (added, problem) == (["贫民住宅楼外"], "")
+    after = locations(novel)
+    assert after[:len(before)] == before
+    assert after[-1].startswith("贫民住宅楼外：哥谭贫民区一栋四至五层破旧住宅楼")
+
+
+def test_the_proposal_travels_with_the_take_it_belongs_to(book):
+    """output/ is rewritten by the next attempt; a sheet whose places are described elsewhere is half a take."""
+    novel, config = book
+    episode = accepted_with(novel, config, 11, "贫民住宅楼外", CH11)
+    assert (episode / "agent_storyboard" / "新增地点.md").read_text(encoding="utf-8") == CH11
+
+
+def test_a_chapter_that_stays_in_known_places_changes_nothing(book):
+    novel, config = book
+    before = locations(novel)
+    episode = accepted_with(novel, config, 3, "哥谭大学阶梯教室")
+    assert agent_storyboard.place_new_locations(novel, episode, config=config) == ([], "")
+    assert locations(novel) == before
+
+
+def test_a_new_place_with_no_proposal_stops_for_a_person_rather_than_going_in_bare(book):
+    """A name with no description is a card drawn from nothing, and paid for."""
+    novel, config = book
+    before = locations(novel)
+    episode = accepted_with(novel, config, 11, "贫民住宅楼外")
+    added, problem = agent_storyboard.place_new_locations(novel, episode, config=config)
+    assert added == [] and "贫民住宅楼外" in problem and "没写 新增地点.md" in problem
+    assert locations(novel) == before
+
+
+def test_a_new_place_the_proposal_does_not_describe_stops_too(book):
+    novel, config = book
+    episode = accepted_with(novel, config, 11, "废弃码头仓库", CH11)
+    added, problem = agent_storyboard.place_new_locations(novel, episode, config=config)
+    assert added == [] and "废弃码头仓库" in problem and "找不到它的空场描写" in problem
+
+
+def test_two_chapters_inventing_the_same_alley_add_it_once(book):
+    novel, config = book
+    first = accepted_with(novel, config, 11, "贫民住宅楼外", CH11)
+    second = accepted_with(novel, config, 12, "贫民住宅楼外", CH11)
+    assert agent_storyboard.place_new_locations(novel, first, config=config)[0] == ["贫民住宅楼外"]
+    assert agent_storyboard.place_new_locations(novel, second, config=config) == ([], "")
+    assert sum(entry.startswith("贫民住宅楼外：") for entry in locations(novel)) == 1
 
 
 # ---- one chapter ----------------------------------------------------------------------------------
@@ -280,6 +402,34 @@ def test_a_sandbox_that_refuses_to_start_fails_the_chapter_with_its_reason(book)
     steps.propose = refuse
     result = batch.run_chapter(novel, 7, steps, config=config)
     assert result.outcome == batch.FAILED and "配置里没有这套技能" in result.reason
+
+
+def test_a_place_that_cannot_be_put_in_stops_the_chapter_before_binding(book):
+    novel, config = book
+    world = World(novel, config)
+    inner = world.propose
+    def propose(chapter):
+        inner(chapter)
+        accepted_with(novel, config, chapter, "废弃码头仓库", CH11)
+    steps = world.steps()
+    steps.propose = propose
+    result = batch.run_chapter(novel, 7, steps, config=config)
+    assert result.outcome == batch.LOOK and "废弃码头仓库" in result.reason
+    assert ("bind", 7) not in world.calls
+
+
+def test_a_place_that_went_in_is_said_out_loud_and_the_chapter_goes_on(book):
+    novel, config = book
+    world = World(novel, config)
+    inner = world.propose
+    def propose(chapter):
+        inner(chapter)
+        accepted_with(novel, config, chapter, "贫民住宅楼外", CH11)
+    steps = world.steps()
+    steps.propose = propose
+    result = batch.run_chapter(novel, 7, steps, config=config)
+    assert result.outcome == batch.READY and ("bind", 7) in world.calls
+    assert any("新地点已补进圣经：贫民住宅楼外" in line for line in world.said)
 
 
 # ---- a long run -----------------------------------------------------------------------------------

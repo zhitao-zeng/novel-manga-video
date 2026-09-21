@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ from novel_manga.application.agents.sandbox import Attempt, SandboxRefused, load
 
 STATE_FILE = "agent_storyboard.json"
 SHEET_SUFFIXES = (".xlsx",)
+PROPOSAL = "新增地点.md"          # what the brief tells the agent to write when the chapter has a new place
 
 
 @dataclass
@@ -142,6 +144,12 @@ def accept(episode_dir: Path, sheet: str, *, sheet_name: str = "",
     snapshot = Path(episode_dir) / "agent_storyboard" / path.name
     snapshot.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(path, snapshot)
+    # The places the take invented come with it, for the same reason the sheet is copied rather than
+    # pointed at: the next attempt rewrites output/, and a sheet whose scenes are named in a proposal
+    # that has since changed is half a take.
+    proposal = path.parent / PROPOSAL
+    if proposal.is_file():
+        shutil.copy2(proposal, snapshot.parent / PROPOSAL)
     current.status, current.sheet_name = "accepted", sheet_name
     current.sheet = str(snapshot.relative_to(episode_dir))
     current.sheet_digest = digest_of(snapshot)
@@ -215,3 +223,81 @@ def accepted_sheet(episode_dir: Path, *, config: dict | None = None) -> tuple[Pa
         raise SandboxRefused(f"这一章接受过的分镜内容变了：{path}。要用新的就重新选一版，"
                              "不要在原地改")
     return path, current.sheet_name
+
+
+_HEADING_DRESSING = re.compile(r"^#+\s*(?:\d+\s*[.、)）]\s*)?")
+_LABEL = re.compile(r"^\*\*[^*]{1,40}[：:]\*\*\s*")
+MIN_DESCRIPTION = 20
+
+
+def proposed_description(text: str, name: str) -> str:
+    """What the agent wrote about this place: the longest paragraph under the heading that is its name.
+
+    The brief asks for "the name and a description" and fixes no layout, and the two proposals on
+    record already differ - one is `## 1. 名字` and a paragraph, the other `## 名字`, a bolded
+    label repeating the name, another label, the paragraph, then which shots use it.  So the name is
+    never taken from here (the sheet's own 场景 column has it to the character, and that is what
+    binding compares); this only looks for prose under a heading that names it.  A label with nothing
+    after it is no paragraph, and of what is left the description is the long one.
+    """
+    lines, body, inside = text.splitlines(), [], False
+    for line in lines:
+        if line.lstrip().startswith("#"):
+            if inside:
+                break
+            inside = _HEADING_DRESSING.sub("", line.strip()).strip(" 「」`*") == name
+            continue
+        if inside:
+            body.append(line)
+    paragraphs = [" ".join(part.split()) for part in re.split(r"\n\s*\n", "\n".join(body))]
+    paragraphs = [_LABEL.sub("", paragraph).strip() for paragraph in paragraphs]
+    return max(paragraphs, key=len, default="")
+
+
+def place_new_locations(novel_dir: Path, episode_dir: Path, *, config: dict | None = None) -> tuple[list[str], str]:
+    """Put the places the accepted take invented into the bible, so binding has somewhere to put them.
+
+    Returns (added, problem).  Binding refuses a scene name the bible does not have - rightly: the
+    alternative is moving the scene to the nearest room on the list - and points at the agent's
+    proposal as the way out.  Nothing ever read that proposal.  The pilot's one new place was typed in
+    by hand, and the first chapter run without a person stopped here with two.
+
+    Appended only, under the lock bible growth takes: ids are positions, and two chapters of one
+    storyline invent the same alley within seconds of each other.
+    """
+    import fcntl
+
+    from novel_manga.models.bible import StoryBible
+    from novel_manga.planning.storyboard import read_workbook
+    from novel_manga.util import atomic_write_json
+    chosen = accepted_sheet(episode_dir, config=config)
+    if chosen is None:
+        return [], "这一章还没有采用的分镜"
+    path, sheet_name = chosen
+    sheets = read_workbook(path)
+    sheet = next((s for s in sheets if s.name == sheet_name), sheets[0])
+    written = list(dict.fromkeys(str(row["location"]).strip() for row in sheet.rows))
+    bible_path = Path(novel_dir) / "story_bible.json"
+    with open(Path(novel_dir) / "story_bible.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        bible = StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
+        known = {str(entry).partition("：")[0].strip() for entry in bible.locations}
+        missing = [name for name in written if name not in known]
+        if not missing:
+            return [], ""
+        proposal = next((p for p in (path.parent / PROPOSAL,
+                                     Path((config or load_config())["runs_root"]) / state(episode_dir).run / "output" / PROPOSAL)
+                         if p.is_file()), None)
+        if proposal is None:
+            return [], f"分镜用了圣经里没有的地点（{'、'.join(missing)}），但这次尝试没写 {PROPOSAL}"
+        text, entries = proposal.read_text(encoding="utf-8"), []
+        for name in missing:
+            description = proposed_description(text, name)
+            if "：" in name or len(description) < MIN_DESCRIPTION:
+                return [], (f"分镜用了圣经里没有的地点「{name}」，{PROPOSAL} 里"
+                            + ("它的名字带冒号，进不了圣经" if "：" in name else "找不到它的空场描写")
+                            + f"。看 {proposal}")
+            entries.append(f"{name}：{description}")
+        bible = bible.model_copy(update={"locations": [*bible.locations, *entries]})
+        atomic_write_json(bible_path, bible.model_dump(mode="json"))
+    return missing, ""

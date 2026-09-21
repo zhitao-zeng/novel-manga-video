@@ -106,6 +106,14 @@ def run_chapter(novel_dir: Path, chapter: int, steps: Steps, *, config: dict,
         return result
     result.accepted_by, result.sheet = accepted.accepted_by, accepted.sheet
     if not bound_since_accepted(directory):
+        # Before binding, not inside it: binding refuses a scene the bible does not have, and says to
+        # put the place in first.  That was a step nobody owned.
+        added, problem = timed("place", agent_storyboard.place_new_locations, novel_dir, directory, config=config)
+        if problem:
+            result.outcome, result.reason = LOOK, problem
+            return result
+        if added:
+            steps.log(f"[{time.strftime('%T')}] ch{chapter}: 分镜里的新地点已补进圣经：{'、'.join(added)}")
         ok, problem = timed("bind", steps.bind, chapter)
         if not ok:
             result.outcome, result.reason = LOOK, f"分镜采用了，但绑定没过：{problem}"

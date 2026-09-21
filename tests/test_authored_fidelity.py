@@ -186,3 +186,53 @@ def test_the_window_comes_from_the_plan_not_from_the_local_h3(tmp_path):
     audit = Audit()
     check_clip_plan(tmp_path, {"locations": ["书房：一间书房"], "characters": [{"name": "梁舟"}]}, audit)
     assert [f.rule for f in audit.findings] == ["时长超出可渲染范围"]
+
+
+def test_a_spelling_an_author_really_used_is_read_as_the_label_it_means():
+    """第 11 集 of 在美漫当心灵导师的日子, the first sheet the sandbox wrote with nobody watching, has
+    画外音 three times and 画外 three times.  Refusing the short form kept three lines out of the film
+    and sent the whole chapter to a person over one missing character."""
+    parsed = authored_sound("戈登（画外、由远及近）：“怪不得！低楼层的住户几乎全没了——”\n"
+                            "蝙蝠侠（画外音、低）：“……对不起，教授。”")
+    assert parsed.problems == ()
+    assert [t["delivery_mode"] for t in parsed.turns] == ["offscreen_dialogue", "offscreen_dialogue"]
+    assert [t["emotion"] for t in parsed.turns] == ["由远及近", "低"]
+
+
+def test_a_label_nobody_has_been_seen_to_write_is_still_reported():
+    """The list is of what has been observed, not of what might be meant."""
+    assert authored_sound("戈登（旁白）：“三年前。”").problems[0][1].startswith("发声方式写的是")
+
+
+def coverage(cited, *, authored, skipped=()):
+    from novel_manga.planning.context import PlannerContext
+    from novel_manga.planning.source_checks import chapter_coverage
+    ctx = PlannerContext.from_env()
+    ctx.authored_storyboard, ctx.max_skipped = authored, 0
+    segments = [{"segment_id": "seg_7", "text": "蝙蝠侠站在阴影里想，他要永远杜绝这种可能的发生。"},
+                {"segment_id": "seg_8", "text": "漫画里，蝙蝠侠不杀人这个设定，似乎从开始就存在了。"}]
+    raw, errors, warnings = {"skipped_segments": [{"segment_id": s, "reason": "x"} for s in skipped]}, [], []
+    chapter_coverage(raw, [{"turns": []}], segments, set(cited), "".join(s["text"] for s in segments),
+                     ctx, errors, warnings)
+    return raw, errors, warnings
+
+
+def test_a_segment_left_uncited_by_a_reassignment_is_the_authors_omission_not_a_gap():
+    """第 11 集: shot 13 was bound to seg_8, its quote was really in seg_7 and validation moved it there.
+    seg_8 was then cited by nobody - but the rule that records an omission had already run, on the
+    citations the model claimed, and seen seg_8 taken.  So the coverage gate called it a gap and the
+    patch round wrote a fourteenth shot, in the author's voice, that the author never wrote."""
+    raw, errors, warnings = coverage({"seg_7"}, authored=True)
+    assert errors == []
+    assert raw["skipped_segments"] == [{"segment_id": "seg_8", "reason": "作者的分镜没有取用这一段"}]
+    assert any("seg_8" in w and "改编取舍" in w for w in warnings)
+
+
+def test_the_ordinary_planner_is_still_held_to_covering_every_segment():
+    _, errors, _ = coverage({"seg_7"}, authored=False)
+    assert [issue.segment_id for issue in errors] == ["seg_8"]
+
+
+def test_an_omission_already_on_record_is_not_recorded_twice():
+    raw, errors, _ = coverage({"seg_7"}, authored=True, skipped=["seg_8"])
+    assert errors == [] and [row["segment_id"] for row in raw["skipped_segments"]] == ["seg_8"]

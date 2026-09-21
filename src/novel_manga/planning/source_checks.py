@@ -85,6 +85,19 @@ def chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors
         errors.append(PlanningIssue(PlanningCode.MISSING_CHAT, f"本章原文有 {chat_source_lines} 行聊天消息（形如「昵称：内容」），但没有任何 chat_message："
             "群聊和私聊必须用 chat_message 呈现（一个阶段最多八条），不得改写成画外音或角色自述", field='turns'))
     uncited = [s["segment_id"] for s in segments if s["segment_id"] not in cited and s["segment_id"] not in skipped]
+    if uncited and ctx.authored_storyboard:
+        # The same rule as above, applied where it can be true.  It used to run before validation, on
+        # the citations the model claimed - and validation then moves a citation to the segment its
+        # quote is really in.  第 11 集 of 在美漫当心灵导师的日子: shot 13 was bound to seg_8, its quote
+        # belonged to seg_7 and was reassigned, seg_8 was left cited by nobody, the rule had already
+        # looked and seen it cited, and the patch round wrote a fourteenth shot in the author's voice.
+        # `cited` here is after every reassignment, so this is the first moment the question has an
+        # answer.  The omission is recorded on the plan as well as warned about, so the script and the
+        # metrics downstream see the same thing the gate did.
+        raw["skipped_segments"] = [*skipped_raw, *({"segment_id": segment_id, "reason": "作者的分镜没有取用这一段"}
+                                                   for segment_id in uncited)]
+        warnings.append(f"作者的分镜没有取用这些区段：{sorted(uncited)}（改编取舍，不是技术丢失）")
+        uncited = []
     for segment_id in uncited:
         segment = next(s for s in segments if s["segment_id"] == segment_id)
         errors.append(PlanningIssue(PlanningCode.UNCITED_SEGMENT, f"{segment_id} is neither cited by any shot nor listed in skipped_segments; "

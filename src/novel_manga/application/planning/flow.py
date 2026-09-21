@@ -423,19 +423,10 @@ def run(args, ctx: PlannerContext) -> int:
                 raise ValueError("constrained decoding derailed into whitespace (finish_reason=%s)" % meta.get("finish_reason"))
             raw = planner_requests.extract_json(content)
             if authored:
+                # What the sheet leaves out is its author's choice, and is recorded as one - by the
+                # coverage check, not here: only after validation has moved each citation to the
+                # segment its quote is really in does "nobody cites this" mean anything.
                 raw = pc_binding.merge(authored, raw, character_names=names)
-                # What an authored sheet leaves out is an adaptation choice its author already made.
-                # The coverage gate is right that nothing may be dropped in silence, but its remedy -
-                # ask for another shot - re-cuts the storyboard this path exists to keep: chapter 10 of
-                # the pilot gained a 特写 nobody wrote, with a line lifted out of the prose.  Record the
-                # omission instead; it is reported either way, and the cut stays the author's.
-                cited = {stage["segment_id"] for clip in raw["clips"] for stage in clip["stages"]}
-                listed = {row["segment_id"] for row in raw.get("skipped_segments") or []}
-                raw["skipped_segments"] = [*(raw.get("skipped_segments") or []),
-                                           *({"segment_id": segment["segment_id"],
-                                              "reason": "作者的分镜没有取用这一段"}
-                                             for segment in segments
-                                             if segment["segment_id"] not in cited | listed)]
         except (json.JSONDecodeError, ValueError) as error:
             final_errors = [f"response is not one JSON object: {type(error).__name__}: {error}"]
             attempts.append({"attempt": attempt, **meta, "errors": final_errors})
