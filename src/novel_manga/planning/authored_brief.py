@@ -20,14 +20,13 @@ from pathlib import Path
 from .places import offered_locations, recently_used
 from .constants import CAST_RECENT_CHAPTERS
 
-SECONDS = 100
 # profile.json carries the bare token the renderer keys on; the agent needs words.
 STYLE_WORDS = {"3d": "3D 国漫动画", "anime": "二维日式动画", "realistic": "写实真人风"}
 # Nine columns, fixed: planning/storyboard.py matches on these labels and refuses a sheet that
 # renames, merges or drops one.
 COLUMNS = "| 镜号 | 摄影角度 | 景别 | 画面内容 / 动作 | 场景 | 台词 / 声音 | 机位 / 运镜 / 连续性 | 叙事目的 | 预算秒 |"
 
-TASK_SPEC = f"""## 忠于原著
+TASK_SPEC_TEMPLATE = """## 忠于原著
 
 - 人物、事件、因果和结局以原文为准；不新增人物，不新增原文没有的情节。
 - 可以删减作者议论、科普和重复解释。
@@ -41,10 +40,10 @@ TASK_SPEC = f"""## 忠于原著
 
 ## 镜头怎么分
 
-视频模型一次生成一段 4–15 秒的连续画面，每个镜头单独生成。镜头拆得越碎，前后画面越容易对不上。所以：
+视频模型一次生成一段 {shot_low:g}–{shot_high:g} 秒的连续画面，每个镜头单独生成。镜头拆得越碎，前后画面越容易对不上。所以：
 
 - 同一地点、同一人物状态下连续发生的动作，尽量放进同一个镜头里拍完。一个镜头可以有几个动作节拍，也可以有运镜。
-- 每镜 **4–15 秒**，不要 1–3 秒的碎镜头。全集大约 10–20 个镜头。
+- 每镜 **{shot_low:g}–{shot_high:g} 秒**，不要 1–3 秒的碎镜头。全集大约 {shots_low}–{shots_high} 个镜头。
 - 只在这几种情况下切镜：换地点、换时间、人物状态变了，或者要给观众新的信息。只是换景别、换角度，就用运镜完成，不切。
 
 ## 画面怎么写
@@ -78,6 +77,8 @@ TASK_SPEC = f"""## 忠于原著
 - **机位 / 运镜 / 连续性**：相机在哪、怎么动，以及和前后镜的接续关系。
 - **叙事目的**：这一镜为什么存在，一句话。
 - **预算秒**：这一镜的时长，**写纯数字**（例如 7 或 7.5），必须大于 0。
+- **全集预算秒加起来必须不超过 {ceiling:g} 秒**（目标约 {target:g} 秒）。这不是建议：超了整集会被退回重写。
+- **全集说出口的字数控制在 {spoken_low}–{spoken_high} 字**。台词太长，镜头给的秒数念不完。
 
 ### 「台词 / 声音」这一格怎么写（必须统一）
 
@@ -137,15 +138,41 @@ def split_location(entry: str) -> tuple[str, str]:
     return name.strip(), description.strip()
 
 
+def episode_budget(text: str, profile: dict) -> dict:
+    """The one budget for this episode, from the same function that will judge the result.
+
+    The brief used to carry its own numbers - about 100 seconds, 10-20 shots, 4-15 s each - while the
+    gate computes a target of 90 and a hard ceiling of 105 from planning.budget.  An author writing to
+    one set and being judged by the other loses whole chapters to arithmetic, which is no verdict on
+    what they wrote.
+    """
+    from novel_manga.planning.budget import configure_budget
+    from novel_manga.planning.context import PlannerContext
+    ctx = PlannerContext()
+    configure_budget(len(text), fast=str(profile.get("tier", "quality")) == "fast", ctx=ctx)
+    clips_low, clips_high = ctx.clip_range
+    stages_low, stages_high = ctx.stage_range
+    spoken_low, spoken_high = ctx.spoken_range
+    return {"target": ctx.episode_seconds_target, "ceiling": ctx.episode_seconds_max,
+            "shot_low": 4.0, "shot_high": ctx.max_clip_seconds,
+            "shots_low": clips_low * stages_low, "shots_high": clips_high * stages_high,
+            "spoken_low": spoken_low, "spoken_high": spoken_high}
+
+
+def task_spec(budget: dict) -> str:
+    return TASK_SPEC_TEMPLATE.format(**budget)
+
+
 def _head(title: str, chapter: int, chapter_title: str, episode: int, recap: list[dict],
-          style: str, frame: str) -> str:
+          style: str, frame: str, budget: dict) -> str:
     # chapter_title already reads 第3章 初遇孟瑶, so naming the number again nests brackets round it.
     what = f"《{title}》{chapter_title or f'第 {chapter} 章'}全文"
     lines = [f"# 任务说明\n",
              f"把 `input/source.txt`（{what}）改编成**长篇系列短剧的第 {episode} 集**，"
              "并做成可以交给 AI 视频模型逐镜生成的分镜表。\n",
              "## 目标\n",
-             f"- 一集约 **{SECONDS} 秒**，**{frame} 横屏**，**{STYLE_WORDS.get(style, style)}**。"
+             f"- 一集约 **{budget['target']:g} 秒**（**上限 {budget['ceiling']:g} 秒，超了会被退回**），"
+             f"**{frame} 横屏**，**{STYLE_WORDS.get(style, style)}**。"
              "画风、人物和地点见 `input/人物地点与画风.md`。"]
     if episode <= 1:
         lines.append("- 这是系列第一集：观众看完要知道主角是谁、他身上发生了什么，并想看下一集。\n")
@@ -161,10 +188,11 @@ def _head(title: str, chapter: int, chapter_title: str, episode: int, recap: lis
     return "\n".join(lines)
 
 
-def task_note(novel: dict, chapter: int, recap: list[dict], profile: dict) -> str:
+def task_note(novel: dict, chapter: int, recap: list[dict], profile: dict, budget: dict) -> str:
     titles = {int(c["index"]): c.get("title", "") for c in novel.get("chapters", [])}
     return _head(novel.get("title", ""), chapter, titles.get(chapter, ""), chapter, recap,
-                 profile.get("style", "3D 国漫"), profile.get("frame", "16:9")) + "\n" + TASK_SPEC
+                 profile.get("style", "3D 国漫"), profile.get("frame", "16:9"),
+                 budget) + "\n" + task_spec(budget)
 
 
 def cast_note(bible: dict, cast_index: dict, chapter: int, places: list[str]) -> str:
@@ -242,7 +270,7 @@ def write_brief(novel_dir: Path, chapter: int, out_dir: Path, skill: str = "") -
 
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
-    for name, body in (("任务说明.md", task_note(novel, chapter, recap, profile)),
+    for name, body in (("任务说明.md", task_note(novel, chapter, recap, profile, episode_budget(text, profile))),
                        ("人物地点与画风.md", cast_note(bible, cast_index, chapter, places)),
                        ("source.txt", text)):
         path = out_dir / name

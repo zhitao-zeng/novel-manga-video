@@ -21,6 +21,11 @@ TIERS = ("quality", "fast")
 # Off by default: the second view sharpens identity but a crowded shot then carries twice the
 # reference images and the model starts blending faces.
 TWO_VIEWS = ("off", "leads", "all")
+# HOW a chapter is planned, which is not WHICH method plans it.  story_method picks a method the
+# local planner follows; this picks whether the planning happens here at all or in a sandbox
+# agent.  One field for both would make story_method mean a local prompt flow sometimes and a
+# container run other times, which is exactly the confusion to avoid.
+PLANNING_BACKENDS = ("local", "sandbox_agent")
 MAX_HOLD_SECONDS = 6.0
 
 
@@ -71,6 +76,10 @@ def load_profile(novel_dir: Path, **overrides) -> dict:
         raise ValueError(f"profile.tier must be one of {TIERS}")
     if profile.get("two_views", "off") not in TWO_VIEWS:
         raise ValueError(f"profile.two_views must be one of {TWO_VIEWS}")
+    if profile.get("planning_backend", "local") not in PLANNING_BACKENDS:
+        raise ValueError(f"profile.planning_backend must be one of {PLANNING_BACKENDS}")
+    if profile.get("planning_backend") == "sandbox_agent" and not str(profile.get("agent_skill") or "").strip():
+        raise ValueError("profile.planning_backend=sandbox_agent 需要 profile.agent_skill 指定一套技能")
     profile.setdefault("tier", "quality")
     # deliberately not setdefault: the profile dict is written into chapter_script.json and printed in
     # the planner trace, so adding a key to it changes those artefacts for every book.  Readers default

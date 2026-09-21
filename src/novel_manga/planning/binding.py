@@ -158,9 +158,16 @@ def merge(authored: dict, answer: dict) -> dict:
         else:
             clips.append({"clip_id": f"clip_{len(clips) + 1}", "location": location,
                           "characters": [], "avoid": "", "stages": [stage]})
-    for clip in clips:
+    for index, clip in enumerate(clips, 1):
+        # The marker everything downstream reads as "a person cut this chapter": it decides whether the
+        # per-shot durations reach H3 as shot_timing, whether the medium sentence is written at all,
+        # whether in_frame is taken as authoritative rather than topped up by a scan, and which wording
+        # the garment retention uses.  An authored sheet is exactly that, and it was the one directed
+        # path that did not say so - so its 预算秒 stopped at the packer and never reached the request.
+        clip["scene_id"] = f"scene_{index:02d}"
         seen: list[str] = []
         for stage in clip["stages"]:
+            stage["scene_id"] = clip["scene_id"]
             for name in stage["in_frame"]:
                 if name not in seen:
                     seen.append(name)

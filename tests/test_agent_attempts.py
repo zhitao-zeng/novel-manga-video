@@ -6,25 +6,11 @@ outputs were counted because they existed, and the whole directory was deleted b
 """
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def load(name: str):
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-runner = load("run_agent_thin")
+from novel_manga.application.agents import sandbox as runner
 
 
 def sandbox(tmp_path, *, skills="merge"):
@@ -65,7 +51,7 @@ def test_skills_are_identified_by_their_contents_not_by_a_directory_existing(tmp
     assert (run_dir / ".claude" / "skills" / "method.md").read_text(encoding="utf-8") == "第一版方法"
 
 
-def test_reusing_a_run_with_different_skills_is_refused_rather_than_run_silently(tmp_path, capsys):
+def test_reusing_a_run_with_different_skills_is_refused_rather_than_run_silently(tmp_path):
     """"Change the skill name and run it again" was not an experiment: the old skills stayed, and
     nothing said so."""
     runs, run_dir = sandbox(tmp_path)
@@ -73,9 +59,9 @@ def test_reusing_a_run_with_different_skills_is_refused_rather_than_run_silently
     other.mkdir(parents=True, exist_ok=True)
     (other / "method.md").write_text("另一套方法", encoding="utf-8")
     runner.install_skills(run_dir, runs / "template" / ".claude", replace=False)
-    assert runner.install_skills(run_dir, other.parent, replace=False) is None
+    with pytest.raises(runner.SandboxRefused, match="--replace-skills"):
+        runner.install_skills(run_dir, other.parent, replace=False)
     assert (run_dir / ".claude" / "skills" / "method.md").read_text(encoding="utf-8") == "第一版方法"
-    assert "--replace-skills" in capsys.readouterr().err
 
 
 def test_an_updated_template_is_also_a_different_skill_set(tmp_path):
@@ -83,7 +69,8 @@ def test_an_updated_template_is_also_a_different_skill_set(tmp_path):
     template = runs / "template" / ".claude"
     runner.install_skills(run_dir, template, replace=False)
     (template / "skills" / "method.md").write_text("第二版方法", encoding="utf-8")
-    assert runner.install_skills(run_dir, template, replace=False) is None
+    with pytest.raises(runner.SandboxRefused):
+        runner.install_skills(run_dir, template, replace=False)
     assert runner.install_skills(run_dir, template, replace=True) == runner.skills_digest(template)
     assert (run_dir / ".claude" / "skills" / "method.md").read_text(encoding="utf-8") == "第二版方法"
 
@@ -93,8 +80,6 @@ def test_an_updated_template_is_also_a_different_skill_set(tmp_path):
 def run_once(tmp_path, monkeypatch, *, exit_code, writes=None):
     runs, run_dir = sandbox(tmp_path)
     monkeypatch.setenv("SANDBOX_KEY", "k")
-    monkeypatch.setattr(sys, "argv", ["run_agent_thin", "--run", "book-merge", "--skills", "merge",
-                                      "--config", str(tmp_path / "config.json")])
 
     def fake_docker(command, stdout=None, stderr=None, env=None):
         stdout.write('{"type":"result"}\n')
@@ -106,9 +91,10 @@ def run_once(tmp_path, monkeypatch, *, exit_code, writes=None):
         return exit_code
 
     monkeypatch.setattr(runner.subprocess, "call", fake_docker)
-    code = runner.main()
-    attempts = sorted((run_dir / "attempts").iterdir())
-    return code, run_dir, attempts
+    attempt = runner.run_agent("book-merge", skills="merge",
+                               config=json.loads((tmp_path / "config.json").read_text(encoding="utf-8")),
+                               log=lambda line: None)
+    return attempt.exit_code, run_dir, sorted((run_dir / "attempts").iterdir())
 
 
 def test_a_docker_that_never_started_cannot_wipe_the_log_that_says_why(tmp_path, monkeypatch):

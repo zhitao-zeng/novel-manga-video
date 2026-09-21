@@ -473,7 +473,10 @@ class ClipCompiler:
                 head = f"剪辑切至{shot['shot_scale']}。本镜起点：{self.compact(shot['visual_prompt'])}"
             else:
                 head = f"切至{shot['shot_scale']}。承接上一阶段：{self.compact(shots[index - 1]['end_state'])}。画面：{self.compact(shot['visual_prompt'])}"
-            if shot.get('scene_id'):
+            # An authored sheet is a cut somebody made and has no story-time column; the local scene
+            # method writes one.  Only say the time when there is one, rather than require every
+            # directed path to invent a field so the sentence can be printed.
+            if self.compact(shot.get('scene_time', '')):
                 head += f"。故事时间：{self.compact(shot['scene_time'])}"
             def carried(field: str, label: str) -> str:
                 value = self.compact(shot.get(field, ""))

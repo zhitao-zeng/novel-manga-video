@@ -5,6 +5,15 @@ from novel_manga.planning.context import PlannerContext
 class PlanningInputError(ValueError):
     pass
 
+
+class StoryboardAwaitingChoice(PlanningInputError):
+    """A sandbox-planned chapter has candidates and nobody has chosen one yet.
+
+    Not a failure: the backend asks for a storyboard, a person picks the take, and planning resumes
+    from the recorded choice.  It is its own type so a batch can tell "waiting for me" apart from
+    "this chapter is broken".
+    """
+
 from novel_manga.ingest import read_novel
 from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json
@@ -246,6 +255,21 @@ def run(args, ctx: PlannerContext) -> int:
     volumes = json.loads(volumes_path.read_text(encoding="utf-8")) if volumes_path.is_file() else []
     previous_volumes = [row for row in volumes if int(row.get("to", 0)) < episode.index][-2:]
     authored = None
+    # The sandbox backend resolves to the same --bind-storyboard path: the agent writes the sheet, a
+    # person accepts one, and from there this is an authored chapter like any other.  Nothing below
+    # knows or needs to know that a container produced it.
+    if str(profile.get("planning_backend", "local")) == "sandbox_agent" and not getattr(args, "bind_storyboard", None):
+        from novel_manga.application.agents import storyboard as agent_storyboard
+        chosen = agent_storyboard.accepted_sheet(episode_dir)
+        if chosen is None:
+            current = agent_storyboard.state(episode_dir)
+            where = f"（{current.run} / {current.attempt}）" if current.run else ""
+            raise StoryboardAwaitingChoice(
+                f"第 {episode.index} 章用沙箱后端规划，当前状态：{current.status}{where}。"
+                + ("候选：" + "、".join(current.sheets) + "；用 scripts/agent_storyboard_thin.py --accept 选一版"
+                   if current.sheets else
+                   "还没有候选分镜；先跑 scripts/agent_storyboard_thin.py --propose"))
+        args.bind_storyboard, args.bind_sheet = str(chosen[0]), chosen[1] or getattr(args, "bind_sheet", None)
     if getattr(args, "bind_storyboard", None):
         from novel_manga.planning.storyboard import authored_payload, read_workbook
         try:
