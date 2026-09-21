@@ -4,7 +4,14 @@
   "runs_root": "/mnt/disk1/zengzhitao/tmp/agent-sandbox/runs",
   "base_url": "http://172.28.4.81:8038",
   "model": "Qwen3.8-Flash-Next",
-  "_model": "gpu81 的 Flash-Next，最多 2 并发。本地 27B 归并失败过两次（一次三小时超时，一次 391k 输入撞 262k 窗口），别用它跑归并。",
+  "_model": "gpu81 的 Flash-Next。本地 27B 归并失败过两次（一次三小时超时，一次 391k 输入撞 262k 窗口），别用它跑归并。",
+  "parallel": {
+    "day": 2,
+    "night": 4,
+    "night_from": 20,
+    "night_until": 10
+  },
+  "_parallel": "这个端点是共用的，能同时跑几个 agent 看时段：白天 2 个，夜班（20:00–10:00）4 个（用户 2026-09-21 确认）。绑定那一步也打同一个端点，所以批量驱动把“写分镜→采用→绑定→对照”放在同一个槽里，总并发就是这个数。",
   "key_var": "GPU81_QWEN_API_KEY",
   "effort": "medium",
   "timeout_seconds": 5400,

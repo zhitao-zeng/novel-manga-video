@@ -17,8 +17,11 @@ The chosen take is copied beside the chapter and recorded with its digest, so it
 than a path: output/ is shared by every attempt of a run, and a rerun used to rewrite the same file
 under the accepted record's nose.  A later proposal adds candidates and never replaces the choice.
 
-The choice stays a person's for now; only the errands around it are automated.  What matters is that
-the choice is recorded rather than implied by which file someone happened to copy.
+The choice was a person's alone until a whole book went this way: three hundred chapters cannot each
+wait for someone to type a path.  auto_accept takes the take only when there is nothing to choose
+between - one sheet, one worksheet, every cell readable - and leaves everything else exactly where a
+person would find it.  Either way the record says who chose and by what rule, because what matters is
+that the choice is recorded rather than implied by which file someone happened to copy.
 """
 from __future__ import annotations
 
@@ -47,6 +50,7 @@ class StoryboardState:
     sheet_digest: str = ""        # what that snapshot contained when it was accepted
     accepted_from: str = ""       # the attempt and path it was taken from
     accepted_at: str = ""
+    accepted_by: str = ""         # "person", or "auto:<rule>" when nothing was there to choose between
 
     def __post_init__(self):
         self.sheets = list(self.sheets or [])
@@ -114,11 +118,12 @@ def propose(novel_dir: Path, episode_dir: Path, chapter: int, skill: str, *,
         run=run, attempt=attempt.directory.name, skill=skill,
         sheets=[f"output/{name}" for name in sheets],
         sheet=current.sheet, sheet_name=current.sheet_name, sheet_digest=current.sheet_digest,
-        accepted_from=current.accepted_from, accepted_at=current.accepted_at))
+        accepted_from=current.accepted_from, accepted_at=current.accepted_at,
+        accepted_by=current.accepted_by))
 
 
 def accept(episode_dir: Path, sheet: str, *, sheet_name: str = "",
-           config: dict | None = None) -> StoryboardState:
+           config: dict | None = None, by: str = "person") -> StoryboardState:
     """Record that this sheet is the chapter's script.  Planning binds it from here on."""
     config = config or load_config()
     current = state(episode_dir)
@@ -142,7 +147,56 @@ def accept(episode_dir: Path, sheet: str, *, sheet_name: str = "",
     current.sheet_digest = digest_of(snapshot)
     current.accepted_from = f"{current.attempt}:{sheet}"
     current.accepted_at = time.strftime("%F %T")
+    current.accepted_by = by
     return write_state(episode_dir, current)
+
+
+AUTO_RULE = "one-readable-sheet-v1"
+
+
+def auto_accept(episode_dir: Path, *, config: dict | None = None) -> tuple[StoryboardState, str]:
+    """Take the take when there is nothing to choose between; otherwise say what a person has to decide.
+
+    Returns (state, reason).  The reason is empty when the chapter is accepted - now, or already - and
+    otherwise names the one thing that stopped it, in words that tell whoever reads the report what to
+    open.  Three conditions, each of which is a place where accepting would be making a choice or
+    hiding a loss:
+
+      one sheet        several takes are a choice, and none is nothing to accept
+      one worksheet    a workbook with two complete storyboards is the same choice one level down
+      every cell reads a 台词 / 声音 line that does not parse is a line of dialogue that will not be
+                       filmed, and nobody is told - which is exactly what a person should see first
+
+    Nothing here judges whether the storyboard is good.  That stays with whoever watches the episode.
+    """
+    from zipfile import BadZipFile
+
+    from novel_manga.planning.storyboard import authored_sound, read_workbook
+    config = config or load_config()
+    current = state(episode_dir)
+    if current.status == "accepted":
+        return current, ""
+    if current.status == "none":
+        return current, "还没有候选分镜"
+    if not current.sheets:
+        return current, "这次尝试没有产出分镜表"
+    if len(current.sheets) > 1:
+        return current, f"产出了 {len(current.sheets)} 份分镜表，要人选一版：{'、'.join(current.sheets)}"
+    path = Path(config["runs_root"]) / current.run / current.sheets[0]
+    try:
+        sheets = read_workbook(path)
+    except (ValueError, KeyError, OSError, BadZipFile) as error:
+        return current, f"分镜表读不了：{str(error)[:200]}"
+    if len(sheets) > 1:
+        return current, f"工作簿里有 {len(sheets)} 个完整的分镜工作表，要人选：{'、'.join(s.name for s in sheets)}"
+    unread = [(row["authored_id"], line, why) for row in sheets[0].rows
+              for line, why in authored_sound(row["authored_sound"]).problems]
+    if unread:
+        shot, line, why = unread[0]
+        return current, (f"台词/声音列有 {len(unread)} 行读不懂，这些台词会丢："
+                         f"镜 {shot}「{line[:40]}」（{why}）")
+    return accept(episode_dir, current.sheets[0], sheet_name=sheets[0].name, config=config,
+                  by=f"auto:{AUTO_RULE}"), ""
 
 
 def accepted_sheet(episode_dir: Path, *, config: dict | None = None) -> tuple[Path, str] | None:

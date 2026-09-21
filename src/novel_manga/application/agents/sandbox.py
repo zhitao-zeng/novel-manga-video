@@ -58,6 +58,22 @@ def load_config(path: Path | None = None) -> dict:
     return json.loads(Path(path or DEFAULT_CONFIG).read_text(encoding="utf-8"))
 
 
+def parallel_now(config: dict, now: time.struct_time | None = None) -> int:
+    """How many agents the endpoint will take at this hour.
+
+    The endpoint is shared, and what it can spare depends on the time of day: two by day, four on the
+    night shift.  A book is some nineteen hours of agent time, so any run long enough to matter starts
+    under one allowance and finishes under the other - a number fixed at launch is wrong for half of
+    it, in whichever direction is worse at the time.  Asked again whenever a slot frees up.
+    """
+    allowance = config.get("parallel") or {}
+    day, night = int(allowance.get("day", 1)), int(allowance.get("night", allowance.get("day", 1)))
+    start, end = int(allowance.get("night_from", 20)), int(allowance.get("night_until", 10))
+    hour = (now or time.localtime()).tm_hour
+    at_night = (hour >= start or hour < end) if start > end else (start <= hour < end)
+    return max(1, night if at_night else day)
+
+
 def key_for(name: str) -> str:
     """The credential, from the process environment first and the project .env second.
 
