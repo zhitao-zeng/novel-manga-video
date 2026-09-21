@@ -20,8 +20,32 @@ from pathlib import Path
 from .places import offered_locations, recently_used
 from .constants import CAST_RECENT_CHAPTERS
 
-# profile.json carries the bare token the renderer keys on; the agent needs words.
+# profile.json carries the bare token the renderer keys on; the agent needs words.  A style package
+# carries its own name (美漫, 唯美, 真人), so this table is only the fallback for the legacy tokens.
 STYLE_WORDS = {"3d": "3D 国漫动画", "anime": "二维日式动画", "realistic": "写实真人风"}
+
+
+def style_word(key: str, novel_dir=None) -> str:
+    """What to call this book's style in prose, from the package that defines it."""
+    def named(path, legacy_only=False):
+        try:
+            package = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return ""
+        if legacy_only and package.get("legacy_style") != key:
+            return ""
+        return str(package.get("name") or "").strip()
+
+    styles = Path(__file__).resolve().parents[3] / "configs" / "styles"
+    # the book's own package, then the one named for this key, then - for a legacy token like "2d" -
+    # the package that declares it, which is how load_style resolves the same thing
+    for path in ([Path(novel_dir) / "style.json"] if novel_dir else []) + [styles / f"{key}.json"]:
+        if name := named(path):
+            return name
+    for path in sorted(styles.glob("*.json")) if styles.is_dir() else []:
+        if name := named(path, legacy_only=True):
+            return name
+    return STYLE_WORDS.get(key, key)
 # Nine columns, fixed: planning/storyboard.py matches on these labels and refuses a sheet that
 # renames, merges or drops one.
 COLUMNS = "| 镜号 | 摄影角度 | 景别 | 画面内容 / 动作 | 场景 | 台词 / 声音 | 机位 / 运镜 / 连续性 | 叙事目的 | 预算秒 |"
@@ -148,7 +172,10 @@ def episode_budget(text: str, profile: dict) -> dict:
     """
     from novel_manga.planning.budget import configure_budget
     from novel_manga.planning.context import PlannerContext
-    ctx = PlannerContext()
+    # from_env, not a fresh default: the per-shot cap is 15 on a local-H3 lane and 30 otherwise, and
+    # the planner reads it from exactly here.  A brief built on the default would invite 30-second
+    # shots for a book whose renderer stops at 15.
+    ctx = PlannerContext.from_env()
     configure_budget(len(text), fast=str(profile.get("tier", "quality")) == "fast", ctx=ctx)
     clips_low, clips_high = ctx.clip_range
     stages_low, stages_high = ctx.stage_range
@@ -160,7 +187,7 @@ def episode_budget(text: str, profile: dict) -> dict:
 
 
 def task_spec(budget: dict) -> str:
-    return TASK_SPEC_TEMPLATE.format(**budget)
+    return TASK_SPEC_TEMPLATE.format(COLUMNS=COLUMNS, **budget)
 
 
 def _head(title: str, chapter: int, chapter_title: str, episode: int, recap: list[dict],
@@ -172,7 +199,7 @@ def _head(title: str, chapter: int, chapter_title: str, episode: int, recap: lis
              "并做成可以交给 AI 视频模型逐镜生成的分镜表。\n",
              "## 目标\n",
              f"- 一集约 **{budget['target']:g} 秒**（**上限 {budget['ceiling']:g} 秒，超了会被退回**），"
-             f"**{frame} 横屏**，**{STYLE_WORDS.get(style, style)}**。"
+             f"**{frame} 横屏**，**{style}**。"
              "画风、人物和地点见 `input/人物地点与画风.md`。"]
     if episode <= 1:
         lines.append("- 这是系列第一集：观众看完要知道主角是谁、他身上发生了什么，并想看下一集。\n")
@@ -188,10 +215,11 @@ def _head(title: str, chapter: int, chapter_title: str, episode: int, recap: lis
     return "\n".join(lines)
 
 
-def task_note(novel: dict, chapter: int, recap: list[dict], profile: dict, budget: dict) -> str:
+def task_note(novel: dict, chapter: int, recap: list[dict], profile: dict, budget: dict,
+              novel_dir=None) -> str:
     titles = {int(c["index"]): c.get("title", "") for c in novel.get("chapters", [])}
     return _head(novel.get("title", ""), chapter, titles.get(chapter, ""), chapter, recap,
-                 profile.get("style", "3D 国漫"), profile.get("frame", "16:9"),
+                 style_word(profile.get("style", "3d"), novel_dir), profile.get("frame", "16:9"),
                  budget) + "\n" + task_spec(budget)
 
 
@@ -270,7 +298,7 @@ def write_brief(novel_dir: Path, chapter: int, out_dir: Path, skill: str = "") -
 
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
-    for name, body in (("任务说明.md", task_note(novel, chapter, recap, profile, episode_budget(text, profile))),
+    for name, body in (("任务说明.md", task_note(novel, chapter, recap, profile, episode_budget(text, profile), novel_dir)),
                        ("人物地点与画风.md", cast_note(bible, cast_index, chapter, places)),
                        ("source.txt", text)):
         path = out_dir / name

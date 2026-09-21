@@ -81,7 +81,9 @@ def run(args, ctx: PlannerContext) -> int:
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier,
-                           story_method=getattr(args, 'story_method', None))
+                           story_method=getattr(args, 'story_method', None),
+                           planning_backend=getattr(args, 'planning_backend', None),
+                           agent_skill=getattr(args, 'agent_skill', None))
     try:
         method = get_method(profile.get('story_method'))
     except ValueError as error:

@@ -78,14 +78,14 @@ def propose(novel_dir: Path, episode_dir: Path, chapter: int, skill: str, *,
     of the record.  `exit=0` is not the same as "there is a storyboard", so the sheets found are
     reported separately and an empty list is a visible outcome rather than a silent one.
     """
-    from novel_manga.planning.authored_brief import run_prompt, write_brief
+    from novel_manga.planning.authored_brief import write_brief
     config = config or load_config()
     novel_dir, episode_dir = Path(novel_dir), Path(episode_dir)
-    novel = json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))
     run = run_name(novel_dir.name, chapter, skill)
     run_dir = Path(config["runs_root"]) / run
+    # the pack goes in input/ and the prompt that drives the run beside it; write_brief does both, and
+    # writing the prompt again here was a second copy of the same text that could only ever disagree
     write_brief(novel_dir, chapter, run_dir / "input", skill)
-    (run_dir / "prompt.txt").write_text(run_prompt(skill, novel, chapter), encoding="utf-8")
 
     attempt: Attempt = run_agent(run, skills=skill, config=config, timeout=timeout, log=log)
     sheets = sorted(name for name in attempt.produced if name.lower().endswith(SHEET_SUFFIXES))

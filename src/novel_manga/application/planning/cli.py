@@ -34,6 +34,9 @@ def main(*, context: PlannerContext | None = None) -> int:
     parser.add_argument("--notes", default="", help="director feedback injected into this chapter's request")
     parser.add_argument("--grammar", type=Path, help="visual_grammar.json; defaults to <output-root>/<novel-id>/visual_grammar.json when present")
     parser.add_argument("--style", choices=tuple(style_names()), help="override profile.json style")
+    parser.add_argument("--planning-backend", choices=("local", "sandbox_agent"),
+                        help="override profile.json planning_backend for this run")
+    parser.add_argument("--agent-skill", help="override profile.json agent_skill for this run")
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")
