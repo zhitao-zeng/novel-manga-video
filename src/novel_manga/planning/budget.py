@@ -62,7 +62,8 @@ def directed_duration_problem(seconds: float, maximum: float | None) -> str | No
 def validate_duration(normalized, ctx, errors, warnings):
     clip_seconds: dict[str, float] = {}
     for shot in normalized:
-        seconds = float(shot['duration_seconds']) if shot.get('scene_id') and 'duration_seconds' in shot else pc_text.stage_seconds(shot["turns"], ctx=ctx)
+        # same rule as ClipCompiler.shot_seconds: a planned length is a planned length
+        seconds = float(shot['duration_seconds']) if 'duration_seconds' in shot else pc_text.stage_seconds(shot["turns"], ctx=ctx)
         clip_seconds[shot["clip_hint"]] = round(clip_seconds.get(shot["clip_hint"], 0.0) + seconds, 2)
     for clip_id, seconds in clip_seconds.items():
         if seconds > ctx.max_clip_seconds + pc_constants.CLIP_SECONDS_TOLERANCE:

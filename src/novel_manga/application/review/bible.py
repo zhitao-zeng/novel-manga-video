@@ -50,7 +50,7 @@ def reading_decisions(novel_dir: Path) -> dict:
     Inside it, a form the reading never promoted to a character is a decision about that form.  Outside
     it, absence means nothing at all.
     """
-    empty = {"roster": [], "declined": [], "chapters": []}
+    empty = {"roster": [], "cast": [], "declined": [], "chapters": []}
     path = Path(novel_dir) / "reading_cast.json"
     if not path.is_file():
         return empty
@@ -61,6 +61,8 @@ def reading_decisions(novel_dir: Path) -> dict:
     names = [str(n).strip() for n in data.get("characters") or [] if str(n).strip()]
     names += [str(a).strip() for a in (data.get("aliases") or {}) if str(a).strip()]
     return {"roster": names,
+            # the characters alone: an alias key is legitimately an alias, a character is not
+            "cast": [str(n).strip() for n in data.get("characters") or [] if str(n).strip()],
             "declined": [str(n).strip() for n in data.get("declined") or [] if str(n).strip()],
             "chapters": [int(c) for c in data.get("chapters") or [] if str(c).isdigit()]}
 
@@ -134,13 +136,15 @@ def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None
             model_client.log(f"bible: reading says these are extras, not adding: {turned_down}")
     report = {"policy": review_contracts.POLICY, "bible_characters": known, "extracted": counts, "missing": missing, "filled": [], "needs_human": {}, "suggestions": {}}
     if fill and missing:
-        bible, report["filled"], report["needs_human"], report["suggestions"] = fill_characters(bible, bible_path, missing, novel.text)
+        bible, report["filled"], report["needs_human"], report["suggestions"] = fill_characters(
+            bible, bible_path, missing, novel.text, reading_decisions(novel_dir)["cast"])
     atomic_write_json(novel_dir / "bible_review.json", report)
     model_client.log(f"bible: missing {list(missing) or 'none'}; added {report['filled'] or 'nothing'}; for a human: {list(report['needs_human']) or 'nothing'}")
     return report
 
 
-def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: dict, text: str) -> tuple[review_models_StoryBible, list[str], dict, dict]:
+def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: dict, text: str,
+                    cast: list[str] | None = None) -> tuple[review_models_StoryBible, list[str], dict, dict]:
     """Ask for casting entries for the missing names; add the confident proper
     names, keep appellations and vague entries as suggestions for a human."""
     known = [c.name for c in bible.characters]
@@ -180,7 +184,11 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
             if name not in missing:
                 continue
             reason = ""
-            if row.get("same_as"):
+            # The reading read the whole book; this question is asked from inside one chapter.  When
+            # the two disagree about whether somebody exists, the reading wins - otherwise 伊文斯 is
+            # filed as another word for 布鲁斯·韦恩 and can never be bound again.
+            vouched = bool(cast) and story_names.name_matches(name, cast)
+            if row.get("same_as") and not vouched:
                 reason = f"疑为 {row['same_as']} 的别称"
             elif float(row.get("confidence", 0)) < 0.6:
                 reason = f"把握不足（{row.get('confidence')}）"
@@ -352,9 +360,15 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     needs_human: dict = {}
     suggestions: dict = {}
     if missing:
-        bible, filled, needs_human, suggestions = fill_characters(bible, bible_path, missing, chapter_text)
+        cast = reading_decisions(novel_dir)["cast"]
+        bible, filled, needs_human, suggestions = fill_characters(bible, bible_path, missing, chapter_text, cast)
         for name, entry in suggestions.items():
             target = str(entry.get("same_as") or "")
+            if cast and story_names.name_matches(name, cast):
+                # Never write down that one of the book's own characters is somebody else's nickname.
+                model_client.log(f"bible ch{chapter_index}: 读书把 {name} 列为独立角色，"
+                                 f"不采信「疑为 {target} 的别称」")
+                continue
             if target and story_names.name_matches(target, known):
                 aliases[name] = next(k for k in known if story_names.name_matches(target, [k]))
         if aliases:

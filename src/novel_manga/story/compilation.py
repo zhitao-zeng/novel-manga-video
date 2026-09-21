@@ -176,7 +176,10 @@ class ClipCompiler:
     compact = staticmethod(compact)
 
     def shot_seconds(self, shot: dict) -> float:
-        if shot.get('scene_id') and 'duration_seconds' in shot:
+        # A length someone planned, whatever planned it.  The condition also required a scene_id,
+        # which only the local scene method sets, so an authored sheet's 预算秒 was ignored and a
+        # 12-second authored action shot came back estimated as a generic silent stage.
+        if 'duration_seconds' in shot:
             return float(shot['duration_seconds'])
         seconds = 1.0
         for turn in shot["turns"]:

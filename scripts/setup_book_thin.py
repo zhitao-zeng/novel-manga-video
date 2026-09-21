@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -73,25 +74,41 @@ def env_value(name: str) -> str:
     return ""
 
 
-def preflight(config: dict) -> tuple[dict, list[str]]:
-    """Every endpoint this run needs, checked before the first minute is spent on any of them."""
+def container_running(name: str) -> bool:
+    """Whether a container by this name is up right now, so a rerun cannot delete a live run's files."""
+    try:
+        result = subprocess.run(["docker", "ps", "--filter", f"name=^{name}$", "--format", "{{.Names}}"],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return name in result.stdout.split()
+
+
+def preflight(config: dict, *, reading: bool) -> tuple[dict, list[str]]:
+    """Every endpoint THIS run needs, checked before the first minute is spent on any of them.
+
+    Only the ones it needs: --skip-read consumes a merge that already happened, and holding it back
+    because the per-chapter extraction endpoints are down blocks a recovery on a service it will not
+    call.  A check that fails for something the run never touches is noise standing in a doorway.
+    """
     problems: list[str] = []
     overrides: dict[str, str] = {}
 
-    extractors = [e.strip() for e in env_value("QWEN38_LOCAL_BASE_URL").split(",") if e.strip()]
-    live = [e for e in extractors if alive(e)]
-    if not live:
-        problems.append("逐章提取没有可用端点：QWEN38_LOCAL_BASE_URL 里的实例都连不上")
-    else:
-        overrides["QWEN38_LOCAL_BASE_URL"] = ",".join(live)
-        if len(live) < len(extractors):
-            log(f"提取端点 {len(live)}/{len(extractors)} 可用，跳过死的：{set(extractors) - set(live)}")
+    if reading:
+        extractors = [e.strip() for e in env_value("QWEN38_LOCAL_BASE_URL").split(",") if e.strip()]
+        live = [e for e in extractors if alive(e)]
+        if not live:
+            problems.append("逐章提取没有可用端点：QWEN38_LOCAL_BASE_URL 里的实例都连不上")
+        else:
+            overrides["QWEN38_LOCAL_BASE_URL"] = ",".join(live)
+            if len(live) < len(extractors):
+                log(f"提取端点 {len(live)}/{len(extractors)} 可用，跳过死的：{set(extractors) - set(live)}")
 
     key = env_value(config["key_var"])
     agent_url = config["base_url"].rstrip("/") + "/v1"
     if not key:
         problems.append(f"归并要的密钥不在 .env：{config['key_var']}")
-    elif not alive(agent_url, key):
+    elif reading and not alive(agent_url, key):
         problems.append(f"归并端点连不上：{config['base_url']}")
 
     bible_url = env_value("NOVEL_LLM_BASE_URL")
@@ -124,7 +141,7 @@ def main() -> int:
     args = parser.parse_args()
 
     config = json.loads(SANDBOX.read_text(encoding="utf-8"))
-    overrides, problems = preflight(config)
+    overrides, problems = preflight(config, reading=not args.skip_read)
     for problem in problems:
         log("✗ " + problem)
     if problems:
@@ -151,8 +168,19 @@ def main() -> int:
         # 2+3. 逐章读，再把归并交给沙箱里的 agent
         run_dir = Path(config["runs_root"]) / run_name
         if run_dir.exists():
-            log(f"清掉上一次的归并目录（规则可能改过，输入必须重新生成）：{run_dir}")
-            subprocess.call(["rm", "-rf", str(run_dir)])
+            if container_running(f"agent-{run_name}"):
+                log(f"✗ 归并容器还在跑：agent-{run_name}。先等它跑完或停掉，别删它正在写的目录")
+                return 2
+            # The inputs and the outputs are regenerated, so they go; attempts/ is the record of what
+            # actually ran and with which skills, and deleting that is how a rerun erases the only
+            # evidence of why the last one came out the way it did.
+            log(f"清掉上一次的输入和产出（规则可能改过，输入必须重新生成），保留 attempts/：{run_dir}")
+            for name in ("input", "output", "prompt.txt", ".claude"):
+                target = run_dir / name
+                if target.is_dir():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
         code = run([python, "scripts/lean_bible_thin.py", "--novel-dir", str(novel_dir),
                     "--chapters", args.chapters, "--agent-input", str(run_dir)],
                    overrides, "逐章读 + 写归并输入")

@@ -47,8 +47,13 @@ def flatten_clips(raw: dict) -> list[dict]:
                     "sfx": stage.get("sfx", ""),
                     "shot_scale": stage.get("shot_scale", "中近景"),
                     "turns": list(stage.get("turns") or []),
+                    # An authored sheet's own shot number, planned length and camera angle travel with
+                    # the shot.  They used to stop here: the whitelist carried the local scene method's
+                    # fields and not the sheet's, so a 12-second authored action shot arrived with no
+                    # length at all and was estimated as a generic silent stage.
                     **{k: stage[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
-                       'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut') if k in stage},
+                       'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut',
+                       'authored_id', 'authored_seconds', 'authored_angle') if k in stage},
                 }
             )
     return shots
@@ -143,7 +148,8 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "shot_scale": str(shot.get("shot_scale") or "中近景"),
             "origin_index": len(normalized) + 1,
             **{k: shot[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
-               'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut') if k in shot},
+               'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut',
+               'authored_id', 'authored_seconds', 'authored_angle') if k in shot},
             **({'in_frame': characters} if shot.get('scene_id') else {}),
         }
         framed, notes = visible_speaker_shots(base, turns_out, visible, position)

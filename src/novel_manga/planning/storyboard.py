@@ -19,6 +19,61 @@ REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
 # A shot is numbered 1, 2, S03; a footer's first cell is empty or a sentence (合计：101 秒 / 12 镜).
 SHOT_ID = re.compile(r"[A-Za-z0-9._-]{1,8}")
 
+# The 台词 / 声音 column, in the one shape planning/authored_brief.py asks the author for.  Parsed here
+# and nowhere else: the audit checked the format with its own copy of this regex while the binder asked
+# a model to write the dialogue over again, so a cell could be legal, checked, and still not be what
+# reached the video.  An author who writes a legal cell gets those words, that speaker and that manner.
+SPOKEN_LINE = re.compile(r"^(.+?)（([^）]*)）：“(.*)”$")
+SOUND_PREFIX = "声音："
+# The five the brief allows, and what each means downstream.  内心独白 is heard in the character's own
+# voice with the mouth closed, which is the offscreen delivery, not a separate mode.
+DELIVERY_LABELS = {"说": "visible_dialogue", "画外音": "offscreen_dialogue",
+                   "内心独白": "offscreen_dialogue", "唱": "singing", "聊天消息": "chat_message"}
+
+
+@dataclass(frozen=True)
+class AuthoredSound:
+    """One 台词 / 声音 cell: the lines the author wrote, the ambient sound, and what did not parse."""
+    turns: tuple[dict, ...]
+    sfx: str
+    problems: tuple[tuple[str, str], ...]  # (line, why)
+
+    @property
+    def speakers(self) -> list[str]:
+        return list(dict.fromkeys(turn["written_speaker"] for turn in self.turns))
+
+
+def authored_sound(cell: str) -> AuthoredSound:
+    """Split a 台词 / 声音 cell into spoken turns and ambient sound.
+
+    `written_speaker` is the name as the author typed it; resolving it to a cast member is a separate
+    judgement and the only part of this column a model is asked about.  `emotion` is the 语气 written
+    after the 、, which is how the line is spoken - the one thing the picture cannot carry.
+    """
+    turns, sounds, problems = [], [], []
+    for raw in str(cell or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith(SOUND_PREFIX):
+            rest = line[len(SOUND_PREFIX):].strip()
+            if rest:
+                sounds.append(rest)
+            continue
+        match = SPOKEN_LINE.match(line)
+        if not match:
+            problems.append((line, "要写成 说话人（发声方式）：“台词”"))
+            continue
+        manner = [part.strip() for part in match.group(2).split("、")]
+        if manner[0] not in DELIVERY_LABELS:
+            problems.append((line, f"发声方式写的是 {manner[0]!r}，只能是 {'/'.join(DELIVERY_LABELS)}"))
+            continue
+        turns.append({"written_speaker": match.group(1).strip(),
+                      "delivery_mode": DELIVERY_LABELS[manner[0]],
+                      "emotion": "、".join(p for p in manner[1:] if p),
+                      "text": match.group(3).strip()})
+    return AuthoredSound(tuple(turns), "，".join(sounds), tuple(problems))
+
 HEADERS = {
     "镜号": "authored_id",
     "摄影角度": "camera_angle",

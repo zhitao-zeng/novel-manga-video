@@ -121,7 +121,7 @@ def growth_candidates(tmp_path, monkeypatch, rows, *, aliases=None, cast=None, b
     if cast is not None:
         atomic_write_json(novel / "reading_cast.json", cast)
     built = []
-    def fill(bible_obj, bible_path, missing, text):
+    def fill(bible_obj, bible_path, missing, text, cast=None):
         built.extend(missing)
         return bible_obj, [], {}, {}
     monkeypatch.setattr(review_bible, "fill_characters", fill)
@@ -188,7 +188,7 @@ def unbound_growth(tmp_path, monkeypatch, actors, *, aliases=None, cast=None, bi
     atomic_write_json(novel / "bible_aliases.json", aliases or {})
     atomic_write_json(novel / "reading_cast.json", cast or {"characters": [], "aliases": {}})
     asked = []
-    def fill(bible_obj, bible_path, missing, text):
+    def fill(bible_obj, bible_path, missing, text, cast=None):
         asked.extend(missing)
         return bible_obj, list(missing), {}, {}
     monkeypatch.setattr(review_bible, "fill_characters", fill)
@@ -230,3 +230,39 @@ def test_someone_merely_mentioned_is_not_built(tmp_path, monkeypatch):
 
 def test_nothing_is_built_for_a_book_that_was_never_read(tmp_path, monkeypatch):
     assert unbound_growth(tmp_path, monkeypatch, [on_stage("猫女")]) == []
+
+
+# --- a one-chapter guess cannot demote one of the book's characters ------------------------------
+
+def test_a_character_the_reading_listed_never_becomes_somebody_elses_nickname(tmp_path, monkeypatch):
+    """fill_characters asks, from inside one chapter, which existing character a name is another word
+    for.  For 伊文斯 it answered 布鲁斯·韦恩, and that went into bible_aliases.json permanently: growth
+    then skipped him as an alias of someone who already had a card, and the binding refused to merge
+    two separate source actors onto one entity without evidence.  He was on stage, bound to nothing,
+    and every chapter he appears in was lost.
+    """
+    from novel_manga.application.review import bible as review_bible
+    from novel_manga.util import atomic_write_json
+    novel = tmp_path / "book"
+    novel.mkdir()
+    atomic_write_json(novel / "story_bible.json", {
+        "novel_title": "测试", "genre": "通用", "visual_style": "美漫", "palette": "冷蓝",
+        "style_fingerprint": "test", "locations": ["庭院：空旷院落"],
+        "characters": [{"name": "布鲁斯·韦恩", "role": "主角", "appearance": "黑发", "wardrobe": "西装"}]})
+    atomic_write_json(novel / "bible_aliases.json", {})
+    write_reading(novel)   # 布鲁斯·韦恩 and 阿尔弗雷德 are characters, 蝙蝠侠 and 阿福 aliases
+    atomic_write_json(novel / "reading_cast.json", {
+        "characters": ["布鲁斯·韦恩", "伊文斯"], "aliases": {"蝙蝠侠": "布鲁斯·韦恩"},
+        "declined": [], "chapters": [1, 2]})
+
+    def fill(bible_obj, bible_path, missing, text, cast=None):
+        # what the model actually answered for this chapter
+        rows = {name: {"same_as": "布鲁斯·韦恩"} for name in missing}
+        vouched = {n for n in rows if cast and review_bible.story_names.name_matches(n, cast)}
+        return bible_obj, sorted(vouched), {}, {n: r for n, r in rows.items() if n not in vouched}
+
+    monkeypatch.setattr(review_bible, "fill_characters", fill)
+    monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
+    review_bible._grow_bible_unlocked(novel, "原文", 2, scan={"names": [row("伊文斯")], "locations": []})
+    aliases = json.loads((novel / "bible_aliases.json").read_text(encoding="utf-8"))
+    assert "伊文斯" not in aliases

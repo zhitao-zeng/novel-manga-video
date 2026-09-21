@@ -13,7 +13,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DELIVERY_MODES = ("说", "画外音", "内心独白", "唱", "聊天消息")
 # A card draws one person alone; these say the description is about them and somebody else.
 RELATION_WORDS = ("挽着", "搀着", "牵着", "抱着", "扶着", "跟在", "陪着", "依偎", "的胳膊",
                   "身边", "身后", "身旁", "旁边")
@@ -167,20 +166,33 @@ def check_clip_plan(novel_dir: Path, bible: dict, audit: Audit) -> None:
         except (OSError, ValueError) as error:
             audit.add("错", f"分集 {episode}", "clip_plan 读不出来", str(error))
             continue
+        # What the clip is actually allowed to be, as the plan itself recorded it: the 4-15 s window is
+        # the local H3's, and holding an sd2.5 plan to it reports errors that are not errors.
+        cap = float((plan.get("limits") or {}).get("max_clip_seconds")
+                    or (15 if "-15s" in str(plan.get("policy", "")) else 30))
         for clip in plan.get("clips", []):
+            if clip.get("kind") == "title_card":
+                continue
             where = f"{episode}/{clip.get('clip_id')}"
             location = str(clip.get("location") or "").strip()
             if not location:
                 audit.add("错", where, "镜头没有地点", "空场卡无从选起")
             elif location not in names:
                 audit.add("错", where, "地点不在圣经里", f"用了 {location!r}，圣经的地点名里没有这个")
-            for person in clip.get("characters", []) or []:
+            # The field is `cast`; this read `characters`, which a clip plan does not have, so every
+            # name came back as an empty list and the check passed on data it never saw.  A gate that
+            # reads the wrong field is worse than no gate: it leaves a record saying it looked.
+            if "cast" not in clip:
+                audit.add("错", where, "镜头没有演员表字段", "clip 里没有 cast，无从核对人物")
+            for person in clip.get("cast") or []:
                 if person and person not in cast:
                     audit.add("错", where, "角色不在圣经里",
                               f"{person!r} 没有角色卡，渲染时只能当路人画")
-            seconds = clip.get("seconds") or clip.get("duration")
-            if isinstance(seconds, (int, float)) and not 4 <= float(seconds) <= 15:
-                audit.add("错", where, "时长超出 H3 范围", f"{seconds} 秒，本地 H3 只接 4–15 秒")
+            seconds = clip.get("request_seconds")
+            if not isinstance(seconds, (int, float)):
+                audit.add("错", where, "镜头没有时长字段", "clip 里没有 request_seconds，无从核对片长")
+            elif not 4 <= float(seconds) <= cap:
+                audit.add("错", where, "时长超出可渲染范围", f"{seconds} 秒，这一集的上限是 4–{cap:g} 秒")
 
 
 def check_storyboard(directory: Path, bible: dict, audit: Audit, pattern: str = "**/*.xlsx") -> None:
@@ -203,20 +215,11 @@ def check_storyboard(directory: Path, bible: dict, audit: Audit, pattern: str = 
                 audit.add("错", where, "一行都没有", "九列表头在，但没有镜头")
             for row in sheet.rows:
                 shot = row.get("authored_id") or "?"
-                sound = str(row.get("authored_sound") or "")
-                for line in sound.splitlines():
-                    line = line.strip()
-                    if not line or line.startswith("声音："):
-                        continue
-                    match = re.match(r"^(.+?)（([^）]*)）：“(.*)”$", line)
-                    if not match:
-                        audit.add("错", f"{where}·{shot}", "台词格式不对",
-                                  "要写成 说话人（发声方式）：“台词”", line[:60])
-                        continue
-                    mode = match.group(2).split("、")[0]
-                    if mode not in DELIVERY_MODES:
-                        audit.add("错", f"{where}·{shot}", "发声方式不在五选一里",
-                                  f"写的是 {mode!r}，只能是 {'/'.join(DELIVERY_MODES)}", line[:60])
+                # The same parser the binder uses, so "the audit passed it" and "the binder can read
+                # it" cannot come apart.  They used to be two copies of one regex, and the binder did
+                # not read this column at all - it asked a model to write the dialogue over again.
+                for line, why in sb.authored_sound(row.get("authored_sound") or "").problems:
+                    audit.add("错", f"{where}·{shot}", "台词这一格读不通", why, line[:60])
                 location = str(row.get("location") or "").strip()
                 if location and names and location not in names:
                     audit.add("漏", f"{where}·{shot}", "场景名对不上圣经",

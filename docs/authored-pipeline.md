@@ -77,7 +77,9 @@ python scripts/plan_chapter_thin.py --novel-dir outputs/<书> --chapter 1 \
 python scripts/thin_batch.py --novel-dir outputs/<书> --chapters 1 --no-eager-cards
 ```
 
-绑定用的是**只填空的 schema**：九个人写的列不在 schema 里，模型只能填 `segment_id`、`source_quote`、`location`、`turns` 这些。给全量 schema 再叮嘱"别改"，14 个镜头只保住 1 个；只填空保住 14 个，文字相似度 86–98%。
+绑定用的是**只填空的 schema**：人写的列不在 schema 里，模型只能填 `segment_id`、`source_quote`、`start_state`、`light` 这些技术字段。给全量 schema 再叮嘱"别改"，14 个镜头只保住 1 个；只填空保住 14 个，文字相似度 86–98%。
+
+「只填空」原先只管住九列里的三列。`场景` 和 `台词 / 声音` 也是人写的——任务包给了它们固定的可解析格式，审计器也在查这个格式——却仍旧列在 schema 里让模型自由作答，于是一格合法且查过的台词，到了视频里可能是另一句话、在另一个地方。现在这两列由 `planning/storyboard.py::authored_sound` 解析，模型只回答表格本身答不了的两件事：**写的这个说话人是演员表里的谁**、**写的这个场景名是圣经里的哪个地点**。两者都按「不同的写法」各答一次、全章通用，所以 `书房` 可以归一化成 `书房（宅邸）`，但不会在某一镜变成 `庭院`。镜号、预算秒和摄影角度也随镜头一路带下去：预算秒就是下游估时用的 `duration_seconds`。
 
 ## 地点没描写怎么办
 
