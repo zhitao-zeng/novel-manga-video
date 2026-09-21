@@ -24,7 +24,7 @@ from pathlib import Path
 from novel_manga.media.asset_style import CARD_STYLE_SUFFIX_3D
 from novel_manga.media.asset_builder import FramedAssetFactory
 from novel_manga.media.asset_policy import ModerationRejected
-from novel_manga.media.asset_style import AssetStyle, wants_3d_card
+from novel_manga.media.asset_style import AssetStyle, card_suffix as style_card_suffix, wants_3d_card
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
 from novel_manga.application.identity.phases import load_phases, phased
@@ -116,8 +116,8 @@ def main() -> int:
                 family=asset_style.render_family, direction=asset_style.render_direction,
                 fingerprint=asset_style.prompt_fingerprint,
             ) + guard
-            if wants_3d_card(asset_style, bible):
-                prompt += CARD_STYLE_SUFFIX_3D
+            prompt += style_card_suffix(asset_style, bible) or (
+                CARD_STYLE_SUFFIX_3D if wants_3d_card(asset_style, bible) else "")
             directory.mkdir(parents=True, exist_ok=True)
             spec = {
                 "asset_id": asset_id, "base_asset": base_id, "phase": phase.get("label", ""),

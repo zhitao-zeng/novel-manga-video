@@ -6,7 +6,7 @@ from novel_manga.models.bible import StoryBible
 from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from ..util import atomic_write_json
 from .common import sha256_text, log
-from .asset_style import AssetStyle, wants_3d_card as _wants_3d_card
+from .asset_style import AssetStyle, card_suffix as _card_suffix
 from .asset_specs import character_spec, location_spec
 from .asset_prompts import character_prompt, expression_prompt as make_expression_prompt, location_prompt
 from .asset_images import ensure_image
@@ -96,10 +96,9 @@ class FramedAssetFactory:
                 family=self.style.render_family, direction=self.style.render_direction,
                 fingerprint=self.style.prompt_fingerprint,
             ) + guard
-            if _wants_3d_card(self.style, bible):
-                # Modern-dress 3D cards came out near-photoreal and were then
-                # redrawn by the review; ask for the animated look up front.
-                prompt += self.style.card_style_suffix_3d
+            # Modern-dress 3D cards came out near-photoreal and were then
+            # redrawn by the review; ask for the drawn look up front.
+            prompt += _card_suffix(self.style, bible)
             spec = character_spec(asset_id, character, bible, prompt)
             invariants, state, scope = spec['identity_invariants'], spec['state_variables'], spec['reference_scope']
             atomic_write_json(directory / "spec.json", spec)

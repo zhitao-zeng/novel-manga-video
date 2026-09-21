@@ -144,7 +144,13 @@ def main() -> int:
     if not grammar_path.is_file():
         grammar = json.loads((TEMPLATES / "visual_grammar.json").read_text(encoding="utf-8"))
         grammar["location_time"] = {location.split("：", 1)[0].strip(): "" for location in bible.locations}
-        grammar["rejects"] = list(dict.fromkeys([*grammar.get("rejects", []), *genre.get("grammar_rejects_extra", [])]))
+        style_pack = load_style(profile)
+        # The template's rejects assume a Chinese-animation look. A style that renders
+        # differently drops the ones it contradicts and states its own.
+        dropped = tuple(style_pack.get("grammar_rejects_drop") or ())
+        rejects = [r for r in [*grammar.get("rejects", []), *genre.get("grammar_rejects_extra", [])]
+                   if not any(word in r for word in dropped)]
+        grammar["rejects"] = list(dict.fromkeys([*rejects, *(style_pack.get("grammar_rejects_extra") or [])]))
         grammar["name"] = f"{grammar['name']} · 题材预设：{genre['name']}"
         atomic_write_json(grammar_path, grammar)
     chat_path = novel_dir / "chat_screen.json"

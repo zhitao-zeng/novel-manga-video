@@ -24,6 +24,9 @@ class AssetStyle:
     # The fingerprint is a cache key; a style package may keep it out of the
     # image prompt, where a hex string says nothing to the model.
     prompt_fingerprint: bool = True
+    # True when the style stated card_suffix itself, so it applies whatever it
+    # renders in; otherwise the wording is the 3D-only genre default.
+    declares_card_suffix: bool = False
 
     @classmethod
     def for_genre(cls, genre, *, frame_text='竖屏9:16', style=None):
@@ -32,6 +35,7 @@ class AssetStyle:
             render_family=style.get('render_family', ''),
             render_direction=style.get('render_direction', ''),
             prompt_fingerprint=bool(style.get('prompt_fingerprint', True)),
+            declares_card_suffix=bool(style.get('card_suffix')),
             # The style decides how it is drawn; the genre decides what may exist in that
             # world (scales and wing membranes in fantasy, European faces in gaslamp), so a
             # genre that states its own wording still wins.
@@ -41,6 +45,15 @@ class AssetStyle:
             card_style_suffix_3d=style.get('card_suffix') or genre.get('card_style_suffix_3d') or CARD_STYLE_SUFFIX_3D,
             location_empty_suffix=('。主体空无一人：近景和中景不出现任何人物或人形剪影，远处允许少量模糊的背景行人'
                                    if genre.get('location_policy') == 'sparse' else LOCATION_EMPTY_SUFFIX))
+
+
+def card_suffix(style: AssetStyle, bible) -> str:
+    """What a card prompt appends. A style that states its own wording gets it in any
+    render family - an ink-and-flat-colour look needs its suffix as much as a 3D one.
+    Otherwise the genre/3D default stands, and only for a 3D look."""
+    if style.declares_card_suffix:
+        return style.card_style_suffix_3d
+    return style.card_style_suffix_3d if wants_3d_card(style, bible) else ""
 
 
 def wants_3d_card(style: AssetStyle, bible) -> bool:
