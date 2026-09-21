@@ -181,7 +181,7 @@ def candidate_table(title: str, candidates: dict, last_chapter: int) -> str:
 
 
 MERGE_SCHEMA = {
-    "type": "object", "additionalProperties": False, "required": ["characters", "locations"],
+    "type": "object", "additionalProperties": False, "required": ["characters"],
     "properties": {
         "characters": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
@@ -202,6 +202,12 @@ MERGE_SCHEMA = {
                     "required": ["chapter", "quote"],
                     "properties": {"chapter": {"type": "integer"}, "quote": STR}}},
                 "unresolved": {"type": "array", "items": STR}}}},
+    },
+}
+
+MERGE_LOCATIONS_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["locations"],
+    "properties": {
         "locations": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
             "required": ["name", "description", "first_chapter", "chapters"],
@@ -237,7 +243,13 @@ MERGE_PROMPT = """前一步已经把《{title}》第 1–{last} 章逐章读过�
 
 原文写明年龄不满 18、或身份是在校学生一类的人物，`appearance` 和 `wardrobe` **一律不写身材**。禁止出现胸、腰、臀、腿、曲线、身材、凹凸、丰满、纤细、玲珑、婀娜一类词，也不要用"身姿""体态"绕开；只写脸、发、神态、衣着款式与颜色。即使原文写了，也不照抄。
 
-## 地点
+只输出 JSON。
+
+{table}"""
+
+MERGE_LOCATIONS_PROMPT = """前一步已经把《{title}》第 1–{last} 章逐章读过，下面是汇总出来的候选表。
+
+请从表里的地点一节，整理出这本书的空场景清单。
 
 候选表的地点一节给了每个地方逐章的空场描写。把同一个地方的几条合成一条 `description`：这个地方长期不变的样子——建筑结构、空间布局、固定陈设与材质，最后交代常态下的时段与主光源。不写任何人、人群、人影或剪影，也不写只属于某一场戏的临时状态。写到碑文、匾额、招牌这类本来有字的东西时，写成看不出字形的样子（风化的刻痕、磨平的笔画），不要写可辨读的文字。
 
@@ -248,3 +260,54 @@ MERGE_PROMPT = """前一步已经把《{title}》第 1–{last} 章逐章读过�
 只输出 JSON。
 
 {table}"""
+
+
+# The same rules, addressed to an agent that writes files instead of returning one answer.  The rules
+# themselves are MERGE_PROMPT's; only the delivery changes.
+MERGE_BRIEF_TAIL = """
+## 导出（写进 `output/export/`）
+
+**1. `story_bible.json`**
+
+```json
+{"characters": [
+  {"name": "正名", "name_source": "原文|描述", "aliases": ["有同指证据的别名"],
+   "tier": "主要|重要|次要|龙套", "gender": "男|女|未写明",
+   "age": "原文写明的年龄或年龄段，没有就写 未写明",
+   "identity": "身份、所属势力（原文有据）",
+   "appearance": "原文有据的外貌，没有就写空字符串",
+   "wardrobe": "原文有据的服装，没有就写空字符串",
+   "first_chapter": 1, "chapters": [1, 2, 5],
+   "evidence": [{"chapter": 1, "quote": "不超过 30 字的原文"}],
+   "unresolved": ["未决的指代或矛盾"]}],
+ "locations": [
+  {"name": "地点名", "description": "原文有据的空场描写", "first_chapter": 1, "chapters": [1, 3]}]}
+```
+
+**2. `bible_aliases.json`**：`{"别名": "正名"}`，只放有同指证据的。
+
+**3. `phases.json`**：外观、形态或身份发生**持久**变化的人物。一场戏里的临时状态不算。
+
+```json
+{"policy": "phase-cards-v1",
+ "characters": {"正名": [
+   {"from": 起始章, "to": 结束章或 null, "label": "阶段名",
+    "appearance": "这一阶段原文有据的外貌", "wardrobe": "这一阶段的服装",
+    "evidence": [{"chapter": 1, "quote": "不超过 30 字的原文"}]}]}}
+```
+
+没有就写 `{"policy": "phase-cards-v1", "characters": {}}`。
+
+**4. `report.md`**：每个合并和拆分的决定，写依据（章号加原文短引）；最后写你没把握的地方。
+
+原文在 `input/source.md`，需要核对上下文时用 `grep -n` 查。不要用子代理，不要联网，只读原文和候选表。
+一边判一边写，不要等到最后一次性输出——文件是逐个写的，一份写完再写下一份。
+"""
+
+
+def merge_brief(title: str, last: int, table_file: str = "input/candidates.md") -> str:
+    """The merge rules as a brief for an agent, pointing at the table instead of carrying it."""
+    body = MERGE_PROMPT.format(title=title, last=last, table="").rstrip()
+    body = body.replace("汇总结果就是下面这张候选表。", "汇总结果就是候选表。")
+    body = body.replace("只输出 JSON。", f"候选表在 `{table_file}`，完整机读版在 `input/candidates.json`。")
+    return "# 任务说明：人物与地点归并\n\n" + body + MERGE_BRIEF_TAIL

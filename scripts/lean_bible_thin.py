@@ -11,8 +11,17 @@ appearance, wardrobe and casting profile, because those came from a prompt that 
 them and this pass only quotes the source.  Same for locations: a new place arrives as 名字：描写, and
 one already in the bible is left alone.
 
-    python scripts/lean_bible_thin.py --novel-dir outputs/X --chapters 1-5           # read only
-    python scripts/lean_bible_thin.py --novel-dir outputs/X --chapters 1-5 --into-bible
+归并走 agent：仓库写输入，沙箱跑，仓库读 output/export/ —— 和技能写分镜是同一个接缝。
+
+    python scripts/lean_bible_thin.py --novel-dir outputs/X --chapters 1-100 \
+        --agent-input /mnt/disk1/zengzhitao/tmp/agent-sandbox/runs/<名字>
+    # 然后在沙箱里：AGENT_MODEL=Qwen3.8-Flash-Next bash run_skill_keyed.sh <名字> runs/<名字>/prompt.txt
+
+不带 --agent-input 时走单次调用，那是**小书的近路**：一本书的条目装不进一次响应。
+超品相师 1-100 同一份候选表，agent 写出 54 个人物 183 个地点（87 KB），单次调用只拿到 44 个人物、
+地点为空。判断需要全书视野说的是输入；写出答案不需要，agent 一次写一个文件天然把它拆开了。
+
+    python scripts/lean_bible_thin.py --novel-dir outputs/X --chapters 1-5 --into-bible   # 小书
 """
 from __future__ import annotations
 
@@ -120,6 +129,53 @@ def missing_locations(bible: dict, export: dict) -> list[dict]:
     return out
 
 
+def rendered_cast(novel_dir: Path) -> set[str]:
+    """Names that appear in an episode which already has a finished video."""
+    out: set[str] = set()
+    for episode_dir in novel_dir.glob("*"):
+        if not episode_dir.is_dir() or not list(episode_dir.glob("*.mp4")):
+            continue
+        script = episode_dir / "chapter_script.json"
+        if not script.is_file():
+            continue
+        try:
+            shots = json.loads(script.read_text(encoding="utf-8")).get("shots", [])
+        except (OSError, ValueError):
+            continue
+        for shot in shots:
+            out.update(shot.get("characters") or [])
+            for stage in shot.get("stages") or []:
+                out.update(stage.get("in_frame") or [])
+    return out
+
+
+def declined_cast(bible: dict, export: dict, candidates: dict) -> list[dict]:
+    """Bible characters the reading did not make an entry for, with the evidence behind that.
+
+    The reading keeps a descriptor only when three or more chapters use it for the same person; the
+    rest are extras.  Each one here costs a card that the story never reuses.
+    """
+    kept = {person["name"] for person in export.get("characters", [])}
+    for person in export.get("characters", []):
+        kept.update(person.get("aliases") or [])
+    listed = {row["form"]: row for row in candidates.get("forms", [])}
+    out = []
+    for character in bible.get("characters", []):
+        if not isinstance(character, dict):
+            continue
+        name = character.get("name", "")
+        if not name or name in kept:
+            continue
+        row = listed.get(name, {})
+        out.append({"name": name,
+                    "chapters": len(row.get("listed") or []),
+                    "on_stage": len(row.get("on_stage") or []),
+                    "speaks": len(row.get("speaks") or []),
+                    "appearance": str(character.get("appearance") or "")[:40]})
+    out.sort(key=lambda item: (-item["chapters"], item["name"]))
+    return out
+
+
 def fold_into_bible(novel_dir: Path, export: dict, add_locations: bool = False) -> dict:
     """Add what the reading found and the bible lacks; never overwrite what is already drawn.
 
@@ -176,11 +232,15 @@ def main() -> int:
     parser.add_argument("--novel-dir", required=True, type=Path)
     parser.add_argument("--chapters", required=True, help="例如 1-5 或 1,3,5")
     parser.add_argument("--judge", default="flashnext", help="归并用哪个端点：flashnext / local")
+    parser.add_argument("--agent-input", type=Path,
+                        help="主路径：把归并交给沙箱里的 agent，输入写到这个目录，跑完读 output/export/")
     parser.add_argument("--endpoints", help="逐章提取用的端点，逗号分隔；默认读 .env 的 Qwen 列表")
     parser.add_argument("--out", type=Path, help="中间结果目录，默认 <novel-dir>/lean")
     parser.add_argument("--into-bible", action="store_true", help="把读到的人物和别名并进 story_bible.json")
     parser.add_argument("--add-missing-locations", action="store_true",
                         help="圣经没有的地方按名字加进去，再用 fill_locations_thin 补描写")
+    parser.add_argument("--demote-extras", action="store_true",
+                        help="把读书判定为路人的角色从圣经里去掉：他们靠画面文字和匿名说话人出镜，不画卡")
     args = parser.parse_args()
 
     novel_dir = args.novel_dir if args.novel_dir.is_absolute() else ROOT / args.novel_dir
@@ -208,10 +268,37 @@ def main() -> int:
     (out_dir / "candidates.md").write_text(table, encoding="utf-8")
     print(f"候选表：{len(candidates['forms'])} 个称谓、{len(candidates['locations'])} 个地点")
 
+    if args.agent_input:
+        # The repo writes the input, the sandbox runs the agent, the repo reads output/export/ -
+        # the same seam the authoring skills already use.
+        directory = args.agent_input
+        (directory / "input").mkdir(parents=True, exist_ok=True)
+        (directory / "output").mkdir(parents=True, exist_ok=True)
+        (directory / "input" / "candidates.md").write_text(table, encoding="utf-8")
+        (directory / "input" / "candidates.json").write_text(
+            json.dumps(candidates, ensure_ascii=False, indent=1), encoding="utf-8")
+        (directory / "input" / "任务说明_归并.md").write_text(
+            lean.merge_brief(title, wanted[-1]), encoding="utf-8")
+        (directory / "input" / "source.md").write_text(
+            "\n\n".join(texts[chapter] for chapter in sorted(texts)), encoding="utf-8")
+        (directory / "prompt.txt").write_text(
+            "这是一次无人值守的批量运行，没有人会回复你，不要停下来等待回答。\n\n"
+            "请先完整读 input/任务说明_归并.md，再读 input/candidates.md，"
+            "按任务说明决定谁是谁、有哪些地点，把结果写进 output/export/。\n", encoding="utf-8")
+        print(f"agent 输入已写到 {directory}；候选表 {len(table)} 字，原文 {sum(len(t) for t in texts.values())} 字")
+        return 0
+
     started = time.time()
+    # Two calls over the same table: who is who and where is where are independent judgements, and a
+    # hundred chapters of both in one answer runs past the output budget half-written.
+    settings = judge_settings(args.judge)
     export = ask_json([{"type": "text", "text": lean.MERGE_PROMPT.format(
         title=title, last=wanted[-1], table=table)}], lean.MERGE_SCHEMA, name="lean_merge",
-        max_tokens=16000, timeout=1800, settings=judge_settings(args.judge))
+        max_tokens=32000, timeout=1800, settings=settings)
+    export["locations"] = ask_json([{"type": "text", "text": lean.MERGE_LOCATIONS_PROMPT.format(
+        title=title, last=wanted[-1], table=table)}], lean.MERGE_LOCATIONS_SCHEMA,
+        name="lean_merge_locations", max_tokens=32000, timeout=1800,
+        settings=settings).get("locations", [])
     (out_dir / "export.json").write_text(
         json.dumps(export, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"归并：{len(export['characters'])} 个人物、{len(export['locations'])} 个地点，"
@@ -230,6 +317,23 @@ def main() -> int:
         for place in absent:
             print(f"  {place['name']}（第{place['first_chapter']}章起，"
                   f"{len(place['chapters'])} 章）")
+
+    declined = declined_cast(bible, export, candidates)
+    if declined:
+        print(f"读书判定为路人的 {len(declined)} 个（圣经有、读书没建条目）——每个都在花一张卡：")
+        for item in declined:
+            print(f"  {item['name']}：出现 {item['chapters']} 章、在场 {item['on_stage']} 章、"
+                  f"说话 {item['speaks']} 章｜{item['appearance']}")
+        if args.demote_extras:
+            safe = rendered_cast(novel_dir)
+            removed = [item["name"] for item in declined if item["name"] not in safe]
+            kept_back = [item["name"] for item in declined if item["name"] in safe]
+            bible["characters"] = [c for c in bible.get("characters", [])
+                                   if not (isinstance(c, dict) and c.get("name") in removed)]
+            atomic_write_json(novel_dir / "story_bible.json", bible)
+            print(f"已从圣经去掉 {len(removed)} 个：{'、'.join(removed) or '无'}")
+            if kept_back:
+                print(f"留着没动（卡已经出现在成片里）：{'、'.join(kept_back)}")
 
     if args.into_bible:
         result = fold_into_bible(novel_dir, export, args.add_missing_locations)

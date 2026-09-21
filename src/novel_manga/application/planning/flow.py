@@ -81,7 +81,10 @@ def run(args, ctx: PlannerContext) -> int:
     ctx.story_blueprint = {}
     ctx.method_artifacts = {}
     genre = load_genre(profile)
-    ctx.anonymous_speakers = list(genre.get("anonymous_roles") or pc_constants.DEFAULT_ANONYMOUS_SPEAKERS)
+    # The book's own roles win over the genre's eight, and the file is read on every run so that a
+    # role added while reviewing cards is in the next plan without rebuilding anything.
+    ctx.anonymous_speakers = planner_context.anonymous_roles(
+        novel_dir, genre.get("anonymous_roles") or pc_constants.DEFAULT_ANONYMOUS_SPEAKERS)
     ctx.system_prompt = pc_constants.DEFAULT_SYSTEM_PROMPT
     # The brief's worked examples (light sources, avoid lines, text on props,
     # anonymous roles) come from the genre file; the xianxia wording in the

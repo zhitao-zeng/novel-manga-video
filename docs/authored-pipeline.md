@@ -27,9 +27,18 @@ python scripts/pipeline_audit.py --novel-dir outputs/<书> [--storyboard <目录
 python scripts/lean_bible_thin.py --novel-dir outputs/<书> --chapters 1-100 [--into-bible]
 ```
 
-逐章各读各的、并行打到本地 Qwen；再**一次调用**把所有章一起归并成人物表。
+逐章各读各的、并行打到本地 Qwen（100 章 300 秒）；再把所有章一起交给一个 agent 做归并。
 
-- 归并是一次调用，不是 agent 循环。agent 每一轮都要重读候选表，上下文只增不减：超品相师那次跑了 58 分钟、391k 输入 token 撞上 262k 窗口，报错退出，一个文件都没产出。同样的活一次调用 68 秒。
+```bash
+python scripts/lean_bible_thin.py --novel-dir outputs/<书> --chapters 1-100 --agent-input runs/<名字>
+# 沙箱里：AGENT_MODEL=Qwen3.8-Flash-Next bash run_skill_keyed.sh <名字> runs/<名字>/prompt.txt
+```
+
+- **归并必须走 agent**，因为它逐个写文件。一本书的条目装不进一次响应：超品相师 1-100 同一份候选表，
+  agent 写出 54 个人物 183 个地点（87 KB），单次调用只拿到 44 个人物、地点为空（输出截断）。
+  判断需要"一次看完全书"说的是**输入**；写出答案不需要。
+- **模型必须是 Flash-Next。** 试点在它上面成功四次（12–20 分钟）；用本地 27B 的两次都失败了——
+  一次跑满三小时超时，一次 391k 输入撞上 262k 窗口报错退出。**那是选错模型，不是架构问题。**
 - `--into-bible` **只并人物和别名**。它的长处是跨章认人；地点不如流水线自己的逐章提取——`诸葛庐` 会被当成一个地方（那里有 155 间房），描写里还会混进人。
 - 但它逐章读地点，而圣经只学规划器恰好用到的那些，所以它能报出**圣经压根没有的地方**。超品相师第 4 章从食堂走到寝室联谊晚会，圣经两个都没有，于是那场重逢被排在了酒店门口。这类缺口它会列出来，`--add-missing-locations` 按名字加进去，剩下的交给下一步。
 

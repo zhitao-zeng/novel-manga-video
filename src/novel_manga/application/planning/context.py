@@ -172,3 +172,27 @@ def load_entity_index(novel_dir: Path, chapter: int | None = None, *, ctx: Plann
         ctx.entity_generic[row["name"]] = bool(row.get("generic", len(row["name"]) < 3))
     ctx.forms_index.clear()
     return bool(ctx.entity_forms)
+
+
+def anonymous_roles(novel_dir: Path, fallback: list[str]) -> list[str]:
+    """Unnamed speakers this book may use, from <novel>/anonymous_roles.json, else the genre's.
+
+    A line spoken by someone the story never names has to land somewhere.  When it cannot, the
+    planner makes a character for them, and a character is a paid card that the book never reuses.
+    The file is a plain list so it can be edited between runs, and its entries are merged with the
+    genre's rather than replacing them - a book needs 无名路人 as much as it needs 无名宿管大爷.
+    """
+    path = novel_dir / "anonymous_roles.json"
+    own: list[str] = []
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            own = [str(role).strip() for role in (data.get("roles") if isinstance(data, dict) else data) or []]
+        except (OSError, ValueError, AttributeError):
+            own = []
+    seen, out = set(), []
+    for role in [*own, *fallback]:
+        if role and role not in seen:
+            seen.add(role)
+            out.append(role)
+    return out
