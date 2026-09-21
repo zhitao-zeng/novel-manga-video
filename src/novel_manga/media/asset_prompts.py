@@ -31,6 +31,12 @@ DIRECTION_DEFAULT = (
 BY_FAMILY = {"2d": DIRECTION_2D, "2.5d": DIRECTION_25D, "3d": DIRECTION_3D}
 
 
+def _end(text: str, tidy: bool) -> str:
+    """A bible field often ends in its own full stop and the template adds another.
+    Styles that ask to be tidied get one; the rest keep the text they were built with."""
+    return (str(text).rstrip("。；;，, ") + "。") if tidy else f"{text}。"
+
+
 def rendering_direction(bible: StoryBible, *, family: str = "", direction: str = "") -> str:
     """A style package states its render family and may carry its own wording;
     without either, read the family out of the style text as before."""
@@ -66,6 +72,7 @@ def character_prompt(
     family: str = "",
     direction: str = "",
     fingerprint: bool = True,
+    tidy: bool = False,
 ) -> str:
     identity = "；".join(
         item
@@ -80,11 +87,14 @@ def character_prompt(
         if item
     )
     prefix = (
-        f"{bible.visual_style}。" + (f"系列风格指纹 {bible.style_fingerprint}。" if fingerprint else "")
-        + f"{bible.palette}。"
-        f"角色资产：{name}；固定外貌：{appearance}；固定服装：{wardrobe}。"
+        _end(bible.visual_style, tidy) + (f"系列风格指纹 {bible.style_fingerprint}。" if fingerprint else "")
+        + _end(bible.palette, tidy)
+        + f"角色资产：{name}；固定外貌："
+        + (str(appearance).rstrip("。；;，, ") if tidy else str(appearance))
+        + "；固定服装："
+        + _end(wardrobe, tidy)
     )
-    return prefix + (f"{identity}。" if identity else "") + (
+    return prefix + (_end(identity, tidy) if identity else "") + (
         "只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；"
         "脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。"
         "双手自然放松，不拿食物、纸袋、武器或任何剧情道具。"
@@ -102,13 +112,14 @@ def expression_prompt(
     family: str = "",
     direction: str = "",
     fingerprint: bool = True,
+    tidy: bool = False,
 ) -> str:
     return (
         f"保持参考图中{ name }的脸型、年龄、发型、服装和"
-        f"{bible.style_fingerprint if fingerprint else '画风'}风格完全一致。"
-        "只画这个人物且只出现一次，生成四分之三正面单人胸像身份与表情锚点；"
-        f"角色表情幅度：{expression_profile or '克制自然、以眼神和眉形为主'}。"
-        "选择该角色最有辨识度、但尚未到剧情高潮的基础表情，"
+        + (f"{bible.style_fingerprint}风格完全一致。" if fingerprint else "画风完全一致。")
+        + "只画这个人物且只出现一次，生成四分之三正面单人胸像身份与表情锚点；"
+        + "角色表情幅度：" + _end(expression_profile or "克制自然、以眼神和眉形为主", tidy)
+        + "选择该角色最有辨识度、但尚未到剧情高潮的基础表情，"
         "眼睛、眉形和嘴部清晰无遮挡，肩颈与服装领口完整。"
         "不要表情九宫格、多头像、分身、拼贴；双手不持任何物品，简单背景，"
         f"{rendering_direction(bible, family=family, direction=direction)}；不要文字、Logo或水印。"
@@ -116,11 +127,14 @@ def expression_prompt(
 
 
 def location_prompt(bible: StoryBible, location: str, *, family: str = "", direction: str = "",
-                    fingerprint: bool = True) -> str:
+                    fingerprint: bool = True, scene_style: str = "", tidy: bool = False) -> str:
+    """scene_style replaces the character-shaped style text for an empty set: the book's
+    visual_style describes faces, skin and hair, none of which a room has."""
     return (
-        f"{bible.visual_style}。" + (f"系列风格指纹 {bible.style_fingerprint}。" if fingerprint else "")
-        + f"{bible.palette}。"
-        f"场景资产：{location}。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。"
+        _end(scene_style or bible.visual_style, tidy)
+        + (f"系列风格指纹 {bible.style_fingerprint}。" if fingerprint else "")
+        + _end(bible.palette, tidy)
+        + f"场景资产：{location}。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。"
         "严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，"
         "预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。"
         "不得出现人物、人体剪影、海报人物、照片人物或镜中人。"

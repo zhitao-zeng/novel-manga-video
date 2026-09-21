@@ -39,9 +39,10 @@ class FramedAssetFactory:
         self.location_time = dict(location_time or {})
 
     def _location_prompt(self, bible, location):
-        prompt = location_prompt(bible, location,
-                                 family=self.style.render_family, direction=self.style.render_direction,
-                                 fingerprint=self.style.prompt_fingerprint)
+        prompt = location_prompt(bible, location, family=self.style.render_family,
+                                 direction=self.style.scene_direction or self.style.render_direction,
+                                 fingerprint=self.style.prompt_fingerprint,
+                                 scene_style=self.style.scene_style, tidy=self.style.tidy_prompts)
         when = self.location_time.get(str(location).split('：', 1)[0].strip(), '')
         if when:
             prompt += f'时段与主光源：{when}。'
@@ -94,7 +95,7 @@ class FramedAssetFactory:
                 visual_archetype=character.visual_archetype, face_anchors=character.face_anchors, silhouette=character.silhouette,
                 hair=character.hair, palette=character.palette, motion_signature=character.motion_signature,
                 family=self.style.render_family, direction=self.style.render_direction,
-                fingerprint=self.style.prompt_fingerprint,
+                fingerprint=self.style.prompt_fingerprint, tidy=self.style.tidy_prompts,
             ) + guard
             # Modern-dress 3D cards came out near-photoreal and were then
             # redrawn by the review; ask for the drawn look up front.
@@ -105,7 +106,8 @@ class FramedAssetFactory:
             primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master)
             expression_prompt = make_expression_prompt(bible, character.name, character.expression_profile,
                                                    family=self.style.render_family, direction=self.style.render_direction,
-                                                   fingerprint=self.style.prompt_fingerprint)
+                                                   fingerprint=self.style.prompt_fingerprint,
+                                                   tidy=self.style.tidy_prompts)
             # Fast production uses one main character card, including when an
             # old expression sheet happens to remain on disk.
             secondary = self.ensure_card(expression_prompt, directory / "expressions.jpeg", reference=primary.path) if expressions else None

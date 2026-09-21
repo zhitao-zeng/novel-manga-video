@@ -27,6 +27,12 @@ class AssetStyle:
     # True when the style stated card_suffix itself, so it applies whatever it
     # renders in; otherwise the wording is the 3D-only genre default.
     declares_card_suffix: bool = False
+    # A room has no face, skin or hair: a style may say how its sets are drawn
+    # separately from how its characters are.
+    scene_style: str = ''
+    scene_direction: str = ''
+    # Strip the full stop a bible field already ends with before the template adds one.
+    tidy_prompts: bool = False
 
     @classmethod
     def for_genre(cls, genre, *, frame_text='竖屏9:16', style=None):
@@ -36,6 +42,9 @@ class AssetStyle:
             render_direction=style.get('render_direction', ''),
             prompt_fingerprint=bool(style.get('prompt_fingerprint', True)),
             declares_card_suffix=bool(style.get('card_suffix')),
+            scene_style=style.get('scene_style', ''),
+            scene_direction=style.get('scene_direction', ''),
+            tidy_prompts=bool(style.get('tidy_prompts', False)),
             # The style decides how it is drawn; the genre decides what may exist in that
             # world (scales and wing membranes in fantasy, European faces in gaslamp), so a
             # genre that states its own wording still wins.
@@ -43,8 +52,9 @@ class AssetStyle:
             # style-neutral: a style that renders differently states its own and wins.
             # 3d-guoman leaves card_suffix empty and defers to the genre, as before.
             card_style_suffix_3d=style.get('card_suffix') or genre.get('card_style_suffix_3d') or CARD_STYLE_SUFFIX_3D,
-            location_empty_suffix=('。主体空无一人：近景和中景不出现任何人物或人形剪影，远处允许少量模糊的背景行人'
-                                   if genre.get('location_policy') == 'sparse' else LOCATION_EMPTY_SUFFIX))
+            location_empty_suffix=style.get('location_empty_suffix') or (
+                '。主体空无一人：近景和中景不出现任何人物或人形剪影，远处允许少量模糊的背景行人'
+                if genre.get('location_policy') == 'sparse' else LOCATION_EMPTY_SUFFIX))
 
 
 def card_suffix(style: AssetStyle, bible) -> str:

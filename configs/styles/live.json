@@ -2,7 +2,7 @@
   "name": "真人",
   "render_family": "photo",
   "visual_style": "真人实拍的中国古装剧：真演员、真戏服、真实景，电影摄影机拍摄——自然皮肤质感、真实头发与织物，柔和自然的窗光带轻微薄雾，浅景深，克制的电影调色：朴实、写实的摄影",
-  "card_suffix": "。真实照片：真人穿真戏服，自然带毛孔的皮肤、真实头发、有接缝和褶皱的真实织物，纯中灰背景上的柔和棚光。不是CG、不是三维渲染、不是插画、不是玩偶",
+  "card_suffix": "真实照片：真人穿真戏服，自然带毛孔的皮肤、真实头发、有接缝和褶皱的真实织物，纯中灰背景上的柔和棚光。不是CG、不是三维渲染、不是插画、不是玩偶",
   "render_direction": "真人实拍选角定妆照：真实人物、真实戏服、自然皮肤与发质，柔和棚光，纯色背景；不要CG、三维渲染、插画、玩偶或动画化造型",
   "source_en": {
     "video": "The target video is live-action footage of a Chinese period costume drama: real actors in real costumes on a real timber set, shot on a cinema camera - natural skin texture, real hair and woven cloth, soft natural window light with a light haze, a shallow depth of field, a restrained filmic grade: plain, realistic photography.",
@@ -10,5 +10,9 @@
   },
   "source_ref": "experiments/agent-skill-sandbox/render/live2_round.py:37 STYLE_VIDEO、assets/gen_fts_live.py:32 PHOTO",
   "review": "中文措辞是英文原文的中译草稿，正在用样卡复核；source_en 是用户认可的原文，不要改",
-  "prompt_fingerprint": false
+  "prompt_fingerprint": false,
+  "scene_style": "真人实拍的中国古装剧场景：真实景、真实材质，电影摄影机拍摄——真实木料、石料、织物与灰尘，柔和自然的窗光带轻微薄雾，浅景深，克制的电影调色：朴实、写实的摄影",
+  "scene_direction": "真人实拍场景：真实的木料、砖石、纸张与织物，自然光与薄雾，克制的电影调色；不要CG、三维渲染、插画或动画化处理",
+  "tidy_prompts": true,
+  "location_empty_suffix": "画面里没有任何人：不出现人物、人影、人形剪影，也不出现画中人或镜中人"
 }
