@@ -255,7 +255,9 @@ MERGE_LOCATIONS_PROMPT = """前一步已经把《{title}》第 1–{last} 章逐
 
 `name` 要具体到能和别的地方区分开，**不要合并成上位地名**：「南昌大学食堂」和「南昌大学宿舍楼下空地」是两个地方，不要并成「南昌大学」；「诸葛庐碑碣深处凉亭」和「诸葛庐石碑园地中心」也是两个。一张空场卡只画一个空间。
 
-原文不足以描述的地方，`description` 写空字符串，不要编。
+**写不出描写也要列出来**：原文不足以描述的地方照样建一条，`name` 照写，`description` 留空字符串——后面会有人按原文补，漏列就没人知道这个地方存在。不要编描写，也不要因为编不出来就不列。
+
+**只列能单独画成一张空场图的物理空间。** 阵法、招式、功法、组织、势力、时间段、抽象概念都不是地点。「大厅」「房间」「屋里」这种任何地方都有的泛称也不算，除非前面能加上专属限定（「韦恩庄园大厅」可以，光一个「大厅」不行）。
 
 只输出 JSON。
 
@@ -310,4 +312,8 @@ def merge_brief(title: str, last: int, table_file: str = "input/candidates.md") 
     body = MERGE_PROMPT.format(title=title, last=last, table="").rstrip()
     body = body.replace("汇总结果就是下面这张候选表。", "汇总结果就是候选表。")
     body = body.replace("只输出 JSON。", f"候选表在 `{table_file}`，完整机读版在 `input/candidates.json`。")
-    return "# 任务说明：人物与地点归并\n\n" + body + MERGE_BRIEF_TAIL
+    # The agent writes characters and locations, so it needs both sets of rules.  Splitting the
+    # single call in two moved 「## 地点」 into its own prompt and quietly took it out of this brief.
+    places = MERGE_LOCATIONS_PROMPT.split("请从表里的地点一节，整理出这本书的空场景清单。", 1)[-1]
+    places = places.split("只输出 JSON。", 1)[0].strip()
+    return ("# 任务说明：人物与地点归并\n\n" + body + "\n\n## 地点\n\n" + places + MERGE_BRIEF_TAIL)

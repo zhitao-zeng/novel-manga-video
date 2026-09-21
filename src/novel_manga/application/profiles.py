@@ -45,7 +45,16 @@ STYLE_VISUAL = {
            "角色必须是一眼可辨的动画角色造型：眼睛略大、五官简化概括、皮肤光滑无毛孔无老年斑，老年角色也用动画化的皱纹表现；"
            "禁止真人照片、真实人物肖像、写实皮肤纹理、塑料玩偶质感、平面线稿和游戏角色创建界面"),
 }
-STYLE_NAME = {"2d": "二维国漫", "3d": "3D国漫"}
+STYLE_NAME = {"2d": "二维国漫", "3d": "3D国漫"}  # the legacy keys, before styles became packages
+
+
+def style_name(key: str, novel_dir=None) -> str:
+    """What to call this style in prose.  The package knows; the table above only knew two."""
+    try:
+        name = str(load_style({"style": key}, novel_dir).get("name") or "").strip()
+    except (OSError, ValueError, KeyError):
+        name = ""
+    return name or STYLE_NAME.get(key, key)
 
 
 def load_profile(novel_dir: Path, **overrides) -> dict:

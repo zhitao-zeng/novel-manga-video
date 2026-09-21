@@ -29,7 +29,7 @@ import sys
 import time
 from pathlib import Path
 
-from novel_manga.application.profiles import DEFAULTS, STYLE_NAME, STYLE_VISUAL, detect_genre, load_genre, load_style, style_names
+from novel_manga.application.profiles import DEFAULTS, STYLE_VISUAL, detect_genre, load_genre, load_style, style_name, style_names
 
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.ingest import read_novel  # noqa: E402
@@ -53,20 +53,20 @@ def load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip().removeprefix("export ").strip(), value.strip().strip("'\""))
 
 
-def build_bible(novel, style: str) -> StoryBible:
+def build_bible(novel, style: str, cast: list[str] | None = None) -> StoryBible:
     os.environ["NOVEL_PLANNER_BACKEND"] = "openai-compatible"
     settings = Settings.from_env(provider="phanrouter", output_root="outputs", admission_mode="preview")
     if not (settings.llm_base_url and settings.llm_api_key):
         raise SystemExit("NOVEL_LLM_BASE_URL / NOVEL_LLM_API_KEY are not set; run `set -a; source .env; set +a` first")
     print(json.dumps({"bible_model": settings.llm_model, "base_url": settings.llm_base_url}, ensure_ascii=False), flush=True)
-    bible = BibleBuilder(settings).build_bible(novel)
+    bible = BibleBuilder(settings).build_bible(novel, cast)
     style_text = load_style({"style": style})["visual_style"]
     return bible.model_copy(update={"visual_style": style_text, "style_fingerprint": fingerprint(novel.title, style_text, bible.characters)})
 
 
 def bible_markdown(bible: StoryBible, novel, source: Path, profile: dict) -> str:
     lines = [
-        f"# {bible.novel_title} · 故事圣经（{STYLE_NAME[profile['style']]} / {profile['frame']}）",
+        f"# {bible.novel_title} · 故事圣经（{style_name(profile['style'])} / {profile['frame']}）",
         "",
         f"来源：`{source}`，{len(novel.episodes)} 章，{sum(e.text_count for e in novel.episodes)} 字。类型：{bible.genre}",
         "",
