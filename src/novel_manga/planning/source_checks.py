@@ -66,11 +66,17 @@ def chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors
         # it makes the pipeline write a shot nobody asked for.  So it is allowed, and said out loud.
         warnings.append(f"作者的分镜没有取用这些区段：{sorted(skipped)}（改编取舍，不是技术丢失）")
     colon_lines = re.findall(r"^([^\n：:]{2,8})[：:]([^\n]*)", chapter_text, re.M)
-    # A named character's explicit quoted speech is prose, even when it has
-    # its own line. Repetition of '人物说：“台词”' is not evidence of a chat UI.
-    prose_labels = {str(name) + '说' for name in known_speakers}
+    # A named character's explicit quoted speech is prose, even when it has its own line.  The tell is
+    # a speech verb and an opening quote, not a name from a list: this used to match only '<名字>说',
+    # so 席勒在脑子里问：“…”, 彼得叹了口气说：“…” and 他说：“…” all counted as chat, and two chapters of
+    # 在美漫当心灵导师的日子 were refused for having no chat bubbles in a conversation nobody had online.
+    # A line that opens with a title mark is not a nickname either - 《海贼：开局签到亚人血统》 is a book
+    # in the author's end-of-chapter promo, and its colon is part of the title.
+    speech = re.compile(r"(说|问|答|道|喊|叫|吼|骂|笑|念|嘟囔|低语|开口)$")
+    quotes = ('“', '「', '『', '"')
     chat_speakers = [label for label, body in colon_lines
-                     if not (label.strip() in prose_labels and body.lstrip().startswith(('“', '「', '『', '"')))]
+                     if not (speech.search(label.strip()) and body.lstrip().startswith(quotes))
+                     and not label.lstrip()[:1] in ('《', '<', '(', '（', '【')]
     chat_source_lines = len(chat_speakers)
     # A chat has somebody speaking more than once; a stat block (法宝名称：…
     # 法宝属性：… 法宝等级：…) has the same line shape but every label once.

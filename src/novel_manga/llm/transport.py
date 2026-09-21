@@ -58,9 +58,30 @@ def send_json(client, url, headers, payload, *, timeout=_DEFAULT_TIMEOUT):
     return client.post(url, headers=headers, json=payload, **options)
 
 
+# An endpoint that cannot be reached, and when to try it again.  The list in QWEN38_LOCAL_BASE_URL is a
+# list of candidates; whether one is up is a fact about right now, and it was being kept in a file that
+# only changes when somebody edits it.  So every request whose hash started on a stopped instance paid
+# the connect timeout before falling through - 3.1 s each, for a quarter of them, all day.  The H3 pool
+# has had this for months (configs/h3_pool.json: unreachable_cooldown_minutes); the model client had not.
+_UNREACHABLE: dict[str, float] = {}
+UNREACHABLE_COOLDOWN = float(os.environ.get("NOVEL_ENDPOINT_COOLDOWN_SECONDS", "300"))
+
+
+def reachable_first(base_urls):
+    """The same endpoints, with the ones in cooldown moved to the back rather than dropped.
+
+    Moved, not removed: a cooldown is a guess about an endpoint, and a guess must not be able to leave
+    a request with nowhere to go.  When every endpoint is in cooldown this returns all of them, in the
+    order they were given, and the request tries them exactly as it used to.
+    """
+    now = time.monotonic()
+    live = [url for url in base_urls if _UNREACHABLE.get(url, 0) <= now]
+    return live + [url for url in base_urls if url not in live] if live else list(base_urls)
+
+
 def post_any(client, base_urls, headers, request, *, settings=None, deadline=None, timeout_message='model time budget exhausted'):
     last = None
-    for base_url in base_urls:
+    for base_url in reachable_first(list(base_urls)):
         options = {}
         if deadline is not None:
             remaining = deadline - time.monotonic()
@@ -73,12 +94,16 @@ def post_any(client, base_urls, headers, request, *, settings=None, deadline=Non
                 return stream_completion(client, url, headers, request, settings=settings, **options)
             response = send_json(client, url, headers, request, **options)
             response.raise_for_status()
+            _UNREACHABLE.pop(base_url, None)   # it answered: whatever we believed about it is stale
             return response.json()
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
+            _UNREACHABLE[base_url] = time.monotonic() + UNREACHABLE_COOLDOWN
             last = error
         except httpx.HTTPStatusError as error:
             if error.response.status_code not in (502, 503, 504):
                 raise
+            # a gateway that cannot reach its backend is the same situation from the caller's side
+            _UNREACHABLE[base_url] = time.monotonic() + UNREACHABLE_COOLDOWN
             last = error
     assert last is not None
     raise last

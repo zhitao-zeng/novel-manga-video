@@ -57,7 +57,15 @@ def active_cast_names(context, extras_by_decision=()):
 
 
 def clean_reading(answer, segments):
-    """Discard unsupported alternate forms; never silently invent an actor binding."""
+    """Discard unsupported alternate forms; never silently invent an actor binding.
+
+    A form that is in the chapter but not in the paragraph the reading cited is a citation error, not
+    an invented name: 马特 really is in chapter 38, at paragraph 6, and the reading said 7.  Asking the
+    model to fix its own numbering got the same number back and lost the whole chapter, so the
+    paragraph is corrected here from the text itself, the way source_checks already reassigns a
+    storyboard quote that belongs to a different segment.  A form that is nowhere is still rejected.
+    """
+    texts = [normalize_text(s['text']) for s in segments]
     actors, rejected, unresolved = [], [], []
     for source in answer['actors']:
         actor = {**source, 'forms': []}
@@ -65,8 +73,12 @@ def clean_reading(answer, segments):
             ps = form.get('paragraphs', [])
             valid = ps and all(type(p) is int and 1 <= p <= len(segments) for p in ps)
             quote = '\n'.join(segments[p-1]['text'] for p in range(min(ps), max(ps)+1)) if valid else ''
-            if normalize_text(form['form']) and normalize_text(form['form']) in normalize_text(quote):
+            wanted = normalize_text(form['form'])
+            elsewhere = [i for i, text in enumerate(texts, 1) if wanted and wanted in text]
+            if wanted and wanted in normalize_text(quote):
                 actor['forms'].append(form)
+            elif elsewhere:
+                actor['forms'].append({**form, 'paragraphs': [elsewhere[0]], 'cited': ps})
             else:
                 rejected.append({'source_id': source['source_id'], **form})
         if not actor['forms']:

@@ -258,7 +258,7 @@ JUDGE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["p
                     "type": "object", "additionalProperties": False,
                     "required": ["name", "verdict", "why"],
                     "properties": {"name": {"type": "string"},
-                                   "verdict": {"type": "string", "enum": ["角色", "路人"]},
+                                   "verdict": {"type": "string", "enum": ["角色", "路人", "不是人物"]},
                                    "why": {"type": "string", "maxLength": 60}}}}}}
 
 
@@ -276,22 +276,33 @@ def judge_unknown(novel_dir: Path, names: list[str], chapter_text: str, chapter_
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
     prompt = ("下面是一章小说原文，以及原文里出现、但全书通读时没有收进名单的几个指称。"
-              "对每一个判断：它是这本书的一个角色（会再出现、值得单独定妆），还是只在这一章露面的路人、"
-              "动物或器物（靠画面描述出镜即可）。"
-              "只看原文证据，不要为了凑名单把路人说成角色，也不要因为名字短就当路人。只输出 JSON。\n"
+              "对每一个判断它属于哪一类：\n"
+              "角色——这本书的一个人物，会再出现，值得单独定妆；\n"
+              "路人——只在这一章露面的无名人物，靠画面描述出镜即可；\n"
+              "不是人物——动物、机械、道具或环境里会动的东西，本来就不该当人看待。\n"
+              "只看原文证据。不要为了凑名单把路人说成角色，也不要因为名字短就当路人。"
+              "拿不准是路人还是不是人物时，按不是人物填——两者在画面上的处理相同。只输出 JSON。\n"
               f"指称：{'、'.join(names)}\n\n原文：\n{chapter_text[:12000]}")
     try:
         rows = model_client.ask_json([{"type": "text", "text": prompt}], JUDGE_SCHEMA,
                                      name="unknown_actors", max_tokens=800).get("people", [])
     except Exception as error:  # noqa: BLE001 - no verdict is not a verdict; the binding check still stops
-        model_client.log(f"bible ch{chapter_index}: 判不了这几个指称（{type(error).__name__}）：{names}")
+        # with the reason: swallowing it cost an afternoon on 巨大机器人, where the call was not failing
+        # at all - the model was returning an empty list because both answers it was offered were wrong
+        model_client.log(f"bible ch{chapter_index}: 判不了这几个指称（{type(error).__name__}: "
+                         f"{str(error)[:160]}）：{names}")
         return {}
     verdicts = {str(r.get("name", "")).strip(): str(r.get("verdict", "")) for r in rows}
-    verdicts = {name: verdicts[name] for name in names if verdicts.get(name) in {"角色", "路人"}}
+    verdicts = {name: verdicts[name] for name in names
+                if verdicts.get(name) in {"角色", "路人", "不是人物"}}
+    if not verdicts:
+        model_client.log(f"bible ch{chapter_index}: 这几个指称问了但没得到判决：{names}")
     if not verdicts:
         return {}
+    # 路人 and 不是人物 are both filmed as what the shot describes rather than as a card; the difference
+    # is honesty about what they are, and a model that is offered only the wrong two answers gives none
     data["declined"] = sorted({*(data.get("declined") or []),
-                               *(n for n, v in verdicts.items() if v == "路人")})
+                               *(n for n, v in verdicts.items() if v in {"路人", "不是人物"})})
     data["characters"] = sorted({*(data.get("characters") or []),
                                  *(n for n, v in verdicts.items() if v == "角色")})
     atomic_write_json(path, data)

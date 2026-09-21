@@ -101,10 +101,19 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
         wanted = {r['source_id'] for r in unresolved}
         restored = [r for r in fixed['actors'] if r['source_id'] in wanted]
         atomic_write_json(directory / 'identity_evidence_repair.json', {'answer': correction, 'rejected': dropped})
-        if pending or {r['source_id'] for r in restored} != wanted:
-            raise ValueError('identity actors lack grounded names: ' + ','.join(r['name'] for r in unresolved))
+        still = [r for r in unresolved if r['source_id'] not in {x['source_id'] for x in restored}] + list(pending)
+        # An actor with no form anywhere in the chapter is one the reading described rather than read:
+        # chapter 26 asked for 红乌鸦帮的老大, a phrase the chapter never uses.  Losing a whole chapter
+        # over someone the chapter only mentions is the wrong trade - nothing is filmed for them, and
+        # the discard is on the record.  On stage is the opposite case: dropping someone the chapter
+        # puts in the picture is exactly the defect the binding check exists to catch, so it still stops.
+        onstage = [r for r in still if r.get('presence') in {'on_stage', 'voice'}]
+        if onstage:
+            raise ValueError('identity actors lack grounded names: ' + ','.join(r['name'] for r in onstage))
         cleaned['actors'].extend(restored)
         rejected.extend(dropped)
+        rejected.extend({'source_id': r['source_id'], 'form': r['name'], 'kind': 'ungrounded',
+                         'why': '全章没有这个指称，且只被提及'} for r in still)
     result = {'policy': POLICY, 'chapter': chapter, 'at': time.strftime('%F %T'), 'inputs': expected,
               'primary_entities': [r['id'] for r in catalog.entities.values() if r['design'].get('role') in {'主角','男主角','女主角'}],
               'entities': {r['id']: r['name'] for r in catalog.entities.values()},

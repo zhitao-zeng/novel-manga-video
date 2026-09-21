@@ -146,16 +146,26 @@ def run(args, ctx: PlannerContext) -> int:
         # Rule on anyone the whole-book reading never registered BEFORE growth runs, so a verdict of
         # "character" reaches the same pass that builds them - otherwise the chapter is lost once and
         # only works on the retry.
-        unjudged = decided_extras(reading_decisions(novel_dir),
-                                  context.get("unmatched_actors", []), episode.index,
-                                  lambda name: pc_cast.name_forms(name, ctx=ctx))[1]
-        on_stage = {r["name"] for r in context.get("unmatched_actors", [])
-                    if r.get("presence") in {"on_stage", "voice"} and r.get("kind") == "individual"}
-        judge_unknown(novel_dir, [n for n in unjudged if n in on_stage], chapter_text, episode.index)
-        if grow_unbound_roster(novel_dir, context, chapter_text, episode.index):
+        #
+        # And keep going until it settles.  One pass is not enough because this pass changes the
+        # question: in chapter 51 the verdict 钢铁怪物=角色 built an entry, the chapter was read again
+        # against the larger catalogue, and only then did 巨大机器人 surface as unbound - after the
+        # judging had already happened.  Bounded, because a loop that keeps finding new names is a
+        # reading that disagrees with itself, and that should stop the chapter rather than spin.
+        for _ in range(3):
+            unjudged = decided_extras(reading_decisions(novel_dir),
+                                      context.get("unmatched_actors", []), episode.index,
+                                      lambda name: pc_cast.name_forms(name, ctx=ctx))[1]
+            on_stage = {r["name"] for r in context.get("unmatched_actors", [])
+                        if r.get("presence") in {"on_stage", "voice"} and r.get("kind") == "individual"}
+            asked = [n for n in unjudged if n in on_stage]
+            judged = judge_unknown(novel_dir, asked, chapter_text, episode.index) if asked else {}
+            grown = grow_unbound_roster(novel_dir, context, chapter_text, episode.index)
+            if not judged and not grown:
+                break
             full_bible = StoryBible.model_validate_json(bible_target.read_text(encoding="utf-8"))
             identity_data = load_chapter(episode_dir)
-            resolve_chapter(episode_dir, data=identity_data)
+            context = resolve_chapter(episode_dir, data=identity_data)
     planner_context.load_entity_index(novel_dir, episode.index, ctx=ctx, identity_data=identity_data)
 
     # Which characters and locations the planner may name.  The whole bible is
