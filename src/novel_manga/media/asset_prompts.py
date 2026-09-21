@@ -74,15 +74,16 @@ def character_prompt(
     fingerprint: bool = True,
     tidy: bool = False,
 ) -> str:
+    trim = (lambda s: str(s).rstrip("。；;，, ")) if tidy else (lambda s: s)
     identity = "；".join(
         item
         for item in (
-            f"戏剧类型：{visual_archetype}" if visual_archetype else "",
-            f"五官锚点：{'、'.join(face_anchors or [])}" if face_anchors else "",
-            f"轮廓：{silhouette}" if silhouette else "",
-            f"发型结构：{hair}" if hair else "",
-            f"角色专属配色：{palette}" if palette else "",
-            f"惯用姿态：{motion_signature}" if motion_signature else "",
+            f"戏剧类型：{trim(visual_archetype)}" if visual_archetype else "",
+            f"五官锚点：{'、'.join(trim(a) for a in (face_anchors or []))}" if face_anchors else "",
+            f"轮廓：{trim(silhouette)}" if silhouette else "",
+            f"发型结构：{trim(hair)}" if hair else "",
+            f"角色专属配色：{trim(palette)}" if palette else "",
+            f"惯用姿态：{trim(motion_signature)}" if motion_signature else "",
         )
         if item
     )
