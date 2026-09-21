@@ -106,7 +106,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
                          for s in clip['shots']],
                      shot_timing=[{'seconds': s['duration_seconds'], 'cut': s.get('cut', '')} for s in clip['shots']],
                      scene_time=clip['shots'][0].get('scene_time', ''),
-                     animation_style=ctx['profile'].get('style', '3d'))
+                     render_family=ctx.get('render_family') or '')
         entry['segment_ids'] = list(dict.fromkeys(r['segment_id'] for s in clip['shots'] for r in s.get('source_refs', [])))
     from novel_manga.story.h3 import source_crowds
     data = ctx.get('identity_data')

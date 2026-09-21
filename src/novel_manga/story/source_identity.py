@@ -38,11 +38,12 @@ def usable_reading(context):
 def active_cast_names(context, extras_by_decision=()):
     """Who is on stage in this chapter, refusing to answer when someone cannot be accounted for.
 
-    `extras_by_decision` are the people a reading of the whole book deliberately left out of the
-    bible - a hound, a passer-by with two mentions.  They are accounted for: they play as extras,
+    `extras_by_decision` are the people a reading that covered this chapter left out of the bible on
+    purpose - a hound, the girl at the front desk.  They are accounted for: they play as extras,
     described in the shot, with an anonymous role for any line.  Anyone else who is on stage and
     binds to nothing is a person the film would drop or hand to the wrong character, and that stops
-    the plan.
+    the plan.  The caller decides which is which; passing a name here asserts a decision was made
+    about it, so "we have no reading for this chapter" must never arrive as one.
     """
     decided = set(extras_by_decision or ())
     unresolved = [r['name'] for r in context.get('unmatched_actors', [])
@@ -113,11 +114,18 @@ def map_source_reading(answer, catalog, segments, verified_aliases=None):
         # An alias the reading established - with the chapter and the line that prove it - says these
         # really are one person, which is the case the guard below must not undo.  A chapter that
         # only ever says 蝙蝠侠 and 布鲁斯 would otherwise leave both unbound and stop the plan.
-        vouched = {r['source_id'] for r in owners
-                   if r['name'] == canonical or verified.get(r['name']) == canonical}
-        if vouched:
+        #
+        # Only DIFFERENT names can be vouched for that way.  Two actors the chapter calls by the same
+        # name are the opposite case - 沈玄川本体 and 沈玄川分身 act separately, and the source reading
+        # was told to list them as two subjects precisely so that they stay apart.  No alias can speak
+        # to that, because the names never differed; merging them here would undo the reading in
+        # silence.  They fall through to the guard below, which leaves them unbound and stops the plan.
+        vouched = [r for r in owners if r['name'] == canonical or verified.get(r['name']) == canonical]
+        names = [r['name'] for r in vouched]
+        if vouched and len(set(names)) == len(names):
+            keep = {r['source_id'] for r in vouched}
             for actor in owners:
-                if actor['source_id'] not in vouched:
+                if actor['source_id'] not in keep:
                     mapping[actor['source_id']] = 'UNKNOWN'
             continue
         direct = [r for r in owners if r['name'] == canonical]

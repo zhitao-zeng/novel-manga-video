@@ -340,3 +340,55 @@ def test_actorless_planner_schema_has_no_empty_enum():
     assert clip['characters']['maxItems'] == 0
     assert clip['stages']['items']['properties']['in_frame']['maxItems'] == 0
     assert '"enum": []' not in json.dumps(schema)
+
+
+def actor(source_id, name):
+    return {'source_id': source_id, 'name': name, 'kind': 'individual', 'presence': 'on_stage',
+            'appearance': '', 'paragraphs': [1],
+            'forms': [{'form': name, 'kind': 'proper', 'paragraphs': [1]}]}
+
+
+def test_an_alias_the_reading_proved_collapses_two_names_for_one_person(tmp_path):
+    """Chapter 3 says 蝙蝠侠 and 布鲁斯 and never 布鲁斯·韦恩, so neither name is the catalogue's own.
+
+    The legacy guard then kept nobody and left BOTH unbound, and planning refused a chapter whose
+    character is in the bible - it simply never uses his full name.  An alias the reading established
+    comes with the chapter and the line that prove it, so it may do what a legacy alias may not.
+    """
+    novel = book(tmp_path, ('布鲁斯·韦恩',))
+    atomic_write_json(novel / 'bible_aliases.json', {'蝙蝠侠': '布鲁斯·韦恩', '布鲁斯': '布鲁斯·韦恩'})
+    catalog = identity_store_thin.load_catalog(novel)
+    actors = [actor(1, '蝙蝠侠'), actor(2, '布鲁斯')]
+    segments = [{'text': '蝙蝠侠摘下面罩，布鲁斯看着他。'}]
+    unverified = source_identity.map_source_reading({'actors': actors}, catalog, segments)
+    assert [r['name'] for r in unverified['unmatched_actors']] == ['蝙蝠侠', '布鲁斯']
+    verified = source_identity.map_source_reading({'actors': actors}, catalog, segments,
+                                                  {'蝙蝠侠': '布鲁斯·韦恩', '布鲁斯': '布鲁斯·韦恩'})
+    assert verified['unmatched_actors'] == []
+    assert {m['entity_id'] for m in verified['mentions']} == {'e001'}
+
+
+def test_one_name_on_two_bodies_is_not_something_an_alias_can_vouch_for(tmp_path):
+    """本体 and 分身 act separately and the source reading is told to list them as two subjects.
+
+    Both carry the same name, so no alias speaks to them: an alias says two DIFFERENT names are one
+    person.  Merging them here would undo the reading in silence, so they stay unbound and the chapter
+    stops - which is the whole job of the binding check.
+    """
+    novel = book(tmp_path, ('沈玄川',))
+    catalog = identity_store_thin.load_catalog(novel)
+    result = source_identity.map_source_reading(
+        {'actors': [actor(1, '沈玄川'), actor(2, '沈玄川')]}, catalog,
+        [{'text': '沈玄川本体挡在门口，沈玄川分身走向窗边。'}], {'蝙蝠侠': '布鲁斯·韦恩'})
+    assert [r['source_id'] for r in result['unmatched_actors']] == [1, 2]
+    assert {m['entity_id'] for m in result['mentions']} == {'UNKNOWN'}
+
+
+def test_an_alias_of_unknown_provenance_still_leaves_the_second_actor_unbound(tmp_path):
+    """The 雾月 lesson stands: only the reading's own aliases may collapse two actors."""
+    novel = book(tmp_path, ('本体',))
+    atomic_write_json(novel / 'bible_aliases.json', {'化身': '本体'})
+    result = source_identity.map_source_reading(
+        {'actors': [actor(1, '本体'), actor(2, '化身')]}, identity_store_thin.load_catalog(novel),
+        [{'text': '本体站在化身对面。'}], {'别人': '本体'})
+    assert [r['name'] for r in result['unmatched_actors']] == ['化身']

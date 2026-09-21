@@ -13,7 +13,8 @@ def test_performance_notes_do_not_replace_the_legacy_speaker():
     from novel_manga.story.h3 import stages_of, compose
     prompt = '【阶段1】洛恩站在门边。声音：中文普通话，平静，眉头微皱，眼神低垂，尾巴轻摆。，洛恩开口说：{我们走吧。}结束时：门打开。画面呈现'
     stages = stages_of(prompt)
-    assert stages[0][1] == [('洛恩', '我们走吧。', False)]
+    # the fourth element is how the line is spoken; it used to be captured and dropped
+    assert stages[0][1] == [('洛恩', '我们走吧。', False, '平静')]
     clip = {'references': [{'role': 'character', 'name': '洛恩'}], 'request_seconds': 15}
     request = compose(clip, ['<Subject 1> opens the door.'], stages)
     assert '<Subject 1> (S1) says <d>[Chinese] 我们走吧。</d>' in request

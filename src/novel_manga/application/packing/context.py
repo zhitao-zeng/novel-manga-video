@@ -12,7 +12,7 @@ from novel_manga.story.compilation import CompilerOptions
 from novel_manga.application.planning.context import load_entity_index
 from novel_manga.application.identity.store import load_chapter
 from novel_manga.application.identity.phases import chapter_of
-from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile
+from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, load_style
 
 POLICY = "thin-clip-plan-v12-six-stages" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 
@@ -154,6 +154,12 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     overrides_path = episode_dir / "clip_overrides.json"
     return {
         "episode_dir": episode_dir, "bible": bible, "grammar": grammar, "profile": profile, "frame": frame_spec(profile),
+        # What this book is actually rendered as, which is not the name of its style package.  The card
+        # side has always read render_family (media/asset_style.py); the video side read profile.style and
+        # compared it to the literal "3d", so every package whose name is not that word - 唯美 and 3D国漫,
+        # both render_family 3d, and 真人, which is photographed - asked H3 for 2D animation while its
+        # reference cards were drawn in something else.
+        "render_family": str(load_style(profile, episode_dir.parent).get("render_family") or ""),
         "compiler_options": options, "identity_data": identity_data,
         "location_map": {full.split("：", 1)[0].strip(): full for full in bible.locations},
         "overrides": json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {},

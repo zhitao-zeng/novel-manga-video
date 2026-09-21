@@ -125,7 +125,16 @@ def run(args, ctx: PlannerContext) -> int:
     identity_data = load_chapter(episode_dir)
     if not args.dry_run and not args.replay:
         from novel_manga.application.identity.flow import resolve_chapter
-        resolve_chapter(episode_dir, data=identity_data)
+        context = resolve_chapter(episode_dir, data=identity_data)
+        # Anyone on stage that the reading calls a character and the bible has no entry for: build them
+        # now, then read the chapter again against the larger catalogue.  Re-reading costs no model call
+        # (resolve_chapter reuses the saved source actors while the segments are unchanged) and it is the
+        # only way the new entries can be bound, because the binding was computed before they existed.
+        from novel_manga.application.review.bible import grow_unbound_roster
+        if grow_unbound_roster(novel_dir, context, chapter_text, episode.index):
+            full_bible = StoryBible.model_validate_json(bible_target.read_text(encoding="utf-8"))
+            identity_data = load_chapter(episode_dir)
+            resolve_chapter(episode_dir, data=identity_data)
     planner_context.load_entity_index(novel_dir, episode.index, ctx=ctx, identity_data=identity_data)
 
     # Which characters and locations the planner may name.  The whole bible is
@@ -151,11 +160,16 @@ def run(args, ctx: PlannerContext) -> int:
     current_identity = current_context(episode_dir, data=identity_data)
     if current_identity:
         from novel_manga.story.source_identity import active_cast_names
-        # Someone the reading left out of the bible on purpose is an extra, not an unbound actor.
-        from novel_manga.application.review.bible import reading_roster
-        roster = reading_roster(novel_dir)
-        decided = ([r['name'] for r in current_identity.get('unmatched_actors', [])
-                    if not pc_cast.name_forms(r['name'], ctx=ctx) & set(roster)] if roster else [])
+        # Someone the reading left out of the bible on purpose is an extra, not an unbound actor - but
+        # "not in the roster" is not by itself that decision.  It is also what a character the reading
+        # MISSED looks like, and what everyone in a chapter the reading never reached looks like.  So the
+        # decision has to be one the reading actually recorded: a form it saw and declined, or any form
+        # in a chapter it read, where not promoting someone to a character is itself the verdict.
+        from novel_manga.application.review.bible import decided_extras, reading_decisions
+        reading = reading_decisions(novel_dir)
+        decided = (decided_extras(reading, current_identity.get('unmatched_actors', []), episode.index,
+                                  lambda name: pc_cast.name_forms(name, ctx=ctx))
+                   if reading['roster'] else [])
         active_names = active_cast_names(current_identity, decided)
         present = [c for c in full_bible.characters if c.name in active_names]
         main_cast, carried = [], []

@@ -59,6 +59,15 @@ def test_query_and_progression_match_prior_views_and_per_episode_write_order():
     assert manager_cases()==expected
 
 
+def test_advance_writes_review_then_history_then_publication_episode_by_episode():
+    # The fixture pins one recorded order; this pins the rule behind it, so an
+    # unordered episode walk fails with its own name instead of a snapshot diff.
+    calls=[tuple(c) for c in manager_cases()['advance']['calls']]
+    groups=[calls[i:i+3] for i in range(0,len(calls),3)]
+    assert all([kind for kind,_ in g]==['review','history','publish'] and len({n for _,n in g})==1 for g in groups),calls
+    assert [g[0][1] for g in groups]==sorted(g[0][1] for g in groups),calls
+
+
 def test_query_changes_neither_manager_nor_production_files(tmp_path, monkeypatch):
     manager=flow.Manager(tmp_path/'book',tmp_path/'old');directory=manager.novel/'book_1';directory.mkdir(parents=True)
     atomic_write_json(directory/'clip_plan.json',{'clips':[{'clip_id':'clip_01','kind':'video','references':[]}]})

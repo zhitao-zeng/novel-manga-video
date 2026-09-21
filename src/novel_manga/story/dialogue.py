@@ -127,8 +127,15 @@ def apply_bindings(shots, bindings):
     return bindings
 
 def clip_bindings(shots: list[dict]) -> list[dict]:
+    """Who says what, in which stage, and how it is spoken.
+
+    The manner travels with the line because it is a property of the line, not of the picture: without it
+    here the only copy left was inside the Chinese shot prose, where the translator turned it into a facial
+    expression and the generated voice heard nothing about it.
+    """
     return [{'stage': stage, 'source_stage': shot.get('index', shot.get('origin_index')),
-             'speaker_name': turn['speaker_name'], 'delivery_mode': turn['delivery_mode'], 'text': turn['text']}
+             'speaker_name': turn['speaker_name'], 'delivery_mode': turn['delivery_mode'], 'text': turn['text'],
+             'emotion': turn.get('emotion') or ''}
             for stage, shot in enumerate(shots, 1) for turn in merged_turns(shot)
             if turn['delivery_mode'] in {'visible_dialogue','offscreen_dialogue'}]
 
@@ -136,6 +143,21 @@ def indexed_pictures(clip: dict):
     return enumerate((r for r in clip.get('references', []) if r.get('role') in {'character', 'location'}), 1)
 
 
+def character_pictures(clip: dict) -> dict:
+    """name -> [(picture number, reference)] for every picture that shows that character.
+
+    Two views of one actor are two pictures of ONE subject - the bust settles the face, the turnaround the
+    build and the costume (packing.assets writes that split).  Numbering a subject per picture declared the
+    same person twice, each told to appear exactly once and that nobody else may wear its face, which reads
+    as two people who must not resemble each other.
+    """
+    out: dict[str, list] = {}
+    for picture, ref in indexed_pictures(clip):
+        if ref.get('role') == 'character' and ref['name'] not in clip.get('crowd_roles', {}):
+            out.setdefault(ref['name'], []).append((picture, ref))
+    return out
+
+
 def subject_map(clip: dict) -> dict:
-    return {ref['name']: picture for picture, ref in indexed_pictures(clip)
-            if ref['role'] == 'character' and ref['name'] not in clip.get('crowd_roles', {})}
+    """name -> <Subject N>.  Subjects are counted per character, pictures per image sent."""
+    return {name: n for n, name in enumerate(character_pictures(clip), 1)}

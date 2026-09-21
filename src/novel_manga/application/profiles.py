@@ -190,13 +190,32 @@ def plan_fingerprint(plan: dict) -> str:
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = None) -> str:
+def h3_compile_inputs(clip: dict) -> dict:
+    """The fields other than the Chinese prose that compose() reads when it builds the English prompt.
+
+    The stamp is only as good as this: the medium sentence and the per-shot durations are compiled into the
+    request, so a clip whose medium was corrected must be recompiled, and the digest has to know it.
+
+    Scoped to the authored-scene path, because that is the only place compose() reads either of them.  An
+    older clip keeps the stamp it has, so correcting a sentence it never contained does not mark tens of
+    thousands of accepted videos stale and re-render whole finished books to change nothing.
+    """
+    if not clip.get('scene_ids'):
+        return {}
+    return {'render_family': str(clip.get('render_family') or clip.get('animation_style') or ''),
+            'shot_timing': clip.get('shot_timing') or []}
+
+
+def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = None,
+                     compiled: dict | None = None) -> str:
     """What build_h3_prompts.py stamps as prompt_h3_of: which Chinese prompt - and director correction, which goes into
     the English prompt - an English one was made from.  Without a correction it is the digest of the prompt alone."""
     note = (note or "").strip()
     material = prompt + (f"\n【导演修正】{note}" if note else "")
     if crowd_roles:
         material += '\n'+json.dumps(crowd_roles,ensure_ascii=False,sort_keys=True)
+    if compiled:
+        material += '\n'+json.dumps(compiled,ensure_ascii=False,sort_keys=True)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
@@ -208,7 +227,8 @@ def h3_prompt_outdated(clip: dict, note: str = "") -> bool:
     made_from = clip.get("prompt_h3_of")
     if str(note or '').strip() and not made_from:
         return True  # an unstamped old translation cannot prove it includes a new correction
-    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "", note,clip.get('crowd_roles'))
+    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "", note,
+                                                             clip.get('crowd_roles'), h3_compile_inputs(clip))
 
 
 def h3_prompt_fingerprint(plan: dict) -> str:

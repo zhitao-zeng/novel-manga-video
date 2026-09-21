@@ -11,8 +11,17 @@ def read(path, default=None):
 
 
 def data_files(novel):
+    """Every file that can change how a chapter binds - the cache key is only as good as this list.
+
+    reading_cast.json belongs here because map_source_reading() consults its aliases: without it, adding
+    the alias that proves 蝙蝠侠 and 布鲁斯 are one man leaves the chapter's saved UNKNOWN binding in place
+    and the plan keeps failing at a defect that was already fixed.  Re-binding is cheap: resolve_chapter's
+    second early return reuses the saved source_actors whenever the segments are unchanged, so a new alias
+    costs no model call - it only redoes the binding, which is exactly what changed.
+    """
     novel = Path(novel).resolve()
     return [novel / name for name in ['story_bible.json', 'bible_aliases.json', 'entity_index.json',
+            'reading_cast.json',
             'series_assets/phases.json', 'entity/entities.json', 'entity/claims.json', 'entity/types.json']]
 
 

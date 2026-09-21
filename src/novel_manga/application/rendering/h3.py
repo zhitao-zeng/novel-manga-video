@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = project_root()
 from novel_manga.application.configuration import h3_translation_endpoint
 from novel_manga.llm.client import ask_json
-from novel_manga.application.profiles import h3_prompt_outdated, h3_source_digest
+from novel_manga.application.profiles import h3_prompt_outdated, h3_source_digest, h3_compile_inputs
 from novel_manga.application.production.runs import corrections
 
 from novel_manga.util import atomic_write_json  # noqa: E402
@@ -92,6 +92,40 @@ def english_note(note: str, naming: str) -> str:
 NOTE_LINE_ASK = ("The last numbered line is the director's correction for this clip, not a shot: translate it as its own "
                  "sentence too, so the answer has exactly as many sentences as there are numbered lines.\n")
 
+DELIVERY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["manners"],
+                   "properties": {"manners": {"type": "array", "items": {"type": "string"}}}}
+DELIVERY_ASK = ("Each numbered Chinese phrase says how one spoken line is delivered - the voice, not the face.\n"
+                "Rewrite each as ONE short English clause beginning 'The line is delivered', for example "
+                "'The line is delivered in a low, hesitant voice.' or 'The line is delivered as a furious shout.'\n"
+                "Describe only the voice: loudness, pitch, pace, steadiness, and whether it breaks or trails off. "
+                "Never describe the face, the body, the setting or the words themselves, and never add anything spoken.\n"
+                "Return one clause per input phrase, in order, in English only.\n\n")
+# The planner writes this when the storyboard left the emotion blank, so it says nothing about the voice.
+DEFAULT_EMOTION = "平静"
+
+
+def english_delivery(manners) -> dict:
+    """Chinese vocal manner -> the English clause that states it; {} when the model cannot be asked.
+
+    Deliberately its own call rather than more numbered lines on the shot translation.  That ask is for what
+    the camera SEES, and it duly turned 恐惧与无奈 into "with a determined expression" - a face, with the
+    valence reversed, and nothing for the voice H3 generates.  Failing here costs a line its performance,
+    never the clip its prompt, so it returns empty instead of raising.
+    """
+    wanted = [m for m in dict.fromkeys(manners) if m and m != DEFAULT_EMOTION]
+    if not wanted:
+        return {}
+    try:
+        answer = ask_json([{"type": "text", "text": DELIVERY_ASK + "\n".join(f"{i}. {m}" for i, m in enumerate(wanted, 1))}],
+                          DELIVERY_SCHEMA, name="h3delivery", max_tokens=60 * len(wanted) + 200,
+                          settings=h3_translation_endpoint())
+    except Exception:  # noqa: BLE001 - the words are still spoken, just without the manner
+        return {}
+    got = [str(s).strip() for s in (answer.get("manners") or [])]
+    if len(got) != len(wanted):
+        return {}
+    return {zh: en for zh, en in zip(wanted, got) if en and not CJK.search(en)}
+
 
 def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     """Write clip["prompt_h3"]; True when written.
@@ -108,7 +142,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     (雾月 2026-09-13: 190 episodes looped on the folded answer)."""
     prompt = clip.get("prompt") or ""
     note = str(note or "").strip()
-    digest = h3_source_digest(prompt, note,clip.get('crowd_roles'))
+    digest = h3_source_digest(prompt, note, clip.get('crowd_roles'), h3_compile_inputs(clip))
     if clip.get("prompt_h3_of") == digest and clip.get("prompt_h3") and not request_issues(clip):
         return False
     stages = stages_of(prompt)
@@ -156,6 +190,9 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines), settings=h3_translation_endpoint())
         return [str(s).strip() for s in (answer.get("shots") or [])]
 
+    manners = ([str(r.get('emotion') or '') for r in clip['dialogue_bindings']] if 'dialogue_bindings' in clip
+               else [turn[3] for _, turns in stages for turn in turns if len(turn) > 3])
+    delivery = english_delivery(manners)
     problem = ""
     folded = False
     for _ in range(tries):
@@ -165,7 +202,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
                 if len(english) == len(visuals) + 1 and all(english):
                     direction = clean_note(english[-1], naming)
                     if direction:
-                        candidate = compose(clip, english[:-1], stages, direction)
+                        candidate = compose(clip, english[:-1], stages, direction, delivery)
                         conflicts = request_issues({**clip, 'prompt_h3':candidate})
                         if not conflicts:
                             clip['prompt_h3'] = candidate
@@ -184,7 +221,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
         if len(english) == len(visuals) and all(english) and not (directed and any(CJK.search(s) for s in english)):
-            candidate = compose(clip, english, stages, '')
+            candidate = compose(clip, english, stages, '', delivery)
             conflicts = request_issues({**clip, 'prompt_h3':candidate})
             if not conflicts:
                 clip['prompt_h3'] = candidate
@@ -253,7 +290,7 @@ def main() -> int:
             now = {key: str(value) for key, value in corrections(episode).items()}
             for clip in current.get("clips", []):
                 new = made.get(clip.get("clip_id"))
-                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or "", now.get(clip.get("clip_id"), ""),clip.get('crowd_roles')):
+                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or "", now.get(clip.get("clip_id"), ""), clip.get('crowd_roles'), h3_compile_inputs(clip)):
                     clip["prompt_h3"], clip["prompt_h3_of"] = new["prompt_h3"], new["prompt_h3_of"]
             atomic_write_json(path, current)
             plan = current

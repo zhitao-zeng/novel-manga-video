@@ -122,6 +122,31 @@ def read_cast(path: Path) -> tuple[list[str], dict[str, str]]:
     return cast, aliases
 
 
+def reading_verdicts(novel_dir: Path, cast: list[str], aliases: dict) -> dict:
+    """The rest of what the reading decided: which names it saw and declined, and which chapters it read.
+
+    The merge is handed the whole candidate table and picks the cast out of it, so a form that is in the
+    table and not in the cast is a verdict with the table as its evidence.  The chapters the table cites
+    are the reading's coverage: inside it, never promoting a form is a verdict about that form too; a
+    chapter outside it was never read, and nothing can be concluded from a name's absence there.
+
+    Empty when the candidate table is not next to the book - then a later reader knows only the cast, and
+    treats everyone else as unaccounted for rather than quietly as an extra.
+    """
+    path = Path(novel_dir) / "lean" / "candidates.json"
+    if not path.is_file():
+        return {}
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    kept = set(cast) | set(aliases)
+    rows = [row for row in table.get("forms") or [] if str(row.get("form") or "").strip()]
+    chapters = sorted({int(c) for row in rows for c in row.get("listed") or [] if str(c).isdigit()})
+    return {"declined": sorted({row["form"].strip() for row in rows if row["form"].strip() not in kept}),
+            "chapters": chapters}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source", help="novel text (.md/.txt/.docx/.pdf) with 第X章 headings")
@@ -167,7 +192,10 @@ def main() -> int:
         if cast:
             # Growth reads this to know who the book has; the seed bible only designs the people the
             # seed chapters actually show, because one reply cannot hold a whole book's cast.
-            atomic_write_json(novel_dir / "reading_cast.json", {"characters": cast, "aliases": aliases})
+            # The declined names and the coverage come along because later, from inside one chapter,
+            # "left out on purpose" and "never read" are indistinguishable without them.
+            atomic_write_json(novel_dir / "reading_cast.json",
+                              {"characters": cast, "aliases": aliases, **reading_verdicts(novel_dir, cast, aliases)})
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
         print(json.dumps({"bible": "built", "seconds": round(time.monotonic() - started, 1), "characters": [c.name for c in bible.characters], "locations": [l.split("：", 1)[0] for l in bible.locations]}, ensure_ascii=False), flush=True)
 

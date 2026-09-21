@@ -37,21 +37,56 @@ def excerpts(text: str, name: str, limit: int = 12) -> str:
     return "".join(sentences[:limit])[:1600]
 
 
+def reading_decisions(novel_dir: Path) -> dict:
+    """What a whole-book reading settled: its cast, the names it saw and declined, how far it read.
+
+    From inside one chapter three different situations look identical, and only two of them are
+    decisions: somebody the reading made a character of, somebody it saw across the book and left out
+    on purpose, and somebody it never had in front of it at all.  Planning may play the second as an
+    extra.  The third has to stop the chapter - otherwise a character the reading missed is quietly
+    demoted to a walk-on, which is the exact defect the binding check exists to catch.
+
+    `chapters` is the reading's coverage, taken from the chapter numbers its own candidate table cites.
+    Inside it, a form the reading never promoted to a character is a decision about that form.  Outside
+    it, absence means nothing at all.
+    """
+    empty = {"roster": [], "declined": [], "chapters": []}
+    path = Path(novel_dir) / "reading_cast.json"
+    if not path.is_file():
+        return empty
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return empty
+    names = [str(n).strip() for n in data.get("characters") or [] if str(n).strip()]
+    names += [str(a).strip() for a in (data.get("aliases") or {}) if str(a).strip()]
+    return {"roster": names,
+            "declined": [str(n).strip() for n in data.get("declined") or [] if str(n).strip()],
+            "chapters": [int(c) for c in data.get("chapters") or [] if str(c).isdigit()]}
+
+
 def reading_roster(novel_dir: Path) -> list[str]:
     """Everyone the lean reading decided this book has, names and aliases alike.
 
     Empty when the book has not been read, and then growth keeps its own judgement.
     """
-    path = Path(novel_dir) / "reading_cast.json"
-    if not path.is_file():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    names = [str(n).strip() for n in data.get("characters") or [] if str(n).strip()]
-    names += [str(a).strip() for a in (data.get("aliases") or {}) if str(a).strip()]
-    return names
+    return reading_decisions(novel_dir)["roster"]
+
+
+def decided_extras(reading: dict, actors, chapter: int, forms_of) -> list[str]:
+    """Of the actors this chapter could not bind, the ones the reading already ruled on.
+
+    `forms_of(name)` yields the name forms to match against the reading.  Someone the reading made a
+    character of is never an extra: they have to bind, and if they cannot, that is the defect the
+    binding check exists for.  Anyone else is an extra only where the reading actually ruled - it saw
+    that form across the book and declined it, or it read this chapter and promoted nobody by that
+    name.  Beyond the chapters it read it ruled on nothing, so nothing there may be waved through.
+    """
+    roster, declined = set(reading.get("roster") or ()), set(reading.get("declined") or ())
+    covered = int(chapter) in {int(c) for c in reading.get("chapters") or ()}
+    return [actor["name"] for actor in actors
+            if not set(forms_of(actor["name"])) & roster
+            and (covered or set(forms_of(actor["name"])) & declined)]
 
 
 
@@ -202,6 +237,49 @@ def scan_chapter(chapter_text: str, known_locations: list[str], names: bool = Tr
     return {"names": extract_names(chapter_text) if names else [], "locations": extract_locations(chapter_text, known_locations)}
 
 
+def grow_unbound_roster(novel_dir: Path, context: dict, chapter_text: str, chapter_index: int) -> list[str]:
+    """Build the people this chapter has on stage that the reading vouches for and the bible lacks.
+
+    Growth reads a name scan of the chapter; binding reads the chapter's own source reading.  They are
+    two readers of one chapter and they disagree: the scan listed no 猫女 in chapter 39 of
+    在美漫当心灵导师的日子 while the reading had her on stage.  When they do, the chapter cannot be
+    planned at all - the reading calls her a character, so she may not be demoted to an extra, and the
+    bible holds nobody for her to bind to.
+
+    Rather than try to make two readers agree, the side that knows exactly who is missing asks for them
+    by name.  Only names the reading vouched for; for anyone else the binding check's job is still to
+    stop, because nobody has decided anything about them.
+    """
+    reading = reading_decisions(novel_dir)
+    if not reading["roster"]:
+        return []
+    aliases = load_aliases(novel_dir)
+    bible_path = novel_dir / "story_bible.json"
+    with open(novel_dir / "story_bible.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        bible = review_models_StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
+        known = [c.name for c in bible.characters]
+        wanted: dict[str, dict] = {}
+        for actor in context.get("unmatched_actors", []):
+            if actor.get("presence") not in {"on_stage", "voice"} or actor.get("kind") != "individual":
+                continue
+            # The chapter says 猫女 and the alias map knows that is 赛琳娜: build the person, not the
+            # nickname, or the book ends up with a card for each of her names.
+            name = str(actor.get("name") or "").strip()
+            name = aliases.get(name, name)
+            if not name or name in wanted or story_names.name_matches(name, known):
+                continue
+            if story_names.name_matches(name, reading["roster"]):
+                wanted[name] = {"mentions": 1, "chapters": [chapter_index], "kind": "具名角色", "speaks": True}
+        if not wanted:
+            return []
+        model_client.log(f"bible ch{chapter_index}: 本章在场、读书认的人，圣经里没有，补建：{list(wanted)}")
+        bible, filled, _, _ = fill_characters(bible, bible_path, wanted, chapter_text)
+        if filled:
+            atomic_write_json(bible_path, bible.model_dump(mode="json"))
+        return filled
+
+
 def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int, scan: dict | None = None) -> dict:
     """Grow the bible under a novel-wide lock.
 
@@ -236,6 +314,15 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     name_rows = scan["names"] if scan else extract_names(chapter_text)
     for row in name_rows:
         name = re.sub(r"\s+", "", str(row.get("name", "")))
+        if name in aliases and not story_names.name_matches(aliases[name], known):
+            # The chapter says 阿福 and the alias map knows that is 阿尔弗雷德 - who is not in the bible
+            # yet, and nobody was ever going to build him.  Skipping an alias outright is right, or a
+            # nickname becomes a second card of someone who already has one; but when the person behind
+            # it has no card at all, and this chapter never uses his own name, the skip loses the person.
+            # So the mention counts towards him, and the roster gate below rules on him as it would on
+            # any other name.  ch17 of 在美漫当心灵导师的日子 was unplannable for exactly this: 阿福 on
+            # stage, bound to nothing, because 阿尔弗雷德 was never built.
+            name = aliases[name]
         if row.get("kind") == "群体" or not name or name in name_rules.GENERIC_NAMES or story_names.name_matches(name, known) or name in aliases or name in held:
             continue
         entry = counts.setdefault(name, {"mentions": 0, "chapters": [chapter_index], "kind": row.get("kind"), "speaks": False})
@@ -251,6 +338,16 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
         missing = {name: info for name, info in missing.items() if name not in turned_down}
         if turned_down:
             model_client.log(f"bible ch{chapter_index}: 读书名单里没有，不建档：{turned_down}")
+        # 名单里的人，本章点到名就建档。mentions >= 2 和"具名角色或开口说话"都是只看得见一章时
+        # 的噪声过滤；读书已经拿全书证据过滤过一遍，再滤一遍就是拿更差的信息否决更好的判断。
+        # 而绑定检查要求本章在场的人必须绑得上——上游多拦一个，下游就整章排不出来。
+        # 这个条件收紧一次就换一个名字再卡一次：ch6 暴风女被点名一次卡住，补了"在场"；ch17 阿福
+        # 在场但不说话，又卡住。所以不再猜"够不够重要"——读书说他是人，本章提到他，就建档。
+        vouched = {name: info for name, info in counts.items()
+                   if name not in missing and story_names.name_matches(name, roster)}
+        if vouched:
+            model_client.log(f"bible ch{chapter_index}: 读书名单里有、本章在场，补建档：{list(vouched)}")
+            missing = {**missing, **vouched}
     filled: list[str] = []
     needs_human: dict = {}
     suggestions: dict = {}

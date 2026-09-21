@@ -2,12 +2,14 @@
 from __future__ import annotations
 import re
 from novel_manga.runtime_backends import normalize_text
-from .dialogue import indexed_pictures, subject_map
+from .dialogue import character_pictures, indexed_pictures, subject_map
 
-SUBJECT_DECLARATION = '<Subject {subject}> is the person shown in <Picture {picture}>.'
+# One subject can be shown by more than one picture, so the declaration names them all.  The pattern
+# still matches the older one-picture wording, which is what every saved request contains.
+SUBJECT_DECLARATION = '<Subject {subject}> is the person shown in {pictures}.'
 DECLARED_SUBJECT = re.compile(re.escape(SUBJECT_DECLARATION)
                              .replace(re.escape('{subject}'), r'(\d+)')
-                             .replace(re.escape('{picture}'), r'\d+'))
+                             .replace(re.escape('{pictures}'), r'[^.]+'))
 
 CHARACTER_TRAIT = re.compile(r"([^\s，。；<>]{1,12})的辨识特征[:：]\s*([^。\n]{1,80})")
 
@@ -24,8 +26,40 @@ TURN = re.compile(r"中文普通话，([^，]*)，(.*?)(?:开口说|说)：\{([^
 CJK = re.compile(r"[\u4e00-\u9fff]")
 
 
-def stages_of(prompt: str) -> list[tuple[str, list[tuple[str, str, bool]]]]:
-    """Each stage as (visual Chinese text, [(speaker, line, offscreen)])."""
+# The medium this book is rendered in, and the one sentence that tells H3 what it is.  Packing resolves
+# the style package to its family; a clip packed before it did carries the package's own name, and then
+# we say nothing rather than assert the wrong medium - the reference cards already carry the look, and a
+# sentence that contradicts them is worse than no sentence.
+MEDIUM_SENTENCE = {
+    '3d': ' All subjects, animals, props and environments share one consistent stylized 3D animation appearance.',
+    '2d': ' All subjects, animals, props and environments share one consistent stylized 2D animation appearance.',
+    'photo': ' Everything is photographed live action: real people, real fabrics and real light, with no animation, '
+             'no CG characters and no illustrated rendering.',
+}
+
+
+def render_family(clip: dict) -> str:
+    """How this clip is rendered - 3d, 2d, photo - or '' when the packed plan cannot say.
+
+    The field this replaced held profile.style, a style package name ("weimei", "live"), and was compared
+    against the literal "3d".  Only the two legacy values happen to name a family, so only those are read
+    from the old field; \u552f\u7f8e and 3D\u56fd\u6f2b are both rendered in 3d and \u771f\u4eba is photographed.
+    """
+    family = str(clip.get('render_family') or '')
+    if family:
+        return family
+    legacy = str(clip.get('animation_style') or '')
+    return legacy if legacy in {'3d', '2d'} else ''
+
+
+def stages_of(prompt: str) -> list[tuple[str, list[tuple[str, str, bool, str]]]]:
+    """Each stage as (visual Chinese text, [(speaker, line, offscreen, vocal manner)]).
+
+    The manner is the storyboard's 情绪 for that line.  It used to be captured and thrown away, and the
+    only route left to it was the shot translation, which is asked for what the camera SEES: 恐惧与无奈
+    came back as "with a determined expression" - a face, with the wrong valence, and nothing at all for
+    the voice H3 generates.  It is Chinese, so compose() emits it only once it has been translated.
+    """
     out = []
     for block in STAGE.findall(prompt):
         # Everything between the delivery manner and 开口说 is captured together, and the storyboard
@@ -33,16 +67,27 @@ def stages_of(prompt: str) -> list[tuple[str, list[tuple[str, str, bool]]]]:
         # The name is the last comma-separated piece; taking the whole run meant it never matched the
         # subject map, and the line was written as a disembodied voiceover with the on-screen mouths
         # explicitly told to stay closed - 41% of all spoken lines across 雾月 and 星海.
-        turns = [(who.strip().split("，")[-1].strip(" 。"), text.strip(), bool(off))
-                 for _, who, text, off in TURN.findall(block)]
+        turns = [(who.strip().split("，")[-1].strip(" 。"), text.strip(), bool(off), manner.strip())
+                 for manner, who, text, off in TURN.findall(block)]
         visual = re.sub(r"\s+", " ", SOUND.sub("", block)).strip(" 。")
         out.append((visual, turns))
     return out
 
 
+def view_of(ref: dict) -> str:
+    """Which card this picture is: 'expressions' is the chest-up portrait, 'turnaround' the full figure."""
+    return str(ref.get('view') or '').strip() or str(ref.get('path') or '').rsplit('/', 1)[-1].split('.')[0]
+
+
+def picture_phrase(numbers) -> str:
+    tags = [f'<Picture {n}>' for n in numbers]
+    return tags[0] if len(tags) == 1 else ' and '.join([', '.join(tags[:-1]), tags[-1]])
+
+
 def subject_lines(clip: dict) -> tuple[list[str], dict]:
     """The subject_definitions block, and the name -> <Subject N> map the shots will use."""
     defs, subject_of = [], subject_map(clip)
+    pictures, declared = character_pictures(clip), set()
     for picture, ref in indexed_pictures(clip):
         if ref.get("role") == "character":
             crowd=clip.get('crowd_roles',{}).get(ref['name'])
@@ -51,18 +96,33 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
                             'Their faces and hairstyles must be different from each other and must not copy the face in this picture. '
                             'For a pair, one has a narrow face and the other a broad face. This is a clothing reference, not one repeated identity.')
                 continue
+            name = ref['name']
+            if name in declared:
+                continue  # a second view of someone already declared: same subject, another picture
+            declared.add(name)
+            subject, own = subject_of[name], pictures[name]
+            numbers = [n for n, _ in own]
             # One instance, and nobody else wears this face: 雾月's most common defect (321 clips on 2026-09-14) was
             # the lead's face or coat on a second person, and the Chinese binding's "只出现一次" never reached H3.
             # The name is decorative here (shots address <Subject N>), and H3 reads it out: the
             # speech invented in wordless shots was largely these names.  The guide also asks for
             # English everywhere outside <d>.
-            defs.append(SUBJECT_DECLARATION.format(subject=picture, picture=picture) + ' ' +
-                        f"Take only the face, hair, build and clothing from <Picture {picture}>. Exactly one "
-                        f"<Subject {picture}> appears in the video; no other person has <Subject {picture}>'s face, hair or clothes.")
+            face = next((n for n, r in own if view_of(r) == 'expressions'), None)
+            body = next((n for n, r in own if view_of(r) != 'expressions'), numbers[0])
+            if face is not None and len(numbers) > 1:
+                # Each picture's job, the way the Chinese binding already splits them: the bust stops at the
+                # collar, so asking it for the cut of a costume it does not show leaves the model to invent one.
+                take = (f"Take the face, hair, age and skin tone from <Picture {face}>, and the body proportions, "
+                        f"garment cut, main colours and accessories from <Picture {body}>.")
+            else:
+                take = f"Take only the face, hair, build and clothing from <Picture {body}>."
+            defs.append(SUBJECT_DECLARATION.format(subject=subject, pictures=picture_phrase(numbers)) + ' ' + take +
+                        f" Exactly one <Subject {subject}> appears in the video; no other person has "
+                        f"<Subject {subject}>'s face, hair or clothes.")
             if clip.get('scene_ids'):
                 defs[-1] = defs[-1].replace(
-                    f'Take only the face, hair, build and clothing from <Picture {picture}>.',
-                    f'Take the face, hair, build and base garment design from <Picture {picture}>. '
+                    f'Take only the face, hair, build and clothing from <Picture {body}>.',
+                    f'Take the face, hair, build and base garment design from <Picture {body}>. '
                     'The authored shot determines which garments are currently worn, removed or wet.')
         elif ref.get("role") == "location":
             if clip.get('scene_ids'):
@@ -80,7 +140,7 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
     return defs, subject_of
 
 
-def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str:
+def compose(clip: dict, english: list[str], stages: list, note: str = "", delivery: dict | None = None) -> str:
     """The six sections MiniMax's own guide prescribes (skills/h3-prompt-writing/references/ref-en.txt), and only
     those: a `director_note` section is not in the format, so a correction goes into the summary.  Speakers carry
     stable (Sx) ids next to their subject tag; an off-screen line uses the guide's exact phrase and is followed by
@@ -96,31 +156,35 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str
     body = []
     for index, ((_, turns), text) in enumerate(zip(stages, english), 1):
         if 'dialogue_bindings' in clip:
-            turns = [(r['speaker_name'],r['text'],r['delivery_mode']=='offscreen_dialogue')
+            turns = [(r['speaker_name'],r['text'],r['delivery_mode']=='offscreen_dialogue',r.get('emotion') or '')
                      for r in clip['dialogue_bindings'] if r['stage']==index]
         timing = clip.get('shot_timing', [])
         if clip.get('scene_ids') and len(timing) == len(stages):
             text = f"Planned duration: {timing[index-1]['seconds']:g} seconds. " + text
         body.append(f"[Shot {index}] {text}")
-        for who, line, offscreen in turns:
+        for who, line, offscreen, *rest in turns:
+            # How the line is spoken, in English, after the bound words: the dialogue syntax H3 was trained
+            # on - and the checker below - want <d> directly after `says`, so the performance goes next to
+            # the line rather than inside the clause that carries it.
+            manner = (delivery or {}).get(rest[0] if rest else '', '')
+            said = f" {manner}" if manner else ""
             if who in subject_of and not offscreen:
-                body.append(f"<Subject {subject_of[who]}> {sid(who)} says <d>[Chinese] {line}</d>")
+                body.append(f"<Subject {subject_of[who]}> {sid(who)} says <d>[Chinese] {line}</d>{said}")
             elif who in subject_of:
-                body.append(f"<Subject {subject_of[who]}> {sid(who)} says in an off-screen voiceover <d>[Chinese] {line}</d> "
+                body.append(f"<Subject {subject_of[who]}> {sid(who)} says in an off-screen voiceover <d>[Chinese] {line}</d>{said} "
                             "The on-screen characters' lips remain closed.")
             else:
-                body.append(f"An off-screen voice {sid(who or 'off-screen')} says in an off-screen voiceover <d>[Chinese] {line}</d> "
+                body.append(f"An off-screen voice {sid(who or 'off-screen')} says in an off-screen voiceover <d>[Chinese] {line}</d>{said} "
                             "The on-screen characters' lips remain closed.")
     seconds = clip.get("request_seconds")
     retention = []
-    for ref in (clip.get("references") or []):
-        if ref.get("role") == "character" and ref["name"] in subject_of:
-            n = subject_of[ref["name"]]
-            retention.append(f"<Subject {n}>: fully_preserved - the identity, face, hair and clothing of <Picture {n}>; one instance in every shot it appears in.")
-            if clip.get('scene_ids'):
-                retention[-1] = (f'<Subject {n}>: fully_preserved - the identity, face, hair and build of <Picture {n}>; '
-                                 'base garment design is retained when worn, while current clothing state follows the authored shot. '
-                                 'One instance in every shot it appears in.')
+    for name, own in character_pictures(clip).items():
+        n, shown = subject_of[name], picture_phrase([p for p, _ in own])
+        retention.append(f"<Subject {n}>: fully_preserved - the identity, face, hair and clothing of {shown}; one instance in every shot it appears in.")
+        if clip.get('scene_ids'):
+            retention[-1] = (f'<Subject {n}>: fully_preserved - the identity, face, hair and build of {shown}; '
+                             'base garment design is retained when worn, while current clothing state follows the authored shot. '
+                             'One instance in every shot it appears in.')
     # The task prefix names what the references actually are; "audio reference" only when a voice
     # reference is really attached.
     has_audio = any(ref.get("role") == "voice" for ref in (clip.get("references") or []))
@@ -128,14 +192,15 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "") -> str
     animation = ''
     setting_retention = ('The setting: fully_preserved - its architecture, fixed props and light come from its own '
                          'picture, and none of the people in it.')
+    family = render_family(clip)
     if clip.get('scene_ids'):
-        animation = (' All subjects, animals, props and environments share one consistent stylized '
-                     + ('3D animation' if clip.get('animation_style') == '3d' else '2D animation') + ' appearance.')
+        animation = MEDIUM_SENTENCE.get(family, '')
         setting_retention = ('The setting retains the referenced architecture and terrain; lighting, time of day and '
                              'portable object states follow the authored shots.')
-    summary = (f'A continuous {seconds}-second Chinese animated short-drama shot in {len(stages)} stages.'
+    kind = 'live-action' if family == 'photo' else 'animated'
+    summary = (f'A continuous {seconds}-second Chinese {kind} short-drama shot in {len(stages)} stages.'
                if not clip.get('scene_ids') else
-               f'A {seconds}-second Chinese animated short-drama scene edited into {len(stages)} authored shots.')
+               f'A {seconds}-second Chinese {kind} short-drama scene edited into {len(stages)} authored shots.')
     return ("subject_definitions:\n" + "\n".join(defs)
             + f"\n\nsummary:\n{task} " + summary + animation
             + (f" Direction for this take: {note}" if note else "") + "\n\n"
@@ -219,6 +284,13 @@ def request_issues(clip: dict) -> list[str]:
     declared.update(re.findall(r'<Subject\s+(\d+)> is the character\b', definitions))
     if declared or 'subject_definitions:' in text:
         issues.extend(f'subject {n} has no identity definition' for n in sorted(set(re.findall(r'<Subject\s+(\d+)>',body))-declared))
+    # Every picture of one actor belongs to one subject.  Declaring more subjects than the clip has
+    # characters means somebody's second reference image became a second person - one told to appear
+    # exactly once and that nobody else may share its face, i.e. a twin who must not look like itself.
+    people = character_pictures(clip)
+    if people and len(declared) > len(people):
+        issues.append(f'{len(declared)} subjects are declared for {len(people)} characters: '
+                      "one person's reference images were declared as separate people")
     if clip.get('scene_ids') and CJK.search(re.sub(r'<d>.*?</d>', '', text, flags=re.S)):
         issues.append('authored H3 description contains Chinese outside bound dialogue')
     return issues + final_dialogue_issues(clip)
