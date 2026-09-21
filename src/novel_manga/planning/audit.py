@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DELIVERY_MODES = ("说", "画外音", "内心独白", "唱", "聊天消息")
+# A card draws one person alone; these say the description is about them and somebody else.
+RELATION_WORDS = ("挽着", "搀着", "牵着", "抱着", "扶着", "跟在", "陪着", "依偎", "的胳膊",
+                  "身边", "身后", "身旁", "旁边")
+SAME_OPENING = 4  # two descriptions that start with the same four characters draw the same person
+
 BODY_WORDS = ("身材", "曲线", "胸", "臀", "腰肢", "丰满", "火爆", "紧身", "凹凸", "S型", "s型")
 MIN_DESCRIPTION = 15  # shorter than this is a name with a comment, not a plate the model can draw
 
@@ -115,13 +120,33 @@ def check_characters(bible: dict, audit: Audit) -> None:
         for field_name in ("gender", "age", "appearance", "wardrobe"):
             if not str(character.get(field_name) or "").strip():
                 audit.add("漏", where, f"缺 {field_name}", "角色卡这一项只能靠模型编")
+        text = f"{character.get('appearance', '')}{character.get('wardrobe', '')}"
+        relation = next((w for w in RELATION_WORDS if w in text), "")
+        if relation:
+            audit.add("错", where, "外貌里写了和别人的关系",
+                      "角色卡只画这一个人；写进关系动作，模型要么画出第二个人，"
+                      "要么把一场戏的姿势烤进这个人的每一镜", relation)
         age = parse_age(character.get("age", ""))
         if age is not None and age < 18:
-            text = f"{character.get('appearance', '')}{character.get('wardrobe', '')}"
             hit = next((w for w in BODY_WORDS if w in text), "")
             if hit:
                 audit.add("错", where, "未成年不得有身材描写",
                           f"原著写明 {character.get('age')}，条目里仍有身材向描写", hit)
+
+
+def check_confusable_cast(bible: dict, audit: Audit) -> None:
+    """Characters whose descriptions open alike are drawn alike."""
+    openings: dict[str, list[str]] = {}
+    for character in bible.get("characters", []):
+        if not isinstance(character, dict):
+            continue
+        appearance = str(character.get("appearance") or "").strip()
+        if len(appearance) >= SAME_OPENING:
+            openings.setdefault(appearance[:SAME_OPENING], []).append(character.get("name", "?"))
+    for opening, names in openings.items():
+        if len(names) > 1:
+            audit.add("漏", f"圣经·角色 {'、'.join(names)}", "两个人的外貌开头一样",
+                      "卡会画成同一个人，后面的审查要花钱才分得开", opening)
 
 
 def check_clip_plan(novel_dir: Path, bible: dict, audit: Audit) -> None:
@@ -209,5 +234,6 @@ def blocking_problems(novel_dir: Path) -> list[Finding]:
     bible = json.loads((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     check_locations_structure(bible, audit)
     check_characters(bible, audit)
+    check_confusable_cast(bible, audit)
     check_clip_plan(novel_dir, bible, audit)
     return [finding for finding in audit.findings if finding.level == "错"]

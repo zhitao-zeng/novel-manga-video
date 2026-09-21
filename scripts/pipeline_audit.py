@@ -28,8 +28,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from novel_manga.llm.client import ask_json  # noqa: E402
 from novel_manga.planning.audit import (  # noqa: E402
-    LEVEL_ORDER, Audit, check_characters, check_clip_plan, check_locations_structure,
-    check_storyboard, split_location)
+    LEVEL_ORDER, Audit, check_characters, check_clip_plan, check_confusable_cast,
+    check_locations_structure, check_storyboard, split_location)
 from novel_manga.review.endpoints import judge_settings  # noqa: E402
 
 # gpu81's Flash-Next is shared with everything else that judges; two at a time is its whole budget.
@@ -196,6 +196,7 @@ def main() -> int:
 
     describable = check_locations_structure(bible, audit)
     check_characters(bible, audit)
+    check_confusable_cast(bible, audit)
     check_clip_plan(novel_dir, bible, audit)
     if args.storyboard:
         check_storyboard(args.storyboard if args.storyboard.is_absolute() else ROOT / args.storyboard,
