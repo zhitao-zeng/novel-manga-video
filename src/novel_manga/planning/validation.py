@@ -152,7 +152,8 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                'authored_id', 'authored_seconds', 'authored_angle') if k in shot},
             **({'in_frame': characters} if shot.get('scene_id') else {}),
         }
-        framed, notes = visible_speaker_shots(base, turns_out, visible, position)
+        framed, notes = visible_speaker_shots(base, turns_out, visible, position,
+                                              split=not ctx.authored_storyboard)
         normalized.extend(framed)
         warnings.extend(notes)
 

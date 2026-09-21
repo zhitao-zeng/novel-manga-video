@@ -58,8 +58,13 @@ def chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors
     reviewed_scene = (ctx.story_blueprint.get('version') == 'scene-screenplay-v2'
                       and ctx.story_blueprint.get('review', {}).get('completed')
                       and not ctx.story_blueprint['review'].get('issues'))
-    if len(skipped) > ctx.max_skipped and not reviewed_scene:
+    if len(skipped) > ctx.max_skipped and not reviewed_scene and not ctx.authored_storyboard:
         errors.append(PlanningIssue(PlanningCode.SKIPPED_SEGMENTS, f"不允许跳过区段，skipped_segments 必须为空，但收到 {sorted(skipped)}：把这些区段各写进至少一个阶段（可以拉长集数）", field='skipped_segments'))
+    elif skipped and ctx.authored_storyboard:
+        # What an authored sheet leaves out was decided by whoever cut it, the same way a reviewed
+        # scene screenplay's omissions are.  Demanding coverage here does not put the passage back -
+        # it makes the pipeline write a shot nobody asked for.  So it is allowed, and said out loud.
+        warnings.append(f"作者的分镜没有取用这些区段：{sorted(skipped)}（改编取舍，不是技术丢失）")
     colon_lines = re.findall(r"^([^\n：:]{2,8})[：:]([^\n]*)", chapter_text, re.M)
     # A named character's explicit quoted speech is prose, even when it has
     # its own line. Repetition of '人物说：“台词”' is not evidence of a chat UI.

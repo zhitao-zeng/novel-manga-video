@@ -179,6 +179,9 @@ def merge(authored: dict, answer: dict, *, character_names=()) -> dict:
             # the planned length, under the name the estimator and the packer already read
             "duration_seconds": float(shot["预算秒"]),
             "shot_id": shot_id,
+            # 叙事目的 is the author saying what this shot is for, which is what `purpose` means on
+            # the directed path; it was written in the sheet and read by nobody.
+            "purpose": str(shot.get("叙事目的") or "").strip(),
             "end_state": bound["end_state"],
             "light": bound["light"],
             # written by the author too, parsed rather than asked for

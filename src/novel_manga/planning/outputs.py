@@ -95,8 +95,16 @@ def render_markdown(raw: dict, shots: list[dict], report: dict, chapter_title: s
         cast = "、".join(shot["characters"]) or "无人物"
         lines.append(f"## 镜{index} · {shot.get('clip_hint') or ''} · {shot['location']} · {shot['shot_scale']} · {cast}")
         if shot.get('scene_id'):
-            lines.append(f"导演镜号：{shot['shot_id']} · {shot['scene_time']} · {shot['duration_seconds']:g}秒")
-            lines.append(f"本镜职责：{shot['purpose']}；切点：{shot['cut']}")
+            # Write each of these when there is one.  An authored sheet is a directed cut with no
+            # story-time column and no cut note, and indexing them here is how the whole chapter died
+            # at the very last step, after the binding had already succeeded.
+            lines.append("导演镜号：" + " · ".join(str(x) for x in [
+                shot.get('shot_id') or shot.get('authored_id') or '?', shot.get('scene_time'),
+                f"{shot['duration_seconds']:g}秒" if 'duration_seconds' in shot else None] if x))
+            if shot.get('purpose') or shot.get('cut'):
+                lines.append("；".join(part for part in [
+                    f"本镜职责：{shot['purpose']}" if shot.get('purpose') else "",
+                    f"切点：{shot['cut']}" if shot.get('cut') else ""] if part))
             if shot.get('timing_adjustment'):
                 lines.append(f"时长分配：导演预算 {shot['timing_adjustment']['director_seconds']:g} 秒，按现有发声估时补至 {shot['duration_seconds']:g} 秒，台词不变。")
         if shot.get('beat_id') in beats:

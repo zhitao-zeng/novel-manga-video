@@ -33,8 +33,13 @@ def blocking_note(shot: dict) -> str:
 
 
 
-def visible_speaker_shots(base, turns_out, visible, position):
-    """Keep the existing visible-speaker grouping and listener framing in reading order."""
+def visible_speaker_shots(base, turns_out, visible, position, *, split=True):
+    """Keep the existing visible-speaker grouping and listener framing in reading order.
+
+    `split=False` for a storyboard a person cut: the cuts are theirs, and re-cutting them is the one
+    thing the authored path exists to prevent.  The risk the split guards against does not go away -
+    two faces in one frame is where the renderer animates the wrong mouth - so it is reported instead.
+    """
     normalized, warnings = [], []
     def framed(shot_base: dict, speaker: str) -> dict:
         """One visible speaker: only the speaker and the people the stage's actions involve stay in frame; the
@@ -51,6 +56,13 @@ def visible_speaker_shots(base, turns_out, visible, position):
     if len(distinct_visible) <= 1:
         normalized.append({**(framed(base, distinct_visible[0]) if distinct_visible else base), "turns": turns_out})
         return normalized, warnings
+    if not split:
+        # Chapter 10 of the pilot: four lines of one exchange in one authored 11-second shot, whose
+        # camera column says the blocking replaces shot/reverse-shot.  Splitting made four shots that
+        # each kept the whole 11 seconds, and the episode went from 95 seconds to 232.
+        warnings.append(f"{position}: {len(distinct_visible)} 个可见说话人在同一镜里（作者的分镜，不拆）；"
+                        "渲染器可能把口型安错人，出片后重点看这一镜")
+        return [{**base, "turns": turns_out}], warnings
     warnings.append(f"{position}: {len(distinct_visible)} visible speakers; split into consecutive shots")
     groups: list[list[dict]] = []
     current_speaker = None
