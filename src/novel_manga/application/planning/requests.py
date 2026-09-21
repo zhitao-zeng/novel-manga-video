@@ -5,7 +5,7 @@ from novel_manga.llm.config import endpoint_order
 from novel_manga.llm.responses import extract_json
 from novel_manga.llm.transport import post_any
 from novel_manga.application.profiles import FRAMES
-from novel_manga.application.profiles import STYLE_NAME
+from novel_manga.application.profiles import style_name
 from novel_manga.application.profiles import frame_spec
 import httpx
 import json
@@ -187,7 +187,7 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
         raise ValueError('复用分场稿需要指定创作方法')
     frame = frame_spec(profile) if profile else FRAMES["9:16"]
     brief = screenplay_prompt(method) if method else ctx.system_prompt
-    system_prompt = pc_prompts.render_brief(brief, ctx=ctx).replace("{frame_text}", frame["text"]).replace("{style_name}", STYLE_NAME[(profile or {}).get("style", "2d")])
+    system_prompt = pc_prompts.render_brief(brief, ctx=ctx).replace("{frame_text}", frame["text"]).replace("{style_name}", style_name((profile or {}).get("style", "2d")))
     system_prompt += f"\n\n【画幅】{frame['text']}。{frame['composition']}。"
     if grammar:
         system_prompt += f"\n\n【全书视觉语法，camera 和 light 字段必须与之一致】{pc_prompts.grammar_text(grammar)}"

@@ -9,6 +9,23 @@ from novel_manga.story.identity import canonical_entity
 from novel_manga.story.source_identity import (POLICY, usable_reading, source_schema, UnreadableSource, clean_reading, map_source_reading)
 from novel_manga.application.identity.store import ChapterIdentityData, load_chapter
 
+
+def reading_aliases(novel_dir) -> dict:
+    """Alias → canonical name, as the lean reading established them, with evidence behind each.
+
+    Only these may collapse two source actors onto one catalogue row; an alias of unknown provenance
+    still leaves the second actor unbound, which is what the 雾月 mis-merges taught.
+    """
+    from pathlib import Path
+    path = Path(novel_dir) / "reading_cast.json"
+    if not path.is_file():
+        return {}
+    try:
+        return dict(json.loads(path.read_text(encoding="utf-8")).get("aliases") or {})
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
 def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData | None = None):
     # Read source first; legacy dictionaries never enter this semantic call.
     from novel_manga.llm.client import ask_json
@@ -92,7 +109,7 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
               'primary_entities': [r['id'] for r in catalog.entities.values() if r['design'].get('role') in {'主角','男主角','女主角'}],
               'entities': {r['id']: r['name'] for r in catalog.entities.values()},
               'actorless_confirmed': not cleaned['actors'] and bool(answer.get('actorless_confirmed')),
-              'discarded_mentions': rejected, **map_source_reading(cleaned, catalog, segments)}
+              'discarded_mentions': rejected, **map_source_reading(cleaned, catalog, segments, reading_aliases(directory.parent))}
     result['relations'] = [r for r in catalog.claims if r.get('status') == 'accepted' and r.get('chapter', 0) <= chapter]
     for key in ['mentions','appearances']:
         for row in result[key]:

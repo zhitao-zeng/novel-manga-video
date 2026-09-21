@@ -151,7 +151,12 @@ def run(args, ctx: PlannerContext) -> int:
     current_identity = current_context(episode_dir, data=identity_data)
     if current_identity:
         from novel_manga.story.source_identity import active_cast_names
-        active_names = active_cast_names(current_identity)
+        # Someone the reading left out of the bible on purpose is an extra, not an unbound actor.
+        from novel_manga.application.review.bible import reading_roster
+        roster = reading_roster(novel_dir)
+        decided = ([r['name'] for r in current_identity.get('unmatched_actors', [])
+                    if not pc_cast.name_forms(r['name'], ctx=ctx) & set(roster)] if roster else [])
+        active_names = active_cast_names(current_identity, decided)
         present = [c for c in full_bible.characters if c.name in active_names]
         main_cast, carried = [], []
     elif ledger_cast_here:

@@ -242,6 +242,15 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
         entry["mentions"] += int(row.get("mentions", 0))
         entry["speaks"] = entry["speaks"] or bool(row.get("speaks_or_close_up"))
     missing = {name: info for name, info in counts.items() if info["mentions"] >= 2 and (info["kind"] == "具名角色" or info["speaks"])}
+    # "or it speaks" lets anything with two mentions and a close-up in - a door knocker, a
+    # hound - because this runs on one chapter and cannot tell whether it ever comes back.
+    # A reading of the whole book can, so when there is one it decides who the book has.
+    roster = reading_roster(novel_dir)
+    if roster:
+        turned_down = [name for name in missing if not story_names.name_matches(name, roster)]
+        missing = {name: info for name, info in missing.items() if name not in turned_down}
+        if turned_down:
+            model_client.log(f"bible ch{chapter_index}: 读书名单里没有，不建档：{turned_down}")
     filled: list[str] = []
     needs_human: dict = {}
     suggestions: dict = {}

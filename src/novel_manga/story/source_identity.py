@@ -35,9 +35,19 @@ def usable_reading(context):
     return bool(context.get('source_actors') or context.get('mentions') or context.get('actorless_confirmed'))
 
 
-def active_cast_names(context):
+def active_cast_names(context, extras_by_decision=()):
+    """Who is on stage in this chapter, refusing to answer when someone cannot be accounted for.
+
+    `extras_by_decision` are the people a reading of the whole book deliberately left out of the
+    bible - a hound, a passer-by with two mentions.  They are accounted for: they play as extras,
+    described in the shot, with an anonymous role for any line.  Anyone else who is on stage and
+    binds to nothing is a person the film would drop or hand to the wrong character, and that stops
+    the plan.
+    """
+    decided = set(extras_by_decision or ())
     unresolved = [r['name'] for r in context.get('unmatched_actors', [])
-                  if r.get('presence') in {'on_stage', 'voice'} and r.get('kind') == 'individual']
+                  if r.get('presence') in {'on_stage', 'voice'} and r.get('kind') == 'individual'
+                  and r['name'] not in decided]
     if unresolved:
         raise ValueError('source actors need catalogue bindings: ' + ', '.join(unresolved))
     return {context['entities'].get(canonical_entity(context, m['entity_id']))
@@ -65,7 +75,7 @@ def clean_reading(answer, segments):
     return {'actors': actors}, rejected, unresolved
 
 
-def map_source_reading(answer, catalog, segments):
+def map_source_reading(answer, catalog, segments, verified_aliases=None):
     # The raw source is read before any catalogue is offered to the model.
     # Catalogue matching cannot change the source's actor count or relations.
     actors = answer['actors']
@@ -95,10 +105,22 @@ def map_source_reading(answer, catalog, segments):
         eid = mapping[actor['source_id']]
         if eid != 'UNKNOWN':
             by_entity.setdefault(eid, []).append(actor)
+    verified = verified_aliases or {}
     for eid, owners in by_entity.items():
         if len(owners) < 2:
             continue
-        direct = [r for r in owners if r['name'] == catalog.entities[eid]['name']]
+        canonical = catalog.entities[eid]['name']
+        # An alias the reading established - with the chapter and the line that prove it - says these
+        # really are one person, which is the case the guard below must not undo.  A chapter that
+        # only ever says 蝙蝠侠 and 布鲁斯 would otherwise leave both unbound and stop the plan.
+        vouched = {r['source_id'] for r in owners
+                   if r['name'] == canonical or verified.get(r['name']) == canonical}
+        if vouched:
+            for actor in owners:
+                if actor['source_id'] not in vouched:
+                    mapping[actor['source_id']] = 'UNKNOWN'
+            continue
+        direct = [r for r in owners if r['name'] == canonical]
         keep = direct[0]['source_id'] if len(direct) == 1 else None
         for actor in owners:
             if actor['source_id'] != keep:
