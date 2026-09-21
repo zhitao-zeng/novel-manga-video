@@ -8,13 +8,21 @@ import hashlib
 # The two model endpoints this project runs on, by name.  QWEN38_LOCAL_* is read by three different
 # jobs - the planner, the H3 prompt translation and the judge - so moving one of them used to move all
 # three.  A command applies the preset it wants to its own process, and nothing else changes.
+#
+# Neither streams.  The streaming transport was written for a platform model behind a proxy: it drops
+# chat_template_kwargs as "vLLM-only" and raises max_tokens to a floor of 50,000, because such a model
+# counts its reasoning inside the budget.  Flash-Next is vLLM, reached directly, and chat_template_kwargs
+# is where every request in this project says enable_thinking: False.  With the field stripped it thought
+# for as long as it was allowed: 38,094 tokens on one chapter's first attempt, and seventeen minutes on a
+# fill-in-the-blanks binding that then came back finish_reason=length with its JSON cut off.  Asked the
+# same question directly it answers in 0.4 s with the switch and starts reasoning without it.
 ENDPOINTS = {
     "local": {"QWEN38_LOCAL_BASE_URL": ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)),
               "QWEN38_LOCAL_MODEL": "Qwen3.8-27B-Project",
               "QWEN38_LOCAL_API_KEY_VAR": "SECOND_REVIEW_NO_KEY", "QWEN38_LOCAL_STREAM": "0"},
     "flashnext": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.81:8038/v1",
                   "QWEN38_LOCAL_MODEL": "Qwen3.8-Flash-Next",
-                  "QWEN38_LOCAL_API_KEY_VAR": "GPU81_QWEN_API_KEY", "QWEN38_LOCAL_STREAM": "1"},
+                  "QWEN38_LOCAL_API_KEY_VAR": "GPU81_QWEN_API_KEY", "QWEN38_LOCAL_STREAM": "0"},
 }
 
 
