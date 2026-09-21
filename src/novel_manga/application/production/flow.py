@@ -148,6 +148,26 @@ class Batch:
         with ThreadPoolExecutor(max_workers=max(1, self.args.plan_parallel)) as planners:
             for future in [planners.submit(plan_one, chapter) for chapter in chapters]:
                 production_reports.volume_checkpoint(self, future.result(), chapters)
+            self.second_pass(chapters, planners)
+
+    def second_pass(self, chapters: list[int], planners: ThreadPoolExecutor) -> None:
+        """Plan once more whatever failed, now that the rest of the batch has run.
+
+        Chapters planned side by side meet the same new person at the same moment, and whichever asks
+        first asks from its own page alone.  Chapter 102 of 在美漫当心灵导师的日子 asked for 罗伊·布朗
+        twice and was refused twice; chapter 103 built him seconds later from a fuller page, and 102,
+        run again on its own, planned without a change to anything.  What it had lacked was not
+        evidence but a sibling's result, and only finishing the batch produces that.
+
+        Once, not until it works: a chapter that fails again has a reason of its own.
+        """
+        failed = [chapter for chapter in chapters if self.rows[chapter].get("plan") == "failed"]
+        if not failed or self.args.dry_run:
+            return
+        production_common.log(f"second pass: {len(failed)} chapter(s) failed the first time round, planning them again: {failed}")
+        list(planners.map(self.plan, failed))
+        still = [chapter for chapter in failed if self.rows[chapter].get("plan") == "failed"]
+        production_common.log(f"second pass: {len(failed) - len(still)} recovered, {len(still)} still failing {still or ''}")
 
     def plan_status(self, chapter: int) -> str:
         directory = self.episode_dir(chapter)

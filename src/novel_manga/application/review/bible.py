@@ -348,9 +348,18 @@ def grow_unbound_roster(novel_dir: Path, context: dict, chapter_text: str, chapt
         if not wanted:
             return []
         model_client.log(f"bible ch{chapter_index}: 本章在场、读书认的人，圣经里没有，补建：{list(wanted)}")
-        bible, filled, _, _ = fill_characters(bible, bible_path, wanted, chapter_text)
+        # Everyone here is somebody the reading vouched for - that is the condition for being asked
+        # about at all - so the fill has to be told, as growth tells it, or "疑为某某的别称" refuses
+        # the very people this function exists to build.
+        bible, filled, needs_human, _ = fill_characters(bible, bible_path, wanted, chapter_text, reading["cast"])
         if filled:
             atomic_write_json(bible_path, bible.model_dump(mode="json"))
+        # The reasons used to be dropped here.  A chapter then died on "source actors need catalogue
+        # bindings" with 补建 logged twice above it and not a word on why neither attempt took, while a
+        # sibling chapter built the same person seconds later from a fuller page.
+        refused = {name: why for name, why in needs_human.items() if name in wanted and name not in filled}
+        if refused:
+            model_client.log(f"bible ch{chapter_index}: 补建没建成：" + "；".join(f"{name}（{why}）" for name, why in refused.items()))
         return filled
 
 
@@ -406,12 +415,32 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     # "or it speaks" lets anything with two mentions and a close-up in - a door knocker, a
     # hound - because this runs on one chapter and cannot tell whether it ever comes back.
     # A reading of the whole book can, so when there is one it decides who the book has.
-    roster = reading_roster(novel_dir)
+    reading = reading_decisions(novel_dir)
+    roster = reading["roster"]
     if roster:
-        turned_down = [name for name in missing if not story_names.name_matches(name, roster)]
+        # The roster's "no" is a ruling only where the reading looked.  reading_decisions says so in
+        # as many words - "outside it, absence means nothing at all" - and the planner's half of this
+        # has always honoured it; this gate did not, and nobody could tell while every chapter planned
+        # was one the reading had read.  The first time a book was taken past its reading (chapter 101
+        # of 在美漫当心灵导师的日子, read to 100) everyone who first appears later was refused here, and
+        # each of them then had to be argued back in downstream, one model call and one race at a time.
+        # Past the coverage the chapter's own evidence decides, as it does for a book with no reading
+        # at all.  A form the reading saw and declined stays declined: that was a ruling on the form.
+        # A reading that recorded no coverage is taken at its word everywhere, as it was before this:
+        # "how far it read" cannot be assumed to be "not this far".
+        covered = not reading["chapters"] or chapter_index in set(reading["chapters"])
+        declined = set(reading["declined"])
+        turned_down = [name for name in missing if not story_names.name_matches(name, roster)
+                       and (covered or name in declined)]
+        unread = [name for name in missing if name not in turned_down
+                  and not story_names.name_matches(name, roster)]
         missing = {name: info for name, info in missing.items() if name not in turned_down}
         if turned_down:
-            model_client.log(f"bible ch{chapter_index}: 读书名单里没有，不建档：{turned_down}")
+            why = "读书名单里没有" if covered else "读书看过并否决的指称"
+            model_client.log(f"bible ch{chapter_index}: {why}，不建档：{turned_down}")
+        if unread:
+            model_client.log(f"bible ch{chapter_index}: 读书只读到第 {max(reading['chapters'], default=0)} 章，"
+                             f"这一章按本章证据建档：{unread}")
         # 名单里的人，本章点到名就建档。mentions >= 2 和"具名角色或开口说话"都是只看得见一章时
         # 的噪声过滤；读书已经拿全书证据过滤过一遍，再滤一遍就是拿更差的信息否决更好的判断。
         # 而绑定检查要求本章在场的人必须绑得上——上游多拦一个，下游就整章排不出来。

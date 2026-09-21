@@ -225,7 +225,8 @@ def test_a_replanned_chapter_replaces_its_appearances(tmp_path):
 # ---------------------------------------------------------------- 21: --plan-parallel
 def test_the_plan_stage_plans_chapters_side_by_side_and_checkpoints_in_order(monkeypatch):
     batch = object.__new__(production_flow.Batch)
-    batch.args = types.SimpleNamespace(plan_parallel=3)
+    batch.args = types.SimpleNamespace(plan_parallel=3, dry_run=False)
+    batch.rows = {chapter: {} for chapter in range(1, 7)}     # what the second pass reads; nothing here fails
     running, peak, order, lock = [0], [0], [], threading.Lock()
 
     def plan(chapter):
