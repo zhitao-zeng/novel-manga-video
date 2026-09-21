@@ -88,6 +88,22 @@ def bible_markdown(bible: StoryBible, novel, source: Path, profile: dict) -> str
     return "\n".join(lines) + "\n"
 
 
+def seed_cast(path: Path, chapters: int) -> list[str]:
+    """Of the roster, the people the seed chapters actually show.
+
+    Designing all 87 of a hundred-chapter reading in one reply does not fit; designing the ones on
+    screen in the first five chapters does, and growth designs each of the others on the chapter
+    that brings them in.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    early = []
+    for person in data.get("characters", []):
+        seen = [int(n) for n in (person.get("chapters") or []) if str(n).isdigit() or isinstance(n, int)]
+        if seen and min(seen) <= chapters:
+            early.append(str(person["name"]).strip())
+    return early
+
+
 def read_cast(path: Path) -> tuple[list[str], dict[str, str]]:
     """The cast and aliases the reading settled, from its exported story_bible.json.
 
@@ -140,12 +156,18 @@ def main() -> int:
         started = time.monotonic()
         seed = novel.model_copy(update={"text": "\n\n".join(e.source_text for e in novel.episodes[:max(1, args.bible_chapters)])})
         cast, aliases = read_cast(args.cast) if args.cast else (None, {})
+        design = seed_cast(args.cast, args.bible_chapters) if args.cast else None
         if cast:
-            print(json.dumps({"cast": "from reading", "characters": len(cast), "aliases": len(aliases)},
+            print(json.dumps({"cast": "from reading", "characters": len(cast), "aliases": len(aliases),
+                              "designed_now": len(design or []), "rest": "grown chapter by chapter"},
                              ensure_ascii=False), flush=True)
-        bible = build_bible(seed, args.style, cast)
+        bible = build_bible(seed, args.style, design)
         if aliases:
             atomic_write_json(novel_dir / "bible_aliases.json", aliases)
+        if cast:
+            # Growth reads this to know who the book has; the seed bible only designs the people the
+            # seed chapters actually show, because one reply cannot hold a whole book's cast.
+            atomic_write_json(novel_dir / "reading_cast.json", {"characters": cast, "aliases": aliases})
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
         print(json.dumps({"bible": "built", "seconds": round(time.monotonic() - started, 1), "characters": [c.name for c in bible.characters], "locations": [l.split("：", 1)[0] for l in bible.locations]}, ensure_ascii=False), flush=True)
 

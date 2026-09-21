@@ -37,6 +37,24 @@ def excerpts(text: str, name: str, limit: int = 12) -> str:
     return "".join(sentences[:limit])[:1600]
 
 
+def reading_roster(novel_dir: Path) -> list[str]:
+    """Everyone the lean reading decided this book has, names and aliases alike.
+
+    Empty when the book has not been read, and then growth keeps its own judgement.
+    """
+    path = Path(novel_dir) / "reading_cast.json"
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    names = [str(n).strip() for n in data.get("characters") or [] if str(n).strip()]
+    names += [str(a).strip() for a in (data.get("aliases") or {}) if str(a).strip()]
+    return names
+
+
+
 def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None = None) -> dict:
     """Named characters the novel keeps mentioning that the bible lacks.
 
@@ -70,6 +88,15 @@ def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None
         name: info for name, info in counts.items()
         if info["mentions"] >= review_contracts.MIN_MENTIONS and not story_names.name_matches(name, known) and (info["kind"] == "具名角色" or info["speaks"])
     }
+    # "or it speaks" lets a one-scene driver into the bible with a card of its own, because growth
+    # only ever sees one chapter and cannot tell that he never comes back.  A reading of the whole
+    # book can, so when there is one, it decides.
+    roster = reading_roster(novel_dir)
+    if roster:
+        turned_down = [name for name in missing if not story_names.name_matches(name, roster)]
+        missing = {name: info for name, info in missing.items() if name not in turned_down}
+        if turned_down:
+            model_client.log(f"bible: reading says these are extras, not adding: {turned_down}")
     report = {"policy": review_contracts.POLICY, "bible_characters": known, "extracted": counts, "missing": missing, "filled": [], "needs_human": {}, "suggestions": {}}
     if fill and missing:
         bible, report["filled"], report["needs_human"], report["suggestions"] = fill_characters(bible, bible_path, missing, novel.text)

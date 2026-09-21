@@ -26,6 +26,10 @@ STYLE = (
 )
 
 DIAGNOSIS_TOKEN_BUDGET = 6000
+# A casting profile - archetype, face anchors, silhouette, hair, palette, costume, prop,
+# expression, motion, voice - runs about 250 output tokens.  The bible's budget has to follow
+# the cast, or a book with more people than the constant allows truncates mid-character.
+CHARACTER_TOKENS = 260
 
 def _validation_feedback(error: ValueError) -> list[dict[str, object]]:
     if isinstance(error, ValidationError):
@@ -324,7 +328,9 @@ class BibleBuilder:
             "build_bible",
             self.settings.planner_max_revisions,
             lambda repair: self._json(
-                system, user, repair, token_budget=DIAGNOSIS_TOKEN_BUDGET
+                system, user, repair,
+                token_budget=max(DIAGNOSIS_TOKEN_BUDGET,
+                                 2000 + CHARACTER_TOKENS * len(cast)) if cast else DIAGNOSIS_TOKEN_BUDGET
             ),
             lambda data: _validate_story_bible(data, novel, cast),
         )
