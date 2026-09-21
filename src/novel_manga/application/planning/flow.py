@@ -141,7 +141,17 @@ def run(args, ctx: PlannerContext) -> int:
         # now, then read the chapter again against the larger catalogue.  Re-reading costs no model call
         # (resolve_chapter reuses the saved source actors while the segments are unchanged) and it is the
         # only way the new entries can be bound, because the binding was computed before they existed.
-        from novel_manga.application.review.bible import grow_unbound_roster
+        from novel_manga.application.review.bible import (decided_extras, grow_unbound_roster,
+                                                           judge_unknown, reading_decisions)
+        # Rule on anyone the whole-book reading never registered BEFORE growth runs, so a verdict of
+        # "character" reaches the same pass that builds them - otherwise the chapter is lost once and
+        # only works on the retry.
+        unjudged = decided_extras(reading_decisions(novel_dir),
+                                  context.get("unmatched_actors", []), episode.index,
+                                  lambda name: pc_cast.name_forms(name, ctx=ctx))[1]
+        on_stage = {r["name"] for r in context.get("unmatched_actors", [])
+                    if r.get("presence") in {"on_stage", "voice"} and r.get("kind") == "individual"}
+        judge_unknown(novel_dir, [n for n in unjudged if n in on_stage], chapter_text, episode.index)
         if grow_unbound_roster(novel_dir, context, chapter_text, episode.index):
             full_bible = StoryBible.model_validate_json(bible_target.read_text(encoding="utf-8"))
             identity_data = load_chapter(episode_dir)
@@ -178,8 +188,11 @@ def run(args, ctx: PlannerContext) -> int:
         # in a chapter it read, where not promoting someone to a character is itself the verdict.
         from novel_manga.application.review.bible import decided_extras, reading_decisions
         reading = reading_decisions(novel_dir)
+        # Only the people the reading actually ruled on play as extras.  Anyone it never ruled on was
+        # put to it above; if that produced no verdict, they are still unaccounted for and the binding
+        # check stops the chapter, which is the honest outcome.
         decided = (decided_extras(reading, current_identity.get('unmatched_actors', []), episode.index,
-                                  lambda name: pc_cast.name_forms(name, ctx=ctx))
+                                  lambda name: pc_cast.name_forms(name, ctx=ctx))[0]
                    if reading['roster'] else [])
         active_names = active_cast_names(current_identity, decided)
         present = [c for c in full_bible.characters if c.name in active_names]
@@ -282,6 +295,25 @@ def run(args, ctx: PlannerContext) -> int:
         if sheet is None:
             raise PlanningInputError("请用 --bind-sheet 选择分镜工作表：" + "、".join(s.name for s in sheets))
         authored = authored_payload(sheet)
+    if authored:
+        # A bound sheet has already chosen its people and places; the slice exists to keep the menu
+        # short for a model that is still choosing.  Withholding an authored sheet's own location
+        # leaves the scene nowhere to go - 哥谭大学教室 enters the bible at chapter 44 and the sheet for
+        # chapter 10 needs it, and the classroom would otherwise have to become the coffee shop.
+        wanted_places, places = set(pc_binding.written_names(authored)[1]), dict(location_map)
+        for full in full_bible.locations:
+            short = full.split("：", 1)[0].strip()
+            if short in wanted_places:
+                places.setdefault(short, full)
+        wanted_people = set(pc_binding.written_names(authored)[0])
+        people = {c.name: c for c in sliced_characters}
+        for character in full_bible.characters:
+            if character.name in wanted_people:
+                people.setdefault(character.name, character)
+        sliced_characters, sliced_locations = list(people.values()), list(places.values())
+        bible = full_bible.model_copy(update={"characters": sliced_characters, "locations": sliced_locations})
+        location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
+        names = [character.name for character in bible.characters]
     segment_ids = [segment["segment_id"] for segment in segments]
     # A bound sheet is not re-planned: the model answers one object per authored shot with only the
     # fields the import left empty, and never sees a schema that would let it rewrite the cuts.
@@ -381,7 +413,7 @@ def run(args, ctx: PlannerContext) -> int:
                 raise ValueError("constrained decoding derailed into whitespace (finish_reason=%s)" % meta.get("finish_reason"))
             raw = planner_requests.extract_json(content)
             if authored:
-                raw = pc_binding.merge(authored, raw)
+                raw = pc_binding.merge(authored, raw, character_names=names)
         except (json.JSONDecodeError, ValueError) as error:
             final_errors = [f"response is not one JSON object: {type(error).__name__}: {error}"]
             attempts.append({"attempt": attempt, **meta, "errors": final_errors})

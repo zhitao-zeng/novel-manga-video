@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from novel_manga.planning.audit import Audit, check_clip_plan
-from novel_manga.planning.binding import bind_schema, merge, written_names
+from novel_manga.planning.binding import bind_schema, merge, settled_names, written_names
 from novel_manga.planning.storyboard import authored_sound
 from novel_manga.planning.validation import flatten_clips
 from novel_manga.application.packing.context import compiler_options
@@ -54,20 +54,38 @@ def test_an_illegal_delivery_or_shape_is_reported_rather_than_guessed():
     assert authored_sound("梁舟: 走").problems[0][1].startswith("要写成")
 
 
-def test_the_model_is_asked_only_who_and_where_not_what_is_said():
+def test_the_model_is_not_asked_about_anything_the_catalogue_already_answers():
+    """梁舟 is a bible character spelled exactly that way.  Asking anyway is how it could come back as
+    somebody else: the field was an enum of every available name and the binder took the answer."""
     authored = {"shots": [shot(sound=SOUND)]}
     assert written_names(authored) == (["梁舟"], ["书房"])
     schema = bind_schema(authored, ["梁舟"], ["书房", "庭院"], ["seg_1"],
                          ctx=SimpleNamespace(anonymous_speakers=()))
     per_shot = schema["properties"]["bindings"]["items"]["properties"]
     assert "turns" not in per_shot and "sfx" not in per_shot and "location" not in per_shot
-    assert set(schema["properties"]["speaker_names"]["items"]["properties"]) == {"written", "name"}
+    assert "location_names" not in schema["properties"]
+    assert schema["properties"]["speaker_names"]["maxItems"] == 0     # nothing left to ask
+    assert settled_names(["梁舟", "小贩"], ["梁舟"]) == ({"梁舟": "梁舟"}, ["小贩"])
+
+
+def test_a_speaker_the_catalogue_does_not_know_is_still_a_question():
+    """阿甲 is not a bible name; the sheet writes 蝙蝠侠 and 学生甲 for real reasons."""
+    schema = bind_schema({"shots": [shot(sound='阿甲（说）：“走。”')]}, ["梁舟"], ["书房"], ["seg_1"],
+                         ctx=SimpleNamespace(anonymous_speakers=()))
+    assert schema["properties"]["speaker_names"]["maxItems"] == 1
+
+
+def test_an_exact_name_cannot_be_answered_away():
+    merged = merge({"shots": [shot(sound=SOUND)]},
+                   binding_answer(speaker_names=[{"written": "梁舟", "name": "周衡"}]),
+                   character_names=["梁舟", "周衡"])
+    assert merged["clips"][0]["stages"][0]["turns"][0]["speaker_name"] == "梁舟"
 
 
 def test_the_binder_cannot_move_the_scene_or_rewrite_the_line():
     """The whole finding in one case: given an answer that relocates and re-voices the shot, the
     author's own cell is what comes out."""
-    merged = merge({"shots": [shot(sound=SOUND)]}, binding_answer())
+    merged = merge({"shots": [shot(sound=SOUND)]}, binding_answer(), character_names=["梁舟"])
     stage = merged["clips"][0]["stages"][0]
     assert merged["clips"][0]["location"] == "书房"
     assert stage["sfx"] == "风声"
@@ -77,26 +95,38 @@ def test_the_binder_cannot_move_the_scene_or_rewrite_the_line():
 
 def test_a_speaker_the_binding_never_named_stops_the_chapter():
     with pytest.raises(ValueError, match="梁舟"):
-        merge({"shots": [shot(sound=SOUND)]}, binding_answer(speaker_names=[]))
+        merge({"shots": [shot(sound=SOUND)]}, binding_answer(speaker_names=[]), character_names=[])
 
 
-def test_a_scene_name_may_be_normalised_but_comes_from_one_answer_for_the_whole_chapter():
-    """书房 may resolve to 书房（宅邸）; it resolves to the same place in every shot that writes it."""
-    answer = binding_answer(location_names=[{"written": "书房", "name": "书房（宅邸）"}])
+def test_a_scene_goes_where_the_author_put_it_whatever_the_model_answers():
+    """The brief tells the author to copy a bible location exactly and the audit checks it, so there
+    is nothing here for a model to decide.  Normalising 书房 to 书房（宅邸） and moving it to 庭院 are
+    the same act from the binder's side - both replace the author's own word - so neither happens."""
+    answer = binding_answer(location_names=[{"written": "书房", "name": "庭院"}])
     answer["bindings"] = [{**answer["bindings"][0], "镜号": n} for n in ("A1", "A2")]
-    merged = merge({"shots": [shot("A1", sound=SOUND), shot("A2", sound=SOUND)]}, answer)
-    assert [c["location"] for c in merged["clips"]] == ["书房（宅邸）"]
+    merged = merge({"shots": [shot("A1", sound=SOUND), shot("A2", sound=SOUND)]}, answer,
+                   character_names=["梁舟"])
+    assert [c["location"] for c in merged["clips"]] == ["书房"]
+
+
+def test_a_scene_name_no_location_answers_to_is_a_proposal_not_a_relocation():
+    """The skill's own 新增地点.md exists for this: chapter 10 of 在美漫当心灵导师的日子 needed a
+    classroom that only enters the bible at chapter 44, and the agent refused to call it the coffee
+    shop.  Handing it a list without the classroom would have made the pipeline do exactly that."""
+    with pytest.raises(ValueError, match="哥谭大学教室"):
+        bind_schema({"shots": [shot(sound=SOUND, place="哥谭大学教室")]}, ["梁舟"], ["书房", "庭院"],
+                    ["seg_1"], ctx=SimpleNamespace(anonymous_speakers=()))
 
 
 def test_an_unreadable_dialogue_cell_stops_the_chapter_instead_of_reaching_the_model():
     with pytest.raises(ValueError, match="A12"):
-        merge({"shots": [shot(sound="梁舟（喊）：“走！”")]}, binding_answer())
+        merge({"shots": [shot(sound="梁舟（喊）：“走！”")]}, binding_answer(), character_names=["梁舟"])
 
 
 # --- the planned length, shot number and angle survive -------------------------------------------
 
 def test_the_authored_number_length_and_angle_reach_the_flat_shot():
-    merged = merge({"shots": [shot(sound=SOUND)]}, binding_answer())
+    merged = merge({"shots": [shot(sound=SOUND)]}, binding_answer(), character_names=["梁舟"])
     flat = flatten_clips(merged)[0]
     assert flat["authored_id"] == "A12"
     assert flat["authored_seconds"] == 12

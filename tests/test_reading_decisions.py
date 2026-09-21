@@ -65,28 +65,31 @@ def test_a_name_the_reading_declined_plays_as_an_extra(tmp_path):
     write_reading(novel, declined=["乞丐"], chapters=[1, 2])
     reading = reading_decisions(novel)
     assert reading_roster(novel) == reading["roster"]
-    assert decided_extras(reading, [{"name": "乞丐"}], chapter=9, forms_of=lambda n: {n}) == ["乞丐"]
+    extras, unjudged = decided_extras(reading, [{"name": "乞丐"}], chapter=9, forms_of=lambda n: {n})
+    assert (extras, unjudged) == (["乞丐"], [])
 
 
-def test_an_unnamed_passer_by_in_a_chapter_the_reading_read_is_an_extra(tmp_path):
-    """前台的姑娘 never reaches the candidate table: one chapter uses her, the whole-book table keeps
-    what recurs.  The reading DID read that chapter, and did not make her a character, so that is the
-    verdict on her - and the chapter plans."""
+def test_someone_the_reading_never_registered_is_a_question_not_an_extra(tmp_path):
+    """前台的姑娘 never reaches the candidate table - one chapter uses her and a whole-book table keeps
+    what recurs.  "The reading read this chapter" used to stand in for a verdict about her, and it
+    cannot: reading a chapter is not ruling on everyone in it, and a character the reading missed
+    looks exactly like this.  She comes back as a question, to be ruled on rather than assumed."""
     novel = tmp_path / "book"
     write_reading(novel, declined=["乞丐"], chapters=[1, 2])
     reading = reading_decisions(novel)
-    assert decided_extras(reading, [{"name": "前台的姑娘"}], chapter=2, forms_of=lambda n: {n}) == ["前台的姑娘"]
+    extras, unjudged = decided_extras(reading, [{"name": "前台的姑娘"}], chapter=2, forms_of=lambda n: {n})
+    assert (extras, unjudged) == ([], ["前台的姑娘"])
 
 
-def test_beyond_the_chapters_the_reading_read_nothing_is_waved_through(tmp_path):
-    """The whole point of the separation: a reading of chapters 1-2 has no opinion about chapter 9.
-
-    Treating its silence there as "extra" is how a character the reading never met becomes a walk-on.
-    """
+def test_nobody_is_waved_through_on_the_readings_silence(tmp_path):
+    """Inside its coverage or beyond it, silence is not a verdict."""
     novel = tmp_path / "book"
     write_reading(novel, declined=["乞丐"], chapters=[1, 2])
     reading = reading_decisions(novel)
-    assert decided_extras(reading, [{"name": "新登场的关键人物"}], chapter=9, forms_of=lambda n: {n}) == []
+    for chapter in (2, 9):
+        extras, unjudged = decided_extras(reading, [{"name": "新登场的关键人物"}], chapter=chapter,
+                                          forms_of=lambda n: {n})
+        assert (extras, unjudged) == ([], ["新登场的关键人物"])
 
 
 def test_someone_the_reading_made_a_character_of_is_never_an_extra(tmp_path):
@@ -94,7 +97,8 @@ def test_someone_the_reading_made_a_character_of_is_never_an_extra(tmp_path):
     novel = tmp_path / "book"
     write_reading(novel, declined=[], chapters=[1, 2])
     reading = reading_decisions(novel)
-    assert decided_extras(reading, [{"name": "阿福"}], chapter=1, forms_of=lambda n: {n}) == []
+    # neither an extra nor a question: he is a character, and the binding check must hold out for him
+    assert decided_extras(reading, [{"name": "阿福"}], chapter=1, forms_of=lambda n: {n}) == ([], [])
 
 
 def test_the_binding_check_still_stops_a_chapter_for_an_actor_nobody_decided():
@@ -266,3 +270,59 @@ def test_a_character_the_reading_listed_never_becomes_somebody_elses_nickname(tm
     review_bible._grow_bible_unlocked(novel, "原文", 2, scan={"names": [row("伊文斯")], "locations": []})
     aliases = json.loads((novel / "bible_aliases.json").read_text(encoding="utf-8"))
     assert "伊文斯" not in aliases
+
+
+# --- the verdict the reading never gave -----------------------------------------------------------
+
+def judged(tmp_path, monkeypatch, answer, names=("前台的姑娘", "猎犬")):
+    from novel_manga.application.review import bible as review_bible
+    novel = tmp_path / "book"
+    write_reading(novel, declined=["乞丐"], chapters=[1, 2])
+    monkeypatch.setattr(review_bible.model_client, "ask_json", lambda *a, **k: answer)
+    monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
+    verdicts = review_bible.judge_unknown(novel, list(names), "第 2 章的原文。", 2)
+    return novel, verdicts, reading_decisions(novel)
+
+
+def test_a_verdict_is_recorded_so_it_is_never_guessed_twice(tmp_path, monkeypatch):
+    """These are the names in neither list.  Waving them through demotes a character the reading
+    missed; blocking them all loses a chapter to a door knocker.  So they are ruled on, once, and the
+    answer joins the reading's own record."""
+    novel, verdicts, reading = judged(tmp_path, monkeypatch, {"people": [
+        {"name": "前台的姑娘", "verdict": "路人", "why": "只此一章"},
+        {"name": "猎犬", "verdict": "路人", "why": "是狗"}]})
+    assert verdicts == {"前台的姑娘": "路人", "猎犬": "路人"}
+    assert {"前台的姑娘", "猎犬"} <= set(reading["declined"])
+    extras, unjudged = decided_extras(reading, [{"name": "猎犬"}], chapter=2, forms_of=lambda n: {n})
+    assert (extras, unjudged) == (["猎犬"], [])      # asked once; an extra from here on
+
+
+def test_someone_ruled_a_character_joins_the_cast_and_must_still_bind(tmp_path, monkeypatch):
+    novel, verdicts, reading = judged(tmp_path, monkeypatch, {"people": [
+        {"name": "前台的姑娘", "verdict": "角色", "why": "后文还有"},
+        {"name": "猎犬", "verdict": "路人", "why": "是狗"}]})
+    assert "前台的姑娘" in reading["cast"] and "前台的姑娘" not in reading["declined"]
+    extras, unjudged = decided_extras(reading, [{"name": "前台的姑娘"}], chapter=2, forms_of=lambda n: {n})
+    assert (extras, unjudged) == ([], [])            # a character: the binding check holds out for her
+
+
+def test_no_verdict_is_not_a_verdict(tmp_path, monkeypatch):
+    """A model that cannot be reached leaves them unaccounted for, and the binding check stops the
+    chapter - which is the honest outcome, not an excuse to wave them through."""
+    from novel_manga.application.review import bible as review_bible
+    novel = tmp_path / "book"
+    write_reading(novel, declined=["乞丐"], chapters=[1, 2])
+    def boom(*a, **k):
+        raise RuntimeError("endpoint down")
+    monkeypatch.setattr(review_bible.model_client, "ask_json", boom)
+    monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
+    assert review_bible.judge_unknown(novel, ["猎犬"], "原文", 2) == {}
+    assert "猎犬" not in reading_decisions(novel)["declined"]
+
+
+def test_an_answer_about_somebody_who_was_not_asked_is_ignored(tmp_path, monkeypatch):
+    _, verdicts, reading = judged(tmp_path, monkeypatch, {"people": [
+        {"name": "猎犬", "verdict": "路人", "why": "是狗"},
+        {"name": "席勒", "verdict": "路人", "why": "模型自己加的"}]}, names=("猎犬",))
+    assert verdicts == {"猎犬": "路人"}
+    assert "席勒" not in reading["declined"]

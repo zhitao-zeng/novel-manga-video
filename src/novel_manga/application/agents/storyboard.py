@@ -13,12 +13,18 @@ chapter:
     candidate  - an attempt produced one or more sheets, and nobody has chosen
     accepted   - one sheet is the script for this chapter, and planning binds it
 
+The chosen take is copied beside the chapter and recorded with its digest, so it is a version rather
+than a path: output/ is shared by every attempt of a run, and a rerun used to rewrite the same file
+under the accepted record's nose.  A later proposal adds candidates and never replaces the choice.
+
 The choice stays a person's for now; only the errands around it are automated.  What matters is that
 the choice is recorded rather than implied by which file someone happened to copy.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,8 +42,10 @@ class StoryboardState:
     attempt: str = ""
     skill: str = ""
     sheets: list = None           # candidate sheets, as paths relative to the run directory
-    sheet: str = ""               # the accepted one
+    sheet: str = ""               # the accepted one, as a snapshot beside the chapter
     sheet_name: str = ""          # which worksheet inside it
+    sheet_digest: str = ""        # what that snapshot contained when it was accepted
+    accepted_from: str = ""       # the attempt and path it was taken from
     accepted_at: str = ""
 
     def __post_init__(self):
@@ -70,6 +78,10 @@ def run_name(novel_id: str, chapter: int, skill: str) -> str:
     return f"{novel_id}-ch{chapter:04d}-{skill}"
 
 
+def digest_of(path: Path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+
+
 def propose(novel_dir: Path, episode_dir: Path, chapter: int, skill: str, *,
             config: dict | None = None, timeout: int = 0, log=print) -> StoryboardState:
     """Write this chapter's task pack, run the skill in the sandbox, and record what came back.
@@ -90,9 +102,19 @@ def propose(novel_dir: Path, episode_dir: Path, chapter: int, skill: str, *,
     attempt: Attempt = run_agent(run, skills=skill, config=config, timeout=timeout, log=log)
     sheets = sorted(name for name in attempt.produced if name.lower().endswith(SHEET_SUFFIXES))
     log(f"{run}: 本次尝试产出 {len(sheets)} 份分镜表" + (f"：{'、'.join(sheets)}" if sheets else "（一份都没有）"))
+    # A new proposal is another candidate, never an overwrite of a take already accepted: the
+    # snapshot beside the chapter is untouched here, so planning keeps binding what was chosen until
+    # somebody chooses again.
+    current = state(episode_dir)
     return write_state(episode_dir, StoryboardState(
-        status="candidate", run=run, attempt=attempt.directory.name, skill=skill,
-        sheets=[f"output/{name}" for name in sheets]))
+        # status is about the CHOICE, not about whether anything new exists.  A chapter that already
+        # has an accepted take keeps binding it until somebody chooses again; the new candidates are
+        # recorded beside it, waiting.
+        status="accepted" if current.status == "accepted" else "candidate",
+        run=run, attempt=attempt.directory.name, skill=skill,
+        sheets=[f"output/{name}" for name in sheets],
+        sheet=current.sheet, sheet_name=current.sheet_name, sheet_digest=current.sheet_digest,
+        accepted_from=current.accepted_from, accepted_at=current.accepted_at))
 
 
 def accept(episode_dir: Path, sheet: str, *, sheet_name: str = "",
@@ -108,19 +130,34 @@ def accept(episode_dir: Path, sheet: str, *, sheet_name: str = "",
         path = run_dir / sheet
     if not path.is_file():
         raise SandboxRefused(f"选的这份分镜不在：{path}")
+    # A copy beside the chapter, not a path into the run directory.  output/ is shared by every
+    # attempt of a run, so a rerun rewrites the same file: the accepted record kept pointing at it and
+    # planning silently bound whatever the newest attempt had written.  Accepting a take has to mean
+    # accepting that take.
+    snapshot = Path(episode_dir) / "agent_storyboard" / path.name
+    snapshot.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, snapshot)
     current.status, current.sheet_name = "accepted", sheet_name
-    current.sheet = str(path.relative_to(run_dir)) if path.is_relative_to(run_dir) else str(path)
+    current.sheet = str(snapshot.relative_to(episode_dir))
+    current.sheet_digest = digest_of(snapshot)
+    current.accepted_from = f"{current.attempt}:{sheet}"
     current.accepted_at = time.strftime("%F %T")
     return write_state(episode_dir, current)
 
 
 def accepted_sheet(episode_dir: Path, *, config: dict | None = None) -> tuple[Path, str] | None:
-    """The sheet planning should bind for this chapter, or None while nobody has chosen one."""
+    """The sheet planning should bind for this chapter, or None while nobody has chosen one.
+
+    The snapshot is checked against the digest recorded when it was accepted, so a chapter binds the
+    take that was chosen or nothing at all - never a different one under the same name.
+    """
     current = state(episode_dir)
     if current.status != "accepted" or not current.sheet:
         return None
-    config = config or load_config()
-    path = Path(current.sheet)
-    if not path.is_absolute():
-        path = Path(config["runs_root"]) / current.run / current.sheet
+    path = Path(episode_dir) / current.sheet
+    if not path.is_file():
+        raise SandboxRefused(f"这一章接受过的分镜不在了：{path}。重新选一版")
+    if current.sheet_digest and digest_of(path) != current.sheet_digest:
+        raise SandboxRefused(f"这一章接受过的分镜内容变了：{path}。要用新的就重新选一版，"
+                             "不要在原地改")
     return path, current.sheet_name

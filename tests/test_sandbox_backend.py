@@ -18,7 +18,7 @@ from novel_manga.application.profiles import DEFAULTS, load_profile
 
 def book(tmp_path, **profile):
     novel = tmp_path / "book"
-    (novel / "book_3").mkdir(parents=True)
+    (novel / "book_3").mkdir(parents=True, exist_ok=True)
     (novel / "profile.json").write_text(json.dumps({**DEFAULTS, **profile}, ensure_ascii=False),
                                         encoding="utf-8")
     return novel
@@ -54,13 +54,13 @@ def sandbox_config(tmp_path):
             "model": "m", "base_url": "http://endpoint", "image": "img"}
 
 
-def proposed(tmp_path, monkeypatch, *, produced):
+def proposed(tmp_path, monkeypatch, *, produced, attempt_name="20260921-000000-shanyin"):
     novel = book(tmp_path, planning_backend="sandbox_agent", agent_skill="shanyin")
     episode = novel / "book_3"
     config = sandbox_config(tmp_path)
     run = agent_storyboard.run_name(novel.name, 3, "shanyin")
-    attempt_dir = tmp_path / "runs" / run / "attempts" / "20260921-000000-shanyin"
-    attempt_dir.mkdir(parents=True)
+    attempt_dir = tmp_path / "runs" / run / "attempts" / attempt_name
+    attempt_dir.mkdir(parents=True, exist_ok=True)
     for name in produced:
         path = tmp_path / "runs" / run / "output" / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,3 +116,56 @@ def test_nothing_can_be_accepted_before_anything_was_asked_for(tmp_path):
     novel = book(tmp_path)
     with pytest.raises(SandboxRefused, match="还没有候选"):
         agent_storyboard.accept(novel / "book_3", "output/x.xlsx", config=sandbox_config(tmp_path))
+
+
+# --- the choice is a version, not a path ----------------------------------------------------------
+
+def rewrite(tmp_path, monkeypatch, content):
+    """What a rerun does: the same run name, the same output path, different bytes."""
+    novel = tmp_path / "book"
+    run = agent_storyboard.run_name(novel.name, 3, "shanyin")
+    (tmp_path / "runs" / run / "output" / "分镜表.xlsx").write_bytes(content)
+
+
+def test_the_accepted_take_is_the_one_that_was_accepted(tmp_path, monkeypatch):
+    """output/ is shared by every attempt of a run, so a rerun rewrites the same file.  The accepted
+    record kept pointing at that path, and planning silently bound whatever was newest."""
+    _, episode, config, _ = proposed(tmp_path, monkeypatch, produced=["分镜表.xlsx"])
+    rewrite(tmp_path, monkeypatch, b"V1")
+    agent_storyboard.accept(episode, "output/分镜表.xlsx", config=config)
+    sheet, _ = agent_storyboard.accepted_sheet(episode, config=config)
+    assert sheet.read_bytes() == b"V1"
+
+    rewrite(tmp_path, monkeypatch, b"V2")                      # a later attempt overwrites it
+    sheet, _ = agent_storyboard.accepted_sheet(episode, config=config)
+    assert sheet.read_bytes() == b"V1"                         # planning still binds what was chosen
+
+
+def test_a_new_proposal_adds_candidates_and_does_not_unchoose(tmp_path, monkeypatch):
+    _, episode, config, _ = proposed(tmp_path, monkeypatch, produced=["分镜表.xlsx"])
+    rewrite(tmp_path, monkeypatch, b"V1")
+    agent_storyboard.accept(episode, "output/分镜表.xlsx", config=config)
+    proposed(tmp_path, monkeypatch, produced=["分镜表.xlsx", "另一版.xlsx"],
+             attempt_name="20260921-010000-shanyin")
+    current = agent_storyboard.state(episode)
+    assert current.status == "accepted"                        # the choice survives the rerun
+    assert "output/另一版.xlsx" in current.sheets              # and the new takes are on offer
+    assert agent_storyboard.accepted_sheet(episode, config=config)[0].read_bytes() == b"V1"
+
+
+def test_a_snapshot_edited_in_place_is_refused_rather_than_bound(tmp_path, monkeypatch):
+    _, episode, config, _ = proposed(tmp_path, monkeypatch, produced=["分镜表.xlsx"])
+    rewrite(tmp_path, monkeypatch, b"V1")
+    agent_storyboard.accept(episode, "output/分镜表.xlsx", config=config)
+    sheet, _ = agent_storyboard.accepted_sheet(episode, config=config)
+    sheet.write_bytes(b"edited by hand")
+    with pytest.raises(SandboxRefused, match="内容变了"):
+        agent_storyboard.accepted_sheet(episode, config=config)
+
+
+def test_the_record_says_which_attempt_the_take_came_from(tmp_path, monkeypatch):
+    _, episode, config, _ = proposed(tmp_path, monkeypatch, produced=["分镜表.xlsx"])
+    rewrite(tmp_path, monkeypatch, b"V1")
+    current = agent_storyboard.accept(episode, "output/分镜表.xlsx", config=config)
+    assert current.accepted_from == "20260921-000000-shanyin:output/分镜表.xlsx"
+    assert current.sheet_digest == agent_storyboard.digest_of(episode / current.sheet)

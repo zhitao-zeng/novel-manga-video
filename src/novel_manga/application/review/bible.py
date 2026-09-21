@@ -75,20 +75,28 @@ def reading_roster(novel_dir: Path) -> list[str]:
     return reading_decisions(novel_dir)["roster"]
 
 
-def decided_extras(reading: dict, actors, chapter: int, forms_of) -> list[str]:
-    """Of the actors this chapter could not bind, the ones the reading already ruled on.
+def decided_extras(reading: dict, actors, chapter: int, forms_of) -> tuple[list[str], list[str]]:
+    """Sort the actors this chapter could not bind into (extras, unjudged).
 
-    `forms_of(name)` yields the name forms to match against the reading.  Someone the reading made a
-    character of is never an extra: they have to bind, and if they cannot, that is the defect the
-    binding check exists for.  Anyone else is an extra only where the reading actually ruled - it saw
-    that form across the book and declined it, or it read this chapter and promoted nobody by that
-    name.  Beyond the chapters it read it ruled on nothing, so nothing there may be waved through.
+    `forms_of(name)` yields the name forms to match against the reading.  Someone the reading kept is
+    never an extra: they have to bind, and if they cannot, that is the defect the binding check exists
+    for.  Someone it saw and declined is an extra, on its own evidence.
+
+    Everyone else is neither.  "The reading read this chapter" used to stand in for the second case,
+    and it does not: a whole-book candidate table keeps the forms that recur, so a person named once
+    never reaches it whether they matter or not.  Reading a chapter is not the same as ruling on
+    everyone in it, and treating the silence as a verdict is how a character the reading missed
+    becomes a walk-on.  They are returned separately so the caller can get a verdict rather than
+    assume one.
     """
     roster, declined = set(reading.get("roster") or ()), set(reading.get("declined") or ())
-    covered = int(chapter) in {int(c) for c in reading.get("chapters") or ()}
-    return [actor["name"] for actor in actors
-            if not set(forms_of(actor["name"])) & roster
-            and (covered or set(forms_of(actor["name"])) & declined)]
+    extras, unjudged = [], []
+    for actor in actors:
+        forms = set(forms_of(actor["name"]))
+        if forms & roster:
+            continue                       # a character the reading kept: must bind, never an extra
+        (extras if forms & declined else unjudged).append(actor["name"])
+    return extras, unjudged
 
 
 
@@ -243,6 +251,53 @@ def scan_chapter(chapter_text: str, known_locations: list[str], names: bool = Tr
     chapters at once; grow_bible() then commits them in order under the lock.
     With names=False the caller supplies the names (the entity ledger does)."""
     return {"names": extract_names(chapter_text) if names else [], "locations": extract_locations(chapter_text, known_locations)}
+
+
+JUDGE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["people"],
+                "properties": {"people": {"type": "array", "items": {
+                    "type": "object", "additionalProperties": False,
+                    "required": ["name", "verdict", "why"],
+                    "properties": {"name": {"type": "string"},
+                                   "verdict": {"type": "string", "enum": ["角色", "路人"]},
+                                   "why": {"type": "string", "maxLength": 60}}}}}}
+
+
+def judge_unknown(novel_dir: Path, names: list[str], chapter_text: str, chapter_index: int) -> dict:
+    """Rule, once, on people the whole-book reading never registered, and write the answer down.
+
+    These are the names in neither list: not characters the reading kept, not forms it saw and
+    declined.  Waving them through demotes anyone the reading missed to a walk-on; blocking them all
+    loses a chapter to a door knocker.  So they get a verdict on this chapter's own evidence, and the
+    verdict joins reading_cast.json - asked once per name for the whole book, a record rather than a
+    guess repeated every time the name appears.
+    """
+    path = Path(novel_dir) / "reading_cast.json"
+    if not names or not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    prompt = ("下面是一章小说原文，以及原文里出现、但全书通读时没有收进名单的几个指称。"
+              "对每一个判断：它是这本书的一个角色（会再出现、值得单独定妆），还是只在这一章露面的路人、"
+              "动物或器物（靠画面描述出镜即可）。"
+              "只看原文证据，不要为了凑名单把路人说成角色，也不要因为名字短就当路人。只输出 JSON。\n"
+              f"指称：{'、'.join(names)}\n\n原文：\n{chapter_text[:12000]}")
+    try:
+        rows = model_client.ask_json([{"type": "text", "text": prompt}], JUDGE_SCHEMA,
+                                     name="unknown_actors", max_tokens=800).get("people", [])
+    except Exception as error:  # noqa: BLE001 - no verdict is not a verdict; the binding check still stops
+        model_client.log(f"bible ch{chapter_index}: 判不了这几个指称（{type(error).__name__}）：{names}")
+        return {}
+    verdicts = {str(r.get("name", "")).strip(): str(r.get("verdict", "")) for r in rows}
+    verdicts = {name: verdicts[name] for name in names if verdicts.get(name) in {"角色", "路人"}}
+    if not verdicts:
+        return {}
+    data["declined"] = sorted({*(data.get("declined") or []),
+                               *(n for n, v in verdicts.items() if v == "路人")})
+    data["characters"] = sorted({*(data.get("characters") or []),
+                                 *(n for n, v in verdicts.items() if v == "角色")})
+    atomic_write_json(path, data)
+    model_client.log(f"bible ch{chapter_index}: 读书没见过的指称，补判并记下："
+                     + "、".join(f"{n}={v}" for n, v in verdicts.items()))
+    return verdicts
 
 
 def grow_unbound_roster(novel_dir: Path, context: dict, chapter_text: str, chapter_index: int) -> list[str]:

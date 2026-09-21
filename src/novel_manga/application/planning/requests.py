@@ -169,7 +169,11 @@ def qwen_default() -> str:
 
 
 def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 4096, notes: str = "", grammar: dict | None = None, profile: dict | None = None, fast: bool = False, outline_mode: str = "coverage", seed: int | None = None, ctx: PlannerContext, scene_script: dict | None = None) -> tuple[str, dict]:
-    method = get_method(ctx.story_method or (profile or {}).get('story_method'))
+    # A sheet somebody already cut is not a chapter to write.  This branch used to be unconditional
+    # and first, so a book that names a local story_method took it even for a chapter holding an
+    # accepted sandbox storyboard: the method wrote its own scenes and merge() then failed on an
+    # authored shot it had never produced.  Binding what exists comes before choosing how to invent.
+    method = None if ctx.authored_storyboard else get_method(ctx.story_method or (profile or {}).get('story_method'))
     ctx.story_blueprint = {}
     if method:
         from novel_manga.application.planning.method_pipeline import generate

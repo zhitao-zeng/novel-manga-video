@@ -17,10 +17,15 @@ That rule was applied to three columns and not to the other two.  场景 and 台
 the brief gives the author an exact, machine-readable form for them and the audit checks it - yet the
 schema asked the model for `location`, `turns` and `sfx` outright, so it could still decide where the
 scene happens, what is said, and how.  Both columns are now parsed (planning/storyboard.authored_sound),
-and the model answers only the two judgements the sheet genuinely cannot settle: which cast member a
-written speaker name is, and which bible location a written scene name is.  Those are per distinct
-written name, once for the chapter, so a normalisation cannot silently become a different answer in
-one shot; 书房 may resolve to 书房（宅邸） and never to 庭院.
+and the model answers only what the sheet genuinely cannot settle.
+
+That turned out to be less than it was first given.  Asking which cast member a written speaker is
+meant asking about 席勒 too, whose name matches a bible character exactly - and an answer of 周衡 was
+accepted, because the field was an enum of every available name.  A name the catalogue already
+answers is not a question, so only aliases and short forms are asked now.  Scene names are not asked
+at all: the brief tells the author to copy a bible location exactly, so a name that matches nothing
+is a proposal for a new place - the skill writes one - and never a licence to move the scene to the
+nearest room on the list, which is precisely what that proposal was written to avoid.
 """
 from __future__ import annotations
 
@@ -42,11 +47,45 @@ def written_names(authored: dict) -> tuple[list[str], list[str]]:
     return speakers, places
 
 
+def settled_names(written: list[str], available) -> tuple[dict, list[str]]:
+    """Split what the author wrote into what the catalogue already settles and what is a question.
+
+    A written name that exactly matches an available one is not a judgement call - 席勒 is 席勒 - and
+    asking anyway is how 席勒 could come back as 周衡: the model was free to answer with any name on
+    the list and the binder took it.  Only aliases, short forms and genuinely ambiguous references are
+    questions, and only those are asked.
+    """
+    known = set(available)
+    settled = {name: name for name in written if name in known}
+    return settled, [name for name in written if name not in settled]
+
+
+def unplaceable(authored: dict, location_names) -> list[str]:
+    """Scene names the author wrote that no bible location answers to.
+
+    The brief tells the author to copy a location name exactly, and the audit checks it, so a name
+    that matches nothing is either a new place the story needs or a typo - never an invitation to put
+    the scene somewhere else.  The agent's own 新增地点.md proposal exists for the first case; picking
+    the nearest available room instead is the defect that proposal was written to avoid.
+    """
+    known = set(location_names)
+    return [place for place in written_names(authored)[1] if place not in known]
+
+
 def bind_schema(authored: dict, character_names: list[str], location_names: list[str],
                 segment_ids: list[str], *, ctx) -> dict:
     """One answer per authored shot, in sheet order, carrying only what the import left empty."""
     ids = [str(shot["镜号"]) for shot in authored["shots"]]
     speakers, places = written_names(authored)
+    # What the catalogue already answers is not asked.  Locations are never asked: the brief tells the
+    # author to copy a bible name exactly, so a name that matches nothing is a proposal for a new place
+    # (the skill writes one), not a licence to move the scene to the nearest room on the list.
+    _, speakers = settled_names(speakers, character_names)
+    missing = unplaceable(authored, location_names)
+    if missing:
+        raise ValueError("分镜表里的这些场景名，圣经里没有对应地点：" + "、".join(missing)
+                         + "。先把地点补进圣经（agent 的新增地点提案就是为此），或改正表里的写法；"
+                         "不能把这几镜挪到别的地方去。")
     bound = {
         "type": "object",
         "additionalProperties": False,
@@ -77,13 +116,12 @@ def bind_schema(authored: dict, character_names: list[str], location_names: list
         "type": "object",
         "additionalProperties": False,
         "required": ["video_title", "hook", "summary", "bindings", "skipped_segments",
-                     "speaker_names", "location_names"],
+                     "speaker_names"],
         "properties": {
             "video_title": {"type": "string"},
             "hook": {"type": "string"},
             "summary": {"type": "string"},
             "speaker_names": naming(speakers, speaker_field(character_names, ctx.anonymous_speakers)),
-            "location_names": naming(places, {"type": "string", "enum": location_names}),
             # exactly as many as the sheet has, so a shot can be neither dropped nor invented
             "bindings": {"type": "array", "minItems": len(ids), "maxItems": len(ids), "items": bound},
             "skipped_segments": {
@@ -97,15 +135,17 @@ def bind_schema(authored: dict, character_names: list[str], location_names: list
     }
 
 
-def merge(authored: dict, answer: dict) -> dict:
+def merge(authored: dict, answer: dict, *, character_names=()) -> dict:
     """The planner's own clips/stages shape, with the authored columns put back verbatim.
 
     Consecutive shots that bound to the same location become one clip, which is how the packer expects
     a scene to arrive; the authored order is never changed.
     """
     by_id = {str(b["镜号"]): b for b in answer.get("bindings", [])}
-    speaker_of = {str(r["written"]): str(r["name"]) for r in answer.get("speaker_names", [])}
-    place_of = {str(r["written"]): str(r["name"]) for r in answer.get("location_names", [])}
+    settled, _ = settled_names(written_names(authored)[0], character_names)
+    # the catalogue's own answers last, so nothing in the reply can override a name that was never a
+    # question: 席勒 is 席勒 whatever comes back
+    speaker_of = {**{str(r["written"]): str(r["name"]) for r in answer.get("speaker_names", [])}, **settled}
     clips: list[dict] = []
     for shot in authored["shots"]:
         shot_id = str(shot["镜号"])
@@ -123,10 +163,8 @@ def merge(authored: dict, answer: dict) -> dict:
                 raise ValueError(f"binding did not say who {written!r} is (authored shot {shot_id})")
             turns.append({"speaker_name": speaker_of[written], "delivery_mode": turn["delivery_mode"],
                           "text": turn["text"], "emotion": turn["emotion"], "chat_target": ""})
-        written_place = str(shot.get("场景") or "").strip()
-        if written_place and written_place not in place_of:
-            raise ValueError(f"binding did not say which place {written_place!r} is (authored shot {shot_id})")
-        location = place_of.get(written_place, "")
+        # the author's own scene name, not a name a model chose for it
+        location = str(shot.get("场景") or "").strip()
         stage = {
             "segment_id": bound["segment_id"],
             "source_quote": bound["source_quote"],
