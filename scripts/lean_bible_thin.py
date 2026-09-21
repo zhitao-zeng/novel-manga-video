@@ -129,14 +129,17 @@ def missing_locations(bible: dict, export: dict) -> list[dict]:
     return out
 
 
-def rendered_cast(novel_dir: Path) -> set[str]:
-    """Names that appear in an episode which already has a finished video."""
+def planned_cast(novel_dir: Path) -> set[str]:
+    """Names on stage in an episode that has been planned - they need a face, recurring or not.
+
+    The reading rules a one-chapter character an extra, which is right for a hundred-chapter series
+    and wrong for the episode that character carries: 任老 reads 秦宇's fortune in chapter 1 and never
+    returns, and episode 1 is that reading.  An extra speaks from offscreen; he cannot.
+    """
     out: set[str] = set()
     for episode_dir in novel_dir.glob("*"):
-        if not episode_dir.is_dir() or not list(episode_dir.glob("*.mp4")):
-            continue
         script = episode_dir / "chapter_script.json"
-        if not script.is_file():
+        if not episode_dir.is_dir() or not script.is_file():
             continue
         try:
             shots = json.loads(script.read_text(encoding="utf-8")).get("shots", [])
@@ -325,7 +328,7 @@ def main() -> int:
             print(f"  {item['name']}：出现 {item['chapters']} 章、在场 {item['on_stage']} 章、"
                   f"说话 {item['speaks']} 章｜{item['appearance']}")
         if args.demote_extras:
-            safe = rendered_cast(novel_dir)
+            safe = planned_cast(novel_dir)
             removed = [item["name"] for item in declined if item["name"] not in safe]
             kept_back = [item["name"] for item in declined if item["name"] in safe]
             bible["characters"] = [c for c in bible.get("characters", [])
@@ -333,7 +336,7 @@ def main() -> int:
             atomic_write_json(novel_dir / "story_bible.json", bible)
             print(f"已从圣经去掉 {len(removed)} 个：{'、'.join(removed) or '无'}")
             if kept_back:
-                print(f"留着没动（卡已经出现在成片里）：{'、'.join(kept_back)}")
+                print(f"留着没动（在已排的集里有戏，需要一张脸）：{'、'.join(kept_back)}")
 
     if args.into_bible:
         result = fold_into_bible(novel_dir, export, args.add_missing_locations)

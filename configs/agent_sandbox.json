@@ -1,0 +1,20 @@
+{
+  "_": "Where the agent sandbox lives on this machine. The container, the image and the installed skills are environment, like the model endpoints; the pipeline only needs to know how to reach them.",
+  "image": "agent-sandbox:0918",
+  "runs_root": "/mnt/disk1/zengzhitao/tmp/agent-sandbox/runs",
+  "base_url": "http://172.28.4.81:8038",
+  "model": "Qwen3.8-Flash-Next",
+  "_model": "gpu81 的 Flash-Next，最多 2 并发。本地 27B 归并失败过两次（一次三小时超时，一次 391k 输入撞 262k 窗口），别用它跑归并。",
+  "key_var": "GPU81_QWEN_API_KEY",
+  "effort": "medium",
+  "timeout_seconds": 5400,
+  "skills": {
+    "merge": "p100-c2",
+    "leos": "skill-leos-fn-v2",
+    "drama": "skill-drama-fn-v2",
+    "shanyin": "shanyin-flashnext-v2",
+    "visual": "skill-visual-fn-v2",
+    "dream": "skill-dream-fn-v2",
+    "community": "skill-community-fn-v2"
+  }
+}

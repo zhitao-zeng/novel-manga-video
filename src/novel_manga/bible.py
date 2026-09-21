@@ -88,7 +88,7 @@ def _bounded_validate(
         f"{max_revisions + 1} attempt(s): {details}"
     ) from last_error
 
-def _validate_story_bible(data: dict, novel: NovelDocument) -> StoryBible:
+def _validate_story_bible(data: dict, novel: NovelDocument, cast: list[str] | None = None) -> StoryBible:
     bible = StoryBible.model_validate(data)
     issues: list[dict[str, object]] = []
     if re.sub(r"\s+", "", bible.novel_title) != re.sub(r"\s+", "", novel.title):
@@ -100,6 +100,13 @@ def _validate_story_bible(data: dict, novel: NovelDocument) -> StoryBible:
     names = [character.name.strip() for character in bible.characters]
     if len(set(names)) != len(names):
         issues.append({"field": "characters", "message": "character names must be unique"})
+    if cast:
+        # The reading decided this list over the whole book; the build may not add to it or drop from
+        # it, or the cast question quietly moves back into the seed chapters that cannot answer it.
+        extra, missing = sorted(set(names) - set(cast)), sorted(set(cast) - set(names))
+        if extra or missing:
+            issues.append({"field": "characters",
+                           "message": f"characters must be exactly the given cast; extra: {extra}, missing: {missing}"})
     for index, character in enumerate(bible.characters):
         if not character.name.strip() or not character.appearance.strip() or not character.wardrobe.strip():
             issues.append({
@@ -283,7 +290,13 @@ class BibleBuilder:
         return bible_object(content)
 
 
-    def build_bible(self, novel: NovelDocument) -> StoryBible:
+    def build_bible(self, novel: NovelDocument, cast: list[str] | None = None) -> StoryBible:
+        """Design the bible.  With `cast`, who belongs in it has already been decided by the reading.
+
+        Deciding that from the seed chapters is what puts a one-scene driver in the bible with a card
+        of their own: inside one chapter, three lines look like recurrence.  The reading sees every
+        chapter at once and answers it properly, so when it has, the build is only asked to design.
+        """
         schema = StoryBible.model_json_schema()
         system = (
             "你是漫剧总美术和小说事实核验员。只提取原文可支持的信息；外貌未写明时可做克制设计。"
@@ -296,8 +309,14 @@ class BibleBuilder:
             "模型就只能自己编。不把人物和人物动作写进地点。"
             "所有角色必须是健康、非色情、非血腥的统一国漫画风。严格输出 JSON。"
         )
+        roster = ""
+        if cast:
+            roster = ("\n角色名单已经定好了，characters 必须**正好是**下面这些人，一个不多一个不少，"
+                      "名字一字不差；名单外的人（路人、只出现一次的称谓、群体）一律不要建条目：\n"
+                      + "、".join(cast) + "\n"
+                      "原文没写外貌的，按这个人的身份和戏份做克制设计，不要留空。\n")
         user = (
-            f"小说名：{novel.title}\n文本：{_compact_excerpt(novel.text)}\n"
+            f"小说名：{novel.title}\n文本：{_compact_excerpt(novel.text)}\n{roster}"
             f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}\n"
             f"visual_style 必须包含：{STYLE}。style_fingerprint 暂填空字符串。"
         )
@@ -307,7 +326,7 @@ class BibleBuilder:
             lambda repair: self._json(
                 system, user, repair, token_budget=DIAGNOSIS_TOKEN_BUDGET
             ),
-            lambda data: _validate_story_bible(data, novel),
+            lambda data: _validate_story_bible(data, novel, cast),
         )
 
 

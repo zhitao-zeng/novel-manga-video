@@ -88,6 +88,24 @@ def bible_markdown(bible: StoryBible, novel, source: Path, profile: dict) -> str
     return "\n".join(lines) + "\n"
 
 
+def read_cast(path: Path) -> tuple[list[str], dict[str, str]]:
+    """The cast and aliases the reading settled, from its exported story_bible.json.
+
+    Only the names and the alias map cross over.  The reading quotes the source and is forbidden to
+    invent, so its appearance lines are things like 「一米八几的个子」 - true, and not a face.  Designing
+    the face is the build's job, and it is the half the seed chapters can actually do.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    cast = [str(person["name"]).strip() for person in data.get("characters", [])
+            if str(person.get("name") or "").strip()]
+    aliases: dict[str, str] = {}
+    for person in data.get("characters", []):
+        for alias in person.get("aliases") or []:
+            if str(alias).strip():
+                aliases.setdefault(str(alias).strip(), str(person["name"]).strip())
+    return cast, aliases
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source", help="novel text (.md/.txt/.docx/.pdf) with 第X章 headings")
@@ -99,6 +117,9 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="rebuild the bible even if story_bible.json exists")
     parser.add_argument("--fill", action="store_true", help="after building, add entries for named characters the seed chapters keep mentioning but the bible lacks (thin_review bible)")
     parser.add_argument("--bible-chapters", type=int, default=5, help="seed the bible from the first N chapters; later characters and locations are added chapter by chapter during the batch (--grow-bible)")
+    parser.add_argument("--cast", type=Path,
+                        help="读书产出的 story_bible.json（lean_bible_thin 的 agent 归并结果）："
+                             "演员表由它定，建圣经只负责设计外貌；别名一并写进 bible_aliases.json")
     parser.add_argument("--genre", help="genre preset key (configs/genres/*.json); default: detected from the bible's genre line and the opening chapters")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
@@ -118,7 +139,13 @@ def main() -> int:
     else:
         started = time.monotonic()
         seed = novel.model_copy(update={"text": "\n\n".join(e.source_text for e in novel.episodes[:max(1, args.bible_chapters)])})
-        bible = build_bible(seed, args.style)
+        cast, aliases = read_cast(args.cast) if args.cast else (None, {})
+        if cast:
+            print(json.dumps({"cast": "from reading", "characters": len(cast), "aliases": len(aliases)},
+                             ensure_ascii=False), flush=True)
+        bible = build_bible(seed, args.style, cast)
+        if aliases:
+            atomic_write_json(novel_dir / "bible_aliases.json", aliases)
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
         print(json.dumps({"bible": "built", "seconds": round(time.monotonic() - started, 1), "characters": [c.name for c in bible.characters], "locations": [l.split("：", 1)[0] for l in bible.locations]}, ensure_ascii=False), flush=True)
 
