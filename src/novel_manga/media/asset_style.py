@@ -31,6 +31,9 @@ class AssetStyle:
     # separately from how its characters are.
     scene_style: str = ''
     scene_direction: str = ''
+    # True when the style states its own render_direction, and so already says how it
+    # is drawn: appending the genre's wording on top only repeats it.
+    speaks_for_itself: bool = False
     # Strip the full stop a bible field already ends with before the template adds one.
     tidy_prompts: bool = False
 
@@ -44,6 +47,7 @@ class AssetStyle:
             declares_card_suffix=bool(style.get('card_suffix')),
             scene_style=style.get('scene_style', ''),
             scene_direction=style.get('scene_direction', ''),
+            speaks_for_itself=bool(style.get('render_direction')),
             tidy_prompts=bool(style.get('tidy_prompts', False)),
             # The style decides how it is drawn; the genre decides what may exist in that
             # world (scales and wing membranes in fantasy, European faces in gaslamp), so a
@@ -63,6 +67,8 @@ def card_suffix(style: AssetStyle, bible) -> str:
     Otherwise the genre/3D default stands, and only for a 3D look."""
     if style.declares_card_suffix:
         return style.card_style_suffix_3d
+    if style.speaks_for_itself:
+        return ""
     return style.card_style_suffix_3d if wants_3d_card(style, bible) else ""
 
 
