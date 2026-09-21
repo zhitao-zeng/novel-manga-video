@@ -12,7 +12,23 @@ from novel_manga.application.planning.requests import qwen_default
 from novel_manga.application.planning.flow import run, PlanningInputError
 from novel_manga.planning.methods import METHODS
 
+def planner_endpoint():
+    """Which endpoint plans a chapter.  Flash-Next by default; the judge keeps its own (the 27B).
+
+    They used to be the same setting, so choosing one chose all three uses of QWEN38_LOCAL_* - the
+    planner, the H3 prompt translation and the judge.  NOVEL_PLANNER_ENDPOINT=local puts planning back
+    on the 27B for a run.
+    """
+    from novel_manga.llm.config import using_endpoint
+    return using_endpoint(os.environ.get("NOVEL_PLANNER_ENDPOINT", "flashnext"))
+
+
 def main(*, context: PlannerContext | None = None) -> int:
+    with planner_endpoint():    # applied before anything reads QWEN38_LOCAL_*, put back after
+        return _plan(context)
+
+
+def _plan(context: PlannerContext | None = None) -> int:
     ctx = context or PlannerContext.from_env()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source", nargs="?")

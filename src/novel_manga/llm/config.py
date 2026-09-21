@@ -1,8 +1,45 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
+import contextlib
 import os
 import hashlib
+
+# The two model endpoints this project runs on, by name.  QWEN38_LOCAL_* is read by three different
+# jobs - the planner, the H3 prompt translation and the judge - so moving one of them used to move all
+# three.  A command applies the preset it wants to its own process, and nothing else changes.
+ENDPOINTS = {
+    "local": {"QWEN38_LOCAL_BASE_URL": ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)),
+              "QWEN38_LOCAL_MODEL": "Qwen3.8-27B-Project",
+              "QWEN38_LOCAL_API_KEY_VAR": "SECOND_REVIEW_NO_KEY", "QWEN38_LOCAL_STREAM": "0"},
+    "flashnext": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.81:8038/v1",
+                  "QWEN38_LOCAL_MODEL": "Qwen3.8-Flash-Next",
+                  "QWEN38_LOCAL_API_KEY_VAR": "GPU81_QWEN_API_KEY", "QWEN38_LOCAL_STREAM": "1"},
+}
+
+
+@contextlib.contextmanager
+def using_endpoint(name: str, environ=None):
+    """Point this process's model calls at one named endpoint, and put back what was there.
+
+    Restoring matters even though a command usually exits right after: the same process runs several
+    commands under test, and a preset that outlives its caller silently re-points everything that
+    reads QWEN38_LOCAL_* afterwards - which is the failure mode this registry exists to prevent.
+    """
+    if name not in ENDPOINTS:
+        raise ValueError(f"unknown endpoint {name}; pick one of {sorted(ENDPOINTS)}")
+    environ = os.environ if environ is None else environ
+    before = {key: environ.get(key) for key in ENDPOINTS[name]}
+    environ.update(ENDPOINTS[name])
+    try:
+        yield name
+    finally:
+        for key, value in before.items():
+            if value is None:
+                environ.pop(key, None)
+            else:
+                environ[key] = value
+
 
 def qwen_endpoints() -> list[str]:
     """All local Qwen base URLs (QWEN38_LOCAL_BASE_URL may be comma-separated)."""

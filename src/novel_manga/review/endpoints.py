@@ -1,15 +1,9 @@
 """Existing judge presets as explicit request settings, without import side effects."""
 import os
-from novel_manga.llm.config import JsonEndpoint
+from novel_manga.llm.config import ENDPOINTS, JsonEndpoint
 
-JUDGES = {
-    "local": {"QWEN38_LOCAL_BASE_URL": ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)),
-              "QWEN38_LOCAL_MODEL": "Qwen3.8-27B-Project",
-              "QWEN38_LOCAL_API_KEY_VAR": "SECOND_REVIEW_NO_KEY", "QWEN38_LOCAL_STREAM": "0"},
-    "flashnext": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.81:8038/v1",
-                  "QWEN38_LOCAL_MODEL": "Qwen3.8-Flash-Next",
-                  "QWEN38_LOCAL_API_KEY_VAR": "GPU81_QWEN_API_KEY", "QWEN38_LOCAL_STREAM": "1"},
-}
+# The same two presets the planner picks from; defined once in llm.config.
+JUDGES = ENDPOINTS
 
 
 def judge_settings(name: str | None = None) -> JsonEndpoint:
