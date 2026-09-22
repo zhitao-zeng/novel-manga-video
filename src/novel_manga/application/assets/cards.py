@@ -25,7 +25,8 @@ from novel_manga.media.asset_policy import ModerationRejected
 from novel_manga.media.asset_style import AssetStyle, image_backend
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
-from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, load_style, style_names, styled_bible
+from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, load_style, project_root, style_names, styled_bible
+from novel_manga.util import load_dotenv
 
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models.bible import StoryBible
@@ -57,6 +58,11 @@ def main() -> int:
     parser.add_argument("--tier", choices=("quality", "fast"))
     args = parser.parse_args()
 
+    # As build_phase_cards does.  Without it this entry only runs when the caller has
+    # already exported the keys, and fails at validate() with a missing PHANROUTER_API_KEY
+    # however the cards were actually going to be drawn.  setdefault, so an exported value
+    # still wins.
+    load_dotenv(project_root() / ".env")
     novel_dir = args.novel_dir.resolve()
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
