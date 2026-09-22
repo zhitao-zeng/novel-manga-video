@@ -1,5 +1,6 @@
 """planner_context_thin responsibilities, extracted without changing requests or policy."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.planning.context import PlannerContext
 from novel_manga.util import atomic_write_json
 from pathlib import Path
@@ -108,7 +109,7 @@ def cast_history(novel_dir: Path) -> dict:
     for script_path in sorted(novel_dir.glob(f"{novel_dir.name}_*/chapter_script.json")):
         try:
             script = json.loads(script_path.read_text(encoding="utf-8"))
-            chapter = int(script.get("episode_index") or script_path.parent.name.rsplit("_", 1)[1])
+            chapter = int(script.get("episode_index") or ep_names.chapter_of(script_path.parent.name))
         except (OSError, ValueError, IndexError):
             continue
         for shot in script.get("shots", []):

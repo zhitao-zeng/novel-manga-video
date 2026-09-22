@@ -1,5 +1,6 @@
 """Named preparation steps; generation policy and write order are unchanged."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 
 from pathlib import Path
@@ -25,7 +26,7 @@ def replan(directory, issues):
     """Only a failed/missing plan or a grounded story defect triggers new planning."""
     novel = directory.parent
     meta = read(novel / 'novel.json', {})
-    n = int(directory.name.rsplit('_', 1)[-1])
+    n = ep_names.chapter_of(directory.name)
     notes = '只修正这些已对照原文的问题，完整保留本章主要事件和真实顺序：' + json.dumps(issues, ensure_ascii=False)
     run_tool(['scripts/plan_chapter_thin.py', meta['source'], '--novel-id', novel.name,
               '--episode-index', str(n), '--bible', str(novel / 'story_bible.json'),
@@ -52,7 +53,7 @@ def prepare_plan(directory):
 
 
 def check_script(directory, plan):
-    n = directory.name.rsplit("_", 1)[-1]
+    n = ep_names.chapter_of(directory.name)
     cache_path = directory / 'pre_render_story_audit.json'
     cache = read(cache_path, {})
     record(directory, 'auditing')
@@ -76,7 +77,7 @@ def check_script(directory, plan):
                 found = [i for i in answer['issues'] if i['stage'] in clip.get('shot_indexes', [])]
                 if found:
                     targets[clip['clip_id']] = json.dumps(found, ensure_ascii=False) + '。按原文修正台词归属和动作。'
-            result = repair_episode(directory.parent, int(n), False, use_history=False, reframe=True,
+            result = repair_episode(directory.parent, n, False, use_history=False, reframe=True,
                                     source_issues=targets, return_proposal=True)
             proposal = result.get('proposal')
             if not proposal or set(targets) - set(result.get('changed', [])):

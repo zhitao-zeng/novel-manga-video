@@ -22,6 +22,7 @@ translation that fails, or comes back with a different number of sentences than 
 is asked again; after three tries the clip is left without one and the lane waits for it, rather than
 render a shot under another shot's description.
 """
+import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 import argparse
 import json
@@ -258,7 +259,7 @@ def main() -> int:
     episodes = sorted(d for d in novel_dir.glob(f"{args.novel}_*") if (d / "clip_plan.json").is_file())
     if args.chapters:
         wanted = episode_numbers(args.chapters)
-        episodes = [d for d in episodes if d.name.rsplit("_", 1)[-1].isdigit() and int(d.name.rsplit("_", 1)[-1]) in wanted]
+        episodes = [d for d in episodes if ep_names.is_episode(d.name) and ep_names.chapter_of(d.name) in wanted]
     if args.limit:
         episodes = episodes[: args.limit]
     print(f"{args.novel}: {len(episodes)} 集，{args.workers} 路并行", flush=True)

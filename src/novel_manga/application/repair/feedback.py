@@ -19,6 +19,7 @@ gate_failed_clips) so a lane takes them again after their runs were used up.
 whole book goes); --episodes names them.  Nothing is written without --apply.
 """
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 import argparse
 import json
@@ -84,11 +85,8 @@ def main() -> int:
             pass
 
     candidates = []  # (episode number, directory, {clip: note}, kinds)
-    for d in sorted(novel_dir.glob(f"{novel_id}_*"), key=lambda p: int(p.name.rsplit("_", 1)[-1]) if p.name.rsplit("_", 1)[-1].isdigit() else 0):
-        tail = d.name.rsplit("_", 1)[-1]
-        if not tail.isdigit():
-            continue
-        n = int(tail)
+    for d in sorted((d for d in novel_dir.glob(f"{novel_id}_*") if ep_names.is_episode(d.name)), key=lambda p: ep_names.episode_order(p.name)):
+        n = ep_names.chapter_of(d.name)
         if only is not None and n not in only:
             continue
         try:

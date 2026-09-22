@@ -88,6 +88,12 @@ def run(args, ctx: PlannerContext) -> int:
             raise PlanningInputError(f"第 {episode.index} 章没有第 {part} 集的分集记录（parts.json 里有 {len(parts)} 集）；先跑分集")
         body = pc_parts.part_text(rows, chosen)
         offset = episode.source_text.find(rows[chosen.first - 1]) if rows else 0
+        # The budget aims at 90 s and, on the quality tier, accepts anything above nothing; given a
+        # third of a chapter the model satisfies "every segment cited" in three clips and stops at 57 s.
+        # A part was cut to be about an episode of dialogue, so the floor follows what it holds.
+        if not args.min_seconds:
+            args.min_seconds = min(pc_parts.PART_FLOOR_SECONDS, round(chosen.est_seconds * pc_parts.PART_FLOOR_SHARE))
+            ctx.episode_seconds_min = args.min_seconds
         episode = episode.model_copy(update={
             "source_title": f"{episode.source_title}{chosen.label}",
             "source_text": body, "text_count": len(body),

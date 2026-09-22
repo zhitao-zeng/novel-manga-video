@@ -1,5 +1,6 @@
 """Count observable generated takes; never infer missing billing or generation history."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from pathlib import Path
 from collections import Counter
 from ..util import read_json
@@ -118,9 +119,9 @@ def episode_rows(novel_dir: Path, chapters: set[int] | None = None) -> list[dict
     if not novel_dir.is_dir():
         return rows
     for directory in sorted(novel_dir.glob(f'{novel_dir.name}_*')):
-        if not directory.is_dir() or not directory.name.rsplit('_', 1)[-1].isdigit():
+        if not directory.is_dir() or not ep_names.is_episode(directory.name):
             continue
-        chapter = int(directory.name.rsplit('_', 1)[1])
+        chapter = ep_names.chapter_of(directory.name)
         if chapters is not None and chapter not in chapters:
             continue
         report = read_json(directory / 'thin_media_report.json', {})

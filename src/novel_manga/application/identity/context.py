@@ -1,5 +1,6 @@
 """Build planning/review views from one explicit chapter identity snapshot."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 from pathlib import Path
 import json
@@ -47,7 +48,7 @@ def prompt_context(directory, names=(), *, context=None, data=None):
     data = data if data is not None else load_chapter(directory)
     context = context if context is not None else data.context
     catalog = data.catalog
-    chapter = int(directory.name.rsplit('_', 1)[1])
+    chapter = ep_names.chapter_of(directory.name)
     segments = data.segments
     passage = '\n'.join(s['text'] for s in segments)
     candidates = prompt_rows(catalog, passage, chapter, names)
@@ -83,7 +84,7 @@ def reading_segments(directory, context=None, *, data=None):
     directory = Path(directory).resolve()
     data = data if data is not None else load_chapter(directory)
     context = context if context is not None else data.context
-    aliases = effective_aliases(directory.parent, int(directory.name.rsplit('_', 1)[1]), context, data=data)
+    aliases = effective_aliases(directory.parent, ep_names.chapter_of(directory.name), context, data=data)
     observed = {r['form'] for r in context.get('mentions', []) if r.get('kind') == 'proper'
                 and r.get('entity_id') != 'UNKNOWN'}
     aliases = {a:b for a,b in aliases.items() if a in observed}

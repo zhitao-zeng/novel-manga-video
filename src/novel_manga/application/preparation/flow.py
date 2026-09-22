@@ -1,5 +1,6 @@
 """Episode step orchestration and the existing bounded preparation subprocess loop."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 
 from pathlib import Path
@@ -23,7 +24,7 @@ def prepare_one(directory):
     if has_video(directory):
         return record(directory, 'existing_video')
     admitted = read(directory.parent / 'repair_manager/state.json', {}).get('admitted_episodes', [])
-    if int(directory.name.rsplit('_', 1)[-1]) in admitted:
+    if ep_names.chapter_of(directory.name) in admitted:
         return record(directory, 'production_owned')
     backup(directory)
     source_blocks = read(directory.parent / 'h3_preparation/source_blocks.json', {})

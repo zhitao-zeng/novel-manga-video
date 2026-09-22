@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Existing episode-repair command. Delegates to flow and managed repair services."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -27,7 +28,7 @@ def main() -> int:
             if a:
                 wanted.extend(range(int(a), int(b or a) + 1))
     else:
-        wanted = [int(p.parent.name.rsplit("_", 1)[-1]) for p in novel_dir.glob(f"{novel_dir.name}_*/episode_review.json")
+        wanted = [ep_names.chapter_of(p.parent.name) for p in novel_dir.glob(f"{novel_dir.name}_*/episode_review.json")
                   if failing_clips(read(p, {}))]
         wanted.sort()
     started = time.time()

@@ -21,6 +21,7 @@ but does not block (shadow mode) until its false-positive rate has been measured
 Writes outputs/X/delivery.json - the counts, the reason combinations and one row per
 episode - for the status board and for anyone asking "is this novel done".
 """
+import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 import argparse
 import json
@@ -117,13 +118,13 @@ def main() -> int:
     h3_lane = lane_is_h3(novel_id)
 
     dirs = sorted((d for d in novel_dir.iterdir() if d.is_dir() and d.name.startswith(novel_id + "_")
-                   and d.name.rsplit("_", 1)[-1].isdigit()), key=lambda d: int(d.name.rsplit("_", 1)[-1]))
+                   and ep_names.is_episode(d.name)), key=lambda d: ep_names.episode_order(d.name))
     plans = {}
     onscreen: Counter = Counter()
     for d in dirs:
         plan = load(d / "clip_plan.json")
         if plan is not None:
-            n = int(d.name.rsplit("_", 1)[-1])
+            n = ep_names.chapter_of(d.name)
             plans[n] = (plan, cast_of(plan))
             onscreen.update(plans[n][1])
     forms = surface_forms(novel_dir)
@@ -134,7 +135,7 @@ def main() -> int:
 
     rows = []
     for d in dirs:
-        n = int(d.name.rsplit("_", 1)[-1])
+        n = ep_names.chapter_of(d.name)
         final = d / f"{d.name}.mp4"
         try:
             status = episode_status(d, h3_lane)

@@ -4,6 +4,8 @@ from pathlib import Path
 import json
 import threading
 
+import novel_manga.episodes as ep_names
+
 
 def store(novel_dir: Path) -> Path:
     path = Path(novel_dir) / "entity"
@@ -28,15 +30,24 @@ def write_json(path: Path, data) -> None:
 
 
 def chapter_texts(novel_dir: Path) -> dict[int, str]:
-    """Chapter text as the planned chapters hold it (segments.json), for chapters that were planned."""
-    out: dict[int, str] = {}
+    """Chapter text as the planned episodes hold it (segments.json), for chapters that were planned.  A chapter
+    cut into parts is read back from its parts in order - the cut is the later decision, so a segments.json its
+    own directory kept from before the cut does not stand in for them."""
     novel_dir = Path(novel_dir)
+    whole: dict[int, str] = {}
+    parts: dict[int, list[tuple[int, str]]] = {}
     for path in novel_dir.glob(f"{novel_dir.name}_*/segments.json"):
-        index = path.parent.name.rsplit("_", 1)[-1]
-        if index.isdigit():
-            rows = read_json(path, [])
-            out[int(index)] = "\n".join(str(r.get("text") or "") for r in rows if isinstance(r, dict))
-    return out
+        parsed = ep_names.parse_episode(path.parent.name)
+        if parsed is None:
+            continue
+        rows = read_json(path, [])
+        text = "\n".join(str(r.get("text") or "") for r in rows if isinstance(r, dict))
+        chapter, part = parsed
+        if part is None:
+            whole[chapter] = text
+        else:
+            parts.setdefault(chapter, []).append((part, text))
+    return {**whole, **{chapter: "\n".join(t for _, t in sorted(rows)) for chapter, rows in parts.items()}}
 
 
 def novel_texts(novel_dir: Path) -> dict[int, str]:

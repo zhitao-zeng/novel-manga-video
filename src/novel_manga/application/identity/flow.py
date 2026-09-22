@@ -1,5 +1,6 @@
 """Source reading requests, retries and evidence writes in their original order."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 from pathlib import Path
 import json
@@ -37,7 +38,7 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
     segments = expected['segments']
     if not segments:
         raise ValueError('identity resolution needs source segments')
-    chapter = int(directory.name.rsplit('_', 1)[1])
+    chapter = ep_names.chapter_of(directory.name)
     catalog = data.catalog
     prompt = (
         '只读下面小说原文，独立列出本章实际指称的主体，不读取旧人物库、不改剧本、不评价画面。'

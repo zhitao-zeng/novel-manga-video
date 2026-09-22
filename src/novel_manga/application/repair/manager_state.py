@@ -1,5 +1,6 @@
 """repair_manager_state_thin responsibilities; existing job state and scheduling policy."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,9 +63,9 @@ def eligible_episodes(manager, scan):
     # numeric order like every other episode walk here so the per-episode
     # review -> history -> publication writes come out the same on every machine.
     for directory in sorted((p for p in manager.novel.glob(f"{manager.novel.name}_*")
-                             if p.is_dir() and p.name.rsplit("_", 1)[-1].isdigit()),
-                            key=lambda p: int(p.name.rsplit("_", 1)[-1])):
-        n = int(directory.name.rsplit("_", 1)[-1])
+                             if p.is_dir() and ep_names.is_episode(p.name)),
+                            key=lambda p: ep_names.episode_order(p.name)):
+        n = ep_names.chapter_of(directory.name)
         if manager.episode_scope is not None and n not in manager.episode_scope:
             continue
         if scan.state.get('preparation_gate') and n not in scan.admitted:

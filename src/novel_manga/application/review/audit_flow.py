@@ -1,5 +1,6 @@
 """Orchestrate existing audit workers over the existing finite queue."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from collections import Counter
 import json
 import os
@@ -35,7 +36,7 @@ def build_remaining(novel: Path, state_dir: Path, legacy: Path) -> tuple[list[di
     from novel_manga.util import read_json as read
     flash = load_evidence([legacy / 'wy_verify_flash.jsonl', state_dir / 'scan_flash.jsonl'])
     targets, skipped = [], Counter()
-    for directory in sorted(novel.glob(f'{novel.name}_*'), key=lambda p: int(p.name.rsplit('_', 1)[-1]) if p.name.rsplit('_', 1)[-1].isdigit() else 0):
+    for directory in sorted(novel.glob(f'{novel.name}_*'), key=lambda p: ep_names.episode_order(p.name) if ep_names.is_episode(p.name) else 0):
         suffix = directory.name.rsplit('_', 1)[-1]
         if not suffix.isdigit():
             continue

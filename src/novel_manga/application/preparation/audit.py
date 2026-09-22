@@ -1,5 +1,6 @@
 """Source audit, evidence correction and confirmation requests in their original order."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 import json
 from novel_manga.util import atomic_write_json
@@ -23,7 +24,7 @@ def audit(directory):
     from novel_manga.application.identity.flow import resolve_chapter
     from novel_manga.application.identity.context import prompt_context, reading_segments
     identity_reading = resolve_chapter(directory)
-    load_entity_index(directory.parent, int(directory.name.rsplit('_', 1)[1]), ctx=planner_ctx)
+    load_entity_index(directory.parent, ep_names.chapter_of(directory.name), ctx=planner_ctx)
     names = set(mentioned_characters(passage, [c['name'] for c in bible['characters']], ctx=planner_ctx))
     names.update(n for shot in script['shots'] for n in shot.get('characters', []))
     identity_context = prompt_context(directory, names, context=identity_reading)

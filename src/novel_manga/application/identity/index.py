@@ -25,6 +25,7 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from novel_manga.application.identity.ledger_store import chapter_texts  # noqa: E402
 from novel_manga.story.identity import scan_mentions, short_forms  # noqa: E402
 
 INDEX_POLICY = "entity-index-v1"
@@ -35,20 +36,6 @@ GENERIC = re.compile(r"^(醉汉|酒保|国王|王后|侍者|议长|船长|医生
 STOP_FORMS = {"那位", "这位", "某位", "一位", "两位", "几位", "各位", "诸位", "小那位", "小这位"}  # a title stripped off a description
 MAJOR_TOP = 12       # the most-mentioned characters after the leads
 MINOR_MENTIONS = 20  # mentioned this often anywhere in the book: a recurring face
-
-
-def chapter_texts(novel_dir: Path) -> dict[int, str]:
-    out: dict[int, str] = {}
-    for path in novel_dir.glob(f"{novel_dir.name}_*/segments.json"):
-        index = path.parent.name.rsplit("_", 1)[-1]
-        if not index.isdigit():
-            continue
-        try:
-            rows = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        out[int(index)] = "\n".join(str(r.get("text") or "") for r in rows if isinstance(r, dict))
-    return out
 
 
 def build(novel_dir: Path) -> dict:

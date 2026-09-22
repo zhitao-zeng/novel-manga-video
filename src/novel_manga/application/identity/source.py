@@ -1,4 +1,5 @@
 """Source-only adapter for existing repair callers; scene rules live in the shared library."""
+import novel_manga.episodes as ep_names
 from pathlib import Path
 import json
 from novel_manga.story.scene import resolve_identities
@@ -16,4 +17,4 @@ def resolve_script(script, novel: Path, segments: list[dict], *, chapter=None):
 def resolved_changes(directory: Path):
     script = json.loads((directory / 'chapter_script.json').read_text())
     segments = json.loads((directory / 'segments.json').read_text())
-    return resolve_script(script, directory.parent, segments, chapter=int(directory.name.rsplit('_', 1)[1]))
+    return resolve_script(script, directory.parent, segments, chapter=ep_names.chapter_of(directory.name))

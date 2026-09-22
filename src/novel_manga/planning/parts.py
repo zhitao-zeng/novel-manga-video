@@ -25,6 +25,7 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import novel_manga.episodes as ep_names
 from novel_manga.planning.text import compact
 
 PARTS_FILE = "parts.json"
@@ -35,6 +36,9 @@ TARGET_SECONDS = 105.0
 BALANCE_LOW, BALANCE_HIGH = 0.6, 1.5      # a part within this of the mean share is balanced enough
 IMBALANCE_LIMIT = 2.0                     # longest part / shortest part beyond which the cut is not worth keeping
 WINDOW = 0.12                             # a cut may sit this far, in dialogue share, from the even point
+PART_FLOOR_SECONDS = 80.0                 # a part is planned to at least this, when its dialogue supports it: with the ceiling at 120 the
+                                          # model has forty seconds to land in; given twenty (a floor of 100) it bounced 151, 130, 147, 70, 132
+PART_FLOOR_SHARE = 0.85                   # ...or to this share of its estimate, when it does not
 MAX_PARTS = 3
 TITLES = {1: ("",), 2: ("上", "下"), 3: ("上", "中", "下")}
 
@@ -212,7 +216,7 @@ def write_parts(episode_dir: Path, parts: list[Part], *, decided_by: str, chapte
 
 def part_dir_name(novel_id: str, chapter: int, part: int | None) -> str:
     """meiman-daoshi_12 for a chapter that is one episode; meiman-daoshi_12-2 for its second part."""
-    return f"{novel_id}_{chapter}" + (f"-{part}" if part else "")
+    return ep_names.episode_name(novel_id, chapter, part)
 
 
 def previous_episode_dir(novel_dir: Path, novel_id: str, chapter: int, part: int | None) -> Path:

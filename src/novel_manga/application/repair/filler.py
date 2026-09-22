@@ -4,6 +4,7 @@ wy_filler_tried.txt records attempts, not completion. Re-read actual episode sta
 retry a failed attempt up to the existing render limit and leave held work visible.
 """
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 import argparse
 import json
@@ -56,10 +57,10 @@ def select(novel: Path, fix: Path, limit: int = 12) -> dict:
             busy.update(numbers(fix / targets))
     tried = Counter(numbers(fix / "wy_filler_tried.txt"))
     result = {"selected": [], "busy": [], "held": [], "unreadable": []}
-    dirs = sorted((p for p in novel.glob(f"{novel.name}_*") if p.is_dir() and p.name.rsplit("_", 1)[-1].isdigit()),
-                  key=lambda p: int(p.name.rsplit("_", 1)[-1]), reverse=True)
+    dirs = sorted((p for p in novel.glob(f"{novel.name}_*") if p.is_dir() and ep_names.is_episode(p.name)),
+                  key=lambda p: ep_names.episode_order(p.name), reverse=True)
     for directory in dirs:
-        n = int(directory.name.rsplit("_", 1)[-1])
+        n = ep_names.chapter_of(directory.name)
         try:
             if episode_status(directory, True) != "stale":
                 continue

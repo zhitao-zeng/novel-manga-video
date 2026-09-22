@@ -7,6 +7,7 @@ Only current previews that failed silence checks are considered. Other QC and sp
 Original reports are saved under the run's report directory before applying an update.
 """
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 import argparse
 import json
@@ -121,8 +122,8 @@ def main() -> int:
     novel = args.novel_dir.resolve()
     archive = novel.parent / "reports" / time.strftime(f"{novel.name}-silence-recheck-%Y%m%d-%H%M%S")
     rows = []
-    episodes = sorted((p for p in novel.glob(f"{novel.name}_*") if p.is_dir() and p.name.rsplit("_", 1)[-1].isdigit()),
-                      key=lambda p: int(p.name.rsplit("_", 1)[1]))
+    episodes = sorted((p for p in novel.glob(f"{novel.name}_*") if p.is_dir() and ep_names.is_episode(p.name)),
+                      key=lambda p: ep_names.episode_order(p.name))
     for episode in episodes:
         row = recheck_episode(episode, apply=args.apply, archive=archive)
         if row:

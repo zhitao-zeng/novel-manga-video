@@ -19,6 +19,7 @@ for 星海 and 雾月 is quality, so their parts asked for expression cards the 
 stopped at "reference image missing"; --rebuild-parts builds the parts of episodes split earlier again.
 """
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.story.compilation import ClipCompiler
 from novel_manga.application.packing.context import compiler_options
 from novel_manga.application.configuration import project_root
@@ -290,11 +291,11 @@ def main() -> int:
     args = parser.parse_args()
     novel_dir = args.novel_dir.resolve()
     wanted = set(parse_chapters(args.chapters)) if args.chapters else None
-    episodes = sorted((d for d in novel_dir.glob(f"{novel_dir.name}_*") if d.is_dir() and d.name.rsplit("_", 1)[-1].isdigit()),
-                      key=lambda d: int(d.name.rsplit("_", 1)[1]))
+    episodes = sorted((d for d in novel_dir.glob(f"{novel_dir.name}_*") if d.is_dir() and ep_names.is_episode(d.name)),
+                      key=lambda d: ep_names.episode_order(d.name))
     results = {}
     for episode in episodes:
-        number = int(episode.name.rsplit("_", 1)[1])
+        number = ep_names.chapter_of(episode.name)
         if wanted is not None and number not in wanted:
             continue
         if args.rebuild_parts:

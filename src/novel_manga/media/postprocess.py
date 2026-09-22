@@ -1,4 +1,5 @@
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 import json
 import re
 import shutil
@@ -80,7 +81,7 @@ def chat_history(ctx, clip_id: str) -> dict[str, list[dict]]:
                 history.setdefault(run["key"], []).extend(run["messages"])
 
     try:
-        index = int(ctx.episode_dir.name.rsplit("_", 1)[1])
+        index = ep_names.chapter_of(ctx.episode_dir.name)
     except (ValueError, IndexError):
         index = None
     if index is not None:

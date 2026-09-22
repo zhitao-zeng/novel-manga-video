@@ -17,6 +17,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import novel_manga.episodes as ep_names
+
 ROOT = project_root()
 RULE = {
     "画面出现文字": "画面中不得出现任何文字、字幕、招牌字、书页字迹、水印或乱码；"
@@ -74,7 +76,7 @@ def main() -> int:
             except (OSError, ValueError):
                 existing = {}
         path.write_text(json.dumps({**existing, **clips}, ensure_ascii=False, indent=1), encoding="utf-8")
-    numbers = sorted((e.rsplit("_", 1)[-1] for e in per_episode), key=int)
+    numbers = [str(n) for n in sorted({ep_names.chapter_of(e) for e in per_episode})]
     print(f"\n写了 {len(per_episode)} 个 review_feedback.json")
     print("集号：" + ",".join(numbers))
     (novel_dir / "repair_targets.txt").write_text(",".join(numbers), encoding="utf-8")

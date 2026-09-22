@@ -4,6 +4,7 @@ The episode remains the exclusive worker unit. Eligibility and effective retry
 counts belong to each clip, so a later finding can use the same worker safely.
 """
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 import copy
 from pathlib import Path
@@ -138,7 +139,7 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
         try:
             decision = source_decision(problem, precise, verified_source, correction(clip) if problem else '')
             if decision is None:
-                diagnosis = diagnose_numbered(clip_context(directory.parent,int(directory.name.rsplit('_',1)[1]),cid))
+                diagnosis = diagnose_numbered(clip_context(directory.parent,ep_names.chapter_of(directory.name),cid))
                 repeated = diagnosis.get('cause') == 'generation_mismatch' and history.repeated_errors(directory,cid)
                 decision = diagnosed_decision(diagnosis, repeated)
             action, diagnosis = decision.action, decision.diagnosis
@@ -148,7 +149,7 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
                 changed.extend(result['changed']);accepted.extend(result['accepted'])
             elif action=='reframe':
                 issue = str(verdict.get('feedback') or verdict.get('story_issue') or '按原文修正画面')
-                result = repair_episode(directory.parent,int(directory.name.rsplit('_',1)[1]),False,
+                result = repair_episode(directory.parent,ep_names.chapter_of(directory.name),False,
                                         reframe=True,source_issues={cid:issue},return_proposal=True)
                 if cid not in result.get('changed',[]):
                     if result.get('proposal'):

@@ -18,6 +18,7 @@ instance configuration without changing another judge or the process environment
 flags and missed 4% of what it passed; this is what made the final fix list.
 """
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 
 import argparse
@@ -67,7 +68,7 @@ class Verifier:
 
     # ---- files ----
     def episodes(self) -> list[int]:
-        return sorted(int(d.name.rsplit("_", 1)[-1]) for d in self.novel.glob(f"{self.prefix}_*") if d.name.rsplit("_", 1)[-1].isdigit())
+        return sorted(ep_names.chapter_of(d.name) for d in self.novel.glob(f"{self.prefix}_*") if ep_names.is_episode(d.name))
 
     def episode_dir(self, n: int) -> Path:
         return self.novel / f"{self.prefix}_{n}"

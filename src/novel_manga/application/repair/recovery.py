@@ -1,5 +1,6 @@
 """Prepare one owned episode for structural, technical or residual recovery."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 import novel_manga.story.dialogue as story_dialogue
 
@@ -169,7 +170,7 @@ def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
                     '核对台词归属，保留真实人物的原有对白和事件；场景、服装等正确部分保持。')
         if not issues:
             return {'changed': [], 'skip_render': True}
-        result = repair_episode(directory.parent, int(directory.name.rsplit('_',1)[1]), False,
+        result = repair_episode(directory.parent, ep_names.chapter_of(directory.name), False,
                                 use_history=False, reframe=True, source_issues=issues, return_proposal=True)
         proposal = result.get('proposal')
         if not proposal or set(issues) - set(result.get('changed', [])):
@@ -243,7 +244,7 @@ def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
         return {'changed': sorted(ids)}
     from novel_manga.application.repair.flow import repair_episode
     source_issues = read(directory / 'source_binding_issues.json') if kind == 'binding' else None
-    result = repair_episode(directory.parent, int(directory.name.rsplit('_', 1)[1]), True, reframe=True, identity=kind == 'identity', source_issues=source_issues)
+    result = repair_episode(directory.parent, ep_names.chapter_of(directory.name), True, reframe=True, identity=kind == 'identity', source_issues=source_issues)
     if kind in {'identity','residual'} and result.get('why') == 'nothing to repair':
         return {**result, 'already_correct': True, **({'structural_repair':structural} if structural else {})}
     if not result.get('changed'):

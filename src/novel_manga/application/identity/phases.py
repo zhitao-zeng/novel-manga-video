@@ -25,6 +25,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import novel_manga.episodes as ep_names
+
 from novel_manga.models.bible import Character
 
 POLICY = "phase-cards-v1"
@@ -67,9 +69,9 @@ def phased(character: Character, phase: dict | None) -> Character:
 
 
 def chapter_of(episode_dir: Path) -> int | None:
-    """The chapter an episode directory covers (one chapter per episode, the thin pipeline's layout)."""
-    tail = episode_dir.name.rsplit("_", 1)[-1]
-    return int(tail) if tail.isdigit() else None
+    """The chapter an episode directory covers; each part of a cut chapter answers the chapter, and wears its phase card."""
+    parsed = ep_names.parse_episode(Path(episode_dir).name)
+    return parsed[0] if parsed else None
 
 
 def phase_card(novel_dir: Path, phases: dict[str, list[dict]], name: str, chapter: int | None) -> Path | None:

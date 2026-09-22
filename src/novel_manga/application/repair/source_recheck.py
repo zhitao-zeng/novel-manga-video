@@ -1,5 +1,6 @@
 """Correct source attribution, then review existing footage before ordering a retake."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from novel_manga.planning.context import PlannerContext
 
 import copy
@@ -60,7 +61,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     novel = directory.parent
     instructions = {**read(directory/'source_recheck_instructions.json',{}),
                     **{key:value for key,value in (instructions or {}).items() if value}}
-    episode = int(directory.name.rsplit('_',1)[1])
+    episode = ep_names.chapter_of(directory.name)
     wanted = set(targets if targets is not None else read(directory / 'source_recheck_targets.json', []))
     before = read(directory / 'clip_plan.json', {})
     script = read(directory / 'chapter_script.json', {})

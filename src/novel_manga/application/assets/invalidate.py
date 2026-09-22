@@ -19,6 +19,8 @@ import sys
 import time
 from pathlib import Path
 
+import novel_manga.episodes as ep_names
+
 ROOT = project_root() / "outputs"
 
 
@@ -36,9 +38,8 @@ def main() -> int:
     stamp = time.strftime("%m%d-%H%M%S")
     hits = []
     for d in sorted((ROOT / novel).glob(f"{novel}_*")):
-        idx = d.name.rsplit("_", 1)[-1]
         plan, review = d / "clip_plan.json", d / "episode_review.json"
-        if not idx.isdigit() or not plan.is_file() or not (d / f"{novel}_{idx}.mp4").is_file():
+        if not ep_names.is_episode(d.name) or not plan.is_file() or not (d / f"{d.name}.mp4").is_file():
             continue
         try:
             clips = json.loads(plan.read_text(encoding="utf-8"))["clips"]

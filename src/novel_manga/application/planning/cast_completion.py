@@ -35,6 +35,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import novel_manga.episodes as ep_names
+
 import novel_manga.planning.cast as pc_cast
 import novel_manga.application.planning.context as planner_context
 from novel_manga.planning.context import PlannerContext  # noqa: E402
@@ -116,10 +118,13 @@ def rebuild_in_place(episode_dir: Path, bible_path: Path, old_script: dict, new_
 
 
 def episodes_of(novel_dir: Path, wanted: set[int] | None):
-    for script_path in sorted(novel_dir.glob(f"{novel_dir.name}_*/chapter_script.json")):
-        index = script_path.parent.name.rsplit("_", 1)[-1]
-        if index.isdigit() and (wanted is None or int(index) in wanted):
-            yield int(index), script_path
+    for script_path in sorted(novel_dir.glob(f"{novel_dir.name}_*/chapter_script.json"),
+                              key=lambda p: ep_names.episode_order(p.parent.name)):
+        if not ep_names.is_episode(script_path.parent.name):
+            continue
+        index = ep_names.chapter_of(script_path.parent.name)
+        if wanted is None or index in wanted:
+            yield index, script_path
 
 
 def plan_mode(episode_dir: Path) -> str:

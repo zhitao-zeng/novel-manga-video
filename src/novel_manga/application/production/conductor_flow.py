@@ -1,5 +1,6 @@
 """conductor_flow_thin responsibilities; existing production limits and launch policy."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 from datetime import datetime
 from pathlib import Path
 import json
@@ -69,7 +70,7 @@ class Conductor:
     def tick(self) -> bool:
         stats = {id(r): conductor_state.range_stats(self, r) for r in self.ranges}
         waiting = conductor_state.qwen_waiting(self)
-        locked = [int(p.parent.name.split("_")[-1]) for p in self.novel_dir.glob(f"{self.novel_id}_*/.render.lock")]
+        locked = [ep_names.chapter_of(p.parent.name) for p in self.novel_dir.glob(f"{self.novel_id}_*/.render.lock")]
         card_waits = conductor_state.recent_lines(self, locked, "waiting for in-flight redraw", 600)
         congested = waiting > self.cfg["qwen"].get("waiting_high", 40) or card_waits > self.cfg["qwen"].get("card_waits_high", 3)
         if not self.plan_only:

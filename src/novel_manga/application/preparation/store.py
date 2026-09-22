@@ -1,5 +1,6 @@
 """Existing preparation reports, input stamps, backups and resume eligibility."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 
 from pathlib import Path
 from collections import Counter
@@ -45,7 +46,7 @@ def record(directory, status, **extra):
     old = read(p, {})
     if status == 'starting':
         old = {}
-    row = {**old, 'policy': POLICY, 'episode': int(directory.name.rsplit('_', 1)[-1]),
+    row = {**old, 'policy': POLICY, 'episode': ep_names.chapter_of(directory.name),
            'status': status, 'at': time.strftime('%F %T'), 'inputs': inputs(directory), **extra}
     row.pop('retry_after', None)
     if status in {'error', 'needs_repair', 'needs_replan'} and row.get('attempts', 0) < 3:

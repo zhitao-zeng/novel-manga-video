@@ -1,5 +1,6 @@
 """Same-take review reconciliation and selection. No file access, models or dispatch."""
 from __future__ import annotations
+import novel_manga.episodes as ep_names
 import copy
 import json
 from pathlib import Path
@@ -92,7 +93,7 @@ def inspection_counts(review: dict, takes: dict, expected: list[str]) -> dict:
 
 def reconcile_review(directory: Path, plan: dict, previous: dict, takes: dict, local: dict, flash: dict) -> dict:
     """Apply the existing evidence priority to an explicit current-take snapshot."""
-    ep = int(directory.name.rsplit("_", 1)[1])
+    ep = ep_names.chapter_of(directory.name)
     clips = copy.deepcopy(previous.get("clips") or {})
     for cid, current in takes.items():
         old = clips.get(cid) or {}
