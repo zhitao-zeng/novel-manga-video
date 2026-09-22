@@ -58,7 +58,25 @@ def test_a_listener_keeps_the_card_that_says_whose_back_it_is():
     assert ClipCompiler(compiler_options()).clip_cast(clip) == ["席勒", "托尼·斯塔克"]
 
 
-def test_a_crowded_clip_still_drops_the_silent_onlookers():
-    # Two referenced faces are enough; the rule that keeps a busy clip from blending them is untouched.
+def test_every_listener_keeps_a_card_however_many_there_are():
+    """This asserted the opposite this morning, when a listener was a bystander the crowding rule
+    could drop.  The picture-text scan (2026-09-22) made that rule fire on people the shot plainly
+    stands in frame, so the rule now applies only to someone the shot never puts on camera.  What
+    still bounds the count is complete_characters' cap of six additions."""
     clip = {"shots": [shot(["席勒"], [], [speaks("席勒")], listeners=["托尼·斯塔克", "佩珀", "哈皮"])]}
-    assert ClipCompiler(compiler_options()).clip_cast(clip) == ["席勒"]
+    assert ClipCompiler(compiler_options()).clip_cast(clip) == ["席勒", "托尼·斯塔克", "佩珀", "哈皮"]
+
+
+def test_a_listener_is_not_a_bystander_the_crowding_rule_can_drop():
+    """The rule that keeps a busy clip from blending two similar faces counted listeners as
+    droppable bystanders.  With the picture-text scan adding a third name (2026-09-22), that took
+    托尼·斯塔克's card away in shots he is plainly standing in - and his back rendered as a
+    stranger's.  A back is not a face; only someone the shot never puts on camera is a bystander."""
+    clip = {"shots": [shot(["席勒"], [], [speaks("席勒")], listeners=["托尼·斯塔克", "贾维斯"])]}
+    assert ClipCompiler(compiler_options()).clip_cast(clip) == ["席勒", "托尼·斯塔克", "贾维斯"]
+
+
+def test_someone_the_shot_never_puts_on_camera_is_still_dropped_when_it_is_crowded():
+    clip = {"shots": [shot(["席勒", "托尼·斯塔克", "佩珀"], [], [speaks("席勒")],
+                           visual_prompt="席勒和托尼·斯塔克对坐")]}
+    assert ClipCompiler(compiler_options()).clip_cast(clip) == ["席勒", "托尼·斯塔克"]

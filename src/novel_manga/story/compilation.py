@@ -406,6 +406,12 @@ class ClipCompiler:
         for shot in clip["shots"]:
             explicit = shot.get("in_frame") or []
             active.update(explicit)
+            # A listener is on camera - framing turned them around, it did not send them home - so the
+            # crowding rule below must not treat them as a bystander it can drop.  It did: once the
+            # picture-text scan started adding a third name, 托尼·斯塔克 went from cast to listener to
+            # dropped, and his back came back as a stranger's.  The rule guards against two similar
+            # faces blending, and a back is not a face.
+            active.update(shot.get("listeners") or [])
             # A listener is in the picture - framing turned them around, it did not send them home - so
             # they still earn a reference.  Without one they are outside the naming table, the translation
             # calls them "Stark" or "a seated figure", and H3, given no face, invents one: ch12
