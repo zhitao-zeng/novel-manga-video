@@ -22,7 +22,14 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
     actions = normalize_actions(shot.get('actions'), aliases=ctx.aliases, extras=extras)
     for action in actions:
         for who in (action['actor'], action['target']):
-            if not shot.get('in_frame_given') and who in names and who not in characters:
+            # An action's named partner is in the picture whatever in_frame says.  in_frame is taken as
+            # authoritative because scanning the prose for names invented ghosts, but this is not a scan:
+            # fields.py asks for "说话的人和这一阶段与他有动作往来的人", so a stage that writes
+            # actions=[(席勒 → 托尼·斯塔克)] and in_frame=[席勒] contradicts its own two fields.  Believing
+            # in_frame there costs 托尼 his card: he is still described in the shot, the naming table has no
+            # tag for him, and the translation writes "Stark" - a person H3 must invent a face for
+            # (ch12 part one, 2026-09-22: ten such names in thirteen shots).
+            if who in names and who not in characters:
                 characters.append(who)
                 warnings.append(f"{position}: actions 里的 {who} 补进 characters")
     motion_text = str(shot.get("motion_prompt") or "").strip()
