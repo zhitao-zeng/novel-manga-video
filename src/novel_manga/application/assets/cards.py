@@ -34,10 +34,18 @@ from dataclasses import replace as dc_replace  # noqa: E402
 IMAGE_BACKOFF = (20, 40, 60, 90, 120)
 
 
-def build_with_backoff(factory, root: Path, bible: StoryBible, characters: set[str], locations: set[str], profile: dict | None = None):
+def split_asset_ids(text: str) -> tuple[set[str], set[str], set[str]]:
+    """--assets 的 id 按前缀分道：character_/location_/prop_。"""
+    ids = {a.strip() for a in text.split(",") if a.strip()}
+    return ({a for a in ids if a.startswith("character_")},
+            {a for a in ids if a.startswith("location_")},
+            {a for a in ids if a.startswith("prop_")})
+
+
+def build_with_backoff(factory, root: Path, bible: StoryBible, characters: set[str], locations: set[str], profile: dict | None = None, props: set[str] | None = None):
     for wait in (*IMAGE_BACKOFF, None):
         try:
-            return factory.build_selected(root, bible, characters, locations, expressions=not is_fast(profile))
+            return factory.build_selected(root, bible, characters, locations, expressions=not is_fast(profile), prop_ids=props)
         except ModerationRejected:
             raise
         except RuntimeError as error:
@@ -75,8 +83,7 @@ def main() -> int:
     (root / ".locks").mkdir(parents=True, exist_ok=True)
 
     ids = [a.strip() for a in args.assets.split(",") if a.strip()]
-    characters = {a for a in ids if a.startswith("character_")}
-    locations = {a for a in ids if a.startswith("location_")}
+    characters, locations, props = split_asset_ids(args.assets)
     results = {}
     type_path = novel_dir / 'entity/types.json'
     types = json.loads(type_path.read_text()) if type_path.is_file() else {}
@@ -86,7 +93,8 @@ def main() -> int:
             fcntl.flock(lock, fcntl.LOCK_EX)  # another job or a renderer may be building the same card
             started = time.monotonic()
             try:
-                build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
+                build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile,
+                                   {asset_id} & props)
                 status = "built"
             except ModerationRejected as error:
                 status = f"moderation: {str(error)[:120]}"
