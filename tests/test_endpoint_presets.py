@@ -70,3 +70,83 @@ def test_no_preset_lets_the_transport_raise_the_token_budget(name):
             pass
     assert client.sent["max_tokens"] == 700
     assert not client.streamed
+
+
+# ---- what a review of c9718c4 found ------------------------------------------------------------------
+
+from novel_manga.llm.config import ENDPOINTS, endpoint_settings, planner_endpoint_name
+
+
+def test_a_preset_puts_back_exactly_what_it_found(monkeypatch):
+    """The reason using_endpoint exists, and the one thing nothing tested: seven main() calls in one
+    pytest process, each applying a preset, and every test after them reading whatever was left."""
+    monkeypatch.setenv("QWEN38_LOCAL_BASE_URL", "http://was-here:1/v1")
+    monkeypatch.delenv("QWEN38_LOCAL_MODEL", raising=False)
+    monkeypatch.setenv("QWEN38_LOCAL_STREAM", "1")
+    before = {key: os.environ.get(key) for key in ENDPOINTS["flashnext"]}
+    with using_endpoint("flashnext"):
+        assert os.environ["QWEN38_LOCAL_MODEL"] == "Qwen3.8-Flash-Next"
+        assert os.environ["QWEN38_LOCAL_STREAM"] == "0"
+    assert {key: os.environ.get(key) for key in ENDPOINTS["flashnext"]} == before
+    assert "QWEN38_LOCAL_MODEL" not in os.environ          # unset before, unset after - not set to ""
+
+
+def test_a_preset_is_put_back_even_when_the_run_raises(monkeypatch):
+    monkeypatch.setenv("QWEN38_LOCAL_BASE_URL", "http://was-here:1/v1")
+    with pytest.raises(RuntimeError):
+        with using_endpoint("flashnext"):
+            raise RuntimeError("the planner blew up")
+    assert os.environ["QWEN38_LOCAL_BASE_URL"] == "http://was-here:1/v1"
+
+
+@pytest.mark.parametrize("value, expected", [(None, "flashnext"), ("", "flashnext"), ("  ", "flashnext"), ("local", "local")])
+def test_an_empty_planner_endpoint_is_the_default_not_an_endpoint_called_nothing(value, expected):
+    environ = {} if value is None else {"NOVEL_PLANNER_ENDPOINT": value}
+    assert planner_endpoint_name(environ) == expected
+
+
+def test_a_planner_endpoint_that_names_nothing_is_refused_with_the_list():
+    with pytest.raises(ValueError, match="flashnext.*local|local.*flashnext"):
+        planner_endpoint_name({"NOVEL_PLANNER_ENDPOINT": "flashnxt"})
+
+
+def test_named_settings_leave_the_process_environment_alone(monkeypatch):
+    monkeypatch.setenv("QWEN38_LOCAL_BASE_URL", "http://was-here:1/v1")
+    settings = endpoint_settings("flashnext")
+    assert settings.model == "Qwen3.8-Flash-Next" and settings.endpoints == ("http://172.28.4.81:8038/v1",)
+    assert os.environ["QWEN38_LOCAL_BASE_URL"] == "http://was-here:1/v1"
+
+
+def test_the_bibles_questions_go_to_the_judge_whatever_endpoint_plans(monkeypatch):
+    """Inside the planner the process is on Flash-Next; who a name is, is still the 27B's to say."""
+    from novel_manga.application.review import bible as review_bible
+    asked = {}
+    def fake_ask(parts, schema, **kwargs):
+        asked["settings"] = kwargs.get("settings")
+        return {"characters": []}
+    monkeypatch.setattr(review_bible.model_client, "ask_json", fake_ask)
+    with using_endpoint("flashnext"):
+        review_bible.extract_names("席勒站在讲台后。")
+    assert asked["settings"] is not None
+    assert asked["settings"].model == "Qwen3.8-27B-Project"
+
+
+def test_the_preflight_probes_the_endpoint_planning_will_use_and_the_judges(monkeypatch):
+    """3/4 alive, then two hundred chapters refused: the probe and the planner disagreed on where."""
+    from novel_manga.application.production import flow as production_flow
+    probed = []
+    monkeypatch.setattr(production_flow.Batch, "endpoint_answers", staticmethod(lambda base, key="": probed.append(base) or True))
+    monkeypatch.setattr(production_flow.production_common, "log", lambda *a, **k: None)
+    batch = object.__new__(production_flow.Batch)
+    batch.check_qwen()
+    assert "http://172.28.4.81:8038/v1" in probed                      # the planner's
+    assert any(":1812" in base for base in probed)                      # the judge's pool
+
+
+def test_the_preflight_stops_when_the_planners_endpoint_is_the_dead_one(monkeypatch):
+    from novel_manga.application.production import flow as production_flow
+    monkeypatch.setattr(production_flow.Batch, "endpoint_answers", staticmethod(lambda base, key="": "8038" not in base))
+    monkeypatch.setattr(production_flow.production_common, "log", lambda *a, **k: None)
+    batch = object.__new__(production_flow.Batch)
+    with pytest.raises(SystemExit, match="规划"):
+        batch.check_qwen()

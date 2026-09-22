@@ -23,7 +23,10 @@ def test_review_requests_match_before_extraction(tmp_path, monkeypatch):
     monkeypatch.delenv('NOVEL_REVIEW_MODE', raising=False)
     calls=[]
     def ask(parts,schema,**kw):
-     calls.append(copy.deepcopy({'parts':parts,'schema':schema,**kw}))
+     # The contract is what is asked - parts, schema, name, budget - not where.  The bible's calls
+     # now carry the judge's settings explicitly (test_endpoint_presets covers that); an endpoint
+     # object in the freeze would pin a URL list that changes with the machines.
+     calls.append(copy.deepcopy({'parts':parts,'schema':schema,**{k:v for k,v in kw.items() if k!='settings'}}))
      return {'verdict':'fine','people':[],'scripted':True,'evidence':'掌心裂开一张嘴。','note':'原文明确写到','instruction':'甲将物品交给乙。','characters':[],'locations':[],'summary':'梗概','open_threads':[],'standing':[]}
     with contextlib.nullcontext(tmp_path) as temp:
      novel=Path(temp)/'n';ep=novel/'n_1';work=ep/'work/review/clip_01';work.mkdir(parents=True)

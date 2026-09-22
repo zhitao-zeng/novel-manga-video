@@ -183,23 +183,39 @@ class Batch:
 
     # ---- stages ----
     def check_qwen(self) -> None:
-        from novel_manga.llm.config import qwen_endpoints
-        alive = []
-        for base in qwen_endpoints():
-            try:
-                probe = urllib.request.Request(f"{base}/models")
-                from novel_manga.llm.config import endpoint_key
-                key = endpoint_key()
-                if key:  # an endpoint behind a key answers 401 to a bare probe
-                    probe.add_header("Authorization", "Bearer " + key)
-                with urllib.request.urlopen(probe, timeout=20) as response:  # noqa: S310 - local service; a proxied catalogue takes ~8 s
-                    response.read(200)
-                alive.append(base)
-            except Exception:  # noqa: BLE001
-                production_common.log(f"Qwen endpoint not reachable: {base}")
-        if not alive:
-            raise SystemExit("no Qwen endpoint reachable (QWEN38_LOCAL_BASE_URL); start the Qwen containers first")
-        production_common.log(f"Qwen endpoints alive: {len(alive)}/{len(qwen_endpoints())}")
+        """Every model endpoint this batch's planning will use, probed by the job that uses it.
+
+        It used to probe QWEN38_LOCAL_BASE_URL alone - this process's environment, the 27B pool -
+        while the planner it launches applies its own preset and goes to Flash-Next.  The night
+        Flash-Next was still loading, the probe reported 3/4 alive, every chapter then failed in
+        0.004 s on connection refused, and two hundred chapters would have been marked failed inside
+        two minutes.  The judge's pool is probed as well: bible growth asks it from this process and
+        the planner asks it for every unknown name.
+        """
+        from novel_manga.llm.config import endpoint_settings, planner_endpoint_name
+        from novel_manga.review.endpoints import judge_settings
+        try:
+            jobs = {"规划": endpoint_settings(planner_endpoint_name()), "判官/建档": judge_settings()}
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
+        for job, settings in jobs.items():
+            alive = [base for base in settings.endpoints if self.endpoint_answers(base, settings.key)]
+            production_common.log(f"{job}端点 {settings.model}: {len(alive)}/{len(settings.endpoints)} 可用")
+            if not alive:
+                raise SystemExit(f"{job}用的端点一个都不通（{settings.model} @ {', '.join(settings.endpoints)}）；先把服务起来")
+
+    @staticmethod
+    def endpoint_answers(base: str, key: str = "") -> bool:
+        try:
+            probe = urllib.request.Request(f"{base.rstrip('/')}/models")
+            if key:  # an endpoint behind a key answers 401 to a bare probe
+                probe.add_header("Authorization", "Bearer " + key)
+            with urllib.request.urlopen(probe, timeout=20) as response:  # noqa: S310 - local service; a proxied catalogue takes ~8 s
+                response.read(200)
+            return True
+        except Exception:  # noqa: BLE001
+            production_common.log(f"endpoint not reachable: {base}")
+            return False
 
     def plan(self, chapter: int, *, replan: bool | None = None, notes: str | None = None) -> None:
         force_replan = self.args.replan if replan is None else replan

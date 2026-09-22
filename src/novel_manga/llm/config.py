@@ -26,6 +26,29 @@ ENDPOINTS = {
 }
 
 
+def planner_endpoint_name(environ=None) -> str:
+    """Which endpoint plans a chapter: Flash-Next unless NOVEL_PLANNER_ENDPOINT names another.
+
+    Read here so the planner and the batch preflight that probes on its behalf agree.  An empty value
+    is the default, not an endpoint called "": `NOVEL_PLANNER_ENDPOINT= python
+    scripts/plan_chapter_thin.py --help` used to trace back before argparse ran.  A value naming
+    nothing is refused with the list, since the alternative is planning on whatever the process
+    environment happened to hold.
+    """
+    environ = os.environ if environ is None else environ
+    name = str(environ.get("NOVEL_PLANNER_ENDPOINT", "") or "").strip() or "flashnext"
+    if name not in ENDPOINTS:
+        raise ValueError(f"NOVEL_PLANNER_ENDPOINT={name!r} names no endpoint; pick one of {sorted(ENDPOINTS)}")
+    return name
+
+
+def endpoint_settings(name: str) -> JsonEndpoint:
+    """A named endpoint as the settings for one call, with the process environment left alone."""
+    if name not in ENDPOINTS:
+        raise ValueError(f"unknown endpoint {name}; pick one of {sorted(ENDPOINTS)}")
+    return JsonEndpoint.from_env(ENDPOINTS[name])
+
+
 @contextlib.contextmanager
 def using_endpoint(name: str, environ=None):
     """Point this process's model calls at one named endpoint, and put back what was there.

@@ -13,14 +13,19 @@ from novel_manga.application.planning.flow import run, PlanningInputError
 from novel_manga.planning.methods import METHODS
 
 def planner_endpoint():
-    """Which endpoint plans a chapter.  Flash-Next by default; the judge keeps its own (the 27B).
+    """The planner's endpoint applied to this process for the run, and put back after.
 
-    They used to be the same setting, so choosing one chose all three uses of QWEN38_LOCAL_* - the
-    planner, the H3 prompt translation and the judge.  NOVEL_PLANNER_ENDPOINT=local puts planning back
-    on the 27B for a run.
+    Which one is llm.config's to say, so the batch preflight probes the same endpoint this will
+    use.  The bible's own questions - who is this name, what does this person look like - no longer
+    follow the process: review.bible passes the judge's settings on every call, so they stay on the
+    27B whichever endpoint plans.  The H3 translation was already that way.
     """
-    from novel_manga.llm.config import using_endpoint
-    return using_endpoint(os.environ.get("NOVEL_PLANNER_ENDPOINT", "flashnext"))
+    from novel_manga.llm.config import planner_endpoint_name, using_endpoint
+    try:
+        name = planner_endpoint_name()
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    return using_endpoint(name)
 
 
 def main(*, context: PlannerContext | None = None) -> int:

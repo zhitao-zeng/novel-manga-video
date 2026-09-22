@@ -12,6 +12,20 @@ import novel_manga.story.identity as story_names
 import novel_manga.story.name_rules as name_rules
 import novel_manga.review.contracts as review_contracts
 from novel_manga.util import atomic_write_json
+from novel_manga.review.endpoints import judge_settings
+
+
+def bible_settings():
+    """The endpoint every question about the cast is asked on: the judge's, whatever process asks.
+
+    These five calls - scan the names, fill a character, scan the places, rule on an unknown name,
+    sum up a volume - used to follow the process they ran in.  In the batch parent that was the 27B;
+    inside the planner, which applies the Flash-Next preset to its own environment, it was
+    Flash-Next.  So one book's cast was built by two models, and which one decided a name depended on
+    which side happened to ask first.  Passed explicitly, as the H3 translation passes its own, the
+    process environment stops mattering.
+    """
+    return judge_settings()
 
 
 VAGUE = re.compile(r"未详|不详|未知|未提及|未描述|建议|待定|无描述")
@@ -29,7 +43,7 @@ def extract_names(chapter_text: str) -> list[dict]:
         "每个给出在本段出现的大致次数，以及是否有台词或近景出场（speaks_or_close_up）。同一人物的不同叫法合并为最常用的一个；"
         "如果一个称呼在段中后来被点出姓名，只保留姓名。只输出JSON。\n\n" + chapter_text
     )
-    return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.NAME_SCHEMA, name="names", max_tokens=1500).get("characters", [])
+    return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.NAME_SCHEMA, name="names", max_tokens=1500, settings=bible_settings()).get("characters", [])
 
 
 def excerpts(text: str, name: str, limit: int = 12) -> str:
@@ -185,7 +199,7 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
             "外貌只写稳定特征（体型、脸型、肤色、发型、年龄感），不写当下的状态：受伤、流血、伤痕、表情、哭泣、脏污、正在做的事都不算外貌。只输出JSON。\n\n"
             + "\n\n".join(f"【{name}】（出现 {info['mentions']} 次，章 {sorted(set(info['chapters']))}）\n{excerpts(text, name)}" for name, info in missing.items())
         )
-        rows = model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.FILL_SCHEMA, name="fill", max_tokens=3000).get("characters", [])
+        rows = model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.FILL_SCHEMA, name="fill", max_tokens=3000, settings=bible_settings()).get("characters", [])
         added: list[Character] = []
         for row in rows:
             name = re.sub(r"\s+", "", str(row.get("name", "")))
@@ -237,7 +251,7 @@ def extract_locations(chapter_text: str, known_locations: list[str]) -> list[dic
         + (f"已有的地点名：{recent}。如果本段的地点就是其中之一，name 必须原样使用已有名字。" if recent else "")
         + "只输出JSON。\n\n" + chapter_text
     )
-    return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.LOCATION_SCHEMA, name="locations", max_tokens=1200).get("locations", [])
+    return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.LOCATION_SCHEMA, name="locations", max_tokens=1200, settings=bible_settings()).get("locations", [])
 
 
 def load_aliases(novel_dir: Path) -> dict:
@@ -285,7 +299,7 @@ def judge_unknown(novel_dir: Path, names: list[str], chapter_text: str, chapter_
               f"指称：{'、'.join(names)}\n\n原文：\n{chapter_text[:12000]}")
     try:
         rows = model_client.ask_json([{"type": "text", "text": prompt}], JUDGE_SCHEMA,
-                                     name="unknown_actors", max_tokens=800).get("people", [])
+                                     name="unknown_actors", max_tokens=800, settings=bible_settings()).get("people", [])
     except Exception as error:  # noqa: BLE001 - no verdict is not a verdict; the binding check still stops
         # with the reason: swallowing it cost an afternoon on 巨大机器人, where the call was not failing
         # at all - the model was returning an empty list because both answers it was offered were wrong
@@ -546,7 +560,7 @@ def summarize_volume(novel_dir: Path, first: int, last: int) -> dict:
          "properties": {"summary": {"type": "string"},
                         "open_threads": {"type": "array", "items": {"type": "string"}},
                         "standing": {"type": "array", "items": {"type": "string"}}}},
-        name="volume_summary", max_tokens=1400)
+        name="volume_summary", max_tokens=1400, settings=bible_settings())
     row = {"from": first, "to": last, "chapters": len(rows), **verdict}
     path = novel_dir / "volumes.json"
     with open(path.with_suffix(".lock"), "w") as lock:
