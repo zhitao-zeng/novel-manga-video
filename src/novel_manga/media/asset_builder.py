@@ -125,6 +125,7 @@ class FramedAssetFactory:
                 hair=character.hair, palette=character.palette, motion_signature=character.motion_signature,
                 family=self.style.render_family, direction=self.style.render_direction,
                 fingerprint=self.style.prompt_fingerprint, tidy=self.style.tidy_prompts,
+                brief=self.style.card_brief,
             ) + guard
             # Modern-dress 3D cards came out near-photoreal and were then
             # redrawn by the review; ask for the drawn look up front.

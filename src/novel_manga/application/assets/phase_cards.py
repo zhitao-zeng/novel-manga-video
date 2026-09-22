@@ -115,6 +115,7 @@ def main() -> int:
                 hair=look.hair, palette=look.palette, motion_signature=look.motion_signature,
                 family=asset_style.render_family, direction=asset_style.render_direction,
                 fingerprint=asset_style.prompt_fingerprint, tidy=asset_style.tidy_prompts,
+                brief=asset_style.card_brief,
             ) + guard
             prompt += style_card_suffix(asset_style, bible) or (
                 CARD_STYLE_SUFFIX_3D if wants_3d_card(asset_style, bible) else "")

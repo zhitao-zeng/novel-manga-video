@@ -14,5 +14,6 @@
     "card": "Photorealistic: a real photograph of a real person in a real costume, as a casting and costume reference for a live-action Chinese period fantasy drama - natural skin texture with pores, real hair, real woven fabric with seams and creases, soft studio light on a plain mid-grey backdrop. Not CG, not a 3D render, not an illustration, not a doll."
   },
   "source_ref": "experiments/agent-skill-sandbox/render/live2_round.py:37 STYLE_VIDEO、assets/gen_fts_live.py:32 PHOTO",
-  "review": "中文措辞是英文原文的中译草稿，正在用样卡复核；source_en 是用户认可的原文，不要改"
+  "review": "中文措辞是英文原文的中译草稿，正在用样卡复核；source_en 是用户认可的原文，不要改",
+  "card_brief": "这是一张供动画制作使用的服装参考图。背景是平整的纯中灰影棚背景，没有纹理、没有墙角、没有地面线，也没有任何投影。人物独自站在正中，面向镜头略作四分之三转身，中性直立：双脚均匀受力，双臂自然垂在身侧，手掌张开放松，不插兜、不交叉、不扶任何东西、不倚靠。表情中性放松，闭口，没有强烈情绪。整个人从发梢到鞋底都在画面内，头顶和脚下留出明显空白。布光均匀柔和、来自正面，像影棚那样让服装每一处同样清楚：没有强侧光、没有轮廓光、没有逆光，衣服和脸的任何部分都不落进深阴影。领口、袖口、腰带、下摆和鞋子逐项都要看得清。画面里没有场景、没有道具、没有粒子特效、没有火光、没有发光，也没有动态。"
 }

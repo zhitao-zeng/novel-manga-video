@@ -36,6 +36,8 @@ class AssetStyle:
     speaks_for_itself: bool = False
     # Strip the full stop a bible field already ends with before the template adds one.
     tidy_prompts: bool = False
+    # Empty keeps the short 选角定妆照 wording; a package may spell the frame out.
+    card_brief: str = ''
 
     @classmethod
     def for_genre(cls, genre, *, frame_text='竖屏9:16', style=None):
@@ -49,6 +51,7 @@ class AssetStyle:
             scene_direction=style.get('scene_direction', ''),
             speaks_for_itself=bool(style.get('render_direction')),
             tidy_prompts=bool(style.get('tidy_prompts', False)),
+            card_brief=style.get('card_brief', ''),
             # The style decides how it is drawn; the genre decides what may exist in that
             # world (scales and wing membranes in fantasy, European faces in gaslamp), so a
             # genre that states its own wording still wins.

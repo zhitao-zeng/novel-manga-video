@@ -31,6 +31,19 @@ DIRECTION_DEFAULT = (
 BY_FAMILY = {"2d": DIRECTION_2D, "2.5d": DIRECTION_25D, "3d": DIRECTION_3D}
 
 
+# "选角定妆照" is a term of art. gpt-image draws one from those four characters;
+# a model that does not know the term draws a poster instead -- dramatic side light,
+# hands in pockets, a wall corner -- which is a nice picture and useless as the
+# reference every later shot is locked to. A style package whose model needs the
+# term spelled out carries its own ``card_brief`` stating the facts of the frame.
+CARD_BRIEF = (
+    "只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；"
+    "脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。"
+    "双手自然放松，不拿食物、纸袋、武器或任何剧情道具。"
+    "纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。"
+)
+
+
 def _end(text: str, tidy: bool) -> str:
     """A bible field often ends in its own full stop and the template adds another.
     Styles that ask to be tidied get one; the rest keep the text they were built with."""
@@ -73,6 +86,7 @@ def character_prompt(
     direction: str = "",
     fingerprint: bool = True,
     tidy: bool = False,
+    brief: str = "",
 ) -> str:
     trim = (lambda s: str(s).rstrip("。；;，, ")) if tidy else (lambda s: s)
     identity = "；".join(
@@ -96,12 +110,9 @@ def character_prompt(
         + _end(wardrobe, tidy)
     )
     return prefix + (_end(identity, tidy) if identity else "") + (
-        "只画一个人物且只出现一次，单人四分之三正面、从头到脚的选角定妆照；"
-        "脸部占比足够识别，头脚完整，轮廓和服装主色一眼可区分，身体比例自然。"
-        "双手自然放松，不拿食物、纸袋、武器或任何剧情道具。"
-        "纯色简洁背景，不要多视角设定表、分身、镜像人物、局部小头像或拼贴。"
-        f"{rendering_direction(bible, family=family, direction=direction)}；"
-        "不要文字、Logo或水印。"
+        (brief or CARD_BRIEF)
+        + f"{rendering_direction(bible, family=family, direction=direction)}；"
+        + "不要文字、Logo或水印。"
     )
 
 
