@@ -19,7 +19,7 @@ CACHE_SECONDS = 20
 PORT = 18900
 
 
-UI_VERSION = "full-pipeline-20260917"
+UI_VERSION = "workbench-20260922"
 
 
 NOVELS = dashboard_novels(ROOT)

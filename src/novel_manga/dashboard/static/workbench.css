@@ -1,0 +1,36 @@
+/* workbench pages: pills, gallery, video, pre-rendered text */
+
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:99px;
+  border:1px solid var(--line);color:var(--dim);background:var(--surface-2)}
+.pill.ok-p{color:var(--ok);border-color:#0e9f6e44;background:#0e9f6e12}
+.pill.warn-p{color:var(--warn);border-color:#d9770644;background:#d9770612}
+.pill.off{opacity:.45}
+.links a{margin-left:10px;color:var(--accent);text-decoration:none;font-weight:600}
+.links a:hover{text-decoration:underline}
+
+pre.md{white-space:pre-wrap;overflow-wrap:anywhere;font:12.5px/1.65 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;
+  max-height:520px;overflow:auto;margin:0}
+details.card summary.label{cursor:pointer;margin-bottom:0}
+details.card[open] summary.label{margin-bottom:10px}
+details summary{cursor:pointer}
+
+video#film{width:100%;max-width:520px;border-radius:10px;background:#000;display:block;margin:0 auto}
+.cliprow{cursor:pointer}
+.cliprow:hover td{background:var(--surface-2)}
+
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.asset{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+.asset>a>img{width:100%;aspect-ratio:3/4;object-fit:cover;object-position:top;display:block;background:var(--surface-2)}
+.asset-body{padding:10px 12px;display:grid;gap:6px}
+.asset-body .small{font-size:12px}
+.thumbs{display:flex;gap:6px}
+.thumbs img{height:64px;border-radius:8px;border:1px solid var(--line)}
+table.kv{width:100%;border-collapse:collapse;font-size:12px}
+table.kv td{padding:3px 6px;border-top:1px solid var(--line);vertical-align:top}
+
+.voice{display:flex;align-items:center;gap:12px;padding:6px 0;border-top:1px solid var(--line)}
+.voice:first-of-type{border-top:none}
+.voice audio{height:32px;flex:1;min-width:0}
+.avatars{display:flex;flex-wrap:wrap;gap:8px}
+.avatars img{height:72px;width:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
