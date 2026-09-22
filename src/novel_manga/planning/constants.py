@@ -63,6 +63,14 @@ FORBIDDEN_VISUAL = (
     (re.compile(r"(血迹|渗血|血液|流血|鲜血|伤口|破皮)"), "血液或伤口"),
     (re.compile(r"(大字|显示[“\"『「]|写着|字样|刻着[“\"]|显现出[“\"])"), "可读文字"),
 )
+# What to do about each, in the words the model is given.  One sentence used to serve both, and it
+# was the first book's: "去掉血迹和伤口，碑上的结果改写为无字的发光纹路" - a stele from a cultivation
+# novel, sent as the fix for a bullet wound in Hell's Kitchen.  A repair instruction written for
+# another book's world is followed in that world.
+FORBIDDEN_VISUAL_FIX = {
+    "血液或伤口": "图片和视频都不允许；去掉血迹和伤口的描写，用姿态、表情和周围人的反应交代受伤",
+    "可读文字": "画面里不能出现可读的文字；把字改成无字的纹样、模糊的印记或不入镜",
+}
 
 
 PROMPT_EXAMPLE_DEFAULTS = {

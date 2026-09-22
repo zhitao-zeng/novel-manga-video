@@ -35,14 +35,23 @@ class PlannerContext:
     # Set when --bind-storyboard binds a sheet a person wrote: its cuts and its length are
     # the author's, and compressing them is the one thing binding exists to avoid.
     authored_storyboard: bool = False
+    # Whether the video service will refuse a picture on content grounds.  The paid platforms do,
+    # so a plan is checked for what they refuse before any money is spent on it.  The local H3 does
+    # not: sent a knife coming down and blood spreading into standing water, it drew exactly that
+    # (在美漫当心灵导师的日子 ch1 shot 12, 2026-09-22).  A gate kept for a refusal that cannot happen
+    # only costs the picture it was guarding.
+    renderer_moderates: bool = True
     method_artifacts: dict = field(default_factory=dict)
 
     @classmethod
     def from_env(cls) -> PlannerContext:
+        from novel_manga.config import LOCAL_VIDEO_MODELS
         raw = os.environ.get("NOVEL_CLIP_SECONDS_MAX", "30")
         cap = float(raw or 30)
         short = cap <= 15
+        video_model = os.environ.get("NOVEL_VIDEO_MODEL", os.environ.get("PHANROUTER_VIDEO_MODEL", "")).strip()
         return cls(policy="thin-chapter-plan-v13-bounded-repair" + ("-15s" if raw.strip() in {"15", "15.0"} else ""),
                    clip_seconds_max=cap, short_clips=short, max_clip_seconds=cap,
                    clip_range=(6, 8) if short else (3, 4), stage_range=(2, 3) if short else (4, 6),
-                   strict_plan=os.environ.get("NOVEL_PLAN_STRICT", "").strip() == "1")
+                   strict_plan=os.environ.get("NOVEL_PLAN_STRICT", "").strip() == "1",
+                   renderer_moderates=video_model not in LOCAL_VIDEO_MODELS)

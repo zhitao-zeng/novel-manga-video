@@ -33,6 +33,26 @@ def spoken(shot: dict) -> list[dict]:
     return [t for t in shot.get("turns") or [] if t["delivery_mode"] != "silent_action"]
 
 
+def pair_turns(want: list[dict], got: list[dict]) -> tuple[list[tuple], list[dict]]:
+    """Each authored line with the script turns it became, and the script turns left over.
+
+    The pipeline splits a long line into pieces (normalization: "turn of N chars split into M");
+    the words survive in order and every piece carries the line's speaker, delivery and emotion.
+    Pairing line to turn one to one therefore slipped by one at the first split and called every
+    line after it changed - fifteen chapters of 在美漫当心灵导师的日子 were sent to a person for
+    dialogue that had been kept to the character.  An authored line is the run of script turns
+    whose texts join to its own; the first of them answers for speaker, delivery and emotion.
+    """
+    matched, i = [], 0
+    for w in want:
+        joined, first = "", i
+        while i < len(got) and len(joined) < len(w["text"]):
+            joined += got[i]["text"]
+            i += 1
+        matched.append((w, got[first] if first < len(got) else None, joined))
+    return matched, got[i:]
+
+
 def trace(novel_dir: Path, chapter: int) -> int:
     episode = novel_dir / f"{novel_dir.name}_{chapter}"
     state = json.loads((episode / "agent_storyboard.json").read_text(encoding="utf-8"))
@@ -65,12 +85,16 @@ def trace(novel_dir: Path, chapter: int) -> int:
     check(all(s.get("purpose") == r["narrative_purpose"] for r, s in pairs), "叙事目的")
     check(all(s["location"] == r["location"] for r, s in pairs), "场景")
 
-    lines = [(r, w, g) for r, s in pairs
-             for w, g in zip(sb.authored_sound(r["authored_sound"]).turns, spoken(s))]
-    counts = all(len(sb.authored_sound(r["authored_sound"]).turns) == len(spoken(s)) for r, s in pairs)
-    check(counts, f"台词句数（{len(lines)} 句）")
-    check(all(w["text"] == g["text"] for _, w, g in lines), "每句台词逐字")
-    check(all(w["emotion"] == g.get("emotion", "") for _, w, g in lines if w["emotion"]), "写了的语气")
+    lines, leftover = [], 0
+    for r, s in pairs:
+        matched, extra = pair_turns(sb.authored_sound(r["authored_sound"]).turns, spoken(s))
+        lines += [(r, w, g, joined) for w, g, joined in matched]
+        leftover += len(extra)
+    check(all(g is not None for _, _, g, _ in lines) and not leftover,
+          f"台词句数（{len(lines)} 句" + (f"，剧本多出 {leftover} 句" if leftover else "") + "）")
+    check(all(w["text"] == joined for _, w, _, joined in lines), "每句台词逐字")
+    check(all(w["emotion"] == g.get("emotion", "") for _, w, g, _ in lines if w["emotion"] and g), "写了的语气")
+    lines = [(r, w, g) for r, w, g, _ in lines if g]
 
     print("\n绑定解出来的（本来就该变）")
     resolved = sorted({(w["written_speaker"], g["speaker_name"]) for _, w, g in lines

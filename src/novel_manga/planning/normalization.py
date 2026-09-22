@@ -126,12 +126,21 @@ def end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings
             if label == "可读文字" and has_chat:
                 continue  # the phone screen is supposed to show the messages
             match = pattern.search(value)
-            if match:
-                detail = (f"{field} 含{label}描述（{match.group(0)}），图片和视频都不允许；"
-                           "去掉血迹和伤口，碑上的结果改写为无字的发光纹路")
-                message = f"{position}: {detail}"
-                if label == "可读文字" and (ctx.fast_tier or not ctx.text_on_props_gate):
-                    warnings.append("report only: " + message)  # fast tier or genre policy: a note, not a gate
-                else:
-                    errors.append(PlanningIssue(PlanningCode.VISUAL_CONTENT, detail, stage=position, field=field))
+            if not match:
+                continue
+            detail = f"{field} 含{label}描述（{match.group(0)}），{pc_constants.FORBIDDEN_VISUAL_FIX[label]}"
+            message = f"{position}: {detail}"
+            # An error here sends the stage to the patch round, which asks the model for a rewrite.
+            # For a sheet a person or an agent authored that is the one thing binding must not do:
+            # 在美漫当心灵导师的日子 ch1 shot 12 went in as a knife fight over a dog and came back as a
+            # corridor in a mind palace, with its shot number gone.  The author's cut is reported
+            # and kept; whatever the service then makes of it is the render stage's to handle.
+            # And blood is only worth reporting to a service that refuses it: the local H3 drew
+            # the same shot as written, so for it the note would be noise.
+            if label == "血液或伤口" and not ctx.renderer_moderates:
+                continue
+            if ctx.authored_storyboard or (label == "可读文字" and (ctx.fast_tier or not ctx.text_on_props_gate)):
+                warnings.append("report only: " + message)  # a note, not a gate
+            else:
+                errors.append(PlanningIssue(PlanningCode.VISUAL_CONTENT, detail, stage=position, field=field))
     return end_state
