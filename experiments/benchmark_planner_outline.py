@@ -13,6 +13,7 @@ sys.path[:0] = [str(_REPO / "src"), str(_REPO / "scripts"), str(_REPO)]
 
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -147,12 +148,20 @@ def worker(job_path: Path) -> int:
     manifest = read(root / "manifest.json")
     endpoint = job["endpoint"]
     os.environ["QWEN38_LOCAL_BASE_URL"] = endpoint
+    os.environ["QWEN38_LOCAL_MODEL"] = manifest["model"]  # bare ask_json calls (patch_plan) read the env, not argv
     os.environ["NOVEL_CLIP_SECONDS_MAX"] = str(manifest["clip_cap"])
     # Use exactly the captured implementation, even if production is edited during the probe.
     sys.path[:0] = [str(root / "code/scripts"), str(root / "code/src")]
     import httpx
     import novel_manga.planning.contracts as pc_contracts
     import novel_manga.application.planning.cli as plan_chapter
+
+    # The harness assigns the endpoint itself (the env pins above and --base-url/--model in argv).
+    # Since c9718c4, main() applies the planner preset to its own process and rewrites QWEN38_LOCAL_*
+    # to flashnext; patch_plan's bare ask_json would then land on flashnext in BOTH arms and the swap
+    # would stop swapping.  Snapshots frozen before c9718c4 have no planner_endpoint, and nothing in
+    # them reads this attribute.
+    plan_chapter.planner_endpoint = contextlib.nullcontext
 
     requests = []
     original_send = httpx.Client.send
