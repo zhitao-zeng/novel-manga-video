@@ -459,7 +459,12 @@ def run(args, ctx: PlannerContext) -> int:
             print(json.dumps({"attempt": attempt, "patch": summary, "status": "patching"}, ensure_ascii=False), flush=True)
             patch_started = time.monotonic()
             try:
-                patched = planner_requests.patch_plan(raw, missing_ids, faulty, segments, names, list(location_map), timeout=patch_timeout, ctx=ctx)
+                # An authored sheet has nothing to insert - what it leaves uncited is recorded as its
+                # author's choice by the coverage check - and what a patch rewrites on it keeps the
+                # author's columns: the model's answer may correct a quote or a state, never a shot.
+                patched = planner_requests.patch_plan(raw, [] if authored else missing_ids, faulty, segments, names, list(location_map), timeout=patch_timeout, ctx=ctx)
+                if authored:
+                    patched = pc_binding.keep_authored(raw, patched)
             except Exception as error:  # noqa: BLE001 - fall through to the normal redo
                 failure = {**summary, "failed": f"{type(error).__name__}: {str(error)[:120]}", "elapsed_seconds": round(time.monotonic() - patch_started, 1)}
                 attempts[-1].setdefault("patches", []).append(failure)

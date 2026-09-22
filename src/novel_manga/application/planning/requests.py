@@ -133,8 +133,13 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
                      "（after_stage 是插在该 clip 第几个阶段之后，0 表示放在最前）；新阶段的 segment_id 必须是该遗漏区段。")
     if faulty:
         parts.append(f"另有 {len(faulty)} 个阶段没过硬门检查，逐个重写整个阶段（label 原样填回，segment_id 不变），只修错误指出的问题，其余内容尽量保持。")
-    parts.append("规则：source_quote 从该区段原文逐字复制 8 到 120 字；画面描述不得出现血液、伤口、破皮、流血，碑上的结果写成无字的发光纹路；"
-                 "offscreen_dialogue 和 chat_message 必须写 speaker_name；台词从原文取；只用给出的人物名，格式和已有阶段一致。")
+    # The picture rule is the same one validation applies, in the same words; the paid platforms
+    # refuse blood and the local models do not, and a fix written for one book's stele used to be
+    # sent to every book here.
+    picture_rule = ("画面描述不得出现血液、伤口、破皮、流血，" + pc_constants.FORBIDDEN_VISUAL_FIX["血液或伤口"].split("；", 1)[-1]
+                    if ctx.renderer_moderates else "")
+    parts.append("规则：source_quote 从该区段原文逐字复制 8 到 120 字；" + (picture_rule + "；" if picture_rule else "")
+                 + "offscreen_dialogue 和 chat_message 必须写 speaker_name；台词从原文取；只用给出的人物名，格式和已有阶段一致。")
     parts.append(f"分镜大纲：{json.dumps(outline, ensure_ascii=False)}")
     parts.append(f"可用人物：{names}")
     if ctx.story_blueprint:

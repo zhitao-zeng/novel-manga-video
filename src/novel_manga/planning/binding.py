@@ -220,3 +220,35 @@ def merge(authored: dict, answer: dict, *, character_names=()) -> dict:
         "clips": clips,
         "skipped_segments": answer.get("skipped_segments", []),
     }
+
+
+# What merge takes from the sheet rather than from the model's answer.  Everything else on a stage
+# - segment_id, source_quote, start_state, end_state, light, in_frame, extras, actions - was asked
+# for, and is the model's to correct.
+AUTHORED_FIELDS = ("event", "shot_scale", "camera", "duration_seconds", "shot_id", "purpose", "sfx",
+                   "turns", "authored_id", "authored_seconds", "authored_angle", "scene_id")
+
+
+def keep_authored(before: dict, after: dict) -> dict:
+    """The authored columns put back on every stage a patch rewrote.
+
+    A patch replaces a rejected stage whole, and merge's stage carries the author's columns and the
+    bound ones in one dict, so the replacement lost the picture, the framing, the length, the purpose,
+    the lines and the shot number together, and kept only what the model had been asked to fix.
+    ch1 shot 12 of 在美漫当心灵导师的日子 went in as a knife fight over a dog and came back as a
+    corridor in a mind palace, with no shot number, over a quote that was not verbatim.
+
+    Slots are positional, as the patch's own replacements are.  On this path nothing is ever
+    inserted, so the shapes match; if they do not, something upstream has already broken the cut,
+    and saying so is better than lining the columns up with the wrong shots.
+    """
+    import copy
+    kept = copy.deepcopy(after)
+    clips_before, clips_after = before.get("clips") or [], kept.get("clips") or []
+    if [len(c.get("stages") or []) for c in clips_before] != [len(c.get("stages") or []) for c in clips_after]:
+        raise ValueError("the patch changed the number of stages of an authored storyboard")
+    for clip_before, clip_after in zip(clips_before, clips_after):
+        for stage_before, stage_after in zip(clip_before["stages"], clip_after["stages"]):
+            if stage_before.get("authored_id"):
+                stage_after.update({k: stage_before[k] for k in AUTHORED_FIELDS if k in stage_before})
+    return kept
