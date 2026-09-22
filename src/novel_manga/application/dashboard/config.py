@@ -19,7 +19,7 @@ CACHE_SECONDS = 20
 PORT = 18900
 
 
-UI_VERSION = "workbench-20260922"
+UI_VERSION = "workbench-20260922-grid"
 
 
 NOVELS = dashboard_novels(ROOT)
