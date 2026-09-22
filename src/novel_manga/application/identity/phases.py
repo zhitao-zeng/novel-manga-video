@@ -33,6 +33,19 @@ LOOK_FIELDS = ("hair", "appearance", "wardrobe", "base_costume", "silhouette", "
                "signature_prop", "visual_archetype")
 
 
+def wearable_prop(phase: dict, bible) -> tuple | None:
+    """(prop, prop_asset_id) for a phase whose look is a wearable prop ("wears": "Mark XLII 战甲"),
+    else None.  The prop card is the armor's single source of truth; the wearer's phase card is
+    drawn from it (build_phase_cards.py), and the clip references both."""
+    name = str(phase.get("wears") or "").strip()
+    if not name:
+        return None
+    for index, prop in enumerate(getattr(bible, "props", None) or [], start=1):
+        if prop.name == name:
+            return prop, f"prop_{index:03d}"
+    return None
+
+
 def load_phases(novel_dir: Path) -> dict[str, list[dict]]:
     """{character name: [phase, ...]} - {} when the novel has no phases.json or it is unreadable."""
     try:

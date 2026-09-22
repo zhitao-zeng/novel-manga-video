@@ -69,8 +69,11 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     phases = identity_data.catalog.phases if identity_data is not None else load_phases(novel_dir) if novel_dir is not None else {}
     by_name = {character.name: character for character in bible.characters}
     bodies = body_refs if body_refs is not None else (bodies_for(novel_dir, chapter) if novel_dir is not None and chapter else {})
+    worn_props: list[str] = []   # phases wearing a prop: the wearer's card and the prop's card both ride
     for name in cast:
         phase = phase_for(phases, name, chapter)
+        if phase and phase.get("wears"):
+            worn_props.append(str(phase["wears"]))
         asset = str(phase["asset_id"]) if phase else f"character_{character_index[name]:03d}"
         look = phased(by_name[name], phase)
         host = bodies.get(name)
@@ -123,12 +126,14 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     # The prop seat: one slot after the location, never at the cost of a character's view - ten
     # reference images and the model starts blending faces.  A prop the bible does not list (a
     # planner hallucination) or whose card was never built is dropped, not invented.
-    prop_by_name = dict(props_index or {})
+    prop_by_name = dict(props_index) if props_index is not None else {
+        p.name: p for p in getattr(bible, "props", None) or []}
     prop_order = {p.name: i for i, p in enumerate(getattr(bible, "props", None) or [], start=1)}
-    if props:
+    seat_candidates = list(dict.fromkeys([*(props or []), *worn_props]))
+    if seat_candidates:
         present = props_on_disk if props_on_disk is not None else (
             prop_assets_on_disk(novel_dir) if novel_dir is not None else None)
-        for prop_name in dict.fromkeys(props):
+        for prop_name in seat_candidates:
             prop = prop_by_name.get(prop_name)
             position = prop_order.get(prop_name)
             if prop is None or position is None:

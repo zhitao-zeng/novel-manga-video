@@ -27,7 +27,7 @@ from novel_manga.media.asset_policy import ModerationRejected
 from novel_manga.media.asset_style import AssetStyle, image_backend, card_suffix as style_card_suffix, wants_3d_card
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
-from novel_manga.application.identity.phases import load_phases, phased
+from novel_manga.application.identity.phases import load_phases, phased, wearable_prop
 from novel_manga.application.profiles import frame_spec, load_genre, load_profile, load_style, style_names, styled_bible
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models.bible import StoryBible
@@ -42,6 +42,20 @@ def load_dotenv(path: Path) -> None:
             continue
         key, value = line.split("=", 1)
         os.environ.setdefault(key.strip().removeprefix("export ").strip(), value.strip().strip("'\""))
+
+
+def worn_reference(phase: dict, bible: StoryBible, root: Path):
+    """(prop, card_path) when this phase wears a prop, else (None, None).
+
+    The prop card is the wearable's single source of truth and is always built first; the
+    wearer's phase card is then drawn with it as the reference, so the armor looks the same
+    whoever wears it.
+    """
+    worn = wearable_prop(phase, bible)
+    if worn is None:
+        return None, None
+    prop, prop_asset = worn
+    return prop, root / "props" / prop_asset / "turnaround.jpeg"
 
 
 STYLE_MASTER_GUARD = (
@@ -110,6 +124,12 @@ def main() -> int:
                 print(json.dumps({"name": name, "asset_id": asset_id, "status": "kept"}, ensure_ascii=False), flush=True)
                 continue
             look = phased(character, phase)
+            worn_prop, worn_card = worn_reference(phase, bible, root)
+            if worn_prop is not None and not worn_card.is_file() and not args.dry_run:
+                # The wearable's own card comes first - the phase card is drawn from it.
+                factory.build_selected(root, bible, set(), set(), prop_ids={worn_card.parent.name})
+            wear_note = (f"角色穿戴{worn_prop.name}：{worn_prop.appearance}；"
+                         "以参考图中该物品的外观、材质与结构为准。") if worn_prop is not None else ""
             prompt = character_prompt(
                 bible, look.name, look.appearance, look.base_costume or look.wardrobe,
                 visual_archetype=look.visual_archetype, face_anchors=look.face_anchors, silhouette=look.silhouette,
@@ -117,7 +137,7 @@ def main() -> int:
                 family=asset_style.render_family, direction=asset_style.render_direction,
                 fingerprint=asset_style.prompt_fingerprint, tidy=asset_style.tidy_prompts,
                 brief=asset_style.card_brief,
-            ) + guard
+            ) + wear_note + guard
             prompt += style_card_suffix(asset_style, bible) or (
                 CARD_STYLE_SUFFIX_3D if wants_3d_card(asset_style, bible) else "")
             directory.mkdir(parents=True, exist_ok=True)
@@ -142,7 +162,8 @@ def main() -> int:
                         old.rename(directory / f"turnaround.superseded-{stamp}.jpeg{suffix}")
             started = time.monotonic()
             try:
-                factory.ensure_card(prompt, output, reference=style_master)
+                factory.ensure_card(prompt, output,
+                                    reference=worn_card if worn_card is not None and worn_card.is_file() else style_master)
                 status = "built"
             except ModerationRejected as error:
                 status = f"moderation: {str(error)[:120]}"
