@@ -18,11 +18,17 @@ import httpx
 from PIL import Image
 
 from ..config import Settings
-from .base import ImageResult, image_dimensions
+from .base import ImageResult
 
 # Recorded in each card's request.json so switching backends invalidates the cache.
 # The name, not the URL: the same service on another port draws the same picture.
 LOCAL_IMAGE_MODEL = "qwen-image-2.1"
+# gpt-image is asked for an aspect ratio and "2K" and answers at its own size - 1536x2720 for
+# a 9:16 card, whatever the frame's pixel numbers say, because those describe the video canvas
+# and not a reference sheet.  The local service is given the same freedom and the same size, so
+# the two backends' cards sit side by side in one book.  Both sides are multiples of 32, which
+# the pipeline requires, so nothing is resampled on the way out.
+NATIVE_SIZE = {"9:16": (1536, 2720), "16:9": (2720, 1536)}
 MAX_REFERENCES = 10          # the pipeline's own limit
 MAX_BYTES = 64 * 1024 * 1024
 
@@ -44,7 +50,7 @@ class LocalQwenImageProvider:
         additional_references: tuple[Path, ...] = (),
         *, aspect_ratio: str | None = None,
     ) -> ImageResult:
-        width, height = image_dimensions(aspect_ratio or "9:16")
+        width, height = NATIVE_SIZE[aspect_ratio or "9:16"]
         references = [
             Path(path) for path in (reference, *additional_references)
             if path and Path(path).is_file()

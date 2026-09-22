@@ -97,7 +97,7 @@ def test_local_qwen_image_service_draws_the_card_and_writes_it_as_jpeg(tmp_path)
     reference = tmp_path / 'style-master.jpeg'
     Image.new('RGB', (64, 64), (10, 20, 30)).save(reference, format='JPEG')
     drawn = io.BytesIO()
-    Image.new('RGB', (1152, 2048), (200, 40, 40)).save(drawn, format='PNG')
+    Image.new('RGB', (1152, 2048), (200, 40, 40)).save(drawn, format='PNG')   # not the size asked for
 
     requests = []
     def handle(request):
@@ -117,12 +117,12 @@ def test_local_qwen_image_service_draws_the_card_and_writes_it_as_jpeg(tmp_path)
         provider.local_image.client.close()
 
     sent, = requests
-    assert (sent['width'], sent['height']) == (1080, 1920)
+    assert (sent['width'], sent['height']) == (1536, 2720)   # a card's size, not the video canvas
     assert base64.b64decode(sent['references'][0]) == reference.read_bytes()
     assert result.path == output and not output.with_suffix('.jpeg.partial').exists()
-    # The service answered 1152x2048 (what the pipeline can draw); the card is what was asked for.
+    # The service answered at another size; the card is still what was asked for.
     with Image.open(output) as card:
-        assert card.format == 'JPEG' and card.size == (1080, 1920)
+        assert card.format == 'JPEG' and card.size == (1536, 2720)
 
 
 def test_a_card_request_records_the_local_model_only_when_one_drew_it(tmp_path):
