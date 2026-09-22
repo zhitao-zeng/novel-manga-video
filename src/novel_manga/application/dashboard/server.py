@@ -53,6 +53,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/workbench":
             body = render_page('workbench', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
+        elif path == "/experiments":
+            body = render_page('experiments', config.UI_VERSION).encode("utf-8")
+            content_type = "text/html; charset=utf-8"
         elif re.fullmatch(r"/novel/[A-Za-z0-9._-]+", path):
             body = render_page('novel', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
@@ -76,6 +79,8 @@ class Handler(BaseHTTPRequestHandler):
         parts = path.strip('/').split('/')
         if parts == ['api', 'workbench']:
             return _json_body(workbench.books(config.ROOT))
+        if parts == ['api', 'experiments']:
+            return _json_body(workbench.experiments(config.ROOT))
         if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'episodes':
             return _json_body(workbench.episodes(config.ROOT, parts[2]))
         if len(parts) == 5 and parts[:2] == ['api', 'book'] and parts[3] == 'episode':

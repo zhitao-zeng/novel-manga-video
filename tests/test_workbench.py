@@ -83,6 +83,38 @@ def test_media_is_contained_to_the_book_and_to_media_types(tmp_path):
     assert (book / "profile.json").is_file()
 
 
+def test_experiments_scans_registered_and_unregistered(tmp_path):
+    root = make_root(tmp_path)
+    make_book(root, "wuyue")
+    done = root / "outputs" / "experiments" / "planner-ab"
+    done.mkdir(parents=True)
+    (done / "manifest.json").write_text(json.dumps({
+        "created_at": "2026-09-14", "comparison": "endpoint swap", "model": "Qwen3.8-27B-Project"}),
+        encoding="utf-8")
+    (done / "final-summary.json").write_text("{}", encoding="utf-8")
+    loose = root / "outputs" / "experiments" / "quick-try"
+    loose.mkdir()
+    (loose / "notes.txt").write_text("随便试试", encoding="utf-8")
+
+    data = workbench.experiments(root)
+    rows = {e["name"]: e for e in data["experiments"]}
+    assert rows["planner-ab"]["registered"] is True and rows["planner-ab"]["status"] == "完成"
+    assert rows["planner-ab"]["comparison"] == "endpoint swap"
+    assert rows["quick-try"]["registered"] is False and rows["quick-try"]["status"] == "活跃"
+    assert data["agents"]["books"] == []                       # every book here plans locally
+
+
+def test_agent_books_surface_on_the_experiments_shelf(tmp_path):
+    root = make_root(tmp_path)
+    book = make_book(root, "wuyue")
+    profile = json.loads((book / "profile.json").read_text(encoding="utf-8"))
+    profile["planning_backend"] = "sandbox_agent"
+    (book / "profile.json").write_text(json.dumps(profile), encoding="utf-8")
+    data = workbench.experiments(root)
+    assert data["agents"]["books"][0]["backend"] == "sandbox_agent"
+    assert workbench.books(root)["books"][0]["backend"] == "sandbox_agent"
+
+
 def test_assets_reads_specs_images_and_voices(tmp_path):
     root = make_root(tmp_path)
     book = make_book(root, "wuyue")

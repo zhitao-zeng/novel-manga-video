@@ -9,9 +9,10 @@ ASSETS = {'style.css': 'text/css; charset=utf-8', 'pipeline.css': 'text/css; cha
              for name in ('common', 'pipeline', 'tooltips', 'status', 'board', 'workbench')}}
 
 VIEWS = {'status': '实时', 'board': '看板',
-         'workbench': '工作台', 'novel': '工作台', 'episode': '工作台', 'assets': '工作台'}
+         'workbench': '工作台', 'novel': '工作台', 'episode': '工作台', 'assets': '工作台',
+         'experiments': '实验'}
 
-NAV_ITEMS = [('实时', '/'), ('看板', '/board'), ('工作台', '/workbench')]
+NAV_ITEMS = [('实时', '/'), ('看板', '/board'), ('工作台', '/workbench'), ('实验', '/experiments')]
 
 
 def static_resource(name):

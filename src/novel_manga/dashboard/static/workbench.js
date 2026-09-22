@@ -27,7 +27,8 @@ async function renderBooks(){
     `<tr><th>书</th><th>状态</th><th>画风/画幅</th><th>剧集</th><th>可交付</th><th></th></tr>` +
     books.map(b=>`<tr>
       <td><b>${esc(b.title)}</b> <span class="dim">${esc(b.id)}</span></td>
-      <td>${b.managed ? '<span class="pill ok-p">纳管</span>' : '<span class="pill warn-p">未纳管</span>'}</td>
+      <td>${b.managed ? '<span class="pill ok-p">纳管</span>' : '<span class="pill warn-p">未纳管</span>'}
+        ${b.backend && b.backend!=="local" ? `<span class="pill warn-p" title="planning_backend">${esc(b.backend)}</span>` : ""}</td>
       <td class="dim">${esc(b.style||"—")} · ${esc(b.frame||"—")}</td>
       <td class="num">${b.episodes}</td>
       <td>${b.deliverable==null ? '<span class="dim">未统计</span>' : `<b class="num">${b.deliverable}</b> / ${b.total}`}</td>
@@ -71,7 +72,8 @@ function jsonBlock(title, obj){
 async function renderEpisode(book, n){
   const d = await getJSON(`/api/book/${encodeURIComponent(book)}/episode/${n}`);
   const media = rel => `/media/${encodeURIComponent(book)}/${rel.split("/").map(encodeURIComponent).join("/")}`;
-  let html = `<div class="dim" style="margin:0 2px"><a href="/novel/${encodeURIComponent(book)}">← ${esc(book)}</a> · 第 <b>${n}</b> 集</div>`;
+  let html = `<div class="dim" style="margin:0 2px"><a href="/novel/${encodeURIComponent(book)}">← ${esc(book)}</a> · 第 <b>${n}</b> 集
+    ${d.report && d.report.model ? `· 规划模型 <span class="pill">${esc(d.report.model)}</span>` : ""}</div>`;
   if (d.video){
     const clipRows = (d.clips||[]).map(c=>`<tr data-t="${c.offset}" class="cliprow"><td class="num">${c.n}</td><td class="dim">${esc(c.kind||"")}</td><td class="num">${c.seconds}s</td><td>${esc(c.label)}</td></tr>`).join("");
     html += `<div class="card"><div class="label">成片</div>
@@ -144,6 +146,45 @@ async function renderAssets(book){
   document.getElementById("assets").innerHTML = html;
 }
 
+/* ---------- /experiments ---------- */
+const STATUS_PILL = {"完成": "ok-p", "活跃": "warn-p", "存档": "off"};
+async function renderExperiments(){
+  const d = await getJSON("/api/experiments");
+  const agents = d.agents || {books: [], agent_test: []};
+  let agentHtml = `<div class="card"><div class="label">Agent 运行情况</div>`;
+  if (agents.books.length)
+    agentHtml += `<div style="margin-bottom:10px">` + agents.books.map(b=>
+      `<span class="pill warn-p" title="planning_backend=${esc(b.backend)}">${esc(b.title)} · ${esc(b.backend)}</span>`).join(" ") + `</div>`;
+  else
+    agentHtml += `<div class="dim" style="margin-bottom:10px">当前没有书使用非本地规划后端（profile.json 的 planning_backend）。</div>`;
+  if (agents.agent_test.length)
+    agentHtml += `<div class="label">沙箱 agent 产物 · outputs/agent-test</div><div class="twrap"><table class="resp">
+      <tr><th>目录/文件</th><th>内容数</th></tr>` +
+      agents.agent_test.map(t=>`<tr><td class="num">${esc(t.name)}</td><td class="num">${t.files==null?"文件":t.files}</td></tr>`).join("") +
+      `</table></div>`;
+  agentHtml += `</div>`;
+  document.getElementById("agents").innerHTML = agentHtml;
+
+  const rows = d.experiments;
+  document.getElementById("experiments").innerHTML = rows.length ? rows.map(e=>`
+    <details class="exp">
+      <summary>
+        <span class="pill ${STATUS_PILL[e.status]||"off"}">${e.status}</span>
+        ${e.registered ? "" : '<span class="pill off">未登记</span>'}
+        <b>${esc(e.name)}</b>
+        <span class="dim">${e.latest?fmtTime(e.latest):""}</span>
+      </summary>
+      <div class="exp-body">
+        ${e.comparison ? `<div>${esc(e.comparison)}</div>` : ""}
+        <div class="dim small">
+          ${e.model ? `模型 ${esc(e.model)} · ` : ""}${e.head ? `冻结于 ${esc(String(e.head).slice(0,10))} · ` : ""}${e.created_at ? `建于 ${esc(e.created_at)}` : ""}
+        </div>
+        ${e.endpoints ? `<div class="dim small">端点：${esc(e.endpoints.join("、"))}</div>` : ""}
+        ${e.results.length ? `<div class="small">产物：${e.results.map(r=>`<span class="pill">${esc(r)}</span>`).join(" ")}</div>` : '<div class="dim small">还没有结果文件</div>'}
+      </div>
+    </details>`).join("") : `<div class="dim">outputs/experiments 还没有实验目录</div>`;
+}
+
 /* ---------- dispatch ---------- */
 (async ()=>{
   try{
@@ -151,6 +192,7 @@ async function renderAssets(book){
     else if (parts[0]==="novel" && parts[1]) await renderNovel(decodeURIComponent(parts[1]));
     else if (parts[0]==="episode" && parts[1] && parts[2]) await renderEpisode(decodeURIComponent(parts[1]), parts[2]);
     else if (parts[0]==="assets" && parts[1]) await renderAssets(decodeURIComponent(parts[1]));
+    else if (parts[0]==="experiments") await renderExperiments();
   }catch(e){
     document.querySelector("main").insertAdjacentHTML("afterbegin",
       `<div class="card"><div class="label">加载失败</div><pre class="md">${esc(e.message)}</pre></div>`);

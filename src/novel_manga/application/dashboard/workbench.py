@@ -112,6 +112,7 @@ def books(root) -> dict:
             "id": book_id,
             "title": novel.get("title") or titles.get(book_id) or book_id,
             "managed": book_id in titles,
+            "backend": profile.get("planning_backend", "local"),
             "style": profile.get("style"), "frame": profile.get("frame"), "genre": profile.get("genre"),
             "episodes": len(_episode_dirs(directory)),
             "deliverable": delivery.get("deliverable"), "total": delivery.get("total"),
@@ -251,6 +252,73 @@ def assets(root, book_id: str) -> dict:
         "voices": flat("voices"),
         "avatars": flat("avatars"),
     })
+
+
+def experiments(root) -> dict:
+    """The research shelf: every outputs/experiments/<dir>, plus which books an agent plans.
+
+    An experiment registers itself with a manifest.json (the benchmark harness already writes
+    one); a directory without one is still listed, marked 未登记, so work done in another session
+    shows up either way.  Status is inferred from what landed: a final summary means finished,
+    recent file activity means running.
+    """
+    root = Path(root)
+    directory = root / "outputs" / "experiments"
+    rows = []
+    try:
+        with os.scandir(directory) as entries:
+            dirs = sorted(Path(e.path) for e in entries if e.is_dir())
+    except OSError:
+        dirs = []
+    for experiment in dirs:
+        manifest = _read_json(experiment / "manifest.json") or {}
+        results, latest = [], 0.0
+        try:
+            with os.scandir(experiment) as entries:
+                for e in entries:
+                    latest = max(latest, e.stat().st_mtime)
+                    if e.name == "manifest.json":
+                        continue
+                    if (e.is_file() and (e.name.endswith(".json") or e.name == "report.md")) or e.name == "evaluation":
+                        results.append(e.name)
+        except OSError:
+            pass
+        results = sorted(results)[:8]
+        if (experiment / "final-summary.json").is_file():
+            status = "完成"
+        elif latest and time.time() - latest < 2 * 3600:
+            status = "活跃"
+        else:
+            status = "存档"
+        rows.append({
+            "name": experiment.name,
+            "registered": bool(manifest),
+            "created_at": manifest.get("created_at"),
+            "comparison": manifest.get("comparison"),
+            "model": manifest.get("model"), "head": manifest.get("head"),
+            "endpoints": manifest.get("endpoints"),
+            "status": status, "results": results,
+            "latest": latest,
+        })
+    rows.sort(key=lambda r: r["latest"], reverse=True)
+
+    shelf = root / "outputs" / "agent-test"
+    agent_test = []
+    try:
+        with os.scandir(shelf) as entries:
+            for e in sorted(entries, key=lambda x: x.name):
+                if e.is_dir():
+                    with os.scandir(e.path) as inner:
+                        count = sum(1 for _ in inner)
+                    agent_test.append({"name": e.name, "files": count})
+                elif e.is_file():
+                    agent_test.append({"name": e.name, "files": None})
+    except OSError:
+        pass
+    agent_books = [{"id": b["id"], "title": b["title"], "backend": b["backend"]}
+                   for b in books(root)["books"] if b["backend"] != "local"]
+    return {"now": time.strftime("%F %T"), "experiments": rows,
+            "agents": {"books": agent_books, "agent_test": agent_test}}
 
 
 def media_file(root, book_id: str, relative: str) -> Path:

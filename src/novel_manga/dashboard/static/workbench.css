@@ -34,3 +34,10 @@ table.kv td{padding:3px 6px;border-top:1px solid var(--line);vertical-align:top}
 .voice audio{height:32px;flex:1;min-width:0}
 .avatars{display:flex;flex-wrap:wrap;gap:8px}
 .avatars img{height:72px;width:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+
+.exp{border-top:1px solid var(--line);padding:8px 0}
+.exp:first-of-type{border-top:none}
+.exp summary{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none}
+.exp summary::-webkit-details-marker{display:none}
+.exp summary .dim{margin-left:auto;font-size:12px}
+.exp-body{margin:8px 0 4px 18px;display:grid;gap:6px}
