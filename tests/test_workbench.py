@@ -214,6 +214,43 @@ def test_episode_without_agent_has_no_storyboard(tmp_path):
     assert detail["agent_storyboard"] is None
 
 
+def test_samples_group_the_same_character_across_styles(tmp_path):
+    root = make_root(tmp_path)
+    for style in ("3d-guoman", "weimei"):
+        card = root / "outputs" / f"_sample-ye-{style}" / "series_assets" / "characters" / "character_001"
+        card.mkdir(parents=True)
+        (card / "spec.json").write_text(json.dumps({"name": "叶伏天", "role": "主角"}), encoding="utf-8")
+        (card / "turnaround.jpeg").write_bytes(b"\xff")
+    (root / "outputs" / "_sample-ye-3d-guoman" / "profile.json").write_text("{}", encoding="utf-8")
+    (root / "outputs" / "_sample-ye-weimei" / "profile.json").write_text("{}", encoding="utf-8")
+
+    data = workbench.samples(root)
+    assert data["styles"] == ["3d-guoman", "weimei"]
+    assert [c["name"] for c in data["characters"]] == ["叶伏天"]
+    cells = data["characters"][0]["cells"]
+    assert cells["weimei"]["images"] == ["turnaround.jpeg"]
+    assert cells["weimei"]["dir"] == "_sample-ye-weimei"
+
+
+def test_recent_orders_by_mtime_and_reads_gate_outcomes(tmp_path):
+    root = make_root(tmp_path)
+    import os
+    book = make_book(root, "wuyue", episodes=[1, 2])
+    old = book / "wuyue_1"
+    os.utime(old, (1000, 1000))                                   # make episode 1 the older one
+    ep2 = book / "wuyue_2"
+    (ep2 / "media_qc_report.json").write_text(json.dumps({"passed": False}), encoding="utf-8")
+    (ep2 / "episode_review.json").write_text(json.dumps({"flags": ["嘴不动", "幻觉人物"]}), encoding="utf-8")
+    exp = root / "outputs" / "experiments" / "quick-try"
+    exp.mkdir(parents=True)
+
+    data = workbench.recent(root)
+    assert [r["episode"] for r in data["episodes"]] == [2, 1]     # newest first
+    top = data["episodes"][0]
+    assert top["qc_passed"] is False and top["review_flags"] == 2 and top["video"] is True
+    assert data["experiments"][0]["name"] == "quick-try"
+
+
 def test_assets_reads_specs_images_and_voices(tmp_path):
     root = make_root(tmp_path)
     book = make_book(root, "wuyue")

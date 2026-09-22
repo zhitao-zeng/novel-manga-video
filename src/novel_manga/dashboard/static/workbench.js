@@ -59,6 +59,26 @@ async function renderNovel(book){
     </tr>`).join("");
 }
 
+/* line diff for the prompt-attempt comparison (LCS; falls back to side-by-side when huge) */
+function diffLines(a, b){
+  const A=a.split("\n"), B=b.split("\n");
+  if (A.length*B.length > 4_000_000) return null;   // too big for LCS; caller shows plain panes
+  const n=A.length, m=B.length;
+  const dp=Array.from({length:n+1},()=>new Uint32Array(m+1));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--)
+    dp[i][j]=A[i]===B[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const out=[]; let i=0,j=0;
+  while(i<n&&j<m){
+    if(A[i]===B[j]){out.push([" ",A[i]]);i++;j++;}
+    else if(dp[i+1][j]>=dp[i][j+1]){out.push(["-",A[i]]);i++;}
+    else{out.push(["+",B[j]]);j++;}
+  }
+  while(i<n)out.push(["-",A[i++]]);
+  while(j<m)out.push(["+",B[j++]]);
+  return out;
+}
+function promptText(p){ return p.json!=null ? JSON.stringify(p.json,null,2) : (p.text?p.text.text:""); }
+
 /* ---------- /episode/<id>/<n> ---------- */
 function textBlock(title, body){
   if (!body) return "";
@@ -86,12 +106,26 @@ async function renderEpisode(book, n){
   } else {
     html += `<div class="card"><div class="label">成片</div><div class="dim">还没有成片文件</div></div>`;
   }
+  if (d.video && d.previous_video){
+    html += `<div class="card"><div class="label">版本对比 · 修复前 vs 当前（播放/拖动同步）</div>
+      <div class="cmp2">
+        <div><div class="dim small" style="text-align:center">修复前</div><video id="film-prev" controls preload="metadata" src="${media(d.previous_video)}"></video></div>
+        <div><div class="dim small" style="text-align:center">当前</div><video id="film-cur" controls preload="metadata" src="${media(d.video)}"></video></div>
+      </div></div>`;
+  }
   if (d.prompts && d.prompts.length){
     html += `<div class="card"><div class="label">提示词请求 · ${d.prompts.length} 次</div>` + d.prompts.map((p,i)=>{
       const body = p.json != null ? esc(JSON.stringify(p.json,null,2))
                  : p.text ? esc(p.text.text) + (p.text.truncated ? `\n…（截断，完整 ${fmtBytes(p.text.size)}）` : "") : "";
       return `<details><summary class="num">${esc(p.name)}</summary><pre class="md">${body}</pre></details>`;
     }).join("") + `</div>`;
+    if (d.prompts.length >= 2){
+      const opts = d.prompts.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join("");
+      html += `<div class="card"><div class="label">提示词 diff · 两次尝试改了什么</div>
+        <div class="diffbar">左 <select id="diff-l">${opts}</select> 右 <select id="diff-r">${opts}</select>
+        <span class="dim small" id="diff-stat"></span></div>
+        <pre class="md diff" id="diff-out"></pre></div>`;
+    }
   }
   const COLS = [["authored_id","镜号"],["location","场景"],["motion_prompt","画面内容 / 动作"],["authored_sound","台词 / 声音"],
                 ["shot_scale","景别"],["camera_angle","摄影角度"],["camera","机位 / 运镜"],["narrative_purpose","叙事目的"],["edit_seconds","秒"]];
@@ -130,6 +164,35 @@ async function renderEpisode(book, n){
   const film = document.getElementById("film");
   if (film) document.querySelectorAll(".cliprow").forEach(row =>
     row.addEventListener("click", ()=>{ film.currentTime = parseFloat(row.dataset.t)||0; film.play(); }));
+  const prev = document.getElementById("film-prev"), cur = document.getElementById("film-cur");
+  if (prev && cur){
+    let syncing = false;
+    const pair = (x, y, ev, fn) => x.addEventListener(ev, ()=>{ if(syncing) return; syncing=true; fn(y); setTimeout(()=>syncing=false,0); });
+    pair(prev, cur, "play", y=>y.play());  pair(cur, prev, "play", y=>y.play());
+    pair(prev, cur, "pause", y=>y.pause()); pair(cur, prev, "pause", y=>y.pause());
+    pair(prev, cur, "seeked", y=>{y.currentTime=prev.currentTime;}); pair(cur, prev, "seeked", y=>{y.currentTime=cur.currentTime;});
+  }
+  const dl = document.getElementById("diff-l"), dr = document.getElementById("diff-r");
+  if (dl && dr){
+    dl.value = "0"; dr.value = "1";
+    const run = ()=>{
+      const L = promptText(d.prompts[dl.value]), R = promptText(d.prompts[dr.value]);
+      const rows = diffLines(L, R);
+      const out = document.getElementById("diff-out");
+      if (rows === null){
+        out.innerHTML = `<div class="dim">内容太大，改为并排展示</div><div class="cmp2"><pre class="md">${esc(L)}</pre><pre class="md">${esc(R)}</pre></div>`;
+        document.getElementById("diff-stat").textContent = "";
+        return;
+      }
+      let add=0, del=0;
+      out.innerHTML = rows.map(([t,s])=>{
+        if(t==="+")add++; if(t==="-")del++;
+        return t===" " ? esc(s)+"\n" : `<span class="${t==="+"?"dadd":"ddel"}">${esc(s)}</span>\n`;
+      }).join("");
+      document.getElementById("diff-stat").textContent = `+${add} / −${del} 行`;
+    };
+    dl.onchange = run; dr.onchange = run; run();
+  }
 }
 
 /* ---------- /assets/<id> ---------- */
@@ -168,8 +231,9 @@ function stepLightbox(d){ LB.i = (LB.i + d + LB.items.length) % LB.items.length;
 function drawLightbox(){
   const a = LB.items[LB.i], spec = a.spec||{};
   const name = spec.name || spec.location || spec.title || a.id;
-  const base = `/media/${encodeURIComponent(LB.book)}/series_assets/${LB.kind}/${a.id}`;
-  const tbase = `/thumb/${encodeURIComponent(LB.book)}/series_assets/${LB.kind}/${a.id}`;
+  const dir = a._dir || LB.book;   // sample-matrix cells carry their own dir per style
+  const base = `/media/${encodeURIComponent(dir)}/series_assets/${LB.kind}/${a.id}`;
+  const tbase = `/thumb/${encodeURIComponent(dir)}/series_assets/${LB.kind}/${a.id}`;
   const main = a.images.length ? a.images[0] : null;
   document.getElementById("lb-box").innerHTML = `
     <div class="lb-img">${main ? `<img src="${tbase}/${encodeURIComponent(main)}?w=960" alt="${esc(name)}">` : ""}</div>

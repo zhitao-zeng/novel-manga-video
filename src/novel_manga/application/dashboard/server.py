@@ -72,6 +72,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/experiments":
             body = render_page('experiments', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
+        elif path == "/compare":
+            body = render_page('compare', config.UI_VERSION).encode("utf-8")
+            content_type = "text/html; charset=utf-8"
+        elif path == "/recent":
+            body = render_page('recent', config.UI_VERSION).encode("utf-8")
+            content_type = "text/html; charset=utf-8"
         elif re.fullmatch(r"/novel/[A-Za-z0-9._-]+", path):
             body = render_page('novel', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
@@ -97,6 +103,10 @@ class Handler(BaseHTTPRequestHandler):
             return _json_body(workbench.books(config.ROOT))
         if parts == ['api', 'experiments']:
             return _json_body(workbench.experiments(config.ROOT))
+        if parts == ['api', 'compare', 'samples']:
+            return _json_body(workbench.samples(config.ROOT))
+        if parts == ['api', 'recent']:
+            return _json_body(workbench.recent(config.ROOT))
         if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'episodes':
             return _json_body(workbench.episodes(config.ROOT, parts[2]))
         if len(parts) == 5 and parts[:2] == ['api', 'book'] and parts[3] == 'episode':

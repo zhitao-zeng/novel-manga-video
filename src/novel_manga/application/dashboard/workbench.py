@@ -345,6 +345,84 @@ def experiments(root) -> dict:
             "agents": {"books": agent_books, "agent_test": agent_test}}
 
 
+def samples(root) -> dict:
+    """The same character drawn in several styles, as a character-by-style matrix.
+
+    Style sampling writes outputs/_sample-<who>-<style>/ and outputs/_style-sample-<style>/;
+    each is a tiny book with its own series_assets.  Character names come from spec.json, so a
+    renamed character still lands in one row.
+    """
+    outputs = Path(root) / "outputs"
+    try:
+        with os.scandir(outputs) as entries:
+            dirs = sorted(Path(e.path) for e in entries if e.is_dir()
+                          and (e.name.startswith("_sample-") or e.name.startswith("_style-sample-")))
+    except OSError:
+        dirs = []
+    matrix: dict[str, dict] = {}
+    styles = set()
+    for directory in dirs:
+        style = directory.name.removeprefix("_style-sample-") if directory.name.startswith("_style-sample-") \
+            else directory.name.removeprefix("_sample-").split("-", 1)[-1]
+        for card in _asset_dirs(directory / "series_assets" / "characters"):
+            name = str(card["spec"].get("name") or card["id"])
+            matrix.setdefault(name, {})[style] = {
+                "dir": directory.name, "id": card["id"], "images": card["images"],
+                "spec": card["spec"],
+            }
+            styles.add(style)
+    return {"now": time.strftime("%F %T"), "styles": sorted(styles),
+            "characters": [{"name": name, "cells": cells} for name, cells in sorted(matrix.items())]}
+
+
+def recent(root, limit: int = 50) -> dict:
+    """The newest episodes across every discovered book, with their gate outcomes.
+
+    What ran while you were elsewhere, and whether it held: plan status, QC pass, review flags,
+    the film itself.  Only the shown rows earn artifact reads; the scan is directory metadata.
+    """
+    root = Path(root)
+
+    def build():
+        rows = []
+        for book in books(root)["books"]:
+            directory = root / "outputs" / book["id"]
+            for episode_dir in _episode_dirs(directory):
+                try:
+                    mtime = episode_dir.stat().st_mtime
+                except OSError:
+                    continue
+                rows.append({"book": book["id"], "title": book["title"], "mtime": mtime,
+                             "episode": int(episode_dir.name.rsplit("_", 1)[-1])})
+        rows.sort(key=lambda r: r["mtime"], reverse=True)
+        shown = rows[:limit]
+        for row in shown:
+            directory = root / "outputs" / row["book"] / f"{row['book']}_{row['episode']}"
+            report = _read_json(directory / "chapter_script_report.json") or {}
+            qc = _read_json(directory / "media_qc_report.json") or {}
+            review = _read_json(directory / "episode_review.json") or {}
+            row.update({
+                "video": (directory / f"{directory.name}.mp4").is_file(),
+                "plan_status": report.get("status"),
+                "model": report.get("model"),
+                "qc_passed": qc.get("passed"),
+                "review_flags": len(review.get("flags") or []),
+            })
+        experiments_dir = root / "outputs" / "experiments"
+        experiments = []
+        try:
+            with os.scandir(experiments_dir) as entries:
+                for e in entries:
+                    if e.is_dir():
+                        experiments.append({"name": e.name, "mtime": e.stat().st_mtime})
+        except OSError:
+            pass
+        experiments.sort(key=lambda r: r["mtime"], reverse=True)
+        return {"now": time.strftime("%F %T"), "episodes": shown, "experiments": experiments[:8]}
+
+    return _cached(("recent", str(root)), build)
+
+
 def media_file(root, book_id: str, relative: str) -> Path:
     """A whitelisted media file inside the book's own directory; nothing else is served.
 

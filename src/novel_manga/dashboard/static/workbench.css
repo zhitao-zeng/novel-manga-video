@@ -56,6 +56,21 @@ video#film{width:100%;max-width:520px;border-radius:10px;background:#000;display
   padding:4px 14px;border-radius:7px;cursor:pointer}
 .tab.on{color:var(--text);background:var(--surface);box-shadow:0 1px 2px #1f243012}
 table.sheet td{max-width:340px;white-space:pre-wrap;overflow-wrap:anywhere;vertical-align:top}
+
+/* compare matrix + dual video + prompt diff */
+table.cmp th{position:sticky;top:64px;background:var(--surface);z-index:2}
+table.cmp td{padding:4px;text-align:center}
+img.cm{width:110px;border-radius:8px;border:1px solid var(--line);cursor:pointer;display:block;margin:0 auto}
+img.cm:hover{border-color:var(--accent);box-shadow:0 2px 10px #1f243018}
+.cmp2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cmp2 video{width:100%;border-radius:10px;background:#000;display:block}
+@media (max-width:900px){.cmp2{grid-template-columns:1fr}}
+.diffbar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.diffbar select{border:1px solid var(--line);border-radius:7px;padding:3px 8px;font-size:12.5px;
+  background:var(--surface);color:var(--text)}
+pre.diff .dadd{background:#0e9f6e22;color:var(--ok);display:block}
+pre.diff .ddel{background:#e0242422;color:var(--bad);display:block}
+.pill.bad-p{color:var(--bad);border-color:#e0242444;background:#e0242412}
 .thumbs{display:flex;gap:6px}
 .thumbs img{height:64px;border-radius:8px;border:1px solid var(--line)}
 table.kv{width:100%;border-collapse:collapse;font-size:12px}
