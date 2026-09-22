@@ -119,3 +119,97 @@ payload `{model, prompt, aspectRatio, resolution, base64File}`；vLLM-Omni 是 O
 4. 再谈 provider 和画风包接线
 
 尚未做：任何推理、任何性能测试、vLLM-Omni 的安装与版本确认。
+
+---
+
+## 9. 实际接入（2026-09-22 当天完成）
+
+上面第 6、8 节是下载还没跑完时写的设计草稿，实际做法有三处不同，记在这里以本节为准。
+
+### 做成了常驻服务，不是 `command` provider，也没用 vLLM-Omni
+
+`CommandMediaProvider` 已经存在且实现完整（`NOVEL_IMAGE_COMMAND`，约定
+`<命令> --prompt … --width … --height … --output <路径>`），但生产代码一处都没有实例化它——
+`provider` 在五个出卡入口都是字面量 `"phanrouter"`，`Settings.from_env` 里也没有环境变量覆盖，
+所以那条路走不到。而且它每次调用起一个进程：一张卡画 64s、加载 pipeline 也要 ~60s，
+八十个角色的书会把一半时间花在加载上。
+
+改成照 H3 的形状做常驻服务：
+
+```
+qwen-image-21/serve.py            模型常驻，stdlib http.server（单线程 = GPU 天然串行）
+  GET  /health    -> {"ok":true,"model":…,"gpu":N,"drawn":N,"busy":false}
+  POST /generate  <- {"prompt","width","height","seed"?,"steps"?,"references":[base64…]}
+                  -> image/png
+```
+
+没引入 fastapi/uvicorn：出卡入口（`phase_cards.py` / `cards.py`）本来就是串行的，
+单线程 HTTP 正好把单卡串起来，不必再加锁。
+
+### 开关是一个字段，不是第二个子类
+
+`Settings.local_image_base_url`（`NOVEL_LOCAL_QWEN_IMAGE_URL`），由
+`media/adapters.py` 的 `FramedPhanRouter` 在构造时读取：
+
+```python
+self.local_image = (LocalQwenImageProvider(settings, settings.local_image_base_url)
+                    if settings.local_image_base_url else None)
+
+def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None):
+    target = self.local_image or super()
+    return target.create_image(...)
+```
+
+五个出卡入口一行没改——它们本来就构造 `FramedPhanRouter`，`FramedLocalH3` 继承后也一起拿到。
+用字段而不是第二个子类，是因为「图本地/远程」和「视频本地/远程」是两个独立开关，
+两个开关做成四个类不如就是两个开关。视频、参考图上传、公开 URL 这些完全没碰。
+
+### 缓存身份：新键只在开启时出现
+
+`ensure_image` 用 `identity` 字典的 sha256 判断卡是否过期。无条件加一个键会让**所有已付费的卡**
+在下次运行时被判为过期并 `_archive_stale` 掉，所以：
+
+```python
+**({"local_image_model": LOCAL_IMAGE_MODEL} if settings.local_image_base_url else {}),
+```
+
+实测（HEAD 的 src 与改后的 src 各跑一次）：
+
+```
+关闭  request_sha256 = 6fdc0196…   与改动前逐字一致
+开启  request_sha256 = 287771af…   不同 —— 换了模型就该重画
+```
+
+开启后会重画该书已有的卡。想保留旧卡只补缺的，用 `reuse_existing_assets`。
+
+### 尺寸
+
+`image_dimensions` 给的是 1080x1920 / 1920x1080，而 pipeline 要求长宽都是 32 的倍数
+（否则静默改尺寸）。各自向上取整会把 9:16 歪成 0.7% 再缩回来，等于一次各向异性挤压，脸上看得出来。
+服务改为在 32 的倍数里挑长宽比最接近、面积最接近的一组来画，画完缩到请求的确切尺寸：
+
+```
+1080x1920 -> 画 1152x2048 (比例误差 0.000%) -> 缩到 1080x1920
+1920x1080 -> 画 2048x1152 (比例误差 0.000%) -> 缩到 1920x1080
+```
+
+客户端收到 PNG 后按输出后缀转成 JPEG（quality 95、不做色度二次采样——平涂硬边最容易被 JPEG 振铃），
+并在尺寸对不上时再缩一次：服务正常情况下已经缩好，但卡的画幅是后面每个镜头的构图基准，
+调用方要到的就该是它要的那个。
+
+### 验证
+
+- `pytest tests/` 全绿（1274 项），其中两项是本次新增：路由与落盘格式、缓存身份的有无
+- 端到端：起服务 → 真实 `Settings` + 真实 `FramedPhanRouter` + 真实 `ensure_image`
+  → 画《在美漫当心灵导师的日子》托尼·斯塔克一张，64s，落盘 1080x1920 JPEG 0.65 MB，
+  `request.json` 记到 `local_image_model=qwen-image-2.1`，二次调用 0.00s 命中缓存。
+  写在 `tmp/`，没有碰 `outputs/` 下任何在产的卡。
+
+### 还没做
+
+- 画风包按画风选出图模型（第 6 节末尾提的 `image_model` 字段）没做：现在是全局开关，
+  一开就是这本书所有卡都走本地。
+- PE 两个模型仍未接，理由见第 7 节，未变。
+- `meiman-daoshi` 的 `outputs/meiman-daoshi/style.json` 还是建书时冻结的初版，
+  不含新的 `card_brief`；要让它吃到第八版措辞需要显式刷新（按设计，改 `configs/styles/`
+  不会回头改已建的书）。

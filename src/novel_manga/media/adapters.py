@@ -2,6 +2,7 @@ from __future__ import annotations
 from ..config import Settings
 from ..providers.phanrouter import PhanRouterMediaProvider
 from ..providers.local_h3 import LocalH3MediaProvider
+from ..providers.local_qwen_image import LocalQwenImageProvider
 
 class FramedPhanRouter(PhanRouterMediaProvider):
     """PhanRouter provider whose video ratio and location-card aspect follow the frame."""
@@ -11,6 +12,18 @@ class FramedPhanRouter(PhanRouterMediaProvider):
         self.frame = frame
         self.resolution = resolution
         self.prompt_aliases: dict[str, str] = {}  # profile.json "prompt_aliases": spelling sent to the model only
+        # Cards come from the local Qwen service when one is configured; video, references and
+        # uploads are untouched.  A field rather than a second subclass: local-or-remote picture
+        # and local-or-remote video are independent, and four classes for two switches reads
+        # worse than the two switches.
+        self.local_image = (LocalQwenImageProvider(settings, settings.local_image_base_url)
+                            if settings.local_image_base_url else None)
+
+    def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None):
+        target = self.local_image or super()
+        return target.create_image(prompt, output, reference=reference,
+                                   additional_references=additional_references,
+                                   aspect_ratio=aspect_ratio)
 
     def create_video(self, prompt, image, output, duration, additional_images=(), reference_audios=()):
         # A name the platform's text filter refuses (e.g. one shared with a

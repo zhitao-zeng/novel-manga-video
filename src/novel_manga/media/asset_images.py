@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import shutil
 from ..providers.base import ImageResult
+from ..providers.local_qwen_image import LOCAL_IMAGE_MODEL
 from ..util import atomic_write_json
 from .common import sha256_text, sha256_file
 
@@ -52,6 +53,10 @@ def ensure_image(
         "image_command_sha256": (
             sha256_text(settings.image_command) if settings.image_command else None
         ),
+        # Only present when cards are drawn locally, so turning the service off leaves every
+        # existing card's request hash exactly as it was; turning it on redraws, which is right
+        # - a card from a different model is a different card.
+        **({"local_image_model": LOCAL_IMAGE_MODEL} if settings.local_image_base_url else {}),
     }
     identity_hash = sha256_text(json.dumps(identity, sort_keys=True))
     meta = output.with_suffix(output.suffix + ".request.json")

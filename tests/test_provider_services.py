@@ -87,3 +87,61 @@ def test_download_can_use_the_h3_direct_client_without_the_generation_client(tmp
     assert not generation_calls and download_calls == ['http://internal.invalid/clip']
     assert path.read_bytes() == b'existing paid artifact'
     assert not path.with_suffix('.mp4.partial').exists()
+
+
+def test_local_qwen_image_service_draws_the_card_and_writes_it_as_jpeg(tmp_path):
+    """The service answers in PNG; a card on disk is .jpeg and must actually be one."""
+    import base64, io
+    from novel_manga.media.adapters import FramedPhanRouter
+
+    reference = tmp_path / 'style-master.jpeg'
+    Image.new('RGB', (64, 64), (10, 20, 30)).save(reference, format='JPEG')
+    drawn = io.BytesIO()
+    Image.new('RGB', (1152, 2048), (200, 40, 40)).save(drawn, format='PNG')
+
+    requests = []
+    def handle(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, content=drawn.getvalue(), headers={'Content-Type': 'image/png'})
+
+    settings = Settings(local_image_base_url='http://qwen.invalid')
+    provider = FramedPhanRouter(settings, {'video_ratio': '9:16', 'text': '竖屏9:16'})
+    assert provider.local_image is not None, 'a configured service must be picked up'
+    provider.local_image.client.close()
+    provider.local_image.client = httpx.Client(transport=httpx.MockTransport(handle), trust_env=False)
+    try:
+        output = tmp_path / 'turnaround.jpeg'
+        result = provider.create_image('一段提示词', output, reference=reference, aspect_ratio='9:16')
+    finally:
+        provider.client.close()
+        provider.local_image.client.close()
+
+    sent, = requests
+    assert (sent['width'], sent['height']) == (1080, 1920)
+    assert base64.b64decode(sent['references'][0]) == reference.read_bytes()
+    assert result.path == output and not output.with_suffix('.jpeg.partial').exists()
+    # The service answered 1152x2048 (what the pipeline can draw); the card is what was asked for.
+    with Image.open(output) as card:
+        assert card.format == 'JPEG' and card.size == (1080, 1920)
+
+
+def test_a_card_request_records_the_local_model_only_when_one_drew_it(tmp_path):
+    """Adding the key unconditionally would make every already-paid-for card look stale
+    and archive it on the next run, so the absence is the part worth pinning."""
+    from novel_manga.media.asset_images import ensure_image
+
+    class Stub:
+        def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None):
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b'card')
+            return ImageResult(path=output)
+
+    hashes = {}
+    for label, settings in (('remote', Settings()),
+                            ('local', Settings(local_image_base_url='http://qwen.invalid'))):
+        output = tmp_path / label / 'turnaround.jpeg'
+        ensure_image(settings, Stub(), '一段提示词', output, aspect_ratio='9:16')
+        record = json.loads(output.with_suffix('.jpeg.request.json').read_text(encoding='utf-8'))
+        hashes[label] = record['request_sha256']
+        assert ('local_image_model' in record) == (label == 'local')
+    assert hashes['remote'] != hashes['local'], 'switching backend must redraw, not reuse'

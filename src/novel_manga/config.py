@@ -54,6 +54,10 @@ class Settings:
     card_fallback_image_model: str = "doubao-seedream-4.5"
     video_model: str = "sd2.5"
     local_h3_base_url: str | None = None
+    # Cards from the local Qwen-Image-2.1 service (qwen-image-21/serve.py) instead of
+    # PhanRouter.  It costs nothing and does not refuse a trademarked character, which is
+    # what gpt-image did to 58 of the 81 in 在美漫当心灵导师的日子.
+    local_image_base_url: str | None = None
     final_audio_policy: str = NATIVE_DIALOGUE_POLICY
     video_max_seconds: float = 14.0
     image_command: str | None = None
@@ -156,9 +160,11 @@ class Settings:
             video_model=os.getenv(
                 "NOVEL_VIDEO_MODEL", os.getenv("PHANROUTER_VIDEO_MODEL", cls.video_model)
             ),
-            # A lane renders through the local H3 service when its key names an instance;
-            # pictures keep going to PhanRouter either way.
+            # A lane renders through the local H3 service when its key names an instance,
+            # and draws its cards locally when NOVEL_LOCAL_QWEN_IMAGE_URL names one.  The two
+            # are independent: either, both or neither.
             local_h3_base_url=os.getenv("NOVEL_LOCAL_H3_URL") or None,
+            local_image_base_url=os.getenv("NOVEL_LOCAL_QWEN_IMAGE_URL") or None,
             final_audio_policy=os.getenv(
                 "NOVEL_FINAL_AUDIO_POLICY", NATIVE_DIALOGUE_POLICY
             ),
