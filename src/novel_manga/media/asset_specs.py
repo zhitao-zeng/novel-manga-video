@@ -46,6 +46,34 @@ def character_spec(asset_id, character, bible, prompt):
             }
 
 
+def prop_spec(asset_id, prop, bible, prompt):
+    """The spec a prop card carries: what stays fixed (look, material), what varies (who holds it)."""
+    return {
+                "asset_id": asset_id,
+                "name": prop.name,
+                "category": prop.category,
+                "appearance": prop.appearance,
+                "material": prop.material,
+                "owner": prop.owner,
+                "first_chapter": prop.first_chapter,
+                "quote": prop.quote,
+                "closeup": prop.closeup,
+                "wearable": prop.wearable,
+                "version": "v001",
+                "identity_invariants": [v for v in (prop.appearance, prop.material) if v],
+                "state_variables": {
+                    "holder": "whoever holds it this scene",
+                    "damage": "none unless changed by source events",
+                },
+                "reference_scope": {
+                    "inherit": ["shape", "material", "color", "2d_rendering"],
+                    "exclude": ["background", "composition", "hands", "usage_scene"],
+                },
+                "style_fingerprint": bible.style_fingerprint,
+                "prompt": prompt,
+            }
+
+
 def location_spec(asset_id, location, bible, prompt):
     return {
                     "asset_id": asset_id,

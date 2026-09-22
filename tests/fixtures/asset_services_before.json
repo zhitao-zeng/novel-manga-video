@@ -90,6 +90,7 @@
           "prompt_sha256": "3c3ee5be5845f1d55434cce328cb87cca80859abafcb853469934837a589149f"
         }
       ],
+      "props": [],
       "voice_assignments": {
         "narrator": "native:narrator",
         "甲": "native:character_001"
@@ -368,6 +369,7 @@
           "prompt_sha256": "cba0e6576a170a73cf309bf010be40cd428943c0a4ca356ecf846796243ad295"
         }
       ],
+      "props": [],
       "voice_assignments": {
         "narrator": "native:narrator",
         "甲": "native:character_001"
@@ -651,6 +653,7 @@
           "prompt_sha256": "fde65a5f8451ec81002fba67e22f3873a83a6b3a68c01133f10cb52faa850702"
         }
       ],
+      "props": [],
       "voice_assignments": {
         "narrator": "native:narrator",
         "甲": "native:character_001"

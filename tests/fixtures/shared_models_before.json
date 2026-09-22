@@ -1999,6 +1999,14 @@
         "title": "Locations",
         "type": "array"
       },
+      "props": {
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/AssetRecord"
+        },
+        "title": "Props",
+        "type": "array"
+      },
       "voice_assignments": {
         "additionalProperties": {
           "type": "string"
