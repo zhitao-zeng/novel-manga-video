@@ -406,7 +406,12 @@ class ClipCompiler:
         for shot in clip["shots"]:
             explicit = shot.get("in_frame") or []
             active.update(explicit)
-            for name in dict.fromkeys([*shot["characters"], *explicit]):
+            # A listener is in the picture - framing turned them around, it did not send them home - so
+            # they still earn a reference.  Without one they are outside the naming table, the translation
+            # calls them "Stark" or "a seated figure", and H3, given no face, invents one: ch12
+            # (2026-09-22) rendered 7 shots whose back-of-the-head belonged to a stranger.  They are not
+            # added to `active`, so the crowding rule below still drops them from a busy clip.
+            for name in dict.fromkeys([*shot["characters"], *explicit, *(shot.get("listeners") or [])]):
                 if name not in listed:
                     listed.append(name)
             picture = "".join(str(shot.get(k, "")) for k in ("visual_prompt", "motion_prompt", "end_state"))

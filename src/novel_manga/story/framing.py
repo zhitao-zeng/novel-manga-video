@@ -15,14 +15,23 @@ def blocking_note(shot: dict) -> str:
         return ''  # an unspecified/off-frame actor must not become another visible person
     if not actions and len(people) < 2:
         return ''
-    actor = actions[0]["actor"] if actions else people[0]
+    # Whoever speaks on camera holds the frame.  The foreground used to go to actions[0]["actor"] -
+    # whoever performs the physical action - and the speaker, having no action of their own, was sent
+    # to `rest` and told 不开口 in the same stage whose 声音 line has them speaking.  ch12 (2026-09-22):
+    # 15 of 43 spoken stages silenced their own speaker, and one gave the foreground to 银白色机甲
+    # because the mech was the thing that moved.  The renderer does as it is told, and animates the
+    # mouth it can see: the video judge found the wrong mouth in 7 shots of 16.
+    speaking = [turn.get("speaker_name") for turn in (shot.get("turns") or [])
+                if turn.get("delivery_mode") == "visible_dialogue" and turn.get("speaker_name") in subjects]
+    actor = speaking[0] if speaking else (actions[0]["actor"] if actions else people[0])
     target = next((a.get("target") for a in actions if a.get("actor") == actor
                    and a.get("target") in subjects and a.get("target") != actor), None)
     if target is None and not actions:
         target = people[1]
     # only a pure bystander goes to the back: someone a later action reaches (the light that strikes <Subject 3>)
     # stays available for it
-    involved = {actor, target} | {a.get("actor") for a in actions} | {a.get("target") for a in actions}
+    involved = ({actor, target} | set(speaking) | {a.get("actor") for a in actions}
+                | {a.get("target") for a in actions})
     rest = [n for n in people if n not in involved]
     relation = '两人侧面相对' if actor in people and target in people else '双方清楚分开'
     parts = ([f"{actor}在画面左侧前景，{target}在右侧前景，{relation}、各占一侧"] if target
