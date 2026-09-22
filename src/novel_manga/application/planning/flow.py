@@ -33,6 +33,7 @@ import novel_manga.planning.cast as pc_cast
 import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.binding as pc_binding
 import novel_manga.planning.contracts as pc_contracts
+import novel_manga.planning.parts as pc_parts
 import novel_manga.planning.outputs as pc_outputs
 import novel_manga.planning.metrics as pc_metrics
 import novel_manga.planning.prompts as pc_prompts
@@ -72,14 +73,34 @@ def run(args, ctx: PlannerContext) -> int:
             "source_text": joined, "text_count": sum(e.text_count for e in group),
             "source_start": group[0].source_start, "source_end": group[-1].source_end,
         })
+    novel_dir = Path(args.output_root).resolve() / args.novel_id
+    part = int(getattr(args, "part", 0) or 0)
+    if part:
+        # One of the chapter's episodes: the same Episode shape --merge builds from several chapters,
+        # built here from a stretch of one.  A chapter's dialogue runs some 260 seconds of screen and an
+        # episode is 105, so a chapter that says much is two or three episodes, cut where the story
+        # turns (parts.json, decided before any of them is planned).  Downstream nothing changes: the
+        # part gets its own coverage segments, its own directory, its own plan and video.
+        rows = pc_parts.paragraphs(episode.source_text, episode.source_title)
+        parts = pc_parts.read_parts(novel_dir / pc_parts.part_dir_name(args.novel_id, episode.index, None))
+        chosen = next((p for p in parts if p.part == part), None)
+        if chosen is None:
+            raise PlanningInputError(f"第 {episode.index} 章没有第 {part} 集的分集记录（parts.json 里有 {len(parts)} 集）；先跑分集")
+        body = pc_parts.part_text(rows, chosen)
+        offset = episode.source_text.find(rows[chosen.first - 1]) if rows else 0
+        episode = episode.model_copy(update={
+            "source_title": f"{episode.source_title}{chosen.label}",
+            "source_text": body, "text_count": len(body),
+            "source_start": episode.source_start + max(0, offset),
+            "source_end": episode.source_start + max(0, offset) + len(body),
+        })
     full_bible = StoryBible.model_validate_json(Path(args.bible).read_text(encoding="utf-8"))
     # Per-chapter slice: a long novel's bible has hundreds of entries, but the
     # prompt and the JSON enums only need the main cast plus whoever and
     # wherever this chapter mentions.  Asset ids come from positions in the
     # full bible (the packer maps names back), so slicing costs nothing.
     chapter_text = episode.source_text
-    novel_dir = Path(args.output_root).resolve() / args.novel_id
-    episode_dir = novel_dir / f"{args.novel_id}_{episode.index}"
+    episode_dir = novel_dir / pc_parts.part_dir_name(args.novel_id, episode.index, part or None)
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier,
                            story_method=getattr(args, 'story_method', None),
                            planning_backend=getattr(args, 'planning_backend', None),
@@ -264,7 +285,7 @@ def run(args, ctx: PlannerContext) -> int:
     # the last clip ended - so this episode can open by picking it up rather than
     # re-establishing everything.
     previous_ending = None
-    previous_script = novel_dir / f"{args.novel_id}_{episode.index - 1}" / "chapter_script.json"
+    previous_script = pc_parts.previous_episode_dir(novel_dir, args.novel_id, episode.index, part or None) / "chapter_script.json"
     if previous_script.is_file():
         try:
             last_shot = (json.loads(previous_script.read_text(encoding="utf-8")).get("shots") or [])[-1]

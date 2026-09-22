@@ -62,6 +62,8 @@ def _plan(context: PlannerContext | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")
     parser.add_argument("--merge", type=int, default=1, help="chapters per episode: episode k covers chapters (k-1)*N+1..k*N")
+    parser.add_argument("--part", type=int, default=0,
+                        help="one episode of a chapter cut into several (parts.json beside the chapter): 1 for 上, 2 for 中, 3 for 下")
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     parser.add_argument("--outline-mode", choices=("coverage", "story"), default="coverage", help="first-pass planning; story is the experimental causal/scene outline")
     parser.add_argument("--outline-tokens", type=int, help="first-pass budget: default 4096 for an outline, 8192 for a method's scene screenplay")
