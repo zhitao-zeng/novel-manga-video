@@ -328,3 +328,32 @@ def media_file(root, book_id: str, relative: str) -> Path:
     if not target.is_relative_to(directory) or target.suffix.lower() not in MEDIA_TYPES or not target.is_file():
         raise KeyError(relative)
     return target
+
+
+def thumbnail(root, book_id: str, relative: str, width: int = 520) -> Path:
+    """A downscaled JPEG of an image asset, cached under outputs/.dashboard/thumbs.
+
+    Cards are 3-5 MB at 1152x2048 and a gallery page shows hundreds; the browser only needs a
+    few hundred pixels.  The cache key carries the source mtime, so a redrawn card earns a new
+    thumbnail, and the file lands by rename so a half-written one is never served.
+    """
+    source = media_file(root, book_id, relative)
+    if not MEDIA_TYPES[source.suffix.lower()].startswith("image/"):
+        raise KeyError(relative)
+    width = max(64, min(int(width), 1600))
+    stat = source.stat()
+    import hashlib
+    key = hashlib.sha1(f"{book_id}/{relative}:{stat.st_mtime_ns}:{width}".encode()).hexdigest()[:20]
+    target = Path(root) / "outputs" / ".dashboard" / "thumbs" / book_id / f"{key}.jpg"
+    if target.is_file():
+        return target
+    from PIL import Image
+    with Image.open(source) as image:
+        image = image.convert("RGB")
+        if image.width > width:
+            image = image.resize((width, round(image.height * width / image.width)), Image.LANCZOS)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging = target.with_suffix(".tmp")
+        image.save(staging, "JPEG", quality=82)
+        os.replace(staging, target)
+    return target

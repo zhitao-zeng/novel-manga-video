@@ -115,6 +115,27 @@ def test_agent_books_surface_on_the_experiments_shelf(tmp_path):
     assert workbench.books(root)["books"][0]["backend"] == "sandbox_agent"
 
 
+def test_thumbnails_are_downscaled_cached_and_images_only(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+    root = make_root(tmp_path)
+    book = make_book(root, "wuyue")
+    cards = book / "series_assets" / "characters" / "character_001"
+    cards.mkdir(parents=True)
+    with Image.new("RGB", (2000, 3000), (30, 60, 90)) as big:
+        big.save(cards / "turnaround.jpeg", "JPEG")
+
+    thumb = workbench.thumbnail(root, "wuyue", "series_assets/characters/character_001/turnaround.jpeg", 520)
+    with Image.open(thumb) as image:
+        assert image.width == 520 and image.height == 780
+    assert thumb.stat().st_size < (cards / "turnaround.jpeg").stat().st_size
+    assert workbench.thumbnail(root, "wuyue", "series_assets/characters/character_001/turnaround.jpeg", 520) == thumb
+    with pytest.raises(KeyError):
+        workbench.thumbnail(root, "wuyue", "series_assets/voices/甲.wav", 520)   # not an image
+    with pytest.raises(KeyError):
+        workbench.thumbnail(root, "wuyue", "series_assets/characters/character_001/spec.json", 520)
+
+
 def test_assets_reads_specs_images_and_voices(tmp_path):
     root = make_root(tmp_path)
     book = make_book(root, "wuyue")

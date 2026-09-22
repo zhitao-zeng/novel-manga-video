@@ -42,7 +42,23 @@ class Handler(BaseHTTPRequestHandler):
                 return
             content_type = "application/json; charset=utf-8"
         elif path.startswith("/media/"):
-            self._media(path)
+            parts = path.strip('/').split('/', 2)
+            try:
+                target = workbench.media_file(config.ROOT, parts[1], parts[2] if len(parts) > 2 else '')
+                self._send_file(target, workbench.MEDIA_TYPES[target.suffix.lower()])
+            except (KeyError, IndexError):
+                self.send_error(404)
+            return
+        elif path.startswith("/thumb/"):
+            # /thumb/<book>/<relative path>?w=520: the gallery's downscaled JPEG of an image
+            parts = path.strip('/').split('/', 2)
+            query = urlsplit(self.path).query
+            width = dict(p.split('=', 1) for p in query.split('&') if '=' in p).get('w', 520)
+            try:
+                self._send_file(workbench.thumbnail(config.ROOT, parts[1], parts[2] if len(parts) > 2 else '',
+                                                    int(width)), "image/jpeg")
+            except (KeyError, IndexError, ValueError):
+                self.send_error(404)
             return
         elif path in ("/", "/index.html"):
             body = render_page('status', config.UI_VERSION).encode("utf-8")
@@ -89,15 +105,9 @@ class Handler(BaseHTTPRequestHandler):
             return _json_body(workbench.assets(config.ROOT, parts[2]))
         raise KeyError(path)
 
-    def _media(self, path: str):
-        # /media/<book>/<relative path inside the book dir>; a single range is honored so the
-        # <video> element can seek without re-downloading the whole film.
-        parts = path.strip('/').split('/', 2)
-        try:
-            target = workbench.media_file(config.ROOT, parts[1], parts[2] if len(parts) > 2 else '')
-        except (KeyError, IndexError):
-            self.send_error(404)
-            return
+    def _send_file(self, target, content_type: str):
+        # A single Range is honored so the <video> element can seek without re-downloading
+        # the whole film.
         size = target.stat().st_size
         start, end, status = 0, size - 1, 200
         header = (self.headers.get('Range') or '').strip()
@@ -118,7 +128,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 status = 206
         self.send_response(status)
-        self.send_header("Content-Type", workbench.MEDIA_TYPES[target.suffix.lower()])
+        self.send_header("Content-Type", content_type)
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(end - start + 1))
         if status == 206:

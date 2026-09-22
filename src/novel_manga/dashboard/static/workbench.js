@@ -72,12 +72,13 @@ function jsonBlock(title, obj){
 async function renderEpisode(book, n){
   const d = await getJSON(`/api/book/${encodeURIComponent(book)}/episode/${n}`);
   const media = rel => `/media/${encodeURIComponent(book)}/${rel.split("/").map(encodeURIComponent).join("/")}`;
+  const thumb = rel => `/thumb/${encodeURIComponent(book)}/${rel.split("/").map(encodeURIComponent).join("/")}`;
   let html = `<div class="dim" style="margin:0 2px"><a href="/novel/${encodeURIComponent(book)}">← ${esc(book)}</a> · 第 <b>${n}</b> 集
     ${d.report && d.report.model ? `· 规划模型 <span class="pill">${esc(d.report.model)}</span>` : ""}</div>`;
   if (d.video){
     const clipRows = (d.clips||[]).map(c=>`<tr data-t="${c.offset}" class="cliprow"><td class="num">${c.n}</td><td class="dim">${esc(c.kind||"")}</td><td class="num">${c.seconds}s</td><td>${esc(c.label)}</td></tr>`).join("");
     html += `<div class="card"><div class="label">成片</div>
-      <video id="film" controls preload="metadata" poster="${d.cover?media(d.cover):""}" src="${media(d.video)}"></video>
+      <video id="film" controls preload="metadata" poster="${d.cover?thumb(d.cover)+"?w=960":""}" src="${media(d.video)}"></video>
       ${d.previous_video ? `<div class="dim" style="margin-top:6px">修复前版本：<a href="${media(d.previous_video)}" target="_blank">previous_final.mp4</a></div>` : ""}
       ${clipRows ? `<div class="twrap" style="margin-top:10px"><table class="resp"><tr><th>#</th><th>类型</th><th>时长</th><th>内容</th></tr>${clipRows}</table><div class="dim" style="margin-top:4px">点任意行跳到该片段起点</div></div>` : ""}
     </div>`;
@@ -116,14 +117,16 @@ function specRows(spec){
 function assetCard(book, kind, a){
   const spec = a.spec||{};
   const name = spec.name || spec.location || spec.title || a.id;
-  const imgs = a.images.map(img=>`/media/${encodeURIComponent(book)}/series_assets/${kind}/${a.id}/${img}`);
+  const base = `/media/${encodeURIComponent(book)}/series_assets/${kind}/${a.id}`;
+  const thumb = img => `/thumb/${encodeURIComponent(book)}/series_assets/${kind}/${a.id}/${encodeURIComponent(img)}`;
+  const imgs = a.images.map(img=>({full:`${base}/${encodeURIComponent(img)}`, small:thumb(img)}));
   return `<div class="asset">
-    ${imgs.length?`<a href="${imgs[0]}" target="_blank"><img loading="lazy" src="${imgs[0]}" alt="${esc(name)}"></a>`:""}
+    ${imgs.length?`<a href="${imgs[0].full}" target="_blank"><img loading="lazy" src="${imgs[0].small}?w=520" alt="${esc(name)}"></a>`:""}
     <div class="asset-body">
       <div><b>${esc(name)}</b> ${spec.role?`<span class="pill">${esc(spec.role)}</span>`:""} <span class="dim num">${esc(a.id)}</span></div>
       ${spec.appearance?`<div class="dim small">${esc(spec.appearance)}</div>`:""}
       ${spec.wardrobe?`<div class="dim small">服装：${esc(spec.wardrobe)}</div>`:""}
-      ${imgs.length>1?`<div class="thumbs">${imgs.slice(1).map(u=>`<a href="${u}" target="_blank"><img loading="lazy" src="${u}"></a>`).join("")}</div>`:""}
+      ${imgs.length>1?`<div class="thumbs">${imgs.slice(1).map(u=>`<a href="${u.full}" target="_blank"><img loading="lazy" src="${u.small}?w=240"></a>`).join("")}</div>`:""}
       <details><summary class="dim small">spec.json</summary><table class="kv">${specRows(spec)}</table></details>
     </div></div>`;
 }
@@ -140,7 +143,7 @@ async function renderAssets(book){
       `<div class="voice"><span class="num">${esc(v.name)}</span><audio controls preload="none" src="/media/${encodeURIComponent(book)}/series_assets/voices/${encodeURIComponent(v.name)}"></audio></div>`).join("") + `</div>`;
   if (d.avatars.length)
     html += `<div class="card"><div class="label">头像</div><div class="avatars">` + d.avatars.map(v=>
-      `<a href="/media/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}" target="_blank"><img loading="lazy" src="/media/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}" title="${esc(v.name)}"></a>`).join("") + `</div></div>`;
+      `<a href="/media/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}" target="_blank"><img loading="lazy" src="/thumb/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}?w=160" title="${esc(v.name)}"></a>`).join("") + `</div></div>`;
   if (!d.characters.length && !d.locations.length && !d.voices.length && !d.avatars.length)
     html += `<div class="card"><div class="dim">series_assets 目录还没有资产</div></div>`;
   document.getElementById("assets").innerHTML = html;
