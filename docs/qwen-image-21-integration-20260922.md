@@ -235,8 +235,21 @@ gpt-image 路径   0 处差异        ← 之前把 card_brief 放顶层造成�
 Qwen 路径        4 条改写        ← 正好是没有冻结 style.json、直读 configs/styles 的那 4 本样本书
 ```
 
-`3d-guoman-qwen.json` 暂未合并：它整包就是 Qwen 变体，`card_brief` 放顶层不会误伤
-gpt-image，但现在和 `3d-guoman.json` 有重复的措辞，折进去会更省事。
+`3d-guoman-qwen.json` 已折进 `3d-guoman.json` 并删除。两包的 `visual_style` 本来就逐字相同，
+真正的差异只有三项，现在是 `3d-guoman.json` 的 `qwen` 小节：
+
+```json
+"qwen": { "card_brief": "…", "prompt_fingerprint": false, "tidy_prompts": true }
+```
+
+注意影响面：`3d-guoman` 是 `legacy_style: "3d"` 的落点，`zhutian-*`、`shengtang`、`wuyue`、
+`fentian-*` 这些书都没有冻结 `style.json`，直读它。所以本地 Qwen 路径下有 22525 条提示词改写
+（= 这些书的全部提示词，因为去掉风格指纹这一条每句都碰）。改的就是上面三项，逐段核对过，
+没有夹带。gpt-image 路径仍然 0 差异，所以不开本地服务什么都不变；而开了本地服务本来就会因为
+请求指纹变化把该书的卡全部重画，措辞跟着换是一致的。
+
+折之前要给一本书用 Qwen 版 3D 国漫，得手动把它的画风改成 `3d-guoman-qwen`；折之后只要开着
+本地服务就自动生效。这是折叠的目的，也是它的代价——写在这里以免以后当成意外。
 
 ### 还没做
 
