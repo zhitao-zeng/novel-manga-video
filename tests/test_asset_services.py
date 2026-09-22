@@ -42,3 +42,28 @@ def test_asset_configuration_returns_to_defaults_for_another_book():
     assert plain == AssetStyle()
     assert custom.card_style_suffix_3d == 'custom 3D' and custom.location_empty_suffix != plain.location_empty_suffix
     assert custom.frame_text == '横屏16:9' and plain.frame_text == '竖屏9:16'
+
+
+def test_a_style_package_can_word_itself_differently_per_image_model():
+    """gpt-image knows 选角定妆照 and draws one; Qwen draws a poster from the same words and
+    needs the frame spelled out. One package with a section per model, not two that drift."""
+    from novel_manga.config import Settings
+    from novel_manga.media.asset_style import image_backend
+
+    package = {
+        'render_family': '2d',
+        'render_direction': '墨线平涂',
+        'qwen': {'card_brief': '背景是一整块高饱和的纯色。', 'prompt_fingerprint': False},
+    }
+    default = AssetStyle.for_genre({}, style=package)
+    qwen = AssetStyle.for_genre({}, style=package, backend='qwen')
+
+    assert default.card_brief == '' and default.prompt_fingerprint is True
+    assert qwen.card_brief == '背景是一整块高饱和的纯色。' and qwen.prompt_fingerprint is False
+    # Everything the two models share is still stated once.
+    assert default.render_direction == qwen.render_direction == '墨线平涂'
+    # A package with no section for the backend is left exactly as it is.
+    assert AssetStyle.for_genre({}, style={'render_direction': '墨线平涂'}, backend='qwen').card_brief == ''
+
+    assert image_backend(Settings()) == ''
+    assert image_backend(Settings(local_image_base_url='http://qwen.invalid')) == 'qwen'

@@ -22,7 +22,7 @@ from pathlib import Path
 from novel_manga.media.policy import RATE_LIMIT_RE
 from novel_manga.media.asset_builder import FramedAssetFactory, load_location_time
 from novel_manga.media.asset_policy import ModerationRejected
-from novel_manga.media.asset_style import AssetStyle
+from novel_manga.media.asset_style import AssetStyle, image_backend
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
 from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, load_style, style_names, styled_bible
@@ -60,9 +60,10 @@ def main() -> int:
     novel_dir = args.novel_dir.resolve()
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
-    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"],
-                                       style=load_style(profile, novel_dir))
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
+    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"],
+                                       style=load_style(profile, novel_dir),
+                                       backend=image_backend(settings))
     settings = dc_replace(settings, width=frame["width"], height=frame["height"])
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     if (novel_dir / "profile.json").is_file():

@@ -205,10 +205,41 @@ def create_image(self, prompt, output, reference=None, additional_references=(),
   `request.json` 记到 `local_image_model=qwen-image-2.1`，二次调用 0.00s 命中缓存。
   写在 `tmp/`，没有碰 `outputs/` 下任何在产的卡。
 
+### 画风包按模型分开措辞
+
+同一段文字两个模型读出来不一样。最典型的是「选角定妆照」——gpt-image 认识这个行话并照着画，
+Qwen 不认识，画出来是张海报（戏剧侧光、手插兜、墙角），当参考图没法用。所以要把画面写开。
+但反过来，对 gpt-image 写开比直接用行话更差。
+
+做法是画风包里开一个按模型分的小节，不是拆成两个会各自漂移的包：
+
+```json
+{
+  "name": "美漫",
+  "render_direction": "轮廓和衣褶由清晰的黑色线条勾出…",   // 两个模型通用：这描述的是画风本身
+  "qwen": {
+    "card_brief": "这是一张供动画制作使用的服装参考图。…"   // 只有本地 Qwen 出卡时才叠加
+  }
+}
+```
+
+`AssetStyle.for_genre(..., backend=image_backend(settings))`：`settings.local_image_base_url`
+有值就取 `qwen` 小节覆盖顶层，没有就原样。三个装配点（`cards.py` / `phase_cards.py` /
+`rendering/flow.py`）各加一个参数。
+
+已迁移 `live` / `weimei` / `meiman` 三个包的 `card_brief`。实测（与加这套机制之前的
+`1282149` 对比，77 本书 29582 条提示词）：
+
+```
+gpt-image 路径   0 处差异        ← 之前把 card_brief 放顶层造成的 4 条漂移已消除
+Qwen 路径        4 条改写        ← 正好是没有冻结 style.json、直读 configs/styles 的那 4 本样本书
+```
+
+`3d-guoman-qwen.json` 暂未合并：它整包就是 Qwen 变体，`card_brief` 放顶层不会误伤
+gpt-image，但现在和 `3d-guoman.json` 有重复的措辞，折进去会更省事。
+
 ### 还没做
 
-- 画风包按画风选出图模型（第 6 节末尾提的 `image_model` 字段）没做：现在是全局开关，
-  一开就是这本书所有卡都走本地。
 - PE 两个模型仍未接，理由见第 7 节，未变。
 - `meiman-daoshi` 的 `outputs/meiman-daoshi/style.json` 还是建书时冻结的初版，
   不含新的 `card_brief`；要让它吃到第八版措辞需要显式刷新（按设计，改 `configs/styles/`

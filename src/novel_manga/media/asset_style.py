@@ -40,8 +40,15 @@ class AssetStyle:
     card_brief: str = ''
 
     @classmethod
-    def for_genre(cls, genre, *, frame_text='竖屏9:16', style=None):
+    def for_genre(cls, genre, *, frame_text='竖屏9:16', style=None, backend=''):
         style = style or {}
+        # A package's top-level wording is what gpt-image gets.  A model that reads the same
+        # words differently takes the overrides filed under its own name: Qwen does not know
+        # 选角定妆照 and draws a poster from it, so it needs the frame spelled out, and
+        # spelling it out for gpt-image makes a worse card than the term does.  One package
+        # with a per-model section rather than two packages that drift apart.
+        if backend and isinstance(style.get(backend), dict):
+            style = {**style, **style[backend]}
         return cls(frame_text=frame_text,
             render_family=style.get('render_family', ''),
             render_direction=style.get('render_direction', ''),
@@ -62,6 +69,14 @@ class AssetStyle:
             location_empty_suffix=style.get('location_empty_suffix') or (
                 '。主体空无一人：近景和中景不出现任何人物或人形剪影，远处允许少量模糊的背景行人'
                 if genre.get('location_policy') == 'sparse' else LOCATION_EMPTY_SUFFIX))
+
+
+QWEN = 'qwen'
+
+
+def image_backend(settings) -> str:
+    """Which of a style package's per-model sections applies, from where the cards come from."""
+    return QWEN if getattr(settings, 'local_image_base_url', '') else ''
 
 
 def card_suffix(style: AssetStyle, bible) -> str:

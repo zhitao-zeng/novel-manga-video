@@ -24,7 +24,7 @@ from pathlib import Path
 from novel_manga.media.asset_style import CARD_STYLE_SUFFIX_3D
 from novel_manga.media.asset_builder import FramedAssetFactory
 from novel_manga.media.asset_policy import ModerationRejected
-from novel_manga.media.asset_style import AssetStyle, card_suffix as style_card_suffix, wants_3d_card
+from novel_manga.media.asset_style import AssetStyle, image_backend, card_suffix as style_card_suffix, wants_3d_card
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
 from novel_manga.application.identity.phases import load_phases, phased
@@ -73,9 +73,10 @@ def main() -> int:
 
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
-    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"],
-                                       style=load_style(profile, novel_dir))
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
+    asset_style = AssetStyle.for_genre(load_genre(profile), frame_text=frame["text"],
+                                       style=load_style(profile, novel_dir),
+                                       backend=image_backend(settings))
     settings = dc_replace(settings, width=frame["width"], height=frame["height"])
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     if (novel_dir / "profile.json").is_file():

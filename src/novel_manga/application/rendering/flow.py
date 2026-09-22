@@ -43,7 +43,7 @@ from novel_manga.media.asset_inspection import cards_sheet
 from novel_manga.media.asset_records import load_privacy_ok, record_privacy_ok
 from novel_manga.media.asset_repair import wait_for_inflight_redraws
 from novel_manga.media import assets as media_assets
-from novel_manga.media.asset_style import AssetStyle
+from novel_manga.media.asset_style import AssetStyle, image_backend
 from novel_manga.media.context import RenderContext, ClipResult, AssemblyResult
 from novel_manga.media.resources import acquire_inflight_slot, release_inflight_slot
 from novel_manga.media.policy import COMPLIANCE_SUFFIX, INPUT_TEXT_MARKER, PRIVACY_MARKER, MAX_ATTEMPTS_FREE, OUTPUT_MODERATION_MARKERS, PRESCREEN_RISK, RETRY_SUFFIX, RETRY_SUFFIX_H3, SUBMIT_BACKOFF_SECONDS
@@ -129,7 +129,8 @@ class ThinMediaRunner:
         self.context.fast = is_fast(self.context.profile)
         genre = load_genre(self.context.profile)
         self.context.asset_style = AssetStyle.for_genre(genre, frame_text=self.context.frame_spec["text"],
-                                                        style=load_style(self.context.profile, novel_dir))
+                                                        style=load_style(self.context.profile, novel_dir),
+                                                        backend=image_backend(self.context.settings))
         self.context.softening_rules = [*media_policy.SOFTEN, *((re.compile(pattern), replacement) for pattern, replacement in genre.get('soften', []))]
         self.context.voice_budget = generation.voice_budget_seconds()
         self.context._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)
