@@ -53,7 +53,7 @@ def flatten_clips(raw: dict) -> list[dict]:
                     # length at all and was estimated as a generic silent stage.
                     **{k: stage[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
                        'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut',
-                       'authored_id', 'authored_seconds', 'authored_angle') if k in stage},
+                       'authored_id', 'authored_seconds', 'authored_angle', 'props') if k in stage},
                 }
             )
     return shots
@@ -149,9 +149,18 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "origin_index": len(normalized) + 1,
             **{k: shot[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
                'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut',
-               'authored_id', 'authored_seconds', 'authored_angle') if k in shot},
+               'authored_id', 'authored_seconds', 'authored_angle', 'props') if k in shot},
             **({'in_frame': characters} if shot.get('scene_id') else {}),
         }
+        if "props" in base:
+            # 道具只认圣经名单：幻觉名字在这里丢（装配期还会再挡一次），空数组不落盘
+            known_props = {p.name for p in getattr(bible, "props", None) or []}
+            dropped = [p for p in base["props"] if p not in known_props]
+            if dropped:
+                warnings.append(f"{position}: props 不在圣经道具名单，已丢弃: {dropped}")
+            base["props"] = [p for p in base["props"] if p in known_props]
+            if not base["props"]:
+                base.pop("props")
         framed, notes = visible_speaker_shots(base, turns_out, visible, position,
                                               split=not ctx.authored_storyboard)
         normalized.extend(framed)

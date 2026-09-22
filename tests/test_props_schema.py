@@ -38,6 +38,31 @@ def test_compact_bible_lists_props_only_when_present():
     assert "props" not in compact_bible(_bible(False), {"事务所": "事务所：临街小屋"})
 
 
+def test_validation_keeps_catalogued_props_and_drops_hallucinations():
+    from novel_manga.planning.validation import validate_and_normalize
+    chapter = "他抽出那柄青铜短剑，走向门口。"
+    raw = {"video_title": "t", "hook": "", "summary": "", "skipped_segments": [],
+           "clips": [{"clip_id": "clip_1", "location": "事务所", "characters": ["莱恩"], "avoid": "",
+                      "stages": [{"segment_id": "s1", "source_quote": "他抽出那柄青铜短剑",
+                                  "start_state": "", "event": "拔剑", "end_state": "",
+                                  "camera": "固定", "light": "室内", "sfx": "", "shot_scale": "近景",
+                                  "in_frame": ["莱恩"], "extras": [], "actions": [],
+                                  "props": ["青铜短剑", "幻激光枪"],
+                                  "turns": [{"speaker_name": "", "delivery_mode": "narration",
+                                             "text": "", "emotion": ""}]}]}]}
+    result = validate_and_normalize(raw, [{"segment_id": "s1", "text": chapter}], _bible(True),
+                                    {"事务所": "事务所：临街小屋"}, chapter, ctx=_ctx())
+    assert not result.errors, [str(e) for e in result.errors]
+    stage = result.shots[0]
+    assert stage.get("props") == ["青铜短剑"]            # 幻觉名字被丢弃
+    assert any("幻激光枪" in w for w in result.warnings)
+
+    raw["clips"][0]["stages"][0]["props"] = []
+    result2 = validate_and_normalize(raw, [{"segment_id": "s1", "text": chapter}], _bible(True),
+                                     {"事务所": "事务所：临街小屋"}, chapter, ctx=_ctx())
+    assert "props" not in result2.shots[0]              # 空数组不落盘
+
+
 def test_bind_schema_optional_props_and_merge_carries_them():
     from novel_manga.planning.binding import bind_schema, merge
     authored = {"shots": [{"镜号": "1", "台词 / 声音": "", "场景": "事务所", "画面内容 / 动作": "拔剑",

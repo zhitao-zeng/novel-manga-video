@@ -389,6 +389,9 @@ def run(args, ctx: PlannerContext) -> int:
             "max_skipped_segments": ctx.max_skipped,
             "one_visible_speaker_per_shot": True,
             "no_narration_no_inner_voice": True,
+            # An unexplained optional field is ignored: the enum alone did not get a single prop
+            # marked in the pilot.  The instruction is what makes the seat get used.
+            **({"props_usage": "story_bible.props 是本书已建档的剧情道具。某 stage 画面里道具本体实际出现时（被拿着、被展示、被使用、被特写都算），在该 stage 的 props 字段标出它的名单名字——画面描述不管用什么称呼（玉石、那东西），只要指的就是它就标；最多 2 件，没出现就留空。标注的道具渲染时携带参考图以保持跨集一致"} if prop_names else {}),
             "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来",
         },
         **({"director_notes": args.notes} if args.notes else {}),
