@@ -45,12 +45,23 @@ def test_in_frame_and_actions_lead_the_event_line():
     errors, warnings, shots = validation.errors, validation.warnings, validation.shots
     assert not [e for e in errors if "seg_1" not in e], errors
     shot = shots[0]
-    assert shot["characters"] == ["薇奥拉公主", "莱恩·格雷"]          # 塞西娅 is upstairs: in the clip, not in this frame
-    # ... even though the event line names her: with in_frame given, the picture-text scan adds nobody
+    assert shot["characters"] == ["薇奥拉公主", "莱恩·格雷"]          # nothing here names 塞西娅
+    # Once a stage's own text names her, she joins - even though "塞西娅还在楼上" says she is not in
+    # this frame.  That is the ghost the in_frame guard was closed to stop, and on 2026-09-22 the user
+    # reopened it against the other side of the ledger: 244 of 在美漫当心灵导师的日子's 1,413 shots name
+    # someone their cast omits, and every one of those reached H3 without a card, as "Stark" or
+    # "a seated figure", for it to invent a face for.  A wrong extra face costs one shot; a missing
+    # card costs the character their identity in every shot they appear in.  The add is capped at six
+    # and every one of them is named in a warning, which is how a bad one gets found.
     raw["clips"][0]["stages"][0]["event"] = "薇奥拉吻莱恩，莱恩避开说塞西娅还在楼上"
     validation = pc_validation.validate_and_normalize(raw, segments, b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     _, warnings2, shots2 = validation.errors, validation.warnings, validation.shots
-    assert shots2[0]["characters"] == ["薇奥拉公主", "莱恩·格雷"] and not any("补上" in w for w in warnings2)
+    assert any("塞西娅" in w and "补上" in w for w in warnings2)
+    # The two layers then compose: the scan puts her in the shot, and framing - one visible speaker -
+    # turns her into a listener rather than a second face competing for the frame.  She keeps her
+    # reference card either way, which is the whole point: her back is her back, not a stranger's.
+    assert shots2[0]["characters"] == ["薇奥拉公主", "莱恩·格雷"]
+    assert shots2[0]["listeners"] == ["塞西娅"]
     assert shot["motion_prompt"].startswith("薇奥拉公主环住脖子踮脚吻住莱恩·格雷；莱恩·格雷向后仰头避开。")
     assert shot["actions"] == [{"actor": "薇奥拉公主", "action": "环住脖子踮脚吻住", "target": "莱恩·格雷"}, {"actor": "莱恩·格雷", "action": "向后仰头避开", "target": ""}]
 

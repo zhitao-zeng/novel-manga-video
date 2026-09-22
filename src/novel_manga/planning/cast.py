@@ -50,6 +50,8 @@ def complete_characters(characters: list[str], shot: dict, everyone: list[str], 
     """The shot's cast plus every character its own description puts on camera.  2026-09-13, 雾月 761:
     the description said 薇奥拉 kissed 莱恩, the enum had no 薇奥拉, the cast was [莱恩, 琥珀] - and the
     cat did the kissing.  Returns the cast and what was added."""
-    described = mentioned_characters(f"{shot.get('visual_prompt') or ''}\n{shot.get('motion_prompt') or ''}", everyone, ctx=ctx)
+    # 结束时 is a tableau like 开始时: someone standing there when the shot ends was standing there.
+    described = mentioned_characters("\n".join(str(shot.get(field) or '') for field in
+                                                ('visual_prompt', 'motion_prompt', 'end_state')), everyone, ctx=ctx)
     added = [name for name in described if name not in characters][: max(0, cap - len(characters))]
     return list(characters) + added, added

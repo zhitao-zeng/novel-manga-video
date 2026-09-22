@@ -10,10 +10,14 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
     unknown = [str(name) for name in shot.get("characters", []) if pc_cast.canonical(name, ctx=ctx) not in names]
     if unknown:
         errors.append(PlanningIssue(PlanningCode.UNKNOWN_CHARACTERS, f"characters not in StoryBible: {unknown}", stage=position, field='characters'))
-    if shot.get("in_frame_given"):
-        added = []  # the stage said who is in the picture; a name in the event line (塞西娅在楼上) is not a presence
-    else:
-        characters, added = pc_cast.complete_characters(characters, shot, everyone, ctx=ctx)
+    # in_frame used to be the last word, because a scan for names invented people who were only
+    # spoken of.  It is not: 在美漫当心灵导师的日子's planned chapters name someone the cast omits in
+    # 244 of 1,413 shots' 开始时/结束时 tableau and 91 more in the event line, and every one of them
+    # reaches the renderer without a card - the naming table has no tag, so the translation writes
+    # "Stark" or "a seated figure" and H3 invents a face.  The cap in complete_characters is what
+    # keeps a crowd from becoming six reference images; the warning below is the audit trail for
+    # whoever it adds, and 贾维斯 (an AI with no body) is the name to watch in it.
+    characters, added = pc_cast.complete_characters(characters, shot, everyone, ctx=ctx)
     if added:
         warnings.append(f"{position}: characters 补上镜头描述里出现的 {added}")
     # Extra descriptions are scene-local references, not entries in the
