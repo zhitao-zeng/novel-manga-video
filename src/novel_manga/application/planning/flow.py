@@ -574,8 +574,20 @@ def run(args, ctx: PlannerContext) -> int:
         "attempts": attempts,
         "elapsed_seconds": round(time.monotonic() - started, 1),
     }
+    if prop_names:
+        # 道具标注走判官后置 pass：试点里规划器（flashnext）对每个镜头都答空，
+        # 判官（27B）一次标对获得镜头。union，不否决规划器自己的标注。
+        from novel_manga.application.planning.prop_marks import mark_props
+        marked = mark_props(shots, [p for p in prop_all if p.name in prop_names])
+        for shot in shots:
+            if shot.get("origin_index") in marked:
+                shot["props"] = marked[shot["origin_index"]]
+        if marked:
+            from novel_manga.llm import client as model_client
+            model_client.log(f"prop marks: {marked}")
     atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped,
         **({'story_method': method.describe(), 'story_blueprint': ctx.story_blueprint} if method else {})})
+    atomic_write_json(episode_dir / "chapter_script_report.json", report)
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
     with open(recap_path.with_suffix(".lock"), "w") as lock:  # planners may run in parallel
         fcntl.flock(lock, fcntl.LOCK_EX)

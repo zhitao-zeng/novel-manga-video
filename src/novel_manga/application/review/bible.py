@@ -279,8 +279,10 @@ def extract_props(chapter_text: str, known_props: list[str], known_names: set[st
         name = re.sub(r"\s+", "", str(row.get("name", "")))
         quote = str(row.get("quote") or "")
         if not name or name in known_names or name in known_props:
+            model_client.log(f"bible: 道具 {name or '(无名)'} 未收（与人物或已有道具同名）")
             continue
         if not quote or quote not in chapter_text:
+            model_client.log(f"bible: 道具 {name} 未收（quote 不是原文连续子串）")
             continue
         out.append({**row, "name": name})
     return out
