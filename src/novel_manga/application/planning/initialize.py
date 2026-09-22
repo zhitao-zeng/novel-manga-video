@@ -169,7 +169,7 @@ def main() -> int:
     novel = read_novel(source, novel_id=args.novel_id, title=args.title)
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     novel_dir.mkdir(parents=True, exist_ok=True)
-    profile = {"style": args.style, "frame": args.frame}
+    profile = {"style": args.style, "frame": args.frame, "props": True}   # 新书准入道具资产；在产书的 profile 没有这个键，永远不触发提取
     chapters = [{"index": e.index, "title": e.source_title, "chars": e.text_count} for e in novel.episodes]
     print(json.dumps({"chapter_count": len(chapters), "first": chapters[:3], "last": chapters[-1:], "seed_chapters": args.bible_chapters}, ensure_ascii=False), flush=True)
 

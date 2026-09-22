@@ -57,6 +57,15 @@ LOCATION_SCHEMA = model_client.obj({"locations": {"type": "array", "items": mode
 })}})
 
 
+PROP_SCHEMA = model_client.obj({"props": {"type": "array", "items": model_client.obj({
+    "name": {"type": "string"},
+    "category": {"type": "string", "enum": ["武器", "信物", "法器", "工具", "其他"]},
+    "appearance": {"type": "string"}, "material": {"type": "string"}, "owner": {"type": "string"},
+    "quote": {"type": "string"},
+    "closeup": {"type": "boolean"}, "wearable": {"type": "boolean"},
+})}})
+
+
 CHARACTER_CARD_SCHEMA = model_client.obj({
     "photoreal": {"type": "number"},
     "matches_description": {"type": "boolean"},
