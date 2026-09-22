@@ -131,13 +131,32 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             else:
                 defs.append(f"<Picture {picture}> is the setting shown in it: take its architecture, ground, "
                             f"fixed props and light from it, and none of the people in it.")
-    voice = 0
-    for ref in (clip.get("references") or []):
-        if ref.get("role") == "voice":
-            voice += 1
-            if ref["name"] in subject_of:
-                defs.append(f"<Audio {voice}> is the voice-timbre reference for <Subject {subject_of[ref['name']]}>.")
     return defs, subject_of
+
+
+def voice_lines(clip: dict, subject_of: dict, speaker_ids: dict) -> list[str]:
+    """`<Audio N> is the voice-timbre reference for <Subject N> (Sx).`
+
+    The guide asks for the speaker id here, not only the subject: "reuse that speaker's global ID in
+    the definition... The ID comes from the target video's global speaker order and is not
+    independently assigned or renumbered in the audio definition."  That is the one binding the
+    community reports as fixing two-speaker timbre swapping, and we wrote the line without it - which
+    left H3 to pair <Audio 1> with a speaker by position.  The ids are only known after the body has
+    been written, so this is built there rather than in subject_lines.
+    """
+    lines, voice = [], 0
+    for ref in (clip.get("references") or []):
+        if ref.get("role") != "voice":
+            continue
+        voice += 1
+        name = ref.get("name")
+        if name not in subject_of:
+            continue
+        # A voice bound to someone who never opens their mouth in this clip has no speaker id, and
+        # the guide forbids inventing one; the timbre still belongs to that subject.
+        said = f" {speaker_ids[name]}" if name in speaker_ids else ""
+        lines.append(f"<Audio {voice}> is the voice-timbre reference for <Subject {subject_of[name]}>{said}.")
+    return lines
 
 
 def compose(clip: dict, english: list[str], stages: list, note: str = "", delivery: dict | None = None) -> str:
@@ -201,7 +220,7 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
     summary = (f'A continuous {seconds}-second Chinese {kind} short-drama shot in {len(stages)} stages.'
                if not clip.get('scene_ids') else
                f'A {seconds}-second Chinese {kind} short-drama scene edited into {len(stages)} authored shots.')
-    return ("subject_definitions:\n" + "\n".join(defs)
+    return ("subject_definitions:\n" + "\n".join(defs + voice_lines(clip, subject_of, speaker_ids))
             + f"\n\nsummary:\n{task} " + summary + animation
             + (f" Direction for this take: {note}" if note else "") + "\n\n"
               "retention_analysis:\n" + "\n".join(retention) + ("\n" if retention else "")
