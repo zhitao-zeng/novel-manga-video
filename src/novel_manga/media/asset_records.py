@@ -37,19 +37,24 @@ def record_privacy_ok(novel_dir: Path, paths) -> None:
         atomic_write_json(target, {"paths": sorted(merged)})
 
 
-def merge_manifest(root, style_fingerprint, characters, locations, voices):
+def merge_manifest(root, style_fingerprint, characters, locations, voices, props=None):
     manifest_path = root / "manifest.json"
     with MANIFEST_LOCK, open(root / ".manifest.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         existing = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
         characters = {**{row["asset_id"]: row for row in existing.get("characters", [])}, **characters}
         locations = {**{row["asset_id"]: row for row in existing.get("locations", [])}, **locations}
+        merged_props = {**{row["asset_id"]: row for row in existing.get("props", [])}, **(props or {})}
         voices = {**(existing.get("voice_assignments") or {"narrator": "native:narrator"}), **voices}
         manifest = SeriesAssetManifest(
             style_fingerprint=style_fingerprint,
             characters=[AssetRecord(**characters[key]) for key in sorted(characters)],
             locations=[AssetRecord(**locations[key]) for key in sorted(locations)],
+            props=[AssetRecord(**merged_props[key]) for key in sorted(merged_props)],
             voice_assignments=voices,
         )
-        atomic_write_json(manifest_path, manifest.model_dump(mode="json"))
+        payload = manifest.model_dump(mode="json")
+        if not manifest.props:
+            payload.pop("props", None)  # a prop-less book's manifest stays byte-identical
+        atomic_write_json(manifest_path, payload)
     return manifest

@@ -8,8 +8,8 @@ from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from ..util import atomic_write_json
 from .common import sha256_text, log
 from .asset_style import AssetStyle, card_suffix as _card_suffix
-from .asset_specs import character_spec, location_spec
-from .asset_prompts import character_prompt, expression_prompt as make_expression_prompt, location_prompt
+from .asset_specs import character_spec, location_spec, prop_spec
+from .asset_prompts import character_prompt, expression_prompt as make_expression_prompt, location_prompt, prop_prompt
 from .asset_images import ensure_image
 from .asset_policy import (ModerationRejected, moderation_error, refusal_text, seedream_prompt,
                            SCRUB_WORDS, SAFE_SUFFIX)
@@ -95,12 +95,15 @@ class FramedAssetFactory:
                 f"{model} also failed: {refusal_text(fallen)}"
             ) from fallen
 
-    def build_selected(self, root: Path, bible: StoryBible, character_ids: set[str], location_ids: set[str], expressions: bool = True) -> SeriesAssetManifest:
+    def build_selected(self, root: Path, bible: StoryBible, character_ids: set[str], location_ids: set[str],
+                       expressions: bool = True, prop_ids: set[str] | None = None) -> SeriesAssetManifest:
         """Build (or reuse) only the listed assets; ids stay the bible positions.
 
         The base ``build`` renders every character and location in the bible.
         A long novel's bible grows to hundreds of entries, so an episode only
         pays for the cards it references; records are merged into the manifest.
+        A bible without props builds none, and the prop_ids default keeps every
+        older caller working.
         """
         root.mkdir(parents=True, exist_ok=True)
         style_master = self.settings.style_master_path
@@ -163,4 +166,28 @@ class FramedAssetFactory:
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(image.path.relative_to(root.parent)),
                 prompt_sha256=sha256_text(prompt),
             ).model_dump(mode="json")
-        return merge_manifest(root, bible.style_fingerprint, characters, locations, voices)
+        props: dict[str, dict] = {}
+        for index, prop in enumerate(getattr(bible, "props", None) or [], start=1):
+            asset_id = f"prop_{index:03d}"
+            if prop_ids is not None and asset_id not in prop_ids:
+                continue
+            directory = root / "props" / asset_id
+            prompt = prop_prompt(bible, prop, family=self.style.render_family,
+                                 direction=self.style.render_direction,
+                                 fingerprint=self.style.prompt_fingerprint,
+                                 tidy=self.style.tidy_prompts) + guard
+            spec = prop_spec(asset_id, prop, bible, prompt)
+            atomic_write_json(directory / "spec.json", spec)
+            primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master)
+            detail = self.ensure_card(prompt + "局部材质特写，纹理与工艺细节占满画面。",
+                                      directory / "detail.jpeg", reference=primary.path) if prop.closeup else None
+            props[asset_id] = AssetRecord(
+                asset_id=asset_id, kind="prop", name=prop.name,
+                identity_invariants=spec["identity_invariants"], state_variables=spec["state_variables"],
+                reference_scope=spec["reference_scope"],
+                spec_path=str((directory / "spec.json").relative_to(root.parent)),
+                primary_image=str(primary.path.relative_to(root.parent)),
+                secondary_image=str(detail.path.relative_to(root.parent)) if detail else None,
+                prompt_sha256=sha256_text(prompt),
+            ).model_dump(mode="json")
+        return merge_manifest(root, bible.style_fingerprint, characters, locations, voices, props)

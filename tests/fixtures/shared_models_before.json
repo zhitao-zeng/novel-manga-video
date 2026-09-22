@@ -183,6 +183,60 @@
         ],
         "title": "Character",
         "type": "object"
+      },
+      "Prop": {
+        "description": "A plot object with its own card: named, recurring or plot-driving (易手/认主/被毁/开启).\n\nWearables with their own identity (armor) are props too - the wearer becomes a phase whose\ncard is drawn from this prop's card, so the armor has exactly one source of truth.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "category": {
+            "default": "其他",
+            "title": "Category",
+            "type": "string"
+          },
+          "appearance": {
+            "default": "",
+            "title": "Appearance",
+            "type": "string"
+          },
+          "material": {
+            "default": "",
+            "title": "Material",
+            "type": "string"
+          },
+          "owner": {
+            "default": "",
+            "title": "Owner",
+            "type": "string"
+          },
+          "first_chapter": {
+            "default": 0,
+            "title": "First Chapter",
+            "type": "integer"
+          },
+          "quote": {
+            "default": "",
+            "title": "Quote",
+            "type": "string"
+          },
+          "closeup": {
+            "default": false,
+            "title": "Closeup",
+            "type": "boolean"
+          },
+          "wearable": {
+            "default": false,
+            "title": "Wearable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "Prop",
+        "type": "object"
       }
     },
     "properties": {
@@ -219,6 +273,13 @@
           "type": "string"
         },
         "title": "Locations",
+        "type": "array"
+      },
+      "props": {
+        "items": {
+          "$ref": "#/$defs/Prop"
+        },
+        "title": "Props",
         "type": "array"
       },
       "continuity_rules": {
@@ -1936,6 +1997,14 @@
           "$ref": "#/$defs/AssetRecord"
         },
         "title": "Locations",
+        "type": "array"
+      },
+      "props": {
+        "default": [],
+        "items": {
+          "$ref": "#/$defs/AssetRecord"
+        },
+        "title": "Props",
         "type": "array"
       },
       "voice_assignments": {

@@ -273,6 +273,7 @@ def assets(root, book_id: str) -> dict:
         "book": book_id,
         "characters": _asset_dirs(directory / "characters"),
         "locations": _asset_dirs(directory / "locations"),
+        "props": _asset_dirs(directory / "props"),
         "voices": flat("voices"),
         "avatars": flat("avatars"),
     })
@@ -481,6 +482,7 @@ def bible(root, book_id: str) -> dict:
                  "style_fingerprint": story.get("style_fingerprint")},
         "characters": story.get("characters") or [],
         "locations": story.get("locations") or [],
+        "props": story.get("props") or [],
         "continuity_rules": story.get("continuity_rules") or [],
         "aliases": _read_json(directory / "bible_aliases.json") or {},
         "cast": _read_json(directory / "reading_cast.json"),

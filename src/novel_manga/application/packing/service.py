@@ -59,7 +59,9 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         turn["speaker_name"] for shot in clip["shots"] for turn in shot["turns"]
         if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue", "singing"} and turn.get("speaker_name")
     ))
-    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"))
+    clip_prop_names = list(dict.fromkeys(
+        prop for shot in clip["shots"] for prop in (shot.get("props") or [])))
+    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"), props=clip_prop_names or None, props_index={p.name: p for p in getattr(bible, "props", None) or []})
     if any(s.get('scene_id') for s in clip['shots']):
         location_binding = location_binding.replace('、固定道具和光线', '和地形；时间、光线和可移动道具以本场逐镜描述为准')
     prompt = ClipCompiler(options).compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])

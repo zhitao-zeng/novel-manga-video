@@ -154,3 +154,23 @@ def location_prompt(bible: StoryBible, location: str, *, family: str = "", direc
     )
 
 
+def prop_prompt(bible: StoryBible, prop, *, family: str = "", direction: str = "",
+                fingerprint: bool = True, tidy: bool = False) -> str:
+    """A single object on a clean plate: the reference every later shot of it locks to.
+
+    Like the location card, no people; unlike it, one object fills the frame.  The object is
+    never drawn held or in use - a hand in the reference becomes a hand in every shot.
+    """
+    trim = (lambda s: str(s).rstrip("。；;，, ")) if tidy else (lambda s: s)
+    return (
+        _end(bible.visual_style, tidy)
+        + (f"系列风格指纹 {bible.style_fingerprint}。" if fingerprint else "")
+        + _end(bible.palette, tidy)
+        + f"道具资产：{trim(prop.name)}（{trim(prop.category)}）；固定外观：{trim(prop.appearance)}"
+        + (f"；材质：{trim(prop.material)}" if prop.material else "")
+        + "。只画这一件物品且只出现一次，多角度设定图（正面、侧面、局部），干净纯色背景，"
+        "比例尺稳定、结构清晰可读；不得出现人物、手、人体部位或使用场景，不要文字、Logo或水印。"
+        + f"{rendering_direction(bible, family=family, direction=direction)}。"
+    )
+
+

@@ -28,6 +28,7 @@ class SeriesAssetManifest(BaseModel):
     style_fingerprint: str
     characters: list[AssetRecord]
     locations: list[AssetRecord]
+    props: list[AssetRecord] = []
     voice_assignments: dict[str, str]
 
 

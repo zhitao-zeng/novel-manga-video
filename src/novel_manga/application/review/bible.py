@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 import novel_manga.llm.client as model_client
 from novel_manga.models.bible import StoryBible as review_models_StoryBible
-from novel_manga.models.bible import Character
+from novel_manga.models.bible import Character, Prop
 import novel_manga.story.identity as story_names
 import novel_manga.story.name_rules as name_rules
 import novel_manga.review.contracts as review_contracts
@@ -254,17 +254,66 @@ def extract_locations(chapter_text: str, known_locations: list[str]) -> list[dic
     return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.LOCATION_SCHEMA, name="locations", max_tokens=1200, settings=bible_settings()).get("locations", [])
 
 
+def extract_props(chapter_text: str, known_props: list[str], known_names: set[str]) -> list[dict]:
+    """Plot objects worth a card, judged on the judge's channel like every cast question.
+
+    Named always; unnamed only when recurring across chapters or plot-driving (易手/认主/被毁/
+    开启).  Every row carries a verbatim quote; a row whose quote is not a contiguous slice of
+    the chapter, or whose name a character or an earlier prop already owns, is dropped - the
+    merge pilot's v3 evidence rule, verbatim.
+    """
+    recent = "、".join(known_props[-30:])
+    prompt = (
+        "列出这段小说里有剧情分量的物件（武器、信物、法器、关键工具）："
+        "有独立名字的必收；没名字的只在跨章反复出现、或牵动剧情（易手/认主/被毁/开启某物）时收。"
+        "日常生活物件（茶杯、桌椅、饭菜）不收。每个给出：name、category（武器/信物/法器/工具/其他）、"
+        "appearance（长期稳定外观，不写当下状态）、material（材质，没写留空）、owner（本段持有者，没写留空）、"
+        "quote（从本段原文连续复制的原句，不得改写）、closeup（是否需要特写镜头）、wearable（是否可穿戴/覆盖身体的装备）。"
+        + (f"已有道具：{recent}。同一物件必须原样使用已有名字。" if recent else "")
+        + "只输出JSON。\n\n" + chapter_text
+    )
+    rows = model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.PROP_SCHEMA,
+                                 name="props", max_tokens=1500, settings=bible_settings()).get("props", [])
+    out = []
+    for row in rows:
+        name = re.sub(r"\s+", "", str(row.get("name", "")))
+        quote = str(row.get("quote") or "")
+        if not name or name in known_names or name in known_props:
+            continue
+        if not quote or quote not in chapter_text:
+            continue
+        out.append({**row, "name": name})
+    return out
+
+
 def load_aliases(novel_dir: Path) -> dict:
     path = novel_dir / "bible_aliases.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def _props_enabled(novel_dir: Path) -> bool:
+    """The book opted into prop assets at build time: profile.json carries {"props": true}.
+
+    Read the file directly: load_profile's dict is written into chapter artifacts, so a new
+    default key there would change every book's chapter_script.json.  Only book-building writes
+    the flag; books in production never get it, and nothing here scans them.
+    """
+    try:
+        return bool(json.loads((novel_dir / "profile.json").read_text(encoding="utf-8")).get("props"))
+    except (OSError, ValueError):
+        return False
 
 
 def scan_chapter(chapter_text: str, known_locations: list[str], names: bool = True) -> dict:
     """The model calls of bible growth that do not depend on the bible's state:
     the chapter's proper names and its locations.  Safe to run for several
     chapters at once; grow_bible() then commits them in order under the lock.
-    With names=False the caller supplies the names (the entity ledger does)."""
-    return {"names": extract_names(chapter_text) if names else [], "locations": extract_locations(chapter_text, known_locations)}
+    With names=False the caller supplies the names (the entity ledger does).
+    Props ride the in-lock pass instead: growth is rare, and the scan window's
+    parallelism buys nothing for one more call."""
+    return {"names": extract_names(chapter_text) if names else [],
+            "locations": extract_locations(chapter_text, known_locations),
+            "props": []}
 
 
 JUDGE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["people"],
@@ -498,10 +547,35 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     timed = fill_location_time(novel_dir, location_rows, known_locations)
     if timed:
         model_client.log(f"bible ch{chapter_index}: location_time filled for {timed}")
-    growth[str(chapter_index)] = {"characters": filled, "locations": [x.split("：", 1)[0] for x in added_locations], "suggestions": suggestions, "needs_human": needs_human}
+    added_props: list[str] = []
+    props_on = _props_enabled(novel_dir)
+    if props_on:
+        known_prop_names = [p.name for p in bible.props]
+        prop_rows = (scan or {}).get("props") or extract_props(chapter_text, known_prop_names,
+                                                                {c.name for c in bible.characters})
+        new_props = []
+        for row in prop_rows:
+            name = re.sub(r"\s+", "", str(row.get("name", "")))
+            if not name or name in known_prop_names or story_names.name_matches(name, known):
+                continue
+            new_props.append(Prop(name=name, category=str(row.get("category") or "其他"),
+                                  appearance=re.sub(r"\s+", " ", str(row.get("appearance", ""))).strip(),
+                                  material=re.sub(r"\s+", " ", str(row.get("material", ""))).strip(),
+                                  owner=str(row.get("owner") or ""), first_chapter=chapter_index,
+                                  quote=str(row.get("quote") or ""), closeup=bool(row.get("closeup")),
+                                  wearable=bool(row.get("wearable"))))
+            known_prop_names.append(name)
+            added_props.append(name)
+        if new_props:
+            bible = bible.model_copy(update={"props": [*bible.props, *new_props]})
+            atomic_write_json(bible_path, bible.model_dump(mode="json"))
+    growth[str(chapter_index)] = {"characters": filled, "locations": [x.split("：", 1)[0] for x in added_locations],
+                                  **({"props": added_props} if props_on else {}),
+                                  "suggestions": suggestions, "needs_human": needs_human}
     atomic_write_json(growth_path, growth)
     model_client.log(f"bible ch{chapter_index}: +{len(filled)} characters {filled or ''} +{len(added_locations)} locations {[x.split('：', 1)[0] for x in added_locations] or ''}; suggestions {list(suggestions) or 'none'}; bible now {len(bible.characters)}/{len(bible.locations)}")
-    return {"characters": filled, "locations": added_locations, "suggestions": suggestions}
+    return {"characters": filled, "locations": added_locations, "suggestions": suggestions,
+            **({"props": added_props} if props_on else {})}
 
 
 def fill_location_time(novel_dir: Path, location_rows: list[dict], known_locations: list[str]) -> list[str]:
