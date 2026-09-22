@@ -148,6 +148,21 @@ def test_agent_books_surface_on_the_experiments_shelf(tmp_path):
     assert workbench.books(root)["books"][0]["backend"] == "sandbox_agent"
 
 
+def test_media_follows_a_symlinked_assets_dir(tmp_path):
+    """zhutian-card's series_assets is a symlink into zhutian-fast's; the card must still serve."""
+    root = make_root(tmp_path)
+    make_book(root, "wuyue")
+    shared = root / "outputs" / "shared-assets"          # lives outside the book, like zhutian-fast
+    cards = shared / "characters" / "character_001"
+    cards.mkdir(parents=True)
+    (cards / "turnaround.jpeg").write_bytes(b"\xff\xd8\xff")
+    (root / "outputs" / "wuyue" / "series_assets").symlink_to(shared)
+    served = workbench.media_file(root, "wuyue", "series_assets/characters/character_001/turnaround.jpeg")
+    assert served.read_bytes() == b"\xff\xd8\xff"
+    with pytest.raises(KeyError):
+        workbench.media_file(root, "wuyue", "series_assets/../../wuyue/profile.json")
+
+
 def test_thumbnails_are_downscaled_cached_and_images_only(tmp_path):
     pytest.importorskip("PIL")
     from PIL import Image

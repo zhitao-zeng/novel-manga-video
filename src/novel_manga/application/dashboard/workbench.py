@@ -346,10 +346,18 @@ def experiments(root) -> dict:
 
 
 def media_file(root, book_id: str, relative: str) -> Path:
-    """A whitelisted media file inside the book's own directory; nothing else is served."""
-    directory = book_dir(root, book_id).resolve()
-    target = (directory / relative).resolve()
-    if not target.is_relative_to(directory) or target.suffix.lower() not in MEDIA_TYPES or not target.is_file():
+    """A whitelisted media file inside the book's own directory; nothing else is served.
+
+    The check is lexical - a '..' anywhere in the relative path is refused - and deliberately
+    not resolved: books here share assets through symlinks (zhutian-card's series_assets is a
+    link into zhutian-fast's), and resolving would place the real file outside the book.
+    """
+    directory = book_dir(root, book_id)
+    parts = Path(relative).parts
+    if not parts or Path(relative).is_absolute() or ".." in parts:
+        raise KeyError(relative)
+    target = directory.joinpath(*parts)
+    if target.suffix.lower() not in MEDIA_TYPES or not target.is_file():
         raise KeyError(relative)
     return target
 
