@@ -285,6 +285,26 @@ def test_bible_reads_cast_volumes_growth_and_pairs(tmp_path):
     assert data["cast"] is None                                    # wuyue never had a reading cast
 
 
+def test_assets_and_bible_carry_props(tmp_path):
+    root = make_root(tmp_path)
+    book = make_book(root, "wuyue")
+    card = book / "series_assets" / "props" / "prop_001"
+    card.mkdir(parents=True)
+    (card / "spec.json").write_text(json.dumps({"name": "青铜短剑", "category": "武器"}), encoding="utf-8")
+    (card / "turnaround.jpeg").write_bytes(b"\xff")
+    (book / "story_bible.json").write_text(json.dumps({
+        "novel_title": "雾月秘典", "genre": "gaslamp", "visual_style": "s", "palette": "p",
+        "style_fingerprint": "fp", "characters": [], "locations": [],
+        "props": [{"name": "青铜短剑", "category": "武器", "appearance": "泛青",
+                   "first_chapter": 1, "quote": "…", "closeup": True, "wearable": False}]}),
+        encoding="utf-8")
+
+    assets = workbench.assets(root, "wuyue")
+    assert assets["props"][0]["spec"]["name"] == "青铜短剑"
+    bible = workbench.bible(root, "wuyue")
+    assert bible["props"][0]["closeup"] is True
+
+
 def test_assets_reads_specs_images_and_voices(tmp_path):
     root = make_root(tmp_path)
     book = make_book(root, "wuyue")

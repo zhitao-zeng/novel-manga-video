@@ -254,8 +254,8 @@ function drawLightbox(){
 async function renderAssets(book){
   const d = await getJSON(`/api/book/${encodeURIComponent(book)}/assets`);
   let html = `<div class="dim" style="margin:0 2px"><a href="/novel/${encodeURIComponent(book)}">← ${esc(book)}</a> · 资产库</div>`;
-  html += `<div class="stats">${stat("角色", d.characters.length, "张卡")}${stat("地点", d.locations.length, "张卡")}${stat("音色", d.voices.length, "条")}${stat("头像", d.avatars.length, "个")}</div>`;
-  for (const [kind, label, list] of [["characters","角色卡",d.characters],["locations","地点卡",d.locations]]){
+  html += `<div class="stats">${stat("角色", d.characters.length, "张卡")}${stat("地点", d.locations.length, "张卡")}${stat("道具", (d.props||[]).length, "张卡")}${stat("音色", d.voices.length, "条")}${stat("头像", d.avatars.length, "个")}</div>`;
+  for (const [kind, label, list] of [["characters","角色卡",d.characters],["locations","地点卡",d.locations],["props","道具卡",d.props||[]]]){
     if (!list.length) continue;
     html += `<div class="card"><div class="label">${label} · ${list.length} 张<span class="dim">（点击放大）</span>
       <input class="afilter" data-kind="${kind}" placeholder="按名字过滤…"></div>
@@ -267,12 +267,12 @@ async function renderAssets(book){
   if (d.avatars.length)
     html += `<div class="card"><div class="label">头像</div><div class="avatars">` + d.avatars.map(v=>
       `<a href="/media/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}" target="_blank"><img loading="lazy" src="/thumb/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}?w=160" title="${esc(v.name)}"></a>`).join("") + `</div></div>`;
-  if (!d.characters.length && !d.locations.length && !d.voices.length && !d.avatars.length)
+  if (!d.characters.length && !d.locations.length && !(d.props||[]).length && !d.voices.length && !d.avatars.length)
     html += `<div class="card"><div class="dim">series_assets 目录还没有资产</div></div>`;
   html += `<div id="lb" class="lb" style="display:none"><div class="lb-back"></div><div class="lb-box" id="lb-box"></div></div>`;
   document.getElementById("assets").innerHTML = html;
 
-  const sections = {characters: d.characters, locations: d.locations};
+  const sections = {characters: d.characters, locations: d.locations, props: d.props||[]};
   document.querySelectorAll(".acell").forEach(cell => cell.addEventListener("click", ()=>{
     const kind = cell.dataset.kind;
     openLightbox(book, kind, sections[kind], parseInt(cell.dataset.i));

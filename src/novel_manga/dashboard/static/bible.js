@@ -24,6 +24,15 @@ async function renderBible(book){
         <td class="dim small">${esc(c.appearance||"")}</td><td class="dim small">${esc(c.wardrobe||"")}</td></tr>`).join("") +
       `</table></div></div>`;
   }
+  if ((d.props||[]).length){
+    html += `<div class="card"><div class="label">道具 · ${d.props.length}</div><div class="twrap"><table class="resp">
+      <tr><th>名字</th><th>类别</th><th>外观</th><th>材质</th><th>持有者</th><th>登场</th><th>标记</th></tr>` +
+      d.props.map(p=>`<tr><td><b>${esc(p.name||"")}</b></td><td class="dim">${esc(p.category||"")}</td>
+        <td class="dim small">${esc(p.appearance||"")}</td><td class="dim">${esc(p.material||"—")}</td>
+        <td class="dim">${esc(p.owner||"—")}</td><td class="num">${p.first_chapter||""}</td>
+        <td>${p.closeup?'<span class="pill">特写</span>':""}${p.wearable?'<span class="pill warn-p">可穿戴</span>':""}</td></tr>`).join("") +
+      `</table></div></div>`;
+  }
   if (d.locations.length){
     const loc = l => typeof l === "string" ? l : (l.name || JSON.stringify(l));
     html += `<div class="card"><div class="label">地点 · ${d.locations.length}</div><div class="twrap"><table class="resp">
