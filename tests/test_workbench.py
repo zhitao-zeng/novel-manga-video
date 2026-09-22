@@ -7,10 +7,43 @@ extensions - a path escaping it, or a .json, is not a media file.
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
+from zipfile import ZipFile
 
 import pytest
 
 from novel_manga.application.dashboard import workbench
+
+S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+P = "http://schemas.openxmlformats.org/package/2006/relationships"
+R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+SHEET_HEADERS = ["镜号", "摄影角度", "景别", "画面内容 / 动作", "场景", "台词 / 声音",
+                 "机位 / 运镜 / 连续性", "叙事目的", "预算秒"]
+
+
+def write_sheet(path, shots):
+    """A real workbook, because what is being tested is whether the real reader can read it."""
+    book, rels = ET.Element(f"{{{S}}}workbook"), ET.Element(f"{{{P}}}Relationships")
+    listed = ET.SubElement(book, f"{{{S}}}sheets")
+    ET.SubElement(listed, f"{{{S}}}sheet", {"name": "分镜", "sheetId": "1", f"{{{R}}}id": "r1"})
+    ET.SubElement(rels, f"{{{P}}}Relationship", {"Id": "r1", "Target": "worksheets/s1.xml"})
+    sheet = ET.Element(f"{{{S}}}worksheet")
+    data = ET.SubElement(sheet, f"{{{S}}}sheetData")
+    for i, values in enumerate([SHEET_HEADERS, *shots], 1):
+        row = ET.SubElement(data, f"{{{S}}}row", {"r": str(i)})
+        for j, value in enumerate(values):
+            numeric = i > 1 and j == 8
+            cell = ET.SubElement(row, f"{{{S}}}c", {"r": f"{chr(65 + j)}{i}", "t": "n" if numeric else "inlineStr"})
+            if numeric:
+                ET.SubElement(cell, f"{{{S}}}v").text = value
+            else:
+                ET.SubElement(ET.SubElement(cell, f"{{{S}}}is"), f"{{{S}}}t").text = value
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with ZipFile(path, "w") as archive:
+        for name, part in {"xl/workbook.xml": book, "xl/_rels/workbook.xml.rels": rels,
+                           "xl/worksheets/s1.xml": sheet}.items():
+            archive.writestr(name, ET.tostring(part, encoding="utf-8"))
+    return path
 
 
 def make_root(tmp_path, *, managed=("wuyue",)):
@@ -134,6 +167,36 @@ def test_thumbnails_are_downscaled_cached_and_images_only(tmp_path):
         workbench.thumbnail(root, "wuyue", "series_assets/voices/甲.wav", 520)   # not an image
     with pytest.raises(KeyError):
         workbench.thumbnail(root, "wuyue", "series_assets/characters/character_001/spec.json", 520)
+
+
+def test_episode_detail_carries_the_agents_own_storyboard(tmp_path):
+    root = make_root(tmp_path)
+    book = make_book(root, "wuyue", episodes=[7])
+    episode = book / "wuyue_7"
+    (episode / "agent_storyboard.json").write_text(json.dumps({
+        "status": "accepted", "skill": "分镜", "attempt": 2, "accepted_at": "2026-09-21 22:10"}),
+        encoding="utf-8")
+    write_sheet(episode / "agent_storyboard" / "分镜表.xlsx",
+                [["1", "平视", "中景", "席勒站在讲台后。", "教室", "席勒（说）：“随堂测验。”", "固定", "立住人物", "6"]])
+    profile = json.loads((book / "profile.json").read_text(encoding="utf-8"))
+    profile["planning_backend"] = "sandbox_agent"
+    (book / "profile.json").write_text(json.dumps(profile), encoding="utf-8")
+
+    detail = workbench.episode(root, "wuyue", 7)
+    assert detail["backend"] == "sandbox_agent"
+    board = detail["agent_storyboard"]
+    assert board["record"]["skill"] == "分镜"
+    assert board["sheets"][0]["rows"][0]["motion_prompt"] == "席勒站在讲台后。"
+    assert board["sheets"][0]["rows"][0]["edit_seconds"] == 6.0
+    assert detail["video"] == "wuyue_7/wuyue_7.mp4"
+
+
+def test_episode_without_agent_has_no_storyboard(tmp_path):
+    root = make_root(tmp_path)
+    make_book(root, "wuyue", episodes=[1])
+    detail = workbench.episode(root, "wuyue", 1)
+    assert detail["backend"] == "local"
+    assert detail["agent_storyboard"] is None
 
 
 def test_assets_reads_specs_images_and_voices(tmp_path):

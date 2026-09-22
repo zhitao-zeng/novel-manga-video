@@ -74,6 +74,7 @@ async function renderEpisode(book, n){
   const media = rel => `/media/${encodeURIComponent(book)}/${rel.split("/").map(encodeURIComponent).join("/")}`;
   const thumb = rel => `/thumb/${encodeURIComponent(book)}/${rel.split("/").map(encodeURIComponent).join("/")}`;
   let html = `<div class="dim" style="margin:0 2px"><a href="/novel/${encodeURIComponent(book)}">← ${esc(book)}</a> · 第 <b>${n}</b> 集
+    ${d.backend && d.backend!=="local" ? `· <span class="pill warn-p">沙箱 Agent 规划</span>` : ""}
     ${d.report && d.report.model ? `· 规划模型 <span class="pill">${esc(d.report.model)}</span>` : ""}</div>`;
   if (d.video){
     const clipRows = (d.clips||[]).map(c=>`<tr data-t="${c.offset}" class="cliprow"><td class="num">${c.n}</td><td class="dim">${esc(c.kind||"")}</td><td class="num">${c.seconds}s</td><td>${esc(c.label)}</td></tr>`).join("");
@@ -92,7 +93,26 @@ async function renderEpisode(book, n){
       return `<details><summary class="num">${esc(p.name)}</summary><pre class="md">${body}</pre></details>`;
     }).join("") + `</div>`;
   }
-  html += textBlock("剧本 chapter_script.md", d.script_md);
+  const COLS = [["authored_id","镜号"],["location","场景"],["motion_prompt","画面内容 / 动作"],["authored_sound","台词 / 声音"],
+                ["shot_scale","景别"],["camera_angle","摄影角度"],["camera","机位 / 运镜"],["narrative_purpose","叙事目的"],["edit_seconds","秒"]];
+  if (d.agent_storyboard){
+    const rec = d.agent_storyboard.record||{};
+    const meta = [rec.skill&&`skill ${esc(rec.skill)}`, rec.attempt&&`第 ${esc(rec.attempt)} 次尝试`,
+                  rec.accepted_at&&`接受于 ${esc(rec.accepted_at)}`, rec.status&&`状态 ${esc(rec.status)}`].filter(Boolean).join(" · ");
+    const sheets = (d.agent_storyboard.sheets||[]).map(s=>{
+      if (s.error) return `<div class="dim">工作表 ${esc(s.file)} 读取失败：${esc(s.error)}</div>`;
+      return `<div class="dim small" style="margin:6px 0">${esc(s.file)} · ${esc(s.name)} · ${s.rows.length} 镜</div>
+        <div class="twrap"><table class="resp sheet"><tr>${COLS.map(c=>`<th>${c[1]}</th>`).join("")}</tr>` +
+        s.rows.map(r=>`<tr>${COLS.map(c=>`<td>${esc(r[c[0]]??"")}</td>`).join("")}</tr>`).join("") + `</table></div>`;
+    }).join("");
+    const scriptBody = d.script_md ? `<pre class="md">${esc(d.script_md.text)}</pre>` : `<div class="dim">没有 chapter_script.md</div>`;
+    html += `<div class="card"><div class="label">剧本 · 两个来源可切换</div>
+      <div class="tabs"><button class="tab on" data-tab="agent">Agent 原始分镜表</button><button class="tab" data-tab="final">正式剧本（出片用）</button></div>
+      <div class="tabbody" data-tab="agent"><div class="dim small">${meta}</div>${sheets}</div>
+      <div class="tabbody" data-tab="final" style="display:none">${scriptBody}</div></div>`;
+  } else {
+    html += textBlock("剧本 chapter_script.md（出片用）", d.script_md);
+  }
   html += textBlock("分镜表 clip_plan.md", d.plan_md);
   html += jsonBlock("审片意见 episode_review.json", d.review);
   html += jsonBlock("媒体质检 media_qc_report.json", d.qc);
@@ -103,6 +123,10 @@ async function renderEpisode(book, n){
       logKeys.map(k=>`<details><summary class="num">${esc(k)}</summary><pre class="md">${esc(d.logs[k].text)}</pre></details>`).join("") + `</div>`;
   }
   document.getElementById("episode").innerHTML = html;
+  document.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", ()=>{
+    document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("on", b===btn));
+    document.querySelectorAll(".tabbody").forEach(b=>b.style.display = b.dataset.tab===btn.dataset.tab ? "" : "none");
+  }));
   const film = document.getElementById("film");
   if (film) document.querySelectorAll(".cliprow").forEach(row =>
     row.addEventListener("click", ()=>{ film.currentTime = parseFloat(row.dataset.t)||0; film.play(); }));
@@ -114,30 +138,63 @@ function specRows(spec){
   return Object.entries(spec||{}).filter(([k])=>!skip.has(k))
     .map(([k,v])=>`<tr><td class="dim" style="white-space:nowrap">${esc(k)}</td><td>${esc(typeof v==="object"?JSON.stringify(v):v)}</td></tr>`).join("");
 }
-function assetCard(book, kind, a){
-  const spec = a.spec||{};
-  const name = spec.name || spec.location || spec.title || a.id;
-  const base = `/media/${encodeURIComponent(book)}/series_assets/${kind}/${a.id}`;
-  const thumb = img => `/thumb/${encodeURIComponent(book)}/series_assets/${kind}/${a.id}/${encodeURIComponent(img)}`;
-  const imgs = a.images.map(img=>({full:`${base}/${encodeURIComponent(img)}`, small:thumb(img)}));
-  return `<div class="asset">
-    ${imgs.length?`<a href="${imgs[0].full}" target="_blank"><img loading="lazy" src="${imgs[0].small}?w=520" alt="${esc(name)}"></a>`:""}
-    <div class="asset-body">
-      <div><b>${esc(name)}</b> ${spec.role?`<span class="pill">${esc(spec.role)}</span>`:""} <span class="dim num">${esc(a.id)}</span></div>
-      ${spec.appearance?`<div class="dim small">${esc(spec.appearance)}</div>`:""}
-      ${spec.wardrobe?`<div class="dim small">服装：${esc(spec.wardrobe)}</div>`:""}
-      ${imgs.length>1?`<div class="thumbs">${imgs.slice(1).map(u=>`<a href="${u.full}" target="_blank"><img loading="lazy" src="${u.small}?w=240"></a>`).join("")}</div>`:""}
-      <details><summary class="dim small">spec.json</summary><table class="kv">${specRows(spec)}</table></details>
-    </div></div>`;
+
+/* Dense grid + lightbox: dozens of cards per screen, click one to enlarge. */
+let LB = {items: [], i: 0, book: "", kind: ""};
+
+function gridCells(book, kind, list){
+  return list.map((a,i)=>{
+    const spec = a.spec||{};
+    const name = spec.name || spec.location || spec.title || a.id;
+    const img = a.images.length ? `/thumb/${encodeURIComponent(book)}/series_assets/${kind}/${a.id}/${encodeURIComponent(a.images[0])}?w=240` : "";
+    return `<div class="acell" data-name="${esc(String(name).toLowerCase())}" data-kind="${kind}" data-i="${i}">
+      ${img ? `<img loading="lazy" src="${img}" alt="${esc(name)}">` : `<div class="acell-none dim">无图</div>`}
+      <div class="aname" title="${esc(name)}">${esc(name)}</div></div>`;
+  }).join("");
 }
+
+function openLightbox(book, kind, items, i){
+  LB = {items, i, book, kind};
+  drawLightbox();
+  document.getElementById("lb").style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+function closeLightbox(){
+  document.getElementById("lb").style.display = "none";
+  document.body.style.overflow = "";
+}
+function stepLightbox(d){ LB.i = (LB.i + d + LB.items.length) % LB.items.length; drawLightbox(); }
+
+function drawLightbox(){
+  const a = LB.items[LB.i], spec = a.spec||{};
+  const name = spec.name || spec.location || spec.title || a.id;
+  const base = `/media/${encodeURIComponent(LB.book)}/series_assets/${LB.kind}/${a.id}`;
+  const tbase = `/thumb/${encodeURIComponent(LB.book)}/series_assets/${LB.kind}/${a.id}`;
+  const main = a.images.length ? a.images[0] : null;
+  document.getElementById("lb-box").innerHTML = `
+    <div class="lb-img">${main ? `<img src="${tbase}/${encodeURIComponent(main)}?w=960" alt="${esc(name)}">` : ""}</div>
+    <div class="lb-panel">
+      <div><b style="font-size:16px">${esc(name)}</b> ${spec.role?`<span class="pill">${esc(spec.role)}</span>`:""}</div>
+      <div class="dim small">${esc(a.id)} · ${LB.i+1} / ${LB.items.length}</div>
+      <table class="kv">${specRows(spec)}</table>
+      ${a.images.length>1 ? `<div class="thumbs">${a.images.slice(1).map(img=>`<a href="${base}/${encodeURIComponent(img)}" target="_blank"><img loading="lazy" src="${tbase}/${encodeURIComponent(img)}?w=240"></a>`).join("")}</div>` : ""}
+      ${main ? `<div><a href="${base}/${encodeURIComponent(main)}" target="_blank">查看原图 ↗</a></div>` : ""}
+      <div class="lb-nav"><button id="lb-prev">← 上一个</button><button id="lb-next">下一个 →</button></div>
+    </div>`;
+  document.getElementById("lb-prev").onclick = e=>{e.stopPropagation(); stepLightbox(-1);};
+  document.getElementById("lb-next").onclick = e=>{e.stopPropagation(); stepLightbox(1);};
+}
+
 async function renderAssets(book){
   const d = await getJSON(`/api/book/${encodeURIComponent(book)}/assets`);
   let html = `<div class="dim" style="margin:0 2px"><a href="/novel/${encodeURIComponent(book)}">← ${esc(book)}</a> · 资产库</div>`;
   html += `<div class="stats">${stat("角色", d.characters.length, "张卡")}${stat("地点", d.locations.length, "张卡")}${stat("音色", d.voices.length, "条")}${stat("头像", d.avatars.length, "个")}</div>`;
-  if (d.characters.length)
-    html += `<div class="card"><div class="label">角色卡</div><div class="gallery">${d.characters.map(a=>assetCard(book,"characters",a)).join("")}</div></div>`;
-  if (d.locations.length)
-    html += `<div class="card"><div class="label">地点卡</div><div class="gallery">${d.locations.map(a=>assetCard(book,"locations",a)).join("")}</div></div>`;
+  for (const [kind, label, list] of [["characters","角色卡",d.characters],["locations","地点卡",d.locations]]){
+    if (!list.length) continue;
+    html += `<div class="card"><div class="label">${label} · ${list.length} 张<span class="dim">（点击放大）</span>
+      <input class="afilter" data-kind="${kind}" placeholder="按名字过滤…"></div>
+      <div class="agrid" data-kind="${kind}">${gridCells(book, kind, list)}</div></div>`;
+  }
   if (d.voices.length)
     html += `<div class="card"><div class="label">音色</div>` + d.voices.map(v=>
       `<div class="voice"><span class="num">${esc(v.name)}</span><audio controls preload="none" src="/media/${encodeURIComponent(book)}/series_assets/voices/${encodeURIComponent(v.name)}"></audio></div>`).join("") + `</div>`;
@@ -146,7 +203,27 @@ async function renderAssets(book){
       `<a href="/media/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}" target="_blank"><img loading="lazy" src="/thumb/${encodeURIComponent(book)}/series_assets/avatars/${encodeURIComponent(v.name)}?w=160" title="${esc(v.name)}"></a>`).join("") + `</div></div>`;
   if (!d.characters.length && !d.locations.length && !d.voices.length && !d.avatars.length)
     html += `<div class="card"><div class="dim">series_assets 目录还没有资产</div></div>`;
+  html += `<div id="lb" class="lb" style="display:none"><div class="lb-back"></div><div class="lb-box" id="lb-box"></div></div>`;
   document.getElementById("assets").innerHTML = html;
+
+  const sections = {characters: d.characters, locations: d.locations};
+  document.querySelectorAll(".acell").forEach(cell => cell.addEventListener("click", ()=>{
+    const kind = cell.dataset.kind;
+    openLightbox(book, kind, sections[kind], parseInt(cell.dataset.i));
+  }));
+  document.querySelectorAll(".afilter").forEach(input => input.addEventListener("input", ()=>{
+    const q = input.value.trim().toLowerCase();
+    document.querySelectorAll(`.agrid[data-kind="${input.dataset.kind}"] .acell`).forEach(cell=>{
+      cell.style.display = !q || cell.dataset.name.includes(q) ? "" : "none";
+    });
+  }));
+  document.querySelector(".lb-back").addEventListener("click", closeLightbox);
+  document.addEventListener("keydown", e=>{
+    if (document.getElementById("lb").style.display === "none") return;
+    if (e.key === "Escape") closeLightbox();
+    if (e.key === "ArrowLeft") stepLightbox(-1);
+    if (e.key === "ArrowRight") stepLightbox(1);
+  });
 }
 
 /* ---------- /experiments ---------- */

@@ -170,11 +170,33 @@ def _clip_rows(plan: dict | None) -> list[dict]:
     return rows
 
 
+def _agent_storyboard(directory: Path) -> dict | None:
+    """The sandbox agent's own storyboard for this episode, when one was imported: the import
+    record, and the sheet itself read by the same workbook reader the import uses."""
+    record_path = directory / "agent_storyboard.json"
+    if not record_path.is_file():
+        return None
+    from novel_manga.planning.storyboard import read_workbook
+    result = {"record": _read_json(record_path) or {}, "sheets": []}
+    sheet_dir = directory / "agent_storyboard"
+    if sheet_dir.is_dir():
+        for xlsx in sorted(sheet_dir.glob("*.xlsx")):
+            try:
+                for sheet in read_workbook(xlsx):
+                    result["sheets"].append({"name": sheet.name, "file": xlsx.name,
+                                             "notes": list(sheet.notes),
+                                             "rows": [dict(row) for row in sheet.rows]})
+            except Exception as error:  # noqa: BLE001 - a broken sheet must not break the page
+                result["sheets"].append({"name": xlsx.stem, "file": xlsx.name, "error": str(error)})
+    return result
+
+
 def episode(root, book_id: str, number: int) -> dict:
     directory = book_dir(root, book_id) / f"{book_id}_{number}"
     if not directory.is_dir():
         raise KeyError(number)
     name = directory.name
+    profile = _read_json(directory.parent / "profile.json") or {}
     plan = _read_json(directory / "clip_plan.json")
     prompts = []
     for path in sorted(directory.glob("request_attempt_*.json")) + sorted(directory.glob("analysis_attempt_*.txt")):
@@ -191,6 +213,8 @@ def episode(root, book_id: str, number: int) -> dict:
     previous = directory / "repair_history" / "previous_final.mp4"
     return {
         "book": book_id, "episode": number,
+        "backend": profile.get("planning_backend", "local"),
+        "agent_storyboard": _agent_storyboard(directory),
         "video": media(f"{name}.mp4"),
         "cover": media(f"{name}_cover.jpeg"),
         "ending": media(f"{name}_ending.jpeg"),
