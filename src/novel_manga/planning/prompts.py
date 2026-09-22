@@ -77,5 +77,7 @@ def compact_bible(bible: StoryBible, location_map: dict[str, str]) -> dict:
             for character in bible.characters
         ],
         "locations": [{"name": short, "description": full} for short, full in location_map.items()],
+        **({"props": [{"name": prop.name, "appearance": prop.appearance, "category": prop.category}
+                      for prop in bible.props]} if getattr(bible, "props", None) else {}),
         "continuity_rules": bible.continuity_rules,
     }

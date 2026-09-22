@@ -346,11 +346,17 @@ def run(args, ctx: PlannerContext) -> int:
         location_map = {full.split("：", 1)[0].strip(): full for full in bible.locations}
         names = [character.name for character in bible.characters]
     segment_ids = [segment["segment_id"] for segment in segments]
+    # Props join the slice the way people and places do: only the ones this chapter's text names.
+    # A book without props keeps prop_names empty and the schema byte-identical to before.
+    prop_all = list(getattr(full_bible, "props", None) or [])
+    prop_names = [p.name for p in prop_all if p.name and p.name in episode.source_text]
+    if prop_all:
+        bible = bible.model_copy(update={"props": [p for p in prop_all if p.name in prop_names]})
     # A bound sheet is not re-planned: the model answers one object per authored shot with only the
     # fields the import left empty, and never sees a schema that would let it rewrite the cuts.
     ctx.authored_storyboard = bool(authored)
-    schema = (pc_binding.bind_schema(authored, names, list(location_map), segment_ids, ctx=ctx) if authored
-              else pc_contracts.build_schema(names, list(location_map), segment_ids, ctx=ctx))
+    schema = (pc_binding.bind_schema(authored, names, list(location_map), segment_ids, ctx=ctx, prop_names=prop_names) if authored
+              else pc_contracts.build_schema(names, list(location_map), segment_ids, ctx=ctx, prop_names=prop_names))
     from novel_manga.application.identity.context import prompt_context
     identity_context = prompt_context(episode_dir, names, data=identity_data)
     payload = {

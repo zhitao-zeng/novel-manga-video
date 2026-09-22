@@ -29,7 +29,25 @@ def bodies_for(novel_dir, chapter) -> dict[str, tuple[str, str]]:
     return out
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None) -> tuple[list[dict], list[str], str]:
+def prop_assets_on_disk(novel_dir) -> dict[str, set[str]]:
+    """Prop asset id -> the image files it actually holds.  A promised reference to a missing
+    file fails the pre-render check for the whole episode, the same rule as the expression
+    sheets; callers without a novel_dir get None and plan optimistically, as they always did."""
+    out: dict[str, set[str]] = {}
+    if novel_dir is None:
+        return out
+    props_dir = Path(novel_dir) / "series_assets" / "props"
+    try:
+        for entry in props_dir.iterdir():
+            if entry.is_dir():
+                out[entry.name] = {f.name for f in entry.iterdir()
+                                   if f.is_file() and f.suffix.lower() in (".jpeg", ".jpg", ".png")}
+    except OSError:
+        pass
+    return out
+
+
+def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None, props: list[str] | None = None, props_index: dict | None = None, props_on_disk: set[str] | None = None) -> tuple[list[dict], list[str], str]:
     settings = settings or compiler_options()
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
@@ -102,6 +120,30 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     location_asset = f"location_{location_index[location_short]:03d}"
     count += 1
     references.append({"tag": f"@图片{count}", "role": "location", "name": location_short, "asset_id": location_asset, "path": f"series_assets/locations/{location_asset}/establishing.jpeg"})
+    # The prop seat: one slot after the location, never at the cost of a character's view - ten
+    # reference images and the model starts blending faces.  A prop the bible does not list (a
+    # planner hallucination) or whose card was never built is dropped, not invented.
+    prop_by_name = dict(props_index or {})
+    prop_order = {p.name: i for i, p in enumerate(getattr(bible, "props", None) or [], start=1)}
+    if props:
+        present = props_on_disk if props_on_disk is not None else (
+            prop_assets_on_disk(novel_dir) if novel_dir is not None else None)
+        for prop_name in dict.fromkeys(props):
+            prop = prop_by_name.get(prop_name)
+            position = prop_order.get(prop_name)
+            if prop is None or position is None:
+                continue
+            asset = f"prop_{position:03d}"
+            if present is not None and asset not in present:
+                continue
+            images = present.get(asset) if present is not None else None
+            image = "detail.jpeg" if prop.closeup and (images is None or "detail.jpeg" in images) else "turnaround.jpeg"
+            count += 1
+            references.append({"tag": f"@图片{count}", "role": "prop", "name": prop_name, "asset_id": asset,
+                               "path": f"series_assets/props/{asset}/{image}"})
+            bindings.append(f"<{prop_name}>对应@图片{count}：只采用该物品的外观、材质与结构，"
+                            "不放大、不缩小、不改变相对人物的比例")
+            break  # 道具位硬上限：每 clip 一件
     # One reference voice per speaking character that has one in the bank.  The
     # model listens to the references and matches them to the on-screen speakers
     # by itself; it ignores both @音频N text bindings and the order of the audio

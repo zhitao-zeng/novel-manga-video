@@ -24,7 +24,7 @@ def outline_schema(mode: str, segment_ids: list[str]) -> dict:
     }
 
 
-def build_schema(character_names: list[str], location_names: list[str], segment_ids: list[str], *, ctx: PlannerContext) -> dict:
+def build_schema(character_names: list[str], location_names: list[str], segment_ids: list[str], *, ctx: PlannerContext, prop_names: list[str] | None = None) -> dict:
     cast_array = cast_field(character_names)
     turn = turn_field(character_names, ctx.anonymous_speakers, pc_constants.DELIVERY_MODES)
     stage = {
@@ -51,6 +51,10 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "actions": actions_field(),
         },
     }
+    if prop_names:
+        # 道具只能来自圣经名单：枚举之外的名字是模型的幻觉，不是新道具
+        stage["properties"]["props"] = {"type": "array", "maxItems": 2,
+                                        "items": {"type": "string", "enum": prop_names}}
     if ctx.story_blueprint:
         beats = [b['beat_id'] for b in ctx.story_blueprint.get('beats', []) if b['segment_id'] in segment_ids]
         if beats:

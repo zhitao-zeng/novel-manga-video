@@ -73,7 +73,7 @@ def unplaceable(authored: dict, location_names) -> list[str]:
 
 
 def bind_schema(authored: dict, character_names: list[str], location_names: list[str],
-                segment_ids: list[str], *, ctx) -> dict:
+                segment_ids: list[str], *, ctx, prop_names: list[str] | None = None) -> dict:
     """One answer per authored shot, in sheet order, carrying only what the import left empty."""
     ids = [str(shot["镜号"]) for shot in authored["shots"]]
     speakers, places = written_names(authored)
@@ -103,6 +103,10 @@ def bind_schema(authored: dict, character_names: list[str], location_names: list
             "actions": actions_field(),
         },
     }
+    if prop_names:
+        # 这镜里出现了名单上的哪件道具（可没有）：枚举之外的名字是幻觉，不是新道具
+        bound["properties"]["props"] = {"type": "array", "maxItems": 2,
+                                        "items": {"type": "string", "enum": prop_names}}
     # One answer per distinct written name, not per shot: the same 秦宇 cannot be one person in shot 3
     # and another in shot 7, and a scene name cannot drift between shots of the same place.
     def naming(written: list[str], field: dict) -> dict:
@@ -190,6 +194,7 @@ def merge(authored: dict, answer: dict, *, character_names=()) -> dict:
             "in_frame": bound["in_frame"],
             "extras": bound["extras"],
             "actions": bound["actions"],
+            **({"props": bound["props"]} if bound.get("props") else {}),
             "authored_id": shot_id,
             "authored_seconds": shot["预算秒"],
             "authored_angle": shot["摄影角度"],
