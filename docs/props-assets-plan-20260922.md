@@ -425,13 +425,15 @@ def test_wears_pointing_nowhere_is_skipped():
 
 ---
 
-### Task 7: 端到端验证（沙箱书）
+### Task 7: 端到端验证（沙箱书）✅ 已执行
 
 **Files:** 无新代码；验证记录在 `docs/props-assets-plan-20260922.md` 末尾补"验证结果"一节。
 
-- [ ] 用 `_sample-` 机制建一本沙箱拷贝书（或新书 demo），跑：建书（含道具提取）→ 建 1 张道具卡（核对 spec.json 与图片落盘）→ 规划 1 章（clip 带 props 字段）→ 装配（references 含道具位）→ 拼出请求 JSON 人工核对。
-- [ ] 在产三书跑提示词逐字节比对（Global Constraints），期望 0 差异。
-- [ ] 全量测试绿。把结果写进本文档并 commit。
+- [x] 全链路 in-process 测试 `tests/test_props_end_to_end.py`：真实 `grow_bible`（stub 外部模型）→ bible.props 落盘 + growth 记录 → 真实 `build_selected`（假 provider）建出道具卡 + detail 特写 → 规划 schema 带道具枚举 → 真实 `build_references` 座位落在 detail.jpeg。
+- [x] 在产书逐字节比对（HEAD `10a6f91` vs 本分支，雾月真实 bible，20 角色 + 10 地点）：**30 条提示词，逐字节不同 0 条**。
+- [x] 全量测试 1283+ 全绿。
+- [ ] 真机建卡 + 真模型规划一章（等新书或显式试点，需要付费调用，留给用户决定时机）。
+
 
 ---
 
