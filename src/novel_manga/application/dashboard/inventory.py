@@ -96,6 +96,19 @@ def _episode_state(directory: Path, h3_lane: bool, *, scan=None) -> dict:
     return value
 
 
+def attention_reason(state: dict, h3_lane: bool) -> str:
+    """The one-line reason an episode needs a human, shared by the board's attention list and
+    the workbench health page."""
+    return ("提交结果不明，需核账" if state["uncertain"] else "状态文件无法读取" if state["unreadable"]
+            else "重试次数用尽，需处理" if state["blocked"] and state["runs"] >= RENDER_RUNS_PER_PLAN
+            else "质检未通过，需处理" if state["blocked"]
+            else "质检未通过，等待重拍" if state["status"] == "done_with_warnings"
+            else "计划或修正已更新，等待重做" if state["status"] == "stale"
+            else "片段生成失败" if state["status"] == "clips_failed"
+            else "旧视频待重新验证" if state["final_mtime"] and state["status"] in {"pending", "no_plan"}
+            else "审查失败，仍未审完" if state["review"] == "error" else "")
+
+
 def _episode_inventory(novel_id: str, *, scan=None) -> dict:
     """Counts and qualified-final mtimes, shared by the live page and analytics board."""
     result = {"finals": [], "planned": 0, "files": 0, "states": {}, "blocked": 0, "uncertain": 0,
@@ -116,14 +129,7 @@ def _episode_inventory(novel_id: str, *, scan=None) -> dict:
         result["uncertain"] += state["uncertain"]
         result["review_pending"] += state["review"] == "pending"
         result["review_errors"] += state["review"] == "error"
-        reason = ("提交结果不明，需核账" if state["uncertain"] else "状态文件无法读取" if state["unreadable"]
-                  else "重试次数用尽，需处理" if state["blocked"] and state["runs"] >= RENDER_RUNS_PER_PLAN
-                  else "质检未通过，需处理" if state["blocked"]
-                  else "质检未通过，等待重拍" if status == "done_with_warnings"
-                  else "计划或修正已更新，等待重做" if status == "stale"
-                  else "片段生成失败" if status == "clips_failed"
-                  else "旧视频待重新验证" if state["final_mtime"] and status in {"pending", "no_plan"}
-                  else "审查失败，仍未审完" if state["review"] == "error" else "")
+        reason = attention_reason(state, h3_lane)
         if reason:
             result["attention"].append({"chapter": int(directory.name.rsplit("_", 1)[-1]), "reason": reason})
     return result

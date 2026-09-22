@@ -251,6 +251,40 @@ def test_recent_orders_by_mtime_and_reads_gate_outcomes(tmp_path):
     assert data["experiments"][0]["name"] == "quick-try"
 
 
+def test_health_uses_the_production_status_judgement(tmp_path):
+    root = make_root(tmp_path)
+    book = make_book(root, "wuyue", episodes=[1, 2])
+    ep2 = book / "wuyue_2"
+    (ep2 / "clip_plan.json").write_text(json.dumps({"clips": []}), encoding="utf-8")   # planned, never rendered
+    data = workbench.health(root, "wuyue")
+    by_ep = {r["episode"]: r for r in data["rows"]}
+    assert by_ep[2]["status"] == "pending"          # clip_plan without a media report
+    assert by_ep[2]["reason"] == "旧视频待重新验证"   # same words the board's attention list uses
+    assert data["counts"]["pending"] == 2           # make_book's episode is planned but unrendered too
+    assert {r["episode"] for r in data["attention"]} == {1, 2}   # both lack a real render
+
+
+def test_bible_reads_cast_volumes_growth_and_pairs(tmp_path):
+    root = make_root(tmp_path)
+    book = make_book(root, "wuyue")
+    (book / "story_bible.json").write_text(json.dumps({
+        "novel_title": "雾月秘典", "genre": "gaslamp", "visual_style": "3d 国漫",
+        "characters": [{"name": "莱恩", "role": "主角", "appearance": "瘦高"}],
+        "locations": ["事务所"], "style_fingerprint": "abc"}), encoding="utf-8")
+    (book / "volumes.json").write_text(json.dumps(
+        [{"from": 1, "to": 20, "chapters": 20, "summary": "前二十章"}]), encoding="utf-8")
+    (book / "bible_growth.json").write_text(json.dumps(
+        {"3": {"characters": ["莱恩"], "locations": ["事务所"], "needs_human": {}}}), encoding="utf-8")
+
+    data = workbench.bible(root, "wuyue")
+    assert data["meta"]["title"] == "雾月秘典"
+    assert data["characters"][0]["name"] == "莱恩"
+    assert data["volumes"][0]["summary"] == "前二十章"
+    assert data["growth"][0] == {"chapter": 3, "characters": ["莱恩"], "locations": ["事务所"],
+                                 "needs_human": False}
+    assert data["cast"] is None                                    # wuyue never had a reading cast
+
+
 def test_assets_reads_specs_images_and_voices(tmp_path):
     root = make_root(tmp_path)
     book = make_book(root, "wuyue")

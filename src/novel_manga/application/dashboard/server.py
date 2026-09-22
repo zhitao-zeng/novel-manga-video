@@ -87,6 +87,12 @@ class Handler(BaseHTTPRequestHandler):
         elif re.fullmatch(r"/assets/[A-Za-z0-9._-]+", path):
             body = render_page('assets', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
+        elif re.fullmatch(r"/health/[A-Za-z0-9._-]+", path):
+            body = render_page('health', config.UI_VERSION).encode("utf-8")
+            content_type = "text/html; charset=utf-8"
+        elif re.fullmatch(r"/bible/[A-Za-z0-9._-]+", path):
+            body = render_page('bible', config.UI_VERSION).encode("utf-8")
+            content_type = "text/html; charset=utf-8"
         else:
             self.send_error(404)
             return
@@ -113,6 +119,10 @@ class Handler(BaseHTTPRequestHandler):
             return _json_body(workbench.episode(config.ROOT, parts[2], int(parts[4])))
         if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'assets':
             return _json_body(workbench.assets(config.ROOT, parts[2]))
+        if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'health':
+            return _json_body(workbench.health(config.ROOT, parts[2]))
+        if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'bible':
+            return _json_body(workbench.bible(config.ROOT, parts[2]))
         raise KeyError(path)
 
     def _send_file(self, target, content_type: str):

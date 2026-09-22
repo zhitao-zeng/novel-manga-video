@@ -33,6 +33,8 @@ async function renderBooks(){
       <td class="num">${b.episodes}</td>
       <td>${b.deliverable==null ? '<span class="dim">未统计</span>' : `<b class="num">${b.deliverable}</b> / ${b.total}`}</td>
       <td class="links"><a href="/novel/${encodeURIComponent(b.id)}">剧集</a>
+        <a href="/health/${encodeURIComponent(b.id)}">健康</a>
+        <a href="/bible/${encodeURIComponent(b.id)}">设定</a>
         ${b.has_assets ? `<a href="/assets/${encodeURIComponent(b.id)}">资产</a>` : ""}</td>
     </tr>`).join("");
 }
@@ -48,7 +50,7 @@ async function renderNovel(book){
   document.getElementById("book-head").innerHTML = `<div class="stats">
     ${stat("剧集", rows.length, "集")}${stat("有成片", videos, "集")}${stat("有剧本", rows.filter(r=>r.script).length, "集")}${stat("修复候选", rows.filter(r=>r.repair_candidate).length, "集")}
     </div>
-    <div class="dim" style="margin:4px 2px 0">书 <b>${esc(book)}</b> · <a href="/assets/${encodeURIComponent(book)}">资产库 →</a></div>`;
+    <div class="dim" style="margin:4px 2px 0">书 <b>${esc(book)}</b> · <a href="/assets/${encodeURIComponent(book)}">资产库 →</a> <a href="/health/${encodeURIComponent(book)}">健康 →</a> <a href="/bible/${encodeURIComponent(book)}">设定集 →</a></div>`;
   document.getElementById("episodes").innerHTML =
     `<tr><th>集</th><th>成片</th><th>剧本</th><th>分镜</th><th>审片</th><th>质检</th><th>修复</th><th>更新时间</th></tr>` +
     rows.map(r=>`<tr>

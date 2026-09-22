@@ -423,6 +423,75 @@ def recent(root, limit: int = 50) -> dict:
     return _cached(("recent", str(root)), build)
 
 
+def health(root, book_id: str) -> dict:
+    """Every episode's production state as a clickable list, not just counts.
+
+    The judgement is the production lane's own: inventory._episode_state reads exactly what
+    thin_batch and the conductor read (status, review state, retry budget), so this page can
+    never disagree with what the scheduler will do.  Rows needing a human come first.
+    """
+    directory = book_dir(root, book_id)
+
+    def build():
+        from novel_manga.application.dashboard import config as dconfig
+        from novel_manga.application.dashboard import inventory
+        from novel_manga.application.dashboard.store import scan_book
+        keys = dconfig._lane_keys().get(book_id, [])
+        h3_lane = bool(keys) and all(k.get("base_url") for k in keys)
+        scan = scan_book(directory)
+        rows = []
+        for episode_dir in _episode_dirs(directory):
+            state = inventory._episode_state(episode_dir, h3_lane, scan=scan)
+            rows.append({
+                "episode": int(episode_dir.name.rsplit("_", 1)[-1]),
+                "status": state["status"], "review": state["review"],
+                "blocked": state["blocked"], "runs": state["runs"],
+                "reason": inventory.attention_reason(state, h3_lane),
+                "mtime": state["final_mtime"] or 0,
+            })
+        counts: dict[str, int] = {}
+        for row in rows:
+            counts[row["status"]] = counts.get(row["status"], 0) + 1
+        attention = [r for r in rows if r["reason"]]
+        attention.sort(key=lambda r: (not r["blocked"], r["episode"]))
+        return {"book": book_id, "h3_lane": h3_lane, "counts": counts,
+                "attention": attention, "rows": rows}
+
+    return _cached(("health", str(directory)), build)
+
+
+def bible(root, book_id: str) -> dict:
+    """What the reading produced, as one page: cast, places, volumes, growth, and the pairs
+    that look or sound alike.  All files are optional - a young book shows what it has."""
+    directory = book_dir(root, book_id)
+    story = _read_json(directory / "story_bible.json") or {}
+    growth = _read_json(directory / "bible_growth.json") or {}
+    growth_rows = [{"chapter": int(ch),
+                    "characters": sorted(entry.get("characters") or []),
+                    "locations": sorted(entry.get("locations") or []),
+                    "needs_human": bool(entry.get("needs_human"))}
+                   for ch, entry in growth.items() if str(ch).isdigit() and isinstance(entry, dict)]
+    growth_rows.sort(key=lambda r: r["chapter"])
+    md = _read_text(directory / "story_bible.md")
+    return {
+        "book": book_id,
+        "meta": {"title": story.get("novel_title"), "genre": story.get("genre"),
+                 "visual_style": story.get("visual_style"), "palette": story.get("palette"),
+                 "typography": story.get("typography"),
+                 "style_fingerprint": story.get("style_fingerprint")},
+        "characters": story.get("characters") or [],
+        "locations": story.get("locations") or [],
+        "continuity_rules": story.get("continuity_rules") or [],
+        "aliases": _read_json(directory / "bible_aliases.json") or {},
+        "cast": _read_json(directory / "reading_cast.json"),
+        "volumes": _read_json(directory / "volumes.json") or [],
+        "growth": growth_rows,
+        "confusable": _read_json(directory / "confusable_pairs.json"),
+        "lookalikes": _read_json(directory / "card_lookalikes.json"),
+        "story_bible_md": md,
+    }
+
+
 def media_file(root, book_id: str, relative: str) -> Path:
     """A whitelisted media file inside the book's own directory; nothing else is served.
 
