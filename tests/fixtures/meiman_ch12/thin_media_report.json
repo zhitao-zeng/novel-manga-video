@@ -1,0 +1,1418 @@
+{
+  "policy": "thin-media-v22-coverage-gate",
+  "episode": "meiman-daoshi_12",
+  "clip_plan_fingerprint": "e6dd5b9b0c145d47b8f0032bf5b9d6280926a4100774f16a6f410c3c4f66c63b",
+  "prompt_h3_fingerprint": "82b68ea3f26af0d4534af48aec6148de07ea5fab40e8ea15666992e4e59b930b",
+  "review_feedback": {},
+  "clips": [
+    {
+      "clip_id": "clip_01",
+      "attempts": [
+        {
+          "clip_id": "clip_01",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_01/attempt_01/clip.mp4",
+          "duration": 8.032,
+          "reference": "你这地方可真够破的。",
+          "hypothesis": "你这地方可真够破的",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -24.8,
+          "max_volume_db": -5.2,
+          "chunks": [
+            {
+              "start": 0.552,
+              "end": 5.347,
+              "hypothesis": "",
+              "raw_hypothesis": "",
+              "corrections": [],
+              "match_score": 0.0,
+              "matched_lines": "",
+              "subtitle": "silent"
+            },
+            {
+              "start": 5.804,
+              "end": 7.742,
+              "hypothesis": "你这地方可真够破的",
+              "raw_hypothesis": "你这地方可真够破的",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "你这地方可真够破的。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_01",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_01/attempt_01/clip.mp4",
+        "duration": 8.032,
+        "reference": "你这地方可真够破的。",
+        "hypothesis": "你这地方可真够破的",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -24.8,
+        "max_volume_db": -5.2,
+        "chunks": [
+          {
+            "start": 0.552,
+            "end": 5.347,
+            "hypothesis": "",
+            "raw_hypothesis": "",
+            "corrections": [],
+            "match_score": 0.0,
+            "matched_lines": "",
+            "subtitle": "silent"
+          },
+          {
+            "start": 5.804,
+            "end": 7.742,
+            "hypothesis": "你这地方可真够破的",
+            "raw_hypothesis": "你这地方可真够破的",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "你这地方可真够破的。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_02",
+      "attempts": [
+        {
+          "clip_id": "clip_02",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_02/attempt_01/clip.mp4",
+          "duration": 10.157,
+          "reference": "再抱怨一会儿，还没进正题，我不收费。你擦灰的表情，比蛋糕上的樱桃还娘。",
+          "hypothesis": "再抱怨一会儿还没进正题我不收费你擦灰的表情比蛋糕上的樱桃还娘",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -16.2,
+          "max_volume_db": -0.0,
+          "chunks": [
+            {
+              "start": 0.632,
+              "end": 3.227,
+              "hypothesis": "再抱怨一会儿还没进正题",
+              "raw_hypothesis": "再抱怨一会儿还没进正题",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "再抱怨一会儿，还没进正题，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 3.768,
+              "end": 4.657,
+              "hypothesis": "我不收费",
+              "raw_hypothesis": "我不收费",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "我不收费。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 6.473,
+              "end": 7.973,
+              "hypothesis": "你擦灰的表情",
+              "raw_hypothesis": "你擦灰的表情",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "你擦灰的表情，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 8.072,
+              "end": 9.934,
+              "hypothesis": "比蛋糕上的樱桃还娘",
+              "raw_hypothesis": "比蛋糕上的樱桃还娘",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "比蛋糕上的樱桃还娘。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_02",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_02/attempt_01/clip.mp4",
+        "duration": 10.157,
+        "reference": "再抱怨一会儿，还没进正题，我不收费。你擦灰的表情，比蛋糕上的樱桃还娘。",
+        "hypothesis": "再抱怨一会儿还没进正题我不收费你擦灰的表情比蛋糕上的樱桃还娘",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -16.2,
+        "max_volume_db": -0.0,
+        "chunks": [
+          {
+            "start": 0.632,
+            "end": 3.227,
+            "hypothesis": "再抱怨一会儿还没进正题",
+            "raw_hypothesis": "再抱怨一会儿还没进正题",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "再抱怨一会儿，还没进正题，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 3.768,
+            "end": 4.657,
+            "hypothesis": "我不收费",
+            "raw_hypothesis": "我不收费",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "我不收费。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 6.473,
+            "end": 7.973,
+            "hypothesis": "你擦灰的表情",
+            "raw_hypothesis": "你擦灰的表情",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "你擦灰的表情，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 8.072,
+            "end": 9.934,
+            "hypothesis": "比蛋糕上的樱桃还娘",
+            "raw_hypothesis": "比蛋糕上的樱桃还娘",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "比蛋糕上的樱桃还娘。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_03",
+      "attempts": [
+        {
+          "clip_id": "clip_03",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_03/attempt_01/clip.mp4",
+          "duration": 12.282,
+          "reference": "霍华德也从这种破屋子白手起家，你体会不到。可怜的贾维斯。斯塔克工业，质的飞跃。",
+          "hypothesis": "霍华德也从这种破屋子白手起家你体会不到可怜的贾维斯斯塔克工业质的飞跃我",
+          "cer": 0.0294,
+          "missing": 0.0,
+          "mean_volume_db": -22.1,
+          "max_volume_db": -3.9,
+          "chunks": [
+            {
+              "start": 0.485,
+              "end": 4.163,
+              "hypothesis": "霍华德也从这种破屋子白手起家你体会不到",
+              "raw_hypothesis": "霍华德也从这种破屋子白手起家你体会不到",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "霍华德也从这种破屋子白手起家，你体会不到。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 4.932,
+              "end": 6.375,
+              "hypothesis": "可怜的贾维斯",
+              "raw_hypothesis": "可怜的贾维斯",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "可怜的贾维斯。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 6.666,
+              "end": 8.357,
+              "hypothesis": "斯塔克工业",
+              "raw_hypothesis": "斯塔克工业",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "斯塔克工业，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 8.488,
+              "end": 9.695,
+              "hypothesis": "质的飞跃",
+              "raw_hypothesis": "质的飞跃",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "质的飞跃。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 10.116,
+              "end": 12.256,
+              "hypothesis": "我",
+              "raw_hypothesis": "我",
+              "corrections": [],
+              "match_score": 0.0,
+              "matched_lines": "",
+              "subtitle": "dropped_murmur"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_03",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_03/attempt_01/clip.mp4",
+        "duration": 12.282,
+        "reference": "霍华德也从这种破屋子白手起家，你体会不到。可怜的贾维斯。斯塔克工业，质的飞跃。",
+        "hypothesis": "霍华德也从这种破屋子白手起家你体会不到可怜的贾维斯斯塔克工业质的飞跃我",
+        "cer": 0.0294,
+        "missing": 0.0,
+        "mean_volume_db": -22.1,
+        "max_volume_db": -3.9,
+        "chunks": [
+          {
+            "start": 0.485,
+            "end": 4.163,
+            "hypothesis": "霍华德也从这种破屋子白手起家你体会不到",
+            "raw_hypothesis": "霍华德也从这种破屋子白手起家你体会不到",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "霍华德也从这种破屋子白手起家，你体会不到。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 4.932,
+            "end": 6.375,
+            "hypothesis": "可怜的贾维斯",
+            "raw_hypothesis": "可怜的贾维斯",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "可怜的贾维斯。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 6.666,
+            "end": 8.357,
+            "hypothesis": "斯塔克工业",
+            "raw_hypothesis": "斯塔克工业",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "斯塔克工业，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 8.488,
+            "end": 9.695,
+            "hypothesis": "质的飞跃",
+            "raw_hypothesis": "质的飞跃",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "质的飞跃。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 10.116,
+            "end": 12.256,
+            "hypothesis": "我",
+            "raw_hypothesis": "我",
+            "corrections": [],
+            "match_score": 0.0,
+            "matched_lines": "",
+            "subtitle": "dropped_murmur"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_04",
+      "attempts": [
+        {
+          "clip_id": "clip_04",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_04/attempt_01/clip.mp4",
+          "duration": 11.582,
+          "reference": "你把他弄坏的就得修好，不然我让佩珀炒了你。这次免费。",
+          "hypothesis": "你把它弄坏的就得修好不然我让佩珀炒了你这次免费",
+          "cer": 0.0435,
+          "missing": 0.0435,
+          "mean_volume_db": -24.2,
+          "max_volume_db": -1.5,
+          "chunks": [
+            {
+              "start": 3.443,
+              "end": 5.672,
+              "hypothesis": "",
+              "raw_hypothesis": "",
+              "corrections": [],
+              "match_score": 0.0,
+              "matched_lines": "",
+              "subtitle": "silent"
+            },
+            {
+              "start": 6.507,
+              "end": 8.526,
+              "hypothesis": "你把它弄坏的就得修好",
+              "raw_hypothesis": "你把它弄坏的就得修好",
+              "corrections": [],
+              "match_score": 0.9,
+              "matched_lines": "你把他弄坏的就得修好，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 8.661,
+              "end": 10.145,
+              "hypothesis": "不然我让佩珀炒了你",
+              "raw_hypothesis": "不然我让佩迫炒了你",
+              "corrections": [
+                {
+                  "source": "佩迫",
+                  "canonical": "佩珀",
+                  "distance": 1,
+                  "count": 1
+                }
+              ],
+              "match_score": 1.0,
+              "matched_lines": "不然我让佩珀炒了你。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 10.516,
+              "end": 11.552,
+              "hypothesis": "这次免费",
+              "raw_hypothesis": "这次免费",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "这次免费。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_04",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_04/attempt_01/clip.mp4",
+        "duration": 11.582,
+        "reference": "你把他弄坏的就得修好，不然我让佩珀炒了你。这次免费。",
+        "hypothesis": "你把它弄坏的就得修好不然我让佩珀炒了你这次免费",
+        "cer": 0.0435,
+        "missing": 0.0435,
+        "mean_volume_db": -24.2,
+        "max_volume_db": -1.5,
+        "chunks": [
+          {
+            "start": 3.443,
+            "end": 5.672,
+            "hypothesis": "",
+            "raw_hypothesis": "",
+            "corrections": [],
+            "match_score": 0.0,
+            "matched_lines": "",
+            "subtitle": "silent"
+          },
+          {
+            "start": 6.507,
+            "end": 8.526,
+            "hypothesis": "你把它弄坏的就得修好",
+            "raw_hypothesis": "你把它弄坏的就得修好",
+            "corrections": [],
+            "match_score": 0.9,
+            "matched_lines": "你把他弄坏的就得修好，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 8.661,
+            "end": 10.145,
+            "hypothesis": "不然我让佩珀炒了你",
+            "raw_hypothesis": "不然我让佩迫炒了你",
+            "corrections": [
+              {
+                "source": "佩迫",
+                "canonical": "佩珀",
+                "distance": 1,
+                "count": 1
+              }
+            ],
+            "match_score": 1.0,
+            "matched_lines": "不然我让佩珀炒了你。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 10.516,
+            "end": 11.552,
+            "hypothesis": "这次免费",
+            "raw_hypothesis": "这次免费",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "这次免费。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_05",
+      "attempts": [
+        {
+          "clip_id": "clip_05",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_05/attempt_01/clip.mp4",
+          "duration": 10.157,
+          "reference": "钢铁侠扛着巴士飞，画面一定很美。",
+          "hypothesis": "钢铁侠扛着巴士飞画面一定很美",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -24.7,
+          "max_volume_db": -2.8,
+          "chunks": [
+            {
+              "start": 0.0,
+              "end": 3.79,
+              "hypothesis": "",
+              "raw_hypothesis": "",
+              "corrections": [],
+              "match_score": 0.0,
+              "matched_lines": "",
+              "subtitle": "silent"
+            },
+            {
+              "start": 5.873,
+              "end": 6.795,
+              "hypothesis": "",
+              "raw_hypothesis": "",
+              "corrections": [],
+              "match_score": 0.0,
+              "matched_lines": "",
+              "subtitle": "silent"
+            },
+            {
+              "start": 6.924,
+              "end": 9.879,
+              "hypothesis": "钢铁侠扛着巴士飞画面一定很美",
+              "raw_hypothesis": "钢铁侠扛着巴士飞画面一定很美",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "钢铁侠扛着巴士飞，画面一定很美。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_05",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_05/attempt_01/clip.mp4",
+        "duration": 10.157,
+        "reference": "钢铁侠扛着巴士飞，画面一定很美。",
+        "hypothesis": "钢铁侠扛着巴士飞画面一定很美",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -24.7,
+        "max_volume_db": -2.8,
+        "chunks": [
+          {
+            "start": 0.0,
+            "end": 3.79,
+            "hypothesis": "",
+            "raw_hypothesis": "",
+            "corrections": [],
+            "match_score": 0.0,
+            "matched_lines": "",
+            "subtitle": "silent"
+          },
+          {
+            "start": 5.873,
+            "end": 6.795,
+            "hypothesis": "",
+            "raw_hypothesis": "",
+            "corrections": [],
+            "match_score": 0.0,
+            "matched_lines": "",
+            "subtitle": "silent"
+          },
+          {
+            "start": 6.924,
+            "end": 9.879,
+            "hypothesis": "钢铁侠扛着巴士飞画面一定很美",
+            "raw_hypothesis": "钢铁侠扛着巴士飞画面一定很美",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "钢铁侠扛着巴士飞，画面一定很美。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_06",
+      "attempts": [
+        {
+          "clip_id": "clip_06",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_06/attempt_01/clip.mp4",
+          "duration": 8.032,
+          "reference": "硬件完好，他却不愿工作。我要他成为真正的电子生命。",
+          "hypothesis": "硬件完好他却不愿工作我要它成为真正的电子生命",
+          "cer": 0.0455,
+          "missing": 0.0455,
+          "mean_volume_db": -26.0,
+          "max_volume_db": -4.3,
+          "chunks": [
+            {
+              "start": 1.755,
+              "end": 3.067,
+              "hypothesis": "硬件完好",
+              "raw_hypothesis": "硬件完好",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "硬件完好，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 3.395,
+              "end": 4.653,
+              "hypothesis": "他却不愿工作",
+              "raw_hypothesis": "他却不愿工作",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "他却不愿工作。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 5.425,
+              "end": 8.0,
+              "hypothesis": "我要它成为真正的电子生命",
+              "raw_hypothesis": "我要它成为真正的电子生命",
+              "corrections": [],
+              "match_score": 0.917,
+              "matched_lines": "我要他成为真正的电子生命。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_06",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_06/attempt_01/clip.mp4",
+        "duration": 8.032,
+        "reference": "硬件完好，他却不愿工作。我要他成为真正的电子生命。",
+        "hypothesis": "硬件完好他却不愿工作我要它成为真正的电子生命",
+        "cer": 0.0455,
+        "missing": 0.0455,
+        "mean_volume_db": -26.0,
+        "max_volume_db": -4.3,
+        "chunks": [
+          {
+            "start": 1.755,
+            "end": 3.067,
+            "hypothesis": "硬件完好",
+            "raw_hypothesis": "硬件完好",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "硬件完好，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 3.395,
+            "end": 4.653,
+            "hypothesis": "他却不愿工作",
+            "raw_hypothesis": "他却不愿工作",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "他却不愿工作。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 5.425,
+            "end": 8.0,
+            "hypothesis": "我要它成为真正的电子生命",
+            "raw_hypothesis": "我要它成为真正的电子生命",
+            "corrections": [],
+            "match_score": 0.917,
+            "matched_lines": "我要他成为真正的电子生命。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_07",
+      "attempts": [
+        {
+          "clip_id": "clip_07",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_07/attempt_01/clip.mp4",
+          "duration": 15.107,
+          "reference": "机器没法自欺欺人，所以卡死了。你父亲快死了，一个决定能救他，他却反对——你会后悔吗？",
+          "hypothesis": "机器没法自欺欺人所以卡死了你父亲快死了一个决定能救他他却反对你会后悔吗",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -19.6,
+          "max_volume_db": -0.3,
+          "chunks": [
+            {
+              "start": 0.944,
+              "end": 2.68,
+              "hypothesis": "机器没法自欺欺人",
+              "raw_hypothesis": "机器没法自欺欺人",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "机器没法自欺欺人，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 2.764,
+              "end": 4.628,
+              "hypothesis": "所以卡死了",
+              "raw_hypothesis": "所以卡死了",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "所以卡死了。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 8.567,
+              "end": 9.944,
+              "hypothesis": "你父亲快死了",
+              "raw_hypothesis": "你父亲快死了",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "你父亲快死了，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 10.425,
+              "end": 12.564,
+              "hypothesis": "一个决定能救他他却反对",
+              "raw_hypothesis": "一个决定能救他他却反对",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "一个决定能救他，他却反对——",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 13.479,
+              "end": 14.674,
+              "hypothesis": "你会后悔吗",
+              "raw_hypothesis": "你会后悔吗",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "你会后悔吗？",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_07",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_07/attempt_01/clip.mp4",
+        "duration": 15.107,
+        "reference": "机器没法自欺欺人，所以卡死了。你父亲快死了，一个决定能救他，他却反对——你会后悔吗？",
+        "hypothesis": "机器没法自欺欺人所以卡死了你父亲快死了一个决定能救他他却反对你会后悔吗",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -19.6,
+        "max_volume_db": -0.3,
+        "chunks": [
+          {
+            "start": 0.944,
+            "end": 2.68,
+            "hypothesis": "机器没法自欺欺人",
+            "raw_hypothesis": "机器没法自欺欺人",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "机器没法自欺欺人，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 2.764,
+            "end": 4.628,
+            "hypothesis": "所以卡死了",
+            "raw_hypothesis": "所以卡死了",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "所以卡死了。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 8.567,
+            "end": 9.944,
+            "hypothesis": "你父亲快死了",
+            "raw_hypothesis": "你父亲快死了",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "你父亲快死了，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 10.425,
+            "end": 12.564,
+            "hypothesis": "一个决定能救他他却反对",
+            "raw_hypothesis": "一个决定能救他他却反对",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "一个决定能救他，他却反对——",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 13.479,
+            "end": 14.674,
+            "hypothesis": "你会后悔吗",
+            "raw_hypothesis": "你会后悔吗",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "你会后悔吗？",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_08",
+      "attempts": [
+        {
+          "clip_id": "clip_08",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_08/attempt_01/clip.mp4",
+          "duration": 8.032,
+          "reference": "他不会阻止我救他。他会活过来弥补的。",
+          "hypothesis": "他不会阻止我救他他会活过来弥补的",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -24.7,
+          "max_volume_db": -3.2,
+          "chunks": [
+            {
+              "start": 1.157,
+              "end": 2.986,
+              "hypothesis": "他不会阻止我救他",
+              "raw_hypothesis": "他不会阻止我救他",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "他不会阻止我救他。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 5.885,
+              "end": 8.0,
+              "hypothesis": "他会活过来弥补的",
+              "raw_hypothesis": "他会活过来弥补的",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "他会活过来弥补的。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_08",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_08/attempt_01/clip.mp4",
+        "duration": 8.032,
+        "reference": "他不会阻止我救他。他会活过来弥补的。",
+        "hypothesis": "他不会阻止我救他他会活过来弥补的",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -24.7,
+        "max_volume_db": -3.2,
+        "chunks": [
+          {
+            "start": 1.157,
+            "end": 2.986,
+            "hypothesis": "他不会阻止我救他",
+            "raw_hypothesis": "他不会阻止我救他",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "他不会阻止我救他。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 5.885,
+            "end": 8.0,
+            "hypothesis": "他会活过来弥补的",
+            "raw_hypothesis": "他会活过来弥补的",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "他会活过来弥补的。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_09",
+      "attempts": [
+        {
+          "clip_id": "clip_09",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_09/attempt_01/clip.mp4",
+          "duration": 13.707,
+          "reference": "把自己生命的一部分给他，像一个孩子的诞生。我不了解人工智能，但你不懂人。你在挑战上帝，创造人外人。",
+          "hypothesis": "把自己生命的一部分给他像一个孩子的诞生我不了解人工智能但你不懂人你在挑战上帝创造人外人",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -17.9,
+          "max_volume_db": -0.0,
+          "chunks": [
+            {
+              "start": 0.232,
+              "end": 2.969,
+              "hypothesis": "把自己生命的一部分给他",
+              "raw_hypothesis": "把自己生命的一部分给他",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "把自己生命的一部分给他，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 3.268,
+              "end": 5.183,
+              "hypothesis": "像一个孩子的诞生",
+              "raw_hypothesis": "像一个孩子的诞生",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "像一个孩子的诞生。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 6.407,
+              "end": 8.045,
+              "hypothesis": "我不了解人工智能",
+              "raw_hypothesis": "我不了解人工智能",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "我不了解人工智能，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 8.311,
+              "end": 9.473,
+              "hypothesis": "但你不懂人",
+              "raw_hypothesis": "但你不懂人",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "但你不懂人。",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 10.477,
+              "end": 11.88,
+              "hypothesis": "你在挑战上帝",
+              "raw_hypothesis": "你在挑战上帝",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "你在挑战上帝，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 12.027,
+              "end": 13.263,
+              "hypothesis": "创造人外人",
+              "raw_hypothesis": "创造人外人",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "创造人外人。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_09",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_09/attempt_01/clip.mp4",
+        "duration": 13.707,
+        "reference": "把自己生命的一部分给他，像一个孩子的诞生。我不了解人工智能，但你不懂人。你在挑战上帝，创造人外人。",
+        "hypothesis": "把自己生命的一部分给他像一个孩子的诞生我不了解人工智能但你不懂人你在挑战上帝创造人外人",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -17.9,
+        "max_volume_db": -0.0,
+        "chunks": [
+          {
+            "start": 0.232,
+            "end": 2.969,
+            "hypothesis": "把自己生命的一部分给他",
+            "raw_hypothesis": "把自己生命的一部分给他",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "把自己生命的一部分给他，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 3.268,
+            "end": 5.183,
+            "hypothesis": "像一个孩子的诞生",
+            "raw_hypothesis": "像一个孩子的诞生",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "像一个孩子的诞生。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 6.407,
+            "end": 8.045,
+            "hypothesis": "我不了解人工智能",
+            "raw_hypothesis": "我不了解人工智能",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "我不了解人工智能，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 8.311,
+            "end": 9.473,
+            "hypothesis": "但你不懂人",
+            "raw_hypothesis": "但你不懂人",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "但你不懂人。",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 10.477,
+            "end": 11.88,
+            "hypothesis": "你在挑战上帝",
+            "raw_hypothesis": "你在挑战上帝",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "你在挑战上帝，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 12.027,
+            "end": 13.263,
+            "hypothesis": "创造人外人",
+            "raw_hypothesis": "创造人外人",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "创造人外人。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_10",
+      "attempts": [
+        {
+          "clip_id": "clip_10",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_10/attempt_01/clip.mp4",
+          "duration": 5.207,
+          "reference": "",
+          "hypothesis": "我",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -24.5,
+          "max_volume_db": -7.0,
+          "chunks": [
+            {
+              "start": 1.947,
+              "end": 3.572,
+              "hypothesis": "",
+              "raw_hypothesis": "",
+              "corrections": [],
+              "match_score": 0.0,
+              "matched_lines": "",
+              "subtitle": "silent"
+            },
+            {
+              "start": 3.776,
+              "end": 5.184,
+              "hypothesis": "我",
+              "raw_hypothesis": "我",
+              "corrections": [],
+              "match_score": 0.0,
+              "matched_lines": "",
+              "subtitle": "dropped_murmur"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_10",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_10/attempt_01/clip.mp4",
+        "duration": 5.207,
+        "reference": "",
+        "hypothesis": "我",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -24.5,
+        "max_volume_db": -7.0,
+        "chunks": [
+          {
+            "start": 1.947,
+            "end": 3.572,
+            "hypothesis": "",
+            "raw_hypothesis": "",
+            "corrections": [],
+            "match_score": 0.0,
+            "matched_lines": "",
+            "subtitle": "silent"
+          },
+          {
+            "start": 3.776,
+            "end": 5.184,
+            "hypothesis": "我",
+            "raw_hypothesis": "我",
+            "corrections": [],
+            "match_score": 0.0,
+            "matched_lines": "",
+            "subtitle": "dropped_murmur"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_11",
+      "attempts": [
+        {
+          "clip_id": "clip_11",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_11/attempt_01/clip.mp4",
+          "duration": 10.157,
+          "reference": "佩珀小姐，我给他用了亢奋疗法，这几天都会这样。",
+          "hypothesis": "佩珀小姐我给他用了亢奋疗法这几天都会这样",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -18.2,
+          "max_volume_db": -0.0,
+          "chunks": [
+            {
+              "start": 3.924,
+              "end": 4.865,
+              "hypothesis": "佩珀小姐",
+              "raw_hypothesis": "佩迫小姐",
+              "corrections": [
+                {
+                  "source": "佩迫",
+                  "canonical": "佩珀",
+                  "distance": 1,
+                  "count": 1
+                }
+              ],
+              "match_score": 1.0,
+              "matched_lines": "佩珀小姐，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 5.666,
+              "end": 7.307,
+              "hypothesis": "我给他用了亢奋疗法",
+              "raw_hypothesis": "我给他用了亢奋疗法",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "我给他用了亢奋疗法，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 7.651,
+              "end": 8.877,
+              "hypothesis": "这几天都会这样",
+              "raw_hypothesis": "这几天都会这样",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "这几天都会这样。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_11",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_11/attempt_01/clip.mp4",
+        "duration": 10.157,
+        "reference": "佩珀小姐，我给他用了亢奋疗法，这几天都会这样。",
+        "hypothesis": "佩珀小姐我给他用了亢奋疗法这几天都会这样",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -18.2,
+        "max_volume_db": -0.0,
+        "chunks": [
+          {
+            "start": 3.924,
+            "end": 4.865,
+            "hypothesis": "佩珀小姐",
+            "raw_hypothesis": "佩迫小姐",
+            "corrections": [
+              {
+                "source": "佩迫",
+                "canonical": "佩珀",
+                "distance": 1,
+                "count": 1
+              }
+            ],
+            "match_score": 1.0,
+            "matched_lines": "佩珀小姐，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 5.666,
+            "end": 7.307,
+            "hypothesis": "我给他用了亢奋疗法",
+            "raw_hypothesis": "我给他用了亢奋疗法",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "我给他用了亢奋疗法，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 7.651,
+            "end": 8.877,
+            "hypothesis": "这几天都会这样",
+            "raw_hypothesis": "这几天都会这样",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "这几天都会这样。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    },
+    {
+      "clip_id": "clip_12",
+      "attempts": [
+        {
+          "clip_id": "clip_12",
+          "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_12/attempt_01/clip.mp4",
+          "duration": 7.332,
+          "reference": "叠buff我是真有天赋，可惜基础太弱，得先提基础。",
+          "hypothesis": "叠buff 我是真有天赋可惜基础太弱得先提基础",
+          "cer": 0.0,
+          "missing": 0.0,
+          "mean_volume_db": -15.8,
+          "max_volume_db": -0.0,
+          "chunks": [
+            {
+              "start": 1.736,
+              "end": 3.647,
+              "hypothesis": "叠buff 我是真有天赋",
+              "raw_hypothesis": "叠buff 我是真有天赋",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "叠buff我是真有天赋，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 3.963,
+              "end": 5.351,
+              "hypothesis": "可惜基础太弱",
+              "raw_hypothesis": "可惜基础太弱",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "可惜基础太弱，",
+              "subtitle": "script_span"
+            },
+            {
+              "start": 5.649,
+              "end": 6.779,
+              "hypothesis": "得先提基础",
+              "raw_hypothesis": "得先提基础",
+              "corrections": [],
+              "match_score": 1.0,
+              "matched_lines": "得先提基础。",
+              "subtitle": "script_span"
+            }
+          ],
+          "issues": [],
+          "passed": true,
+          "generated_this_run": true
+        }
+      ],
+      "selected": {
+        "clip_id": "clip_12",
+        "video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/clips/clip_12/attempt_01/clip.mp4",
+        "duration": 7.332,
+        "reference": "叠buff我是真有天赋，可惜基础太弱，得先提基础。",
+        "hypothesis": "叠buff 我是真有天赋可惜基础太弱得先提基础",
+        "cer": 0.0,
+        "missing": 0.0,
+        "mean_volume_db": -15.8,
+        "max_volume_db": -0.0,
+        "chunks": [
+          {
+            "start": 1.736,
+            "end": 3.647,
+            "hypothesis": "叠buff 我是真有天赋",
+            "raw_hypothesis": "叠buff 我是真有天赋",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "叠buff我是真有天赋，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 3.963,
+            "end": 5.351,
+            "hypothesis": "可惜基础太弱",
+            "raw_hypothesis": "可惜基础太弱",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "可惜基础太弱，",
+            "subtitle": "script_span"
+          },
+          {
+            "start": 5.649,
+            "end": 6.779,
+            "hypothesis": "得先提基础",
+            "raw_hypothesis": "得先提基础",
+            "corrections": [],
+            "match_score": 1.0,
+            "matched_lines": "得先提基础。",
+            "subtitle": "script_span"
+          }
+        ],
+        "issues": [],
+        "passed": true,
+        "generated_this_run": true
+      }
+    }
+  ],
+  "failed_clips": [],
+  "gate_failed_clips": [],
+  "blocked_clips": {},
+  "status": "assembled",
+  "assembly": {
+    "final_video": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/meiman-daoshi_12.mp4",
+    "cover": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/meiman-daoshi_12_cover.jpeg",
+    "ending": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/meiman-daoshi_12_ending.jpeg",
+    "ass": "/mnt/disk1/zengzhitao/novel-manga-video/outputs/meiman-daoshi/meiman-daoshi_12/work/subtitles.ass",
+    "duration": 124.224,
+    "subtitle_events": 35,
+    "silent_outro_seconds": 4.0,
+    "pending_publish": false,
+    "media_qc_passed": true,
+    "max_hold_seconds": 0.0,
+    "thin_passed": true,
+    "media_qc": {
+      "passed": true,
+      "checks": {
+        "playable": {
+          "passed": true,
+          "detail": "ffprobe decoded container metadata"
+        },
+        "resolution": {
+          "passed": true,
+          "detail": "1920x1080"
+        },
+        "fps": {
+          "passed": true,
+          "detail": 25.0
+        },
+        "video_codec": {
+          "passed": true,
+          "detail": "h264"
+        },
+        "audio": {
+          "passed": true,
+          "detail": "aac"
+        },
+        "subtitles": {
+          "passed": true,
+          "detail": "burned ASS source retained",
+          "required": true
+        },
+        "cover": {
+          "passed": true,
+          "detail": "JPEG 1920x1080"
+        },
+        "ending_screen": {
+          "passed": true,
+          "detail": "JPEG 1920x1080"
+        },
+        "black_frames": {
+          "passed": true,
+          "detail": {
+            "max_black_seconds": 0.0
+          }
+        },
+        "audio_level": {
+          "passed": true,
+          "detail": {
+            "active_voice_mean_db": -17.7,
+            "max_db": -1.1,
+            "silence_removed_below_db": -45
+          }
+        },
+        "long_silence": {
+          "passed": true,
+          "detail": {
+            "max_silence_seconds": 3.15954,
+            "scope": "story",
+            "end_seconds": 120.224,
+            "excluded_outro_seconds": 4.0
+          }
+        },
+        "silence_ratio": {
+          "passed": true,
+          "detail": {
+            "silence_seconds": 40.76169,
+            "duration_seconds": 120.224,
+            "ratio": 0.339048,
+            "threshold_db": -45,
+            "scope": "story",
+            "end_seconds": 120.224,
+            "excluded_outro_seconds": 4.0
+          }
+        },
+        "long_freeze": {
+          "passed": true,
+          "detail": {
+            "max_freeze_seconds": 0.0
+          }
+        }
+      }
+    }
+  },
+  "elapsed_seconds": 1517.1
+}

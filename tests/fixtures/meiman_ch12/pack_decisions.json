@@ -1,0 +1,141 @@
+{
+  "packer_version": "thin-packer-2026-09-12+split-keeps-cast",
+  "pack_mode": "execution",
+  "limits": {
+    "max_clip_seconds": 15.0,
+    "soft_cut_seconds": 9.0,
+    "max_stages": 3,
+    "min_standalone_seconds": 8.0
+  },
+  "decisions": [
+    {
+      "kind": "cut",
+      "after_stage": 1,
+      "before_stage": 2,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 18.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 2,
+      "before_stage": 3,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 22.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 3,
+      "before_stage": 4,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 23.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 4,
+      "before_stage": 5,
+      "decision_reason": "location",
+      "violated_constraints": [
+        "location",
+        "scene_boundary",
+        "clip_hint",
+        "duration"
+      ],
+      "candidate_seconds": 21.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 5,
+      "before_stage": 6,
+      "decision_reason": "location",
+      "violated_constraints": [
+        "location",
+        "scene_boundary",
+        "clip_hint",
+        "duration"
+      ],
+      "candidate_seconds": 18.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 6,
+      "before_stage": 7,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 23.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 7,
+      "before_stage": 8,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 23.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 8,
+      "before_stage": 9,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 21.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 9,
+      "before_stage": 10,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 18.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 10,
+      "before_stage": 11,
+      "decision_reason": "location",
+      "violated_constraints": [
+        "location",
+        "scene_boundary",
+        "clip_hint"
+      ],
+      "candidate_seconds": 15.0,
+      "candidate_stages": 2
+    },
+    {
+      "kind": "cut",
+      "after_stage": 11,
+      "before_stage": 12,
+      "decision_reason": "duration",
+      "violated_constraints": [
+        "duration"
+      ],
+      "candidate_seconds": 17.0,
+      "candidate_stages": 2
+    }
+  ]
+}

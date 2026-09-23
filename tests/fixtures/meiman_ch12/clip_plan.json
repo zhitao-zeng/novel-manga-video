@@ -1,0 +1,1185 @@
+{
+  "policy": "thin-clip-plan-v12-six-stages-15s",
+  "phases": [],
+  "limits": {
+    "max_clip_seconds": 15.0,
+    "soft_cut_seconds": 9.0,
+    "max_stages": 3
+  },
+  "totals": {
+    "clip_count": 12,
+    "video_clip_count": 12,
+    "title_card_count": 0,
+    "shot_count": 12,
+    "estimated_seconds": 117.0,
+    "requested_seconds": 117,
+    "mean_stages_per_clip": 1.0,
+    "max_prompt_chars": 2087,
+    "lint_stage_count": 4,
+    "lint_by_code": {
+      "camera_move_words": 3,
+      "start_state_over_120_chars": 2
+    },
+    "visual_grammar": "视觉语法模板 v1.1（题材无关）：建卡后按卡片的实际画风改写；每本书一份，放在 outputs/<novel-id>/visual_grammar.json · 题材预设：现代都市",
+    "profile": {
+      "style": "meiman",
+      "frame": "16:9",
+      "tier": "quality",
+      "genre": "urban",
+      "planning_backend": "sandbox_agent",
+      "agent_skill": "shanyin"
+    }
+  },
+  "clips": [
+    {
+      "clip_id": "clip_01",
+      "kind": "video",
+      "location": "地狱厨房第九尾巷心理诊所",
+      "shot_indexes": [
+        1
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 1,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 8.0,
+      "request_seconds": 8,
+      "cast": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片3",
+          "role": "location",
+          "name": "地狱厨房第九尾巷心理诊所",
+          "asset_id": "location_014",
+          "path": "series_assets/locations/location_014/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "你这地方可真够破的。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 1,
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "你这地方可真够破的。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "你这地方可真够破的。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约8秒。核心主体是席勒、托尼·斯塔克，主要事件是从“开场瞬间：席勒坐在桌后，手端一杯冒热气的咖啡，昏黄台灯亮着…”到“斯塔克站在桌前，面具已弹开，他看着指尖的灰，在裤子上蹭掉”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。<托尼·斯塔克>只对应@图片2，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：席勒、托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片3用于<地狱厨房第九尾巷心理诊所>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内…），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·全景转中景】全景转中景开场。开始时：席勒坐在桌后，手端一杯冒热气的咖啡，昏黄台灯亮着。窗户猛地被撞开，一股寒风灌入，桌上纸页掀起；一台银白色机甲飞速冲入，在低矮的屋顶下盘旋一圈，喷气落地，震得台灯晃动；面具“嗡”地弹开露出斯塔克的脸，他扫视屋内，抬手指腹在桌面抹了一下，看指尖的灰，在裤子上蹭掉。机位：平视转微仰；机位在席勒侧后朝窗，先固定、随机甲盘旋左摇跟拍，落地时缓推；面具弹开是本镜收点，接镜2的席勒视线反打。光源：夜晚，室内昏暗灯光为主光。主要事件：开场瞬间：席勒坐在桌后，手端一杯冒热气的咖啡，昏黄台灯亮着。窗户猛地被撞开，一股寒风灌入，桌上纸页掀起；一台银白色机甲飞速冲入，在低矮的屋顶下盘旋一圈，喷气落地，震得台灯晃动；面具“嗡”地弹开露出斯塔克的脸，他扫视屋内，抬手指腹在桌面抹了一下，看指尖的灰，在裤子上蹭掉。入镜：席勒、托尼·斯塔克。声音：中文普通话，克制自然，托尼·斯塔克开口说：{你这地方可真够破的。}；<撞窗灌入的风声、纸页哗啦、喷气引擎减速、面具机械咬合>。结束时：斯塔克站在桌前，面具已弹开，他看着指尖的灰，在裤子上蹭掉。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（全景转中景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<撞窗灌入的风声、纸页哗啦、喷气引擎减速、面具机械咬合>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 2067,
+      "lint": {
+        "1": [
+          "camera_move_words",
+          "start_state_over_120_chars"
+        ]
+      },
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_01"
+      ],
+      "shot_ids": [
+        "1"
+      ],
+      "shot_sound": [
+        "撞窗灌入的风声、纸页哗啦、喷气引擎减速、面具机械咬合"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 8.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Subject 2> is the person shown in <Picture 2>. Take the face, hair, build and base garment design from <Picture 2>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 2> appears in the video; no other person has <Subject 2>'s face, hair or clothes.\n<Picture 3> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 8-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\n<Subject 2>: fully_preserved - the identity, face, hair and build of <Picture 2>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 8 seconds. Opening with a wide shot transitioning to a medium shot at eye level shifting to a slight low angle, the camera positioned behind and to the side of <Subject 1> facing the window, initially static then panning left to track a silver-white mecha that bursts through the violently opened window, circling once under the low ceiling before jet-propelled landing that shakes the dim yellow desk lamp, as cold wind rushes in lifting papers on the desk where <Subject 1> sits holding a steaming cup of coffee, and the mecha's mask mechanically clicks open to reveal <Subject 2>'s face, who scans the room, wipes his finger across the desk surface, inspects the dust on his fingertip, and rubs it off on his pants, accompanied by the sounds of the window impact, rushing wind, rustling papers, decelerating jet engine, and mechanical mask engagement.\n<Subject 2> (S1) says <d>[Chinese] 你这地方可真够破的。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "7af1cc473c74c1cc"
+    },
+    {
+      "clip_id": "clip_02",
+      "kind": "video",
+      "location": "地狱厨房第九尾巷心理诊所",
+      "shot_indexes": [
+        2
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 2,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 10.0,
+      "request_seconds": 10,
+      "cast": [
+        "席勒"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "location",
+          "name": "地狱厨房第九尾巷心理诊所",
+          "asset_id": "location_014",
+          "path": "series_assets/locations/location_014/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "再抱怨一会儿，还没进正题，我不收费。"
+        },
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "你擦灰的表情，比蛋糕上的樱桃还娘。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 2,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "再抱怨一会儿，还没进正题，我不收费。",
+          "emotion": "克制自然"
+        },
+        {
+          "stage": 1,
+          "source_stage": 2,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "你擦灰的表情，比蛋糕上的樱桃还娘。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "再抱怨一会儿，还没进正题，我不收费。你擦灰的表情，比蛋糕上的樱桃还娘。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约10秒。核心主体是席勒，主要事件是从“开场瞬间：席勒坐在桌后，垂眼看着手中的咖啡，杯口已无热气。…”到“席勒放下咖啡杯，眼神冷淡地看着斯塔克”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。\n【人物范围】本段可出现的具名人物：席勒；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片2用于<地狱厨房第九尾巷心理诊所>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内…），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·中近景】中近景开场。开始时：席勒坐在桌后，垂眼看着手中的咖啡，杯口已无热气。他凑近抿一口，皱眉，把杯子放回桌面，翻了个白眼；随即慢条斯理地开口回怼两句，其间抬眼望向斯塔克的方向。机位：平视；斯塔克一侧过肩机位，前景装甲肩部入画虚焦；中近景缓推至近景；视线方向与镜1面具弹开严格对轴。光源：夜晚，室内昏暗灯光为主光。主要事件：开场瞬间：席勒坐在桌后，垂眼看着手中的咖啡，杯口已无热气。他凑近抿一口，皱眉，把杯子放回桌面，翻了个白眼；随即慢条斯理地开口回怼两句，其间抬眼望向斯塔克的方向。入镜：席勒。声音：中文普通话，克制自然，席勒开口说：{再抱怨一会儿，还没进正题，我不收费。}；中文普通话，克制自然，席勒开口说：{你擦灰的表情，比蛋糕上的樱桃还娘。}；<诊所室内低噪、瓷杯落桌轻响>。结束时：席勒放下咖啡杯，眼神冷淡地看着斯塔克。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（中近景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<诊所室内低噪、瓷杯落桌轻响>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1829,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_01"
+      ],
+      "shot_ids": [
+        "2"
+      ],
+      "shot_sound": [
+        "诊所室内低噪、瓷杯落桌轻响"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 10.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Picture 2> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 10-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 10 seconds. A medium close-up at eye level, framed over the blurred armored shoulder in the foreground, slowly pushes in to a close-up of <Subject 1> sitting behind a table in a dimly lit indoor setting at night, looking down at a coffee cup with no steam rising from it, taking a sip, frowning, placing the cup back on the table with a light ceramic clink, rolling his eyes, and then looking up coldly toward the direction of Stark while the low ambient noise of the clinic continues.\n<Subject 1> (S1) says <d>[Chinese] 再抱怨一会儿，还没进正题，我不收费。</d> The line is delivered in a controlled, natural voice.\n<Subject 1> (S1) says <d>[Chinese] 你擦灰的表情，比蛋糕上的樱桃还娘。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "708388809cb75f46"
+    },
+    {
+      "clip_id": "clip_03",
+      "kind": "video",
+      "location": "地狱厨房第九尾巷心理诊所",
+      "shot_indexes": [
+        3
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 3,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 12.0,
+      "request_seconds": 12,
+      "cast": [
+        "席勒"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "location",
+          "name": "地狱厨房第九尾巷心理诊所",
+          "asset_id": "location_014",
+          "path": "series_assets/locations/location_014/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "霍华德也从这种破屋子白手起家，你体会不到。"
+        },
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "可怜的贾维斯。斯塔克工业，质的飞跃。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 3,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "霍华德也从这种破屋子白手起家，你体会不到。",
+          "emotion": "克制自然"
+        },
+        {
+          "stage": 1,
+          "source_stage": 3,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "可怜的贾维斯。斯塔克工业，质的飞跃。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "霍华德也从这种破屋子白手起家，你体会不到。可怜的贾维斯。斯塔克工业，质的飞跃。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约12秒。核心主体是席勒，主要事件是从“开场瞬间：席勒从桌后起身，摊开手掌指向四周剥落的墙皮和歪斜…”到“机甲飞出窗外，屋内纸页散落，咖啡杯歪倒”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。\n【人物范围】本段可出现的具名人物：席勒；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片2用于<地狱厨房第九尾巷心理诊所>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内…），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·中景】中景开场。开始时：席勒从桌后起身，摊开手掌指向四周剥落的墙皮和歪斜的书架。他慢速说完霍华德一句；银白机甲“嘭”地闷响，背甲鼓起一块指形凹痕；席勒绕机甲走半圈，屈起指节敲了敲胸甲，再补一句；机甲背后喷气轰然点火，从原窗冲出，倒灌的风把纸页掀到地上，咖啡杯歪倒。机位：平视；镜头随席勒绕甲横移跟摇，破窗出画收在镜尾（不切），出画瞬间轻微震动；凹痕出拍点卡在上一句落音后半拍。光源：夜晚，室内昏暗灯光为主光。主要事件：开场瞬间：席勒从桌后起身，摊开手掌指向四周剥落的墙皮和歪斜的书架。他慢速说完霍华德一句；银白机甲“嘭”地闷响，背甲鼓起一块指形凹痕；席勒绕机甲走半圈，屈起指节敲了敲胸甲，再补一句；机甲背后喷气轰然点火，从原窗冲出，倒灌的风把纸页掀到地上，咖啡杯歪倒。入镜：席勒。声音：中文普通话，克制自然，席勒开口说：{霍华德也从这种破屋子白手起家，你体会不到。}；中文普通话，克制自然，席勒开口说：{可怜的贾维斯。斯塔克工业，质的飞跃。}；<装甲内一声闷响、喷气点火轰鸣、纸页落地>。结束时：机甲飞出窗外，屋内纸页散落，咖啡杯歪倒。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（中景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<装甲内一声闷响、喷气点火轰鸣、纸页落地>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1938,
+      "lint": {
+        "3": [
+          "camera_move_words"
+        ]
+      },
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_01"
+      ],
+      "shot_ids": [
+        "3"
+      ],
+      "shot_sound": [
+        "装甲内一声闷响、喷气点火轰鸣、纸页落地"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 12.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Picture 2> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 12-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 12 seconds. In a medium shot at eye level, <Subject 1> rises from behind a desk in a dimly lit room at night, gesturing with open palms toward peeling wall plaster and a tilted bookshelf, as a dull thud sounds from the silver-white mech's back armor where a finger-shaped dent appears, followed by <Subject 1> walking half a circle around the mech and tapping its chest plate with knuckles before the mech's rear thrusters ignite with a roar, blasting out the window and sending a gust of wind that scatters papers to the floor and tips over a coffee cup, with the camera tracking <Subject 1> in a lateral pan and slight shake as the mech exits the frame.\n<Subject 1> (S1) says <d>[Chinese] 霍华德也从这种破屋子白手起家，你体会不到。</d> The line is delivered in a controlled, natural voice.\n<Subject 1> (S1) says <d>[Chinese] 可怜的贾维斯。斯塔克工业，质的飞跃。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "ad4b1477d6aaed68"
+    },
+    {
+      "clip_id": "clip_04",
+      "kind": "video",
+      "location": "地狱厨房第九尾巷心理诊所",
+      "shot_indexes": [
+        4
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 4,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 11.0,
+      "request_seconds": 11,
+      "cast": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片3",
+          "role": "location",
+          "name": "地狱厨房第九尾巷心理诊所",
+          "asset_id": "location_014",
+          "path": "series_assets/locations/location_014/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "你把他弄坏的就得修好，不然我让佩珀炒了你。"
+        },
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "这次免费。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 4,
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "你把他弄坏的就得修好，不然我让佩珀炒了你。",
+          "emotion": "克制自然"
+        },
+        {
+          "stage": 1,
+          "source_stage": 4,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "这次免费。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "你把他弄坏的就得修好，不然我让佩珀炒了你。这次免费。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约11秒。核心主体是席勒、托尼·斯塔克，主要事件是从“开场瞬间：满地纸页间，席勒站直身体，长出一口气、舒展肩膀。…”到“斯塔克站在桌前，窗外悬停着第二台机甲，席勒扶着眼镜看着他”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。<托尼·斯塔克>只对应@图片2，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：席勒、托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片3用于<地狱厨房第九尾巷心理诊所>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内…），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·全景转中近景】全景转中近景开场。开始时：满地纸页间，席勒站直身体，长出一口气、舒展肩膀。窗户再次被撞开，马克2号落回桌前，面具敞口中的斯塔克开口；席勒答话；斯塔克打了个响指，窗外升起第二台银白机甲悬停，喷口的光扫过席勒的眼镜片；席勒看看机甲，又回头看看斯塔克，扶了扶眼镜。机位：微仰转平视；固定全景起，悬停机甲入画时轻摇上抬，光扫镜片时推至中近；末帧悬停机甲构图直接交代“怎么过去”的问题，接镜5。光源：夜晚，室内昏暗灯光为主光。主要事件：开场瞬间：满地纸页间，席勒站直身体，长出一口气、舒展肩膀。窗户再次被撞开，马克2号落回桌前，面具敞口中的斯塔克开口；席勒答话；斯塔克打了个响指，窗外升起第二台银白机甲悬停，喷口的光扫过席勒的眼镜片；席勒看看机甲，又回头看看斯塔克，扶了扶眼镜。入镜：席勒、托尼·斯塔克。声音：中文普通话，克制自然，托尼·斯塔克开口说：{你把他弄坏的就得修好，不然我让佩珀炒了你。}；中文普通话，克制自然，席勒开口说：{这次免费。}；<喷气引擎落地减速、窗户再度撞开的闷响、响指、悬停嗡鸣>。结束时：斯塔克站在桌前，窗外悬停着第二台机甲，席勒扶着眼镜看着他。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（全景转中近景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<喷气引擎落地减速、窗户再度撞开的闷响、响指、悬停嗡鸣>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 2082,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_01"
+      ],
+      "shot_ids": [
+        "4"
+      ],
+      "shot_sound": [
+        "喷气引擎落地减速、窗户再度撞开的闷响、响指、悬停嗡鸣"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 11.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Subject 2> is the person shown in <Picture 2>. Take the face, hair, build and base garment design from <Picture 2>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 2> appears in the video; no other person has <Subject 2>'s face, hair or clothes.\n<Picture 3> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 11-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\n<Subject 2>: fully_preserved - the identity, face, hair and build of <Picture 2>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 11 seconds. 1. In a dimly lit room at night, the camera starts with a low-angle wide shot of <Subject 1> standing upright among scattered papers, exhaling and stretching his shoulders, then tilts up and pushes in to a medium close-up as the window bursts open again with a dull thud, <Subject 2> lands in front of the desk with the sound of jet engines decelerating, snaps his fingers, and a second silver-white mech hovers outside with a humming sound, its thruster light sweeping across <Subject 1>'s glasses as he looks at the mech, then back at <Subject 2>, adjusting his glasses.\n<Subject 2> (S1) says <d>[Chinese] 你把他弄坏的就得修好，不然我让佩珀炒了你。</d> The line is delivered in a controlled, natural voice.\n<Subject 1> (S2) says <d>[Chinese] 这次免费。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "ddf8b6b501e6a629"
+    },
+    {
+      "clip_id": "clip_05",
+      "kind": "video",
+      "location": "地狱厨房公交站牌",
+      "shot_indexes": [
+        5
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 5,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 10.0,
+      "request_seconds": 10,
+      "cast": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片3",
+          "role": "location",
+          "name": "地狱厨房公交站牌",
+          "asset_id": "location_020",
+          "path": "series_assets/locations/location_020/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "钢铁侠扛着巴士飞，画面一定很美。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 5,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "钢铁侠扛着巴士飞，画面一定很美。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "钢铁侠扛着巴士飞，画面一定很美。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约10秒。核心主体是席勒、托尼·斯塔克，主要事件是从“开场瞬间：锈迹斑斑的金属站牌旁，一辆冒黑烟的老旧巴士哼哧挪…”到“巴士开走，站牌在烟里晃动”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。<托尼·斯塔克>只对应@图片2，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：席勒、托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片3用于<地狱厨房公交站牌>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（位于破旧街道旁的金属公交站牌，表面锈迹斑斑，旁边停着一辆冒着黑烟的老旧巴士，周…），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·大全景转全景】大全景转全景开场。开始时：锈迹斑斑的金属站牌旁，一辆冒黑烟的老旧巴士哼哧挪到牌下，车门打开。银白机甲低着头，费劲地迈动双腿爬上车阶，金属脚把踏板踩得哐当作响；驾驶座上的司机探出身，仰头看着这台铁疙瘩；席勒跟着上车，拍了拍司机，把一枚硬币投进钱箱；机甲在过道里弯着腰站定。巴士喷出一团黑烟开走，站牌在烟里晃了晃。机位：微俯；巴士侧方微俯固定机位，随上车间隙轻摇跟；席勒台词落在机甲弯腰站定的一拍；末帧空出的站牌在烟里晃动收镜。光源：白天，自然光为主光。主要事件：开场瞬间：锈迹斑斑的金属站牌旁，一辆冒黑烟的老旧巴士哼哧挪到牌下，车门打开。银白机甲低着头，费劲地迈动双腿爬上车阶，金属脚把踏板踩得哐当作响；驾驶座上的司机探出身，仰头看着这台铁疙瘩；席勒跟着上车，拍了拍司机，把一枚硬币投进钱箱；机甲在过道里弯着腰站定。巴士喷出一团黑烟开走，站牌在烟里晃了晃。入镜：席勒、托尼·斯塔克。本阶段无参考图的配角：巴士司机（按描述画）。声音：中文普通话，克制自然，席勒开口说：{钢铁侠扛着巴士飞，画面一定很美。}；<巴士引擎冒黑烟的哼哧声、金属脚踏踏板的哐当、硬币落箱、车门气阀>。结束时：巴士开走，站牌在烟里晃动。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（大全景转全景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<巴士引擎冒黑烟的哼哧声、金属脚踏踏板的哐当、硬币落箱、车门气阀>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 2087,
+      "lint": {
+        "5": [
+          "start_state_over_120_chars"
+        ]
+      },
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [
+        "巴士司机"
+      ],
+      "scene_ids": [
+        "scene_02"
+      ],
+      "shot_ids": [
+        "5"
+      ],
+      "shot_sound": [
+        "巴士引擎冒黑烟的哼哧声、金属脚踏踏板的哐当、硬币落箱、车门气阀"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 10.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Subject 2> is the person shown in <Picture 2>. Take the face, hair, build and base garment design from <Picture 2>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 2> appears in the video; no other person has <Subject 2>'s face, hair or clothes.\n<Picture 3> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 10-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\n<Subject 2>: fully_preserved - the identity, face, hair and build of <Picture 2>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 10 seconds. 1. In a slightly high-angle wide shot transitioning to a full shot, an old bus emitting black smoke rumbles to a stop beside a rusted metal sign, its door opening as a silver-white mech struggles up the steps with clanking metal feet while the driver leans out to look up at it, and <Subject 1> follows aboard, pats the driver, drops a coin into the box, and the mech bends to stand in the aisle as the bus departs in a puff of smoke, accompanied by the sounds of the engine's rattle, clanking metal, the coin dropping, and the door's air valve.\n<Subject 1> (S1) says <d>[Chinese] 钢铁侠扛着巴士飞，画面一定很美。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "19b7097d1eaee3b5"
+    },
+    {
+      "clip_id": "clip_06",
+      "kind": "video",
+      "location": "斯塔克大厦实验室",
+      "shot_indexes": [
+        6
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 6,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 8.0,
+      "request_seconds": 8,
+      "cast": [
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "location",
+          "name": "斯塔克大厦实验室",
+          "asset_id": "location_004",
+          "path": "series_assets/locations/location_004/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "硬件完好，他却不愿工作。我要他成为真正的电子生命。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 6,
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "硬件完好，他却不愿工作。我要他成为真正的电子生命。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "硬件完好，他却不愿工作。我要他成为真正的电子生命。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约8秒。核心主体是托尼·斯塔克，主要事件是从“开场瞬间：实验室全息屏阵列泛着暗光。屏幕逐排点亮，蓝光扫过…”到“斯塔克站在中控台前方，半空浮起机甲线框光纹”。\n【人物】<托尼·斯塔克>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片2用于<斯塔克大厦实验室>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·全景转中景】全景转中景开场。开始时：实验室全息屏阵列泛着暗光。屏幕逐排点亮，蓝光扫过整个房间；斯塔克穿着马克2号大步走到中控台前方，面具收在头顶、脸露在外面；他说前半句，抬手在空气里一挥，半空浮起一台机甲的线框光纹缓缓旋转，再说后半句。机位：微仰；低机位，前景以屏壁蓝光切割出纵深层次，随斯塔克走动缓推；线框光纹位于画面右上，左侧留给镜7席勒的位置。光源：无为主光。主要事件：开场瞬间：实验室全息屏阵列泛着暗光。屏幕逐排点亮，蓝光扫过整个房间；斯塔克穿着马克2号大步走到中控台前方，面具收在头顶、脸露在外面；他说前半句，抬手在空气里一挥，半空浮起一台机甲的线框光纹缓缓旋转，再说后半句。入镜：托尼·斯塔克。声音：中文普通话，克制自然，托尼·斯塔克开口说：{硬件完好，他却不愿工作。我要他成为真正的电子生命。}；<全息屏逐排通电、实验室低频嗡鸣、脚步、光纹低鸣>。结束时：斯塔克站在中控台前方，半空浮起机甲线框光纹。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（全景转中景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<全息屏逐排通电、实验室低频嗡鸣、脚步、光纹低鸣>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1889,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_03"
+      ],
+      "shot_ids": [
+        "6"
+      ],
+      "shot_sound": [
+        "全息屏逐排通电、实验室低频嗡鸣、脚步、光纹低鸣"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 8.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Picture 2> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 8-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 8 seconds. A low-angle full shot transitioning to a medium shot captures <Subject 1> striding confidently in Mark 2 armor with his mask retracted to reveal his face, as he gestures to summon a rotating wireframe hologram of a mech in the upper right while blue light from the sequentially activating holographic screen array sweeps across the dimly lit laboratory, accompanied by the sounds of powering screens, low-frequency hum, footsteps, and the hum of the light patterns.\n<Subject 1> (S1) says <d>[Chinese] 硬件完好，他却不愿工作。我要他成为真正的电子生命。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "47f8a08193825b28"
+    },
+    {
+      "clip_id": "clip_07",
+      "kind": "video",
+      "location": "斯塔克大厦实验室",
+      "shot_indexes": [
+        7
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 7,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 15.0,
+      "request_seconds": 15,
+      "cast": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片3",
+          "role": "location",
+          "name": "斯塔克大厦实验室",
+          "asset_id": "location_004",
+          "path": "series_assets/locations/location_004/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "机器没法自欺欺人，所以卡死了。"
+        },
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "你父亲快死了，一个决定能救他，他却反对——你会后悔吗？"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 7,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "机器没法自欺欺人，所以卡死了。",
+          "emotion": "克制自然"
+        },
+        {
+          "stage": 1,
+          "source_stage": 7,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "你父亲快死了，一个决定能救他，他却反对——你会后悔吗？",
+          "emotion": "压低声音"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "机器没法自欺欺人，所以卡死了。你父亲快死了，一个决定能救他，他却反对——你会后悔吗？",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约15秒。核心主体是席勒、托尼·斯塔克，主要事件是从“开场瞬间：席勒双臂抱胸站在屏幕墙前，仰头看流动的光纹。他收…”到“席勒站在斯塔克对面，斯塔克的手停在半空”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。<托尼·斯塔克>只对应@图片2，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：席勒、托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片3用于<斯塔克大厦实验室>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·中景转双人中近景】中景转双人中近景开场。开始时：席勒双臂抱胸站在屏幕墙前，仰头看流动的光纹。他收回目光，慢慢踱到斯塔克对面站定，平静说出一句；朝斯塔克近了半步，声音压低一档再问；斯塔克抬手想反驳，手停在半空，又缓缓放下，全息蓝光一遍遍扫过他的脸。机位：平视；镜头随席勒踱步缓推，二人对峙的双人中近景停住；斯塔克停在半空的手留在画面内（反应不切走）。光源：无为主光。主要事件：开场瞬间：席勒双臂抱胸站在屏幕墙前，仰头看流动的光纹。他收回目光，慢慢踱到斯塔克对面站定，平静说出一句；朝斯塔克近了半步，声音压低一档再问；斯塔克抬手想反驳，手停在半空，又缓缓放下，全息蓝光一遍遍扫过他的脸。入镜：席勒、托尼·斯塔克。声音：中文普通话，克制自然，席勒开口说：{机器没法自欺欺人，所以卡死了。}；中文普通话，压低声音，席勒开口说：{你父亲快死了，一个决定能救他，他却反对——你会后悔吗？}；<实验室低频嗡鸣、缓慢脚步、光纹微鸣>。结束时：席勒站在斯塔克对面，斯塔克的手停在半空。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（中景转双人中近景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<实验室低频嗡鸣、缓慢脚步、光纹微鸣>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1998,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_03"
+      ],
+      "shot_ids": [
+        "7"
+      ],
+      "shot_sound": [
+        "实验室低频嗡鸣、缓慢脚步、光纹微鸣"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 15.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Subject 2> is the person shown in <Picture 2>. Take the face, hair, build and base garment design from <Picture 2>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 2> appears in the video; no other person has <Subject 2>'s face, hair or clothes.\n<Picture 3> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 15-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\n<Subject 2>: fully_preserved - the identity, face, hair and build of <Picture 2>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 15 seconds. A medium shot transitioning to a two-shot medium close-up at eye level, with the camera slowly pushing in as <Subject 1> (slender and upright, straight shoulder line, relaxed posture) walks from a screen wall where he stood with arms crossed looking up at flowing light patterns, to stand opposite <Subject 2> (inverted triangle, broad shoulders and narrow waist, flamboyant posture), who raises a hand to rebut but leaves it suspended in mid-air as the camera holds on the confrontation, illuminated by no key light with the setting defined by the lab's low-frequency hum, slow footsteps, and the faint hum of the light patterns sweeping blue holographic light across <Subject 2>'s face.\n<Subject 1> (S1) says <d>[Chinese] 机器没法自欺欺人，所以卡死了。</d> The line is delivered in a restrained, natural voice.\n<Subject 1> (S1) says <d>[Chinese] 你父亲快死了，一个决定能救他，他却反对——你会后悔吗？</d> The line is delivered in a hushed voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "facde586f9399d45"
+    },
+    {
+      "clip_id": "clip_08",
+      "kind": "video",
+      "location": "斯塔克大厦实验室",
+      "shot_indexes": [
+        8
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 8,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 8.0,
+      "request_seconds": 8,
+      "cast": [
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "location",
+          "name": "斯塔克大厦实验室",
+          "asset_id": "location_004",
+          "path": "series_assets/locations/location_004/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "他不会阻止我救他。他会活过来弥补的。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 8,
+          "speaker_name": "托尼·斯塔克",
+          "delivery_mode": "visible_dialogue",
+          "text": "他不会阻止我救他。他会活过来弥补的。",
+          "emotion": "低沉而坚定"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "他不会阻止我救他。他会活过来弥补的。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约8秒。核心主体是托尼·斯塔克，主要事件是从“开场瞬间：斯塔克正面而立，双手垂在身侧，一动不动，蓝光一遍…”到“斯塔克站在原地，神情严肃”。\n【人物】<托尼·斯塔克>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片2用于<斯塔克大厦实验室>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·近景】近景开场。开始时：斯塔克正面而立，双手垂在身侧，一动不动，蓝光一遍遍扫过他的脸。约三秒完全静止后，他喉结轻动，低声开口。机位：平视；由上一镜双人缓推成单人近景，全程固定无切；停在半空的手在起幅落下出画。光源：无为主光。主要事件：开场瞬间：斯塔克正面而立，双手垂在身侧，一动不动，蓝光一遍遍扫过他的脸。约三秒完全静止后，他喉结轻动，低声开口。入镜：托尼·斯塔克。声音：中文普通话，低沉而坚定，托尼·斯塔克开口说：{他不会阻止我救他。他会活过来弥补的。}；<实验室低频嗡鸣、光纹微鸣、约三秒静默>。结束时：斯塔克站在原地，神情严肃。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（近景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<实验室低频嗡鸣、光纹微鸣、约三秒静默>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1732,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_03"
+      ],
+      "shot_ids": [
+        "8"
+      ],
+      "shot_sound": [
+        "实验室低频嗡鸣、光纹微鸣、约三秒静默"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 8.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Picture 2> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 8-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 8 seconds. A fixed, eye-level close-up frames <Subject 1> standing frontally with arms hanging motionless at his sides as blue light repeatedly scans his face, accompanied by the low-frequency hum of the laboratory and the faint whine of the light patterns, which continues through a three-second silence until his Adam's apple moves slightly as he begins to speak in a low voice.\n<Subject 1> (S1) says <d>[Chinese] 他不会阻止我救他。他会活过来弥补的。</d> The line is delivered in a low, steady voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "9a527ac16a352ed9"
+    },
+    {
+      "clip_id": "clip_09",
+      "kind": "video",
+      "location": "斯塔克大厦实验室",
+      "shot_indexes": [
+        9
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 9,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 13.0,
+      "request_seconds": 13,
+      "cast": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片3",
+          "role": "location",
+          "name": "斯塔克大厦实验室",
+          "asset_id": "location_004",
+          "path": "series_assets/locations/location_004/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "把自己生命的一部分给他，像一个孩子的诞生。"
+        },
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "我不了解人工智能，但你不懂人。"
+        },
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "你在挑战上帝，创造人外人。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 9,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "把自己生命的一部分给他，像一个孩子的诞生。",
+          "emotion": "克制自然"
+        },
+        {
+          "stage": 1,
+          "source_stage": 9,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "我不了解人工智能，但你不懂人。",
+          "emotion": "克制自然"
+        },
+        {
+          "stage": 1,
+          "source_stage": 9,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "你在挑战上帝，创造人外人。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "把自己生命的一部分给他，像一个孩子的诞生。我不了解人工智能，但你不懂人。你在挑战上帝，创造人外人。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约13秒。核心主体是席勒、托尼·斯塔克，主要事件是从“开场瞬间：席勒上前一步，手掌搭在斯塔克的肩甲上。他说一句、…”到“席勒站在斯塔克面前，斯塔克眉头紧锁”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。<托尼·斯塔克>只对应@图片2，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：席勒、托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片3用于<斯塔克大厦实验室>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·双人中近景】双人中近景开场。开始时：席勒上前一步，手掌搭在斯塔克的肩甲上。他说一句、拍了两下；斯塔克张了张嘴，眉头拧紧，又把嘴抿上；席勒收回手，原地站定，补上两句，目光始终没有移开。机位：平视；双人镜头不切，机位缓慢横移约三十度；第三句落音时身后蓝光渐亮，为镜10升空蓄势。光源：无为主光。主要事件：开场瞬间：席勒上前一步，手掌搭在斯塔克的肩甲上。他说一句、拍了两下；斯塔克张了张嘴，眉头拧紧，又把嘴抿上；席勒收回手，原地站定，补上两句，目光始终没有移开。入镜：席勒、托尼·斯塔克。声音：中文普通话，克制自然，席勒开口说：{把自己生命的一部分给他，像一个孩子的诞生。}；中文普通话，克制自然，席勒开口说：{我不了解人工智能，但你不懂人。}；中文普通话，克制自然，席勒开口说：{你在挑战上帝，创造人外人。}；<实验室低频嗡鸣、手掌拍击装甲>。结束时：席勒站在斯塔克面前，斯塔克眉头紧锁。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（双人中近景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<实验室低频嗡鸣、手掌拍击装甲>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1949,
+      "lint": {
+        "9": [
+          "camera_move_words"
+        ]
+      },
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_03"
+      ],
+      "shot_ids": [
+        "9"
+      ],
+      "shot_sound": [
+        "实验室低频嗡鸣、手掌拍击装甲"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 13.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Subject 2> is the person shown in <Picture 2>. Take the face, hair, build and base garment design from <Picture 2>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 2> appears in the video; no other person has <Subject 2>'s face, hair or clothes.\n<Picture 3> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 13-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\n<Subject 2>: fully_preserved - the identity, face, hair and build of <Picture 2>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 13 seconds. A medium close-up at eye level frames <Subject 1> and <Subject 2> as <Subject 1> steps forward to place a hand on <Subject 2>'s shoulder armor, delivering a line and two slaps against the metal while <Subject 2> opens and closes his mouth with furrowed brows, after which <Subject 1> withdraws his hand to stand still and adds two more lines without breaking eye contact, all set against a backdrop of low-frequency laboratory humming and the sharp sounds of palm strikes on armor, with a blue light gradually brightening behind them as the camera slowly pans thirty degrees.\n<Subject 1> (S1) says <d>[Chinese] 把自己生命的一部分给他，像一个孩子的诞生。</d> The line is delivered in a controlled, natural voice.\n<Subject 1> (S1) says <d>[Chinese] 我不了解人工智能，但你不懂人。</d> The line is delivered in a controlled, natural voice.\n<Subject 1> (S1) says <d>[Chinese] 你在挑战上帝，创造人外人。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "052d5d2786b66c0d"
+    },
+    {
+      "clip_id": "clip_10",
+      "kind": "video",
+      "location": "斯塔克大厦实验室",
+      "shot_indexes": [
+        10
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 10,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 5.0,
+      "request_seconds": 5,
+      "cast": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "character",
+          "name": "托尼·斯塔克",
+          "asset_id": "character_002",
+          "path": "series_assets/characters/character_002/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片3",
+          "role": "location",
+          "name": "斯塔克大厦实验室",
+          "asset_id": "location_004",
+          "path": "series_assets/locations/location_004/establishing.jpeg"
+        }
+      ],
+      "lines": [],
+      "dialogue_bindings": [],
+      "chat_lines": [],
+      "spoken_text": "",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约5秒。核心主体是席勒、托尼·斯塔克，主要事件是从“开场瞬间：斯塔克转身，大步登上机甲台座。甲片自脚踝向上逐块…”到“斯塔克驾驶机甲飞出窗外，席勒站在原地目送”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。<托尼·斯塔克>只对应@图片2，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。托尼·斯塔克的辨识特征：倒三角形，肩宽腰细，姿态张扬。\n【人物范围】本段可出现的具名人物：席勒、托尼·斯塔克；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片3用于<斯塔克大厦实验室>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·全景】全景开场。开始时：斯塔克转身，大步登上机甲台座。甲片自脚踝向上逐块咬合，面具“咔”地落下；喷气点火冲出实验室敞开的高窗，整面玻璃墙映出一道蓝光；席勒立在光的余晖里，仰头目送。机位：微仰；固定全景，机甲沿纵向往画外上升出画，落幅停在余晖中的席勒背影；紧接镜9的静，由最静骤转轰鸣。光源：无为主光。主要事件：开场瞬间：斯塔克转身，大步登上机甲台座。甲片自脚踝向上逐块咬合，面具“咔”地落下；喷气点火冲出实验室敞开的高窗，整面玻璃墙映出一道蓝光；席勒立在光的余晖里，仰头目送。入镜：席勒、托尼·斯塔克。声音：<甲片逐块咬合、喷气引擎轰鸣、玻璃墙震颤>。结束时：斯塔克驾驶机甲飞出窗外，席勒站在原地目送。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（全景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<甲片逐块咬合、喷气引擎轰鸣、玻璃墙震颤>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1862,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_03"
+      ],
+      "shot_ids": [
+        "10"
+      ],
+      "shot_sound": [
+        "甲片逐块咬合、喷气引擎轰鸣、玻璃墙震颤"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 5.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Subject 2> is the person shown in <Picture 2>. Take the face, hair, build and base garment design from <Picture 2>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 2> appears in the video; no other person has <Subject 2>'s face, hair or clothes.\n<Picture 3> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 5-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\n<Subject 2>: fully_preserved - the identity, face, hair and build of <Picture 2>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 5 seconds. In a low-angle fixed wide shot, <Subject 2> turns and strides onto the mech platform as armor plates click into place from the ankles upward and the mask snaps shut, followed by the roar of jet ignition and the vibration of the glass wall as the mech ascends vertically out of frame through the open high window, leaving <Subject 1> standing in the afterglow, looking up to watch it depart.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "1d91e81ea71da37e"
+    },
+    {
+      "clip_id": "clip_11",
+      "kind": "video",
+      "location": "地狱厨房第九尾巷心理诊所",
+      "shot_indexes": [
+        11
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 11,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 10.0,
+      "request_seconds": 10,
+      "cast": [
+        "席勒"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "location",
+          "name": "地狱厨房第九尾巷心理诊所",
+          "asset_id": "location_014",
+          "path": "series_assets/locations/location_014/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "佩珀小姐，我给他用了亢奋疗法，这几天都会这样。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 11,
+          "speaker_name": "席勒",
+          "delivery_mode": "visible_dialogue",
+          "text": "佩珀小姐，我给他用了亢奋疗法，这几天都会这样。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "佩珀小姐，我给他用了亢奋疗法，这几天都会这样。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约10秒。核心主体是席勒，主要事件是从“开场瞬间：席勒坐在桌后，把一部黑色智能手机举在耳边。他等了…”到“席勒把手机扣在桌上”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。\n【人物范围】本段可出现的具名人物：席勒；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片2用于<地狱厨房第九尾巷心理诊所>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内…），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·中近景】中近景开场。开始时：席勒坐在桌后，把一部黑色智能手机举在耳边。他等了几秒后开口，听着电话那头，点了点头，把手机从耳边拿下来扣在桌上。机位：平视；回到镜2同侧过肩机位（前景肩部换成桌角椅背），色温回诊所暖黄；扣手机动作收镜，接镜12。光源：夜晚，室内昏暗灯光为主光。主要事件：开场瞬间：席勒坐在桌后，把一部黑色智能手机举在耳边。他等了几秒后开口，听着电话那头，点了点头，把手机从耳边拿下来扣在桌上。入镜：席勒。声音：中文普通话，克制自然，席勒开口说：{佩珀小姐，我给他用了亢奋疗法，这几天都会这样。}；<室内静谧、手机听筒微声>。结束时：席勒把手机扣在桌上。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（中近景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<室内静谧、手机听筒微声>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1735,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_04"
+      ],
+      "shot_ids": [
+        "11"
+      ],
+      "shot_sound": [
+        "室内静谧、手机听筒微声"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 10.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Picture 2> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 10-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 10 seconds. In a medium close-up at eye level, <Subject 1> sits behind a desk in a dimly lit room with warm yellow lighting, holding a black smartphone to his ear, listening to faint sounds from the receiver in a quiet indoor environment, then nods and places the phone face down on the desk.\n<Subject 1> (S1) says <d>[Chinese] 佩珀小姐，我给他用了亢奋疗法，这几天都会这样。</d> The line is delivered in a controlled, natural voice.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "5a05aa7863121c27"
+    },
+    {
+      "clip_id": "clip_12",
+      "kind": "video",
+      "location": "地狱厨房第九尾巷心理诊所",
+      "shot_indexes": [
+        12
+      ],
+      "segment_ids": [],
+      "shot_parts": [
+        {
+          "index": 12,
+          "part": [
+            1,
+            1
+          ]
+        }
+      ],
+      "stage_count": 1,
+      "seconds_estimate": 7.0,
+      "request_seconds": 7,
+      "cast": [
+        "席勒"
+      ],
+      "references": [
+        {
+          "tag": "@图片1",
+          "role": "character",
+          "name": "席勒",
+          "asset_id": "character_001",
+          "path": "series_assets/characters/character_001/turnaround.jpeg"
+        },
+        {
+          "tag": "@图片2",
+          "role": "location",
+          "name": "地狱厨房第九尾巷心理诊所",
+          "asset_id": "location_014",
+          "path": "series_assets/locations/location_014/establishing.jpeg"
+        }
+      ],
+      "lines": [
+        {
+          "speaker_name": "席勒",
+          "delivery_mode": "offscreen_dialogue",
+          "text": "叠buff我是真有天赋，可惜基础太弱，得先提基础。"
+        }
+      ],
+      "dialogue_bindings": [
+        {
+          "stage": 1,
+          "source_stage": 12,
+          "speaker_name": "席勒",
+          "delivery_mode": "offscreen_dialogue",
+          "text": "叠buff我是真有天赋，可惜基础太弱，得先提基础。",
+          "emotion": "克制自然"
+        }
+      ],
+      "chat_lines": [],
+      "spoken_text": "叠buff我是真有天赋，可惜基础太弱，得先提基础。",
+      "prompt": "【生成目标】生成一段横屏16:9的中国国漫短剧片段，约7秒。核心主体是席勒，主要事件是从“开场瞬间：席勒靠进椅背，摸着下巴。他抬起自己摊开的手掌，对…”到“席勒靠在椅背上，看着自己的手掌”。\n【人物】<席勒>只对应@图片1，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；不得把该角色的长相用在其他人身上。席勒的辨识特征：修长直立，肩线平直，姿态放松。\n【人物范围】本段可出现的具名人物：席勒；每阶段仅按该镜入镜列表呈现，不因提供了人物参考图就让人物在每个镜头出现。\n【场景】@图片2用于<地狱厨房第九尾巷心理诊所>的建筑、地面和地形；时间、光线和可移动道具以本场逐镜描述为准（位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内…），不采用图中人物。\n【视觉语法】光影与对比：先有真实光源再有明暗。夜景以月光或灯火为主光，发光物只作暖色次光；白天以窗光或日光为主光。阴影落向光源的反方向，人脸由最近的实际光源照亮，允许半边脸落入阴影；不做均匀打亮，不加看不见的补光，不用光晕代替光源；色彩与曝光：底色由地点卡决定，全书保持同一组冷暖倾向。饱和色只出现在实际发光或反光的物体上，以及少数角色的标志性服色。皮肤中间调保持可读但不发亮。不使用全局滤镜或青橙调色，天空不出现晚霞渐变，除非原文写了黄昏；镜头与机位：摄影机是站在现场的目击者：平视为主，中近景与近景交替，偶尔从门框、廊柱、人群缝隙后取景形成自然前景遮挡。每个阶段一个固定机位，阶段之间靠景别变化切画面；不推拉摇移，不俯瞰航拍，不用鱼眼或超广角畸变；构图与空间：主体放在三分线上，视线方向留出空间；对话双方保持稳定的左右关系和视线高度。群众作为柔化的中景或背景，不与主角争清晰度。同一场景内固定物的位置和朝向不变；一帧里只有一到两个清晰的叙事区域。\n【阶段一·中近景转全景】中近景转全景开场。开始时：席勒靠进椅背，摸着下巴。他抬起自己摊开的手掌，对着台灯的灯光看了看；桌上咖啡杯升起细细的一缕热气。机位：平视；中近景缓拉至全景，落幅为台灯、咖啡杯与看手的手的构图，与镜1的桌面构图成首尾环；内心独白期间嘴部不动。光源：夜晚，室内昏暗灯光为主光。主要事件：开场瞬间：席勒靠进椅背，摸着下巴。他抬起自己摊开的手掌，对着台灯的灯光看了看；桌上咖啡杯升起细细的一缕热气。入镜：席勒。声音：中文普通话，克制自然，画外的席勒说：{叠buff我是真有天赋，可惜基础太弱，得先提基础。}，画面中无人开口；<手机扣桌轻响、椅背皮革吱呀、窗外城市闷响>。结束时：席勒靠在椅背上，看着自己的手掌。\n画面呈现美式超级英雄漫画的成品画稿：墨线勾边、平涂上色、网点与交叉排线。\n镜头采用横屏16:9，按阶段切换景别（中近景转全景），每个阶段开始时切一次画面，阶段内机位固定不运镜；横屏构图：主体沿横向三分线，对话双方左右分布并留出环境，特写不要把脸撑满整幅，避免竖屏式的上下堆叠；同一场景内保持人物左右位置和视线方向不变。\n声音包括角色对白、<手机扣桌轻响、椅背皮革吱呀、窗外城市闷响>和与动作同步的音效；无背景音乐。\n【保持一致】保持人物身份、数量、服装、固定道具位置、空间方向和声音关系稳定；画面中不出现任何文字、数字、Logo或水印；不出现血液和伤口；不新增具名人物。\n【不要】古装、油灯、宫殿、马车、刀剑等古代物件，除非原文写了；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；石碑、牌匾、卷轴、书页上的可读文字或数字；发光的眼睛、周身特效、能量光环，除非原文明确写了；真人照片质感、皮肤毛孔、相机噪点；同一段内昼夜切换，或光源凭空出现和消失；无来源的镜头光晕、HDR式全画面锐化、整帧均匀清晰；与故事时代设定不符的物件（古代题材里的电灯、眼镜、印刷品；现代题材里的古装道具、油灯）；新增的具名角色，或与参考图不符的服装配色；招牌、路牌、屏幕、书页上的可读文字或数字；古装、油灯、宫殿等与现代都市不符的物件；车牌、品牌 Logo、真实商标；三维渲染、PBR材质高光与次表面散射皮肤；日系赛璐璐平涂、大眼小嘴的动画脸型；柔光瓷肌、磨皮与美型化处理；不要在画面上生成字幕条、台词字幕、字幕栏、说明文字或任何叠加的文字条。",
+      "prompt_chars": 1777,
+      "lint": {},
+      "override": null,
+      "background_only": [],
+      "listeners": [],
+      "extras": [],
+      "scene_ids": [
+        "scene_04"
+      ],
+      "shot_ids": [
+        "12"
+      ],
+      "shot_sound": [
+        "手机扣桌轻响、椅背皮革吱呀、窗外城市闷响"
+      ],
+      "shot_timing": [
+        {
+          "seconds": 7.0,
+          "cut": ""
+        }
+      ],
+      "scene_time": "",
+      "render_family": "2d",
+      "prompt_h3": "subject_definitions:\n<Subject 1> is the person shown in <Picture 1>. Take the face, hair, build and base garment design from <Picture 1>. The authored shot determines which garments are currently worn, removed or wet. Exactly one <Subject 1> appears in the video; no other person has <Subject 1>'s face, hair or clothes.\n<Picture 2> defines the setting's architecture and terrain. Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.\n\nsummary:\n[reference generation] A 7-second Chinese animated short-drama scene edited into 1 authored shots. All subjects, animals, props and environments share one consistent stylized 2D animation appearance.\n\nretention_analysis:\n<Subject 1>: fully_preserved - the identity, face, hair and build of <Picture 1>; base garment design is retained when worn, while current clothing state follows the authored shot. One instance in every shot it appears in.\nThe setting retains the referenced architecture and terrain; lighting, time of day and portable object states follow the authored shots.\n\ndetailed_description:\n[Shot 1] Planned duration: 7 seconds. A medium close-up at eye level slowly pulls back to a full shot in a dimly lit indoor night setting, where <Subject 1> leans back into a chair while stroking his chin, then raises an open palm to inspect it under the desk lamp's light as a thin wisp of steam rises from a coffee cup on the table, accompanied by the soft click of a phone placed on the desk, the creak of leather from the chair back, and the muffled rumble of the city outside the window.\n<Subject 1> (S1) says in an off-screen voiceover <d>[Chinese] 叠buff我是真有天赋，可惜基础太弱，得先提基础。</d> The line is delivered in a controlled, natural voice. The on-screen characters' lips remain closed.\n\noverall_soundscape:\nContinuous room tone for this setting, with the physical sounds of the action described above: footsteps, the rustle of clothing, the handling of objects, and the air of the space.\n\nnon_diegetic_music:\nNone.",
+      "prompt_h3_of": "5b145efd43175885"
+    }
+  ]
+}

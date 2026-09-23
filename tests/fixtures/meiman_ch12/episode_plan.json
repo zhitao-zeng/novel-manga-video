@@ -1,0 +1,801 @@
+{
+  "video_title": "叠buff的天才",
+  "hook": "斯塔克驾驶机甲破窗闯入地狱厨房诊所，席勒冷眼旁观并言语挑衅，斯塔克被激怒后机甲自爆，最终被席勒用关于父亲的假设性问题直击内心，带着使命感冲回实验室。",
+  "summary": "斯塔克驾驶马克2号破窗闯入地狱厨房诊所，席勒冷眼旁观并言语挑衅。斯塔克被激怒，机甲自爆后飞走又飞回，要求席勒修理贾维斯。两人放弃机甲，乘坐地狱厨房的破旧巴士前往斯塔克大厦。在实验室中，席勒指出贾维斯死机是机器逻辑与感性冲突的悖论，并用关于霍华德的假设性问题直击斯塔克内心，提出让贾维斯拥有“生命”的终极方案。斯塔克带着使命感冲回实验室，席勒留在诊所给佩珀打电话胡说八道，并感叹自己叠buff的天赋。",
+  "shots": [
+    {
+      "index": 1,
+      "narration": "斯塔克站在桌前，面具已弹开，他看着指尖的灰，在裤子上蹭掉。",
+      "subtitle": "你这地方可真够破的。",
+      "visual_prompt": "席勒坐在桌后，手端一杯冒热气的咖啡，昏黄台灯亮着。窗户猛地被撞开，一股寒风灌入，桌上纸页掀起；一台银白色机甲飞速冲入，在低矮的屋顶下盘旋一圈，喷气落地，震得台灯晃动；面具“嗡”地弹开露出斯塔克的脸，他扫视屋内，抬手指腹在桌面抹了一下，看指尖的灰，在裤子上蹭掉。",
+      "motion_prompt": "开场瞬间：席勒坐在桌后，手端一杯冒热气的咖啡，昏黄台灯亮着。窗户猛地被撞开，一股寒风灌入，桌上纸页掀起；一台银白色机甲飞速冲入，在低矮的屋顶下盘旋一圈，喷气落地，震得台灯晃动；面具“嗡”地弹开露出斯塔克的脸，他扫视屋内，抬手指腹在桌面抹了一下，看指尖的灰，在裤子上蹭掉。",
+      "characters": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "地狱厨房第九尾巷心理诊所：位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内陈设简陋，有一张办公桌和一把椅子，桌上放着一个咖啡杯，灯光昏黄微弱，营造出压抑且私密的氛围。",
+      "source_quote": "地狱厨房，窗户忽然一下打开，一股寒风涌进来，一辆银白色的机甲飞快的冲了进来，在屋里快速盘旋一圈之后喷气落地。\n“嗡”的一声，马克2的面具落下，斯塔克站在桌子前打量了一圈屋内，略带嫌弃的说:“你这地方可真够破的。”",
+      "scene_job": "推进",
+      "change": "斯塔克站在桌前，面具已弹开，他看着指尖的灰，在裤子上蹭掉。",
+      "event_ids": [],
+      "shot_scale": "全景转中景",
+      "turns": [
+        {
+          "role": "托尼·斯塔克",
+          "speaker_name": "托尼·斯塔克",
+          "text": "你这地方可真够破的。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "地狱厨房，窗户忽然一下打开，一股寒风涌进来，一辆银白色的机甲飞快的冲了进来，在屋里快速盘旋一圈之后喷气落地。\n“嗡”的一声，马克2的面具落下，斯塔克站在桌子前打量了一圈屋内，略带嫌弃的说:“你这地方可真够破的。”",
+          "derivation": "verbatim",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 2,
+      "narration": "席勒放下咖啡杯，眼神冷淡地看着斯塔克。",
+      "subtitle": "再抱怨一会儿，还没进正题，我不收费。",
+      "visual_prompt": "席勒坐在桌后，垂眼看着手中的咖啡，杯口已无热气。他凑近抿一口，皱眉，把杯子放回桌面，翻了个白眼；随即慢条斯理地开口回怼两句，其间抬眼望向斯塔克的方向。",
+      "motion_prompt": "开场瞬间：席勒坐在桌后，垂眼看着手中的咖啡，杯口已无热气。他凑近抿一口，皱眉，把杯子放回桌面，翻了个白眼；随即慢条斯理地开口回怼两句，其间抬眼望向斯塔克的方向。",
+      "characters": [
+        "席勒"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "地狱厨房第九尾巷心理诊所：位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内陈设简陋，有一张办公桌和一把椅子，桌上放着一个咖啡杯，灯光昏黄微弱，营造出压抑且私密的氛围。",
+      "source_quote": "席勒看着自己一瞬间就被冷风吹凉的热咖啡，翻了个白眼。\n席勒喝了口咖啡，慢条斯理的说:\n“我知道我的诊金很贵，但没关系，你可以再抱怨一会，只要我没进入正题，那就不收费。”\n“另外，你知道吗，你刚刚用手擦完我桌子上灰尘露出的那嫌弃的表情，比奶油蛋糕上面的樱桃还要娘。”",
+      "scene_job": "推进",
+      "change": "席勒放下咖啡杯，眼神冷淡地看着斯塔克。",
+      "event_ids": [],
+      "shot_scale": "中近景",
+      "turns": [
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "再抱怨一会儿，还没进正题，我不收费。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "席勒看着自己一瞬间就被冷风吹凉的热咖啡，翻了个白眼。\n席勒喝了口咖啡，慢条斯理的说:\n“我知道我的诊金很贵，但没关系，你可以再抱怨一会，只要我没进入正题，那就不收费。”\n“另外，你知道吗，你刚刚用手擦完我桌子上灰尘露出的那嫌弃的表情，比奶油蛋糕上面的樱桃还要娘。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        },
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "你擦灰的表情，比蛋糕上的樱桃还娘。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "席勒看着自己一瞬间就被冷风吹凉的热咖啡，翻了个白眼。\n席勒喝了口咖啡，慢条斯理的说:\n“我知道我的诊金很贵，但没关系，你可以再抱怨一会，只要我没进入正题，那就不收费。”\n“另外，你知道吗，你刚刚用手擦完我桌子上灰尘露出的那嫌弃的表情，比奶油蛋糕上面的樱桃还要娘。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 3,
+      "narration": "机甲飞出窗外，屋内纸页散落，咖啡杯歪倒。",
+      "subtitle": "霍华德也从这种破屋子白手起家，你体会不到。",
+      "visual_prompt": "席勒从桌后起身，摊开手掌指向四周剥落的墙皮和歪斜的书架。他慢速说完霍华德一句；银白机甲“嘭”地闷响，背甲鼓起一块指形凹痕；席勒绕机甲走半圈，屈起指节敲了敲胸甲，再补一句；机甲背后喷气轰然点火，从原窗冲出，倒灌的风把纸页掀到地上，咖啡杯歪倒。",
+      "motion_prompt": "开场瞬间：席勒从桌后起身，摊开手掌指向四周剥落的墙皮和歪斜的书架。他慢速说完霍华德一句；银白机甲“嘭”地闷响，背甲鼓起一块指形凹痕；席勒绕机甲走半圈，屈起指节敲了敲胸甲，再补一句；机甲背后喷气轰然点火，从原窗冲出，倒灌的风把纸页掀到地上，咖啡杯歪倒。",
+      "characters": [
+        "席勒"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "地狱厨房第九尾巷心理诊所：位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内陈设简陋，有一张办公桌和一把椅子，桌上放着一个咖啡杯，灯光昏黄微弱，营造出压抑且私密的氛围。",
+      "source_quote": "席勒叠满三个buff之后，斯塔克果然原地爆炸了。\n银白色的马克2“嘭”的炸了一下，显然斯塔克刚刚在里面不知道锤了一下什么。\n“可怜的马克2，还有可怜的贾维斯，恕我直言，斯塔克工业产品的质量都是这么……”\n“……但没关系，比市面上那些机器人电饭煲强多了，已经是质的飞跃了。”\n斯塔克直接从他冲进来的那扇窗户里又冲了出去，显然，他再在这待下去，马克2恐怕真要炸在地狱厨房了。",
+      "scene_job": "推进",
+      "change": "机甲飞出窗外，屋内纸页散落，咖啡杯歪倒。",
+      "event_ids": [],
+      "shot_scale": "中景",
+      "turns": [
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "霍华德也从这种破屋子白手起家，你体会不到。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "席勒叠满三个buff之后，斯塔克果然原地爆炸了。\n银白色的马克2“嘭”的炸了一下，显然斯塔克刚刚在里面不知道锤了一下什么。\n“可怜的马克2，还有可怜的贾维斯，恕我直言，斯塔克工业产品的质量都是这么……”\n“……但没关系，比市面上那些机器人电饭煲强多了，已经是质的飞跃了。”\n斯塔克直接从他冲进来的那扇窗户里又冲了出去，显然，他再在这待下去，马克2恐怕真要炸在地狱厨房了。",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        },
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "可怜的贾维斯。斯塔克工业，质的飞跃。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "席勒叠满三个buff之后，斯塔克果然原地爆炸了。\n银白色的马克2“嘭”的炸了一下，显然斯塔克刚刚在里面不知道锤了一下什么。\n“可怜的马克2，还有可怜的贾维斯，恕我直言，斯塔克工业产品的质量都是这么……”\n“……但没关系，比市面上那些机器人电饭煲强多了，已经是质的飞跃了。”\n斯塔克直接从他冲进来的那扇窗户里又冲了出去，显然，他再在这待下去，马克2恐怕真要炸在地狱厨房了。",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 4,
+      "narration": "斯塔克站在桌前，窗外悬停着第二台机甲，席勒扶着眼镜看着他。",
+      "subtitle": "你把他弄坏的就得修好，不然我让佩珀炒了你。",
+      "visual_prompt": "满地纸页间，席勒站直身体，长出一口气、舒展肩膀。窗户再次被撞开，马克2号落回桌前，面具敞口中的斯塔克开口；席勒答话；斯塔克打了个响指，窗外升起第二台银白机甲悬停，喷口的光扫过席勒的眼镜片；席勒看看机甲，又回头看看斯塔克，扶了扶眼镜。",
+      "motion_prompt": "开场瞬间：满地纸页间，席勒站直身体，长出一口气、舒展肩膀。窗户再次被撞开，马克2号落回桌前，面具敞口中的斯塔克开口；席勒答话；斯塔克打了个响指，窗外升起第二台银白机甲悬停，喷口的光扫过席勒的眼镜片；席勒看看机甲，又回头看看斯塔克，扶了扶眼镜。",
+      "characters": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "地狱厨房第九尾巷心理诊所：位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内陈设简陋，有一张办公桌和一把椅子，桌上放着一个咖啡杯，灯光昏黄微弱，营造出压抑且私密的氛围。",
+      "source_quote": "不过很快，斯塔克还是飞了回来，他没好气的说:“我给你打电话你不接，我只能飞到这个破烂堆来。”\n“你上次弄坏了我的贾维斯，今天我想给他升级时才发现他坏的很彻底，直接死机了，你得负责把他治好。”\n席勒刚想说什么，斯塔克就打断他说:“别想我付给你一分钱诊金，明明就是你把他弄坏的，为此还耽误了我新机甲的研发，你必须得把他治好，不然我就让佩珀炒了你。”",
+      "scene_job": "推进",
+      "change": "斯塔克站在桌前，窗外悬停着第二台机甲，席勒扶着眼镜看着他。",
+      "event_ids": [],
+      "shot_scale": "全景转中近景",
+      "turns": [
+        {
+          "role": "托尼·斯塔克",
+          "speaker_name": "托尼·斯塔克",
+          "text": "你把他弄坏的就得修好，不然我让佩珀炒了你。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "不过很快，斯塔克还是飞了回来，他没好气的说:“我给你打电话你不接，我只能飞到这个破烂堆来。”\n“你上次弄坏了我的贾维斯，今天我想给他升级时才发现他坏的很彻底，直接死机了，你得负责把他治好。”\n席勒刚想说什么，斯塔克就打断他说:“别想我付给你一分钱诊金，明明就是你把他弄坏的，为此还耽误了我新机甲的研发，你必须得把他治好，不然我就让佩珀炒了你。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        },
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "这次免费。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "不过很快，斯塔克还是飞了回来，他没好气的说:“我给你打电话你不接，我只能飞到这个破烂堆来。”\n“你上次弄坏了我的贾维斯，今天我想给他升级时才发现他坏的很彻底，直接死机了，你得负责把他治好。”\n席勒刚想说什么，斯塔克就打断他说:“别想我付给你一分钱诊金，明明就是你把他弄坏的，为此还耽误了我新机甲的研发，你必须得把他治好，不然我就让佩珀炒了你。”",
+          "derivation": "verbatim",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 5,
+      "narration": "巴士开走，站牌在烟里晃动。",
+      "subtitle": "钢铁侠扛着巴士飞，画面一定很美。",
+      "visual_prompt": "锈迹斑斑的金属站牌旁，一辆冒黑烟的老旧巴士哼哧挪到牌下，车门打开。银白机甲低着头，费劲地迈动双腿爬上车阶，金属脚把踏板踩得哐当作响；驾驶座上的司机探出身，仰头看着这台铁疙瘩；席勒跟着上车，拍了拍司机，把一枚硬币投进钱箱；机甲在过道里弯着腰站定。巴士喷出一团黑烟开走，站牌在烟里晃了晃。",
+      "motion_prompt": "开场瞬间：锈迹斑斑的金属站牌旁，一辆冒黑烟的老旧巴士哼哧挪到牌下，车门打开。银白机甲低着头，费劲地迈动双腿爬上车阶，金属脚把踏板踩得哐当作响；驾驶座上的司机探出身，仰头看着这台铁疙瘩；席勒跟着上车，拍了拍司机，把一枚硬币投进钱箱；机甲在过道里弯着腰站定。巴士喷出一团黑烟开走，站牌在烟里晃了晃。",
+      "characters": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "extras": [
+        "巴士司机"
+      ],
+      "listeners": [],
+      "location": "地狱厨房公交站牌：位于破旧街道旁的金属公交站牌，表面锈迹斑斑，旁边停着一辆冒着黑烟的老旧巴士，周围是杂乱的城市背景，光线平淡。",
+      "source_quote": "几分钟后，斯塔克和席勒出现在了地狱厨房破旧的公交站牌下面，斯塔克说:“我真不敢相信我跨时代战衣的首秀就是在一辆冒黑烟的破旧巴士上……”\n说着，那辆冒黑烟的破旧巴士就到了，席勒和司机打了招呼，斯塔克费劲的让马克2迈动双腿爬上去，席勒说:“其实你也可以把整辆车举起来，然后飞过去。”\n“那你到底为什么不能直接开着战衣飞过去？这他妈的有任何区别吗？？”斯塔克问。\n席勒摊摊手说:“因为钢铁侠扛着地狱巴士飞行的画面一定很美。”",
+      "scene_job": "推进",
+      "change": "巴士开走，站牌在烟里晃动。",
+      "event_ids": [],
+      "shot_scale": "大全景转全景",
+      "turns": [
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "钢铁侠扛着巴士飞，画面一定很美。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "几分钟后，斯塔克和席勒出现在了地狱厨房破旧的公交站牌下面，斯塔克说:“我真不敢相信我跨时代战衣的首秀就是在一辆冒黑烟的破旧巴士上……”\n说着，那辆冒黑烟的破旧巴士就到了，席勒和司机打了招呼，斯塔克费劲的让马克2迈动双腿爬上去，席勒说:“其实你也可以把整辆车举起来，然后飞过去。”\n“那你到底为什么不能直接开着战衣飞过去？这他妈的有任何区别吗？？”斯塔克问。\n席勒摊摊手说:“因为钢铁侠扛着地狱巴士飞行的画面一定很美。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 6,
+      "narration": "斯塔克站在中控台前方，半空浮起机甲线框光纹。",
+      "subtitle": "硬件完好，他却不愿工作。我要他成为真正的电子生命。",
+      "visual_prompt": "实验室全息屏阵列泛着暗光。屏幕逐排点亮，蓝光扫过整个房间；斯塔克穿着马克2号大步走到中控台前方，面具收在头顶、脸露在外面；他说前半句，抬手在空气里一挥，半空浮起一台机甲的线框光纹缓缓旋转，再说后半句。",
+      "motion_prompt": "开场瞬间：实验室全息屏阵列泛着暗光。屏幕逐排点亮，蓝光扫过整个房间；斯塔克穿着马克2号大步走到中控台前方，面具收在头顶、脸露在外面；他说前半句，抬手在空气里一挥，半空浮起一台机甲的线框光纹缓缓旋转，再说后半句。",
+      "characters": [
+        "托尼·斯塔克"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "斯塔克大厦实验室：金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感",
+      "source_quote": "到了斯塔克的实验室之后，斯塔克站在一堆面板前，说:“我不知道你是怎么搞的，贾维斯死机了，或者也不是死机了，他的硬件都是完好无损的，但他不愿意工作了。”\n“我打算给他来个大升级，但我不想这种情况再次出现，毕竟要是别人问他几个问题，他就会死机，那他就完全没法参与作战任务了，这不是我想要的。”\n涉及到他的专业，斯塔克倒是很直白，他说:“我想让贾维斯成为一个真正的电子生命，他可以成为一个全能的管家，甚至是这个世界上最好的管家。”",
+      "scene_job": "推进",
+      "change": "斯塔克站在中控台前方，半空浮起机甲线框光纹。",
+      "event_ids": [],
+      "shot_scale": "全景转中景",
+      "turns": [
+        {
+          "role": "托尼·斯塔克",
+          "speaker_name": "托尼·斯塔克",
+          "text": "硬件完好，他却不愿工作。我要他成为真正的电子生命。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "到了斯塔克的实验室之后，斯塔克站在一堆面板前，说:“我不知道你是怎么搞的，贾维斯死机了，或者也不是死机了，他的硬件都是完好无损的，但他不愿意工作了。”\n“我打算给他来个大升级，但我不想这种情况再次出现，毕竟要是别人问他几个问题，他就会死机，那他就完全没法参与作战任务了，这不是我想要的。”\n涉及到他的专业，斯塔克倒是很直白，他说:“我想让贾维斯成为一个真正的电子生命，他可以成为一个全能的管家，甚至是这个世界上最好的管家。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 7,
+      "narration": "席勒站在斯塔克对面，斯塔克的手停在半空。",
+      "subtitle": "机器没法自欺欺人，所以卡死了。",
+      "visual_prompt": "席勒双臂抱胸站在屏幕墙前，仰头看流动的光纹。他收回目光，慢慢踱到斯塔克对面站定，平静说出一句；朝斯塔克近了半步，声音压低一档再问；斯塔克抬手想反驳，手停在半空，又缓缓放下，全息蓝光一遍遍扫过他的脸。",
+      "motion_prompt": "开场瞬间：席勒双臂抱胸站在屏幕墙前，仰头看流动的光纹。他收回目光，慢慢踱到斯塔克对面站定，平静说出一句；朝斯塔克近了半步，声音压低一档再问；斯塔克抬手想反驳，手停在半空，又缓缓放下，全息蓝光一遍遍扫过他的脸。",
+      "characters": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "斯塔克大厦实验室：金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感",
+      "source_quote": "席勒说:“这其实是个悖论，就像我问他的那些问题一样。机器生命在做选择时，遵循的永远是有利逻辑，但当有利逻辑和主人命令发生冲突时，你给他的设定是遵循主人命令，但你又给了他感性，感性和理性冲突之后，机器没法像人一样自欺欺人。”\n“他无法像人一样找理由说服自己，没法承认这已经是最好的结果，没法逃避和忘记，所以当然会卡死。”",
+      "scene_job": "推进",
+      "change": "席勒站在斯塔克对面，斯塔克的手停在半空。",
+      "event_ids": [],
+      "shot_scale": "中景转双人中近景",
+      "turns": [
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "机器没法自欺欺人，所以卡死了。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "席勒说:“这其实是个悖论，就像我问他的那些问题一样。机器生命在做选择时，遵循的永远是有利逻辑，但当有利逻辑和主人命令发生冲突时，你给他的设定是遵循主人命令，但你又给了他感性，感性和理性冲突之后，机器没法像人一样自欺欺人。”\n“他无法像人一样找理由说服自己，没法承认这已经是最好的结果，没法逃避和忘记，所以当然会卡死。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        },
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "你父亲快死了，一个决定能救他，他却反对——你会后悔吗？",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "压低声音",
+          "source_quote": "席勒说:“这其实是个悖论，就像我问他的那些问题一样。机器生命在做选择时，遵循的永远是有利逻辑，但当有利逻辑和主人命令发生冲突时，你给他的设定是遵循主人命令，但你又给了他感性，感性和理性冲突之后，机器没法像人一样自欺欺人。”\n“他无法像人一样找理由说服自己，没法承认这已经是最好的结果，没法逃避和忘记，所以当然会卡死。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 8,
+      "narration": "斯塔克站在原地，神情严肃。",
+      "subtitle": "他不会阻止我救他。他会活过来弥补的。",
+      "visual_prompt": "斯塔克正面而立，双手垂在身侧，一动不动，蓝光一遍遍扫过他的脸。约三秒完全静止后，他喉结轻动，低声开口。",
+      "motion_prompt": "开场瞬间：斯塔克正面而立，双手垂在身侧，一动不动，蓝光一遍遍扫过他的脸。约三秒完全静止后，他喉结轻动，低声开口。",
+      "characters": [
+        "托尼·斯塔克"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "斯塔克大厦实验室：金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感",
+      "source_quote": "斯塔克摆了摆手说:“我能不能把类似的矛盾逻辑给隐藏起来？比如把某些词列为违禁词，或者把某些感情问题给屏蔽掉？”\n“你想让他成为一个真正的电子生命？”\n“当然，和我们一样，有灵魂的那种。”\n“好吧，简单来说，如果你想让贾维斯拥有真的感情，那他就绕不开这些问题，但如果他想不通这些问题，那他就算不上真正的‘生命’。”\n“可问题是他被这些问题困扰，他就不能工作，可我很需要他。”\n“难道我得像等一个情绪崩溃的女人一样等他自己消化？”\n“难道佩珀小姐情绪崩溃时你都是让她自己消化的？”",
+      "scene_job": "推进",
+      "change": "斯塔克站在原地，神情严肃。",
+      "event_ids": [],
+      "shot_scale": "近景",
+      "turns": [
+        {
+          "role": "托尼·斯塔克",
+          "speaker_name": "托尼·斯塔克",
+          "text": "他不会阻止我救他。他会活过来弥补的。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "低沉而坚定",
+          "source_quote": "斯塔克摆了摆手说:“我能不能把类似的矛盾逻辑给隐藏起来？比如把某些词列为违禁词，或者把某些感情问题给屏蔽掉？”\n“你想让他成为一个真正的电子生命？”\n“当然，和我们一样，有灵魂的那种。”\n“好吧，简单来说，如果你想让贾维斯拥有真的感情，那他就绕不开这些问题，但如果他想不通这些问题，那他就算不上真正的‘生命’。”\n“可问题是他被这些问题困扰，他就不能工作，可我很需要他。”\n“难道我得像等一个情绪崩溃的女人一样等他自己消化？”\n“难道佩珀小姐情绪崩溃时你都是让她自己消化的？”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 9,
+      "narration": "席勒站在斯塔克面前，斯塔克眉头紧锁。",
+      "subtitle": "把自己生命的一部分给他，像一个孩子的诞生。",
+      "visual_prompt": "席勒上前一步，手掌搭在斯塔克的肩甲上。他说一句、拍了两下；斯塔克张了张嘴，眉头拧紧，又把嘴抿上；席勒收回手，原地站定，补上两句，目光始终没有移开。",
+      "motion_prompt": "开场瞬间：席勒上前一步，手掌搭在斯塔克的肩甲上。他说一句、拍了两下；斯塔克张了张嘴，眉头拧紧，又把嘴抿上；席勒收回手，原地站定，补上两句，目光始终没有移开。",
+      "characters": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "斯塔克大厦实验室：金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感",
+      "source_quote": "“如果你的父亲就要死了，而你的一个决定可以拯救他，他却极力反对，你要怎么做？”\n“如果你遵守他的意愿没有拯救他，他死了，你会后悔吗？”\n“如果他死了，你觉得他在临死前会后悔生了你吗？”\n“如果他死了，你觉得他会怨恨你吗？”\n“如果他怨恨你，你会自责吗？”\n“如果你违抗他的意愿，选择了救他，他事后责怪你，你会感到愤懑不平吗？”\n“如果你违抗他的意愿救了他，而他却觉得你违抗他而后悔生了你，你会怨恨他吗？”\n斯塔克沉默了。\n他第一次没有对别人提到他的父亲而故作反应激烈。\n“他不会那么做的。”",
+      "scene_job": "推进",
+      "change": "席勒站在斯塔克面前，斯塔克眉头紧锁。",
+      "event_ids": [],
+      "shot_scale": "双人中近景",
+      "turns": [
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "把自己生命的一部分给他，像一个孩子的诞生。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "“如果你的父亲就要死了，而你的一个决定可以拯救他，他却极力反对，你要怎么做？”\n“如果你遵守他的意愿没有拯救他，他死了，你会后悔吗？”\n“如果他死了，你觉得他在临死前会后悔生了你吗？”\n“如果他死了，你觉得他会怨恨你吗？”\n“如果他怨恨你，你会自责吗？”\n“如果你违抗他的意愿，选择了救他，他事后责怪你，你会感到愤懑不平吗？”\n“如果你违抗他的意愿救了他，而他却觉得你违抗他而后悔生了你，你会怨恨他吗？”\n斯塔克沉默了。\n他第一次没有对别人提到他的父亲而故作反应激烈。\n“他不会那么做的。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        },
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "我不了解人工智能，但你不懂人。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "“如果你的父亲就要死了，而你的一个决定可以拯救他，他却极力反对，你要怎么做？”\n“如果你遵守他的意愿没有拯救他，他死了，你会后悔吗？”\n“如果他死了，你觉得他在临死前会后悔生了你吗？”\n“如果他死了，你觉得他会怨恨你吗？”\n“如果他怨恨你，你会自责吗？”\n“如果你违抗他的意愿，选择了救他，他事后责怪你，你会感到愤懑不平吗？”\n“如果你违抗他的意愿救了他，而他却觉得你违抗他而后悔生了你，你会怨恨他吗？”\n斯塔克沉默了。\n他第一次没有对别人提到他的父亲而故作反应激烈。\n“他不会那么做的。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        },
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "你在挑战上帝，创造人外人。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "“如果你的父亲就要死了，而你的一个决定可以拯救他，他却极力反对，你要怎么做？”\n“如果你遵守他的意愿没有拯救他，他死了，你会后悔吗？”\n“如果他死了，你觉得他在临死前会后悔生了你吗？”\n“如果他死了，你觉得他会怨恨你吗？”\n“如果他怨恨你，你会自责吗？”\n“如果你违抗他的意愿，选择了救他，他事后责怪你，你会感到愤懑不平吗？”\n“如果你违抗他的意愿救了他，而他却觉得你违抗他而后悔生了你，你会怨恨他吗？”\n斯塔克沉默了。\n他第一次没有对别人提到他的父亲而故作反应激烈。\n“他不会那么做的。”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 10,
+      "narration": "斯塔克驾驶机甲飞出窗外，席勒站在原地目送。",
+      "subtitle": "开场瞬间：斯塔克转身，大步登上机甲台座。甲片自脚踝向上逐块咬合，面具“咔”地落下；喷气点火冲出实验室敞开的高窗，整面玻璃",
+      "visual_prompt": "斯塔克转身，大步登上机甲台座。甲片自脚踝向上逐块咬合，面具“咔”地落下；喷气点火冲出实验室敞开的高窗，整面玻璃墙映出一道蓝光；席勒立在光的余晖里，仰头目送。",
+      "motion_prompt": "开场瞬间：斯塔克转身，大步登上机甲台座。甲片自脚踝向上逐块咬合，面具“咔”地落下；喷气点火冲出实验室敞开的高窗，整面玻璃墙映出一道蓝光；席勒立在光的余晖里，仰头目送。",
+      "characters": [
+        "席勒",
+        "托尼·斯塔克"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "斯塔克大厦实验室：金属质感，全息屏幕闪烁，机械臂悬挂，冷蓝灯光，杂乱零件，高科技感",
+      "source_quote": "“你想让他拥有真正的生命，首先要做的就是像你父亲给你的一样。”\n“包括你的过去、你的人格、你的思考方式，你得先把自己生命的一部分给他——”\n“就像一个孩子的诞生那样。”\n斯塔克沉默了半天，他罕见了皱紧了眉头，露出一副有些为难的神情，他说:“我坚信这个世界上没有什么读心术，贾维斯也不可能会，那他凭什么来了解我？这是个几乎不可能完成的技术，你不了解人工智能……”\n“我不了解‘人工智能’，但你不了解‘人’。”\n斯塔克又被他说的无话可说，但席勒紧接着说:\n“人类因智慧而存在，因情感而伟大。",
+      "scene_job": "推进",
+      "change": "斯塔克驾驶机甲飞出窗外，席勒站在原地目送。",
+      "event_ids": [],
+      "shot_scale": "全景",
+      "turns": [
+        {
+          "role": "action",
+          "speaker_name": "",
+          "text": "开场瞬间：斯塔克转身，大步登上机甲台座。甲片自脚踝向上逐块咬合，面具“咔”地落下；喷气点火冲出实验室敞开的高窗，整面玻璃",
+          "speaking": false,
+          "delivery_mode": "silent_action",
+          "emotion": "克制自然",
+          "source_quote": "“你想让他拥有真正的生命，首先要做的就是像你父亲给你的一样。”\n“包括你的过去、你的人格、你的思考方式，你得先把自己生命的一部分给他——”\n“就像一个孩子的诞生那样。”\n斯塔克沉默了半天，他罕见了皱紧了眉头，露出一副有些为难的神情，他说:“我坚信这个世界上没有什么读心术，贾维斯也不可能会，那他凭什么来了解我？这是个几乎不可能完成的技术，你不了解人工智能……”\n“我不了解‘人工智能’，但你不了解‘人’。”\n斯塔克又被他说的无话可说，但席勒紧接着说:\n“人类因智慧而存在，因情感而伟大。",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 11,
+      "narration": "席勒把手机扣在桌上。",
+      "subtitle": "佩珀小姐，我给他用了亢奋疗法，这几天都会这样。",
+      "visual_prompt": "席勒坐在桌后，把一部黑色智能手机举在耳边。他等了几秒后开口，听着电话那头，点了点头，把手机从耳边拿下来扣在桌上。",
+      "motion_prompt": "开场瞬间：席勒坐在桌后，把一部黑色智能手机举在耳边。他等了几秒后开口，听着电话那头，点了点头，把手机从耳边拿下来扣在桌上。",
+      "characters": [
+        "席勒"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "地狱厨房第九尾巷心理诊所：位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内陈设简陋，有一张办公桌和一把椅子，桌上放着一个咖啡杯，灯光昏黄微弱，营造出压抑且私密的氛围。",
+      "source_quote": "斯塔克离开时的那种气势，让席勒觉得他恐怕真的能做到。\n不过他还是记得打电话给佩珀小姐，说:“佩珀小姐，午安，是这样的，我对斯塔克先生进行了一些亢奋疗法……呃，对，就是我自创的，但很有用，不过有些副作用……”\n“是的，他已经去实验室了吗？什么？甚至没有想起你们下午的约会？那他可太失礼了……”\n“没错，最近几天都会这样，这是调整多巴胺分泌和肾上腺素的必经之路，然后他的激素水平就会降下来，恢复到正常值，对，很快就会好……”",
+      "scene_job": "推进",
+      "change": "席勒把手机扣在桌上。",
+      "event_ids": [],
+      "shot_scale": "中近景",
+      "turns": [
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "佩珀小姐，我给他用了亢奋疗法，这几天都会这样。",
+          "speaking": true,
+          "delivery_mode": "visible_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "斯塔克离开时的那种气势，让席勒觉得他恐怕真的能做到。\n不过他还是记得打电话给佩珀小姐，说:“佩珀小姐，午安，是这样的，我对斯塔克先生进行了一些亢奋疗法……呃，对，就是我自创的，但很有用，不过有些副作用……”\n“是的，他已经去实验室了吗？什么？甚至没有想起你们下午的约会？那他可太失礼了……”\n“没错，最近几天都会这样，这是调整多巴胺分泌和肾上腺素的必经之路，然后他的激素水平就会降下来，恢复到正常值，对，很快就会好……”",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    },
+    {
+      "index": 12,
+      "narration": "席勒靠在椅背上，看着自己的手掌。",
+      "subtitle": "叠buff我是真有天赋，可惜基础太弱，得先提基础。",
+      "visual_prompt": "席勒靠进椅背，摸着下巴。他抬起自己摊开的手掌，对着台灯的灯光看了看；桌上咖啡杯升起细细的一缕热气。",
+      "motion_prompt": "开场瞬间：席勒靠进椅背，摸着下巴。他抬起自己摊开的手掌，对着台灯的灯光看了看；桌上咖啡杯升起细细的一缕热气。",
+      "characters": [
+        "席勒"
+      ],
+      "extras": [],
+      "listeners": [],
+      "location": "地狱厨房第九尾巷心理诊所：位于狭窄昏暗巷弄深处的一间低矮建筑，外墙斑驳陈旧，门口挂着模糊不清的招牌，室内陈设简陋，有一张办公桌和一把椅子，桌上放着一个咖啡杯，灯光昏黄微弱，营造出压抑且私密的氛围。",
+      "source_quote": "席勒就是在胡说八道，他这招就是俗称的打鸡血，而且是buff叠满的鸡血，斯塔克肯定会带着一身名为“使命感”的buff，一头扎进实验室，没半个月是不会离开了。\n他突然发现自己在叠buff方面有独树一帜的才能，席勒摸了摸下巴，要是能给他自己叠就好了。\n不过他基础面板太弱，叠再多数据也还是起不来，还不如想想怎么提高一下基础。",
+      "scene_job": "推进",
+      "change": "席勒靠在椅背上，看着自己的手掌。",
+      "event_ids": [],
+      "shot_scale": "中近景转全景",
+      "turns": [
+        {
+          "role": "席勒",
+          "speaker_name": "席勒",
+          "text": "叠buff我是真有天赋，可惜基础太弱，得先提基础。",
+          "speaking": false,
+          "delivery_mode": "offscreen_dialogue",
+          "emotion": "克制自然",
+          "source_quote": "席勒就是在胡说八道，他这招就是俗称的打鸡血，而且是buff叠满的鸡血，斯塔克肯定会带着一身名为“使命感”的buff，一头扎进实验室，没半个月是不会离开了。\n他突然发现自己在叠buff方面有独树一帜的才能，席勒摸了摸下巴，要是能给他自己叠就好了。\n不过他基础面板太弱，叠再多数据也还是起不来，还不如想想怎么提高一下基础。",
+          "derivation": "derived",
+          "device": null,
+          "serves": []
+        }
+      ],
+      "performance_plan": null,
+      "camera_plan": null,
+      "visual_strategy": "auto",
+      "keyframe_reasons": [],
+      "shot_intent": {
+        "dramatic_function": "advance",
+        "power_relation": "未明确",
+        "emotion_target": "保持关注",
+        "information_fact_ids": [],
+        "viewer_focus": "当前主要动作与反应",
+        "retention_beat_id": ""
+      },
+      "audio_plan": {
+        "speech_strategy": "native",
+        "voice_reference_id": "",
+        "delivery_intent": "克制自然",
+        "pace": "自然",
+        "energy": 0.5,
+        "pauses": [],
+        "music_cue": "",
+        "ambience": "",
+        "sfx_events": [],
+        "audio_beats": [],
+        "ducking": true
+      },
+      "script_open_state": null,
+      "script_close_state": null
+    }
+  ],
+  "next_preview": "敬请期待下一集",
+  "adaptation_ledger": [],
+  "creative_profile": "thin-chapter-plan-v13-bounded-repair-15s",
+  "dramaturgy": null,
+  "showrunner_plan": null,
+  "episode_contract": null
+}

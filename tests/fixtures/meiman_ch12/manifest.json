@@ -1,0 +1,22 @@
+{
+ "frozen_from": "outputs/meiman-daoshi/meiman-daoshi_12 (HEAD ecc6caa 工作区)",
+ "why": "PR3-PR5 联调验收的冻结对照：原文→规划→打包→请求全链证据。图片本体不进 Git，清单为准。",
+ "chapter": 12,
+ "novel_id": "meiman-daoshi",
+ "known_issues_at_freeze": [
+  "clip_04→clip_05 诊室→公交站转场：站牌场景文字预写了停靠巴士，与正文“巴士驶入”冲突",
+  "审查报告指出：席勒提及佩珀/贾维斯的“提及≠在场”未区分；装甲与托尼的穿戴关系未建模",
+  "shot 4 佩珀在台词中被提及（威胁炒人），shot 11 佩珀只作为电话对端出现"
+ ],
+ "digests": {
+  "segments.json": "5ab8a3ae1cd1bbbe",
+  "chapter_script.json": "2459c6e8c09ccda0",
+  "chapter_script_report.json": "8d6c050d6195e82b",
+  "clip_plan.json": "75d7209c752cd0fe",
+  "pack_decisions.json": "9cdd13b189e07ee3",
+  "episode_plan.json": "a7e3d7654c2cef46",
+  "request_attempt_01.json": "f515c81145ad5ac2",
+  "thin_media_report.json": "0409df91d7f33368",
+  "identity_context.json": "4a941bce5c8533ae"
+ }
+}
