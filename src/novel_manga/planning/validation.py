@@ -13,6 +13,54 @@ import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.metrics as pc_metrics
 import novel_manga.planning.text as pc_text
 
+def beat_lines_survive(blueprint: dict, shots: list[dict], errors: list) -> None:
+    """Every beat's spoken line must still be spoken after packing - or the beat's hand-off died.
+
+    The blueprint asks each beat for its source_quote, and the review's case is the exit question
+    of a scene: 席勒 asks whether he must ride the armour, 托尼's answer is the cut point - and a
+    plan that cites the segment while dropping the line plays the question without the answer.
+    A beat's quote is not verbatim law (adaptation may compress), so a turn counts as carrying it
+    when it shares at least the quote's first content run, or enough of its characters; what the
+    stage merely DESCRIBES (its picture text) does not count - an audience hears lines, not
+    event fields.
+    """
+    spoken = [pc_text.quote_key(turn.get("text") or "") for shot in shots
+              for turn in shot.get("turns") or []
+              if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}]
+    if not spoken:
+        return
+    for beat in blueprint.get("beats") or []:
+        quote = str(beat.get("source_quote") or "")
+        key = pc_text.quote_key(quote)
+        if len(key) < 8:                     # too short to identify, or the beat's beat is visual
+            continue
+        if any(_line_carries(spoken_line, key) for spoken_line in spoken):
+            continue
+        errors.append(PlanningIssue(PlanningCode.BEAT_LINE_LOST,
+            f"{beat.get('beat_id')}: 拍点的台词「{quote[:40]}」在打包后没有任何台词承载（可能被改成事件描述或被删）；"
+            "这一拍的对白或其等义表达必须由某个阶段说出，不能只写在画面描述里", field='turns'))
+
+
+def _line_carries(spoken_key: str, quote_key_text: str, *, share=0.6) -> bool:
+    """Whether a spoken turn carries this beat's quote: contains its opening run, or enough of it.
+
+    Turns may be compressed or re-cut between stages; exact containment failed those.  The opening
+    run is what a paraphrase keeps (its subject and verb), and the character share catches the
+    compressed rest.  Both sides arrive as quote keys (punctuation-stripped); the quote's is taken
+    again here so callers may pass the raw quote.
+    """
+    quote_key_text = pc_text.quote_key(quote_key_text)
+    if not quote_key_text:
+        return True
+    head = quote_key_text[: max(4, len(quote_key_text) // 3)]
+    if head and head in spoken_key:
+        return True
+    if len(spoken_key) < len(quote_key_text) * share:
+        return False
+    common = sum(1 for character in quote_key_text if character in spoken_key)
+    return common >= len(quote_key_text) * 0.8
+
+
 def flatten_clips(raw: dict) -> list[dict]:
     """Turn model clips/stages into the flat shot list the gates and packer use."""
     shots: list[dict] = []
@@ -176,6 +224,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             if bid in owners and owners[bid] != shot['segment_id']:
                 errors.append(PlanningIssue(PlanningCode.METHOD_CONTRACT,
                     f"{bid} source ownership changed during quote normalization; correct its source_quote"))
+        beat_lines_survive(ctx.story_blueprint, normalized, errors)
     chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings,
                      known_speakers=[*names, *ctx.aliases])
     return ValidationResult(errors, warnings, normalized)
