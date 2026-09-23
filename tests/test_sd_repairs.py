@@ -130,10 +130,10 @@ def test_a_stage_too_long_for_one_clip_is_split_between_its_lines(monkeypatch):
     spoken = [turn["text"] for clip in clips for stage in clip["shots"] for turn in stage["turns"]]
     assert spoken == [turn["text"] for turn in shot["turns"]]  # every line, in order, none clamped away
     assert any(d["kind"] == "split_stage" for d in compiler.decisions)
-    # The final tableau is deferred: part 2 opens on the action done and held, not the outcome.
-    assert clips[1]["shots"][0]["visual_prompt"].startswith("承接上一段：林凡边说边踱步的动作已完成")
-    assert "林凡停下" in clips[1]["shots"][0]["visual_prompt"]          # named, as what NOT to show yet
-    assert "最终结果" in clips[-1]["shots"][0]["end_state"] or clips[-1]["shots"][0]["end_state"] == "林凡停下"
+    # Part 1 ends mid-action (the finale belongs to the last part); part 2 names the action past.
+    assert "后续分段才成立" in clips[0]["shots"][0]["end_state"]
+    assert clips[1]["shots"][0]["visual_prompt"].startswith("承接上一段：林凡边说边踱步")
+    assert "已完成" in clips[1]["shots"][0]["visual_prompt"] or "正在进行中" in clips[1]["shots"][0]["visual_prompt"]
 
 
 def test_a_line_longer_than_a_clip_is_cut_at_sentence_ends(monkeypatch):

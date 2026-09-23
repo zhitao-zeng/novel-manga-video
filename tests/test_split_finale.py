@@ -34,22 +34,48 @@ def split_into(parts_count=2):
 def test_part_two_opens_on_the_action_held_not_the_outcome():
     _, _, pieces = split_into(3)
     later = pieces[1]["visual_prompt"]
-    assert "艾登用力推门的动作已完成" in later          # the action, done and held
-    assert "门开了" in later and "不提前出现" in later   # the finale named as deferred, not painted
+    assert "动作正在进行中" in later and "不重复该动作" in later
+    assert "门开了" in later and "尚未发生" in later      # the finale named as pending, not painted
 
 
 def test_only_the_last_part_keeps_the_final_end_state():
     _, _, pieces = split_into(3)
     assert pieces[-1]["end_state"] == "门开了，艾登愣在门口"
-    for piece in pieces[:-1]:
-        assert "尚未发生" in piece["end_state"]          # mid parts pause, they do not land
+    assert "后续分段才成立" in pieces[0]["end_state"]      # part 1 ends mid-action
+    assert "尚未发生" in pieces[1]["end_state"]            # middle parts pause
 
 
 def test_no_part_repeats_the_action():
     _, compiler, pieces = split_into(3)
     for piece in pieces[1:]:
-        assert "不重复上一段的动作" in piece["motion_prompt"]
+        assert "不重复" in piece["motion_prompt"]
     assert any(d["kind"] == "split_stage" for d in compiler.decisions)
+
+
+def test_the_last_part_lands_the_result_instead_of_deferring_it():
+    """The old contradiction: even the last part opened with 不提前出现最终结果 while its end_state
+    restored it.  Now the last part says the action is past and IT presents the result."""
+    _, _, pieces = split_into(3)
+    last = pieces[-1]
+    assert "已完成" in last["visual_prompt"] and "呈现最终结果" in last["visual_prompt"]
+    assert "收尾" in last["motion_prompt"]
+
+
+def test_a_departure_action_is_not_contradicted():
+    """The review's case: the event is 托尼说完后飞出窗户, the end_state 诊室只剩席勒.  Part 1 must
+    not claim the room is empty while its seconds still play; the last part must land it."""
+    shot = {"index": 3, "origin_index": 3, "location": "诊室", "segment_id": "seg_01", "shot_scale": "中景",
+            "visual_prompt": "托尼站在诊室窗边，席勒坐在桌后", "motion_prompt": "托尼说完后飞出窗户",
+            "end_state": "诊室里只剩席勒",
+            "turns": [{"delivery_mode": "visible_dialogue", "speaker_name": "托尼", "text": t}
+                      for t in ["这地方我是一秒都待不下去了，连咖啡都是速溶的。" * 2, "回头见。" * 6]]}
+    compiler = ClipCompiler(options())
+    pieces = compiler.split_long_shot(shot)
+    assert len(pieces) == 2, [p["split_part"] for p in pieces]
+    assert "只剩席勒" in pieces[0]["end_state"] and "后续分段才成立" in pieces[0]["end_state"]
+    assert "飞出窗户" in pieces[0]["end_state"]
+    assert pieces[-1]["end_state"] == "诊室里只剩席勒"      # the last part lands it
+    assert "已完成" in pieces[1]["visual_prompt"]           # and says the flight is past, not redone
 
 
 def test_a_short_stage_is_touched_by_none_of_this():

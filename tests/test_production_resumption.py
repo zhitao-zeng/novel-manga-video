@@ -192,11 +192,12 @@ def test_the_later_parts_of_a_split_stage_carry_on_instead_of_repeating_its_acti
     assert len(parts) == 3 and parts[0]["motion_prompt"] == "林凡推门走出去" and parts[0]["visual_prompt"] == "林凡站在屋内门边"
     for part in parts[1:]:
         assert "推门" not in part["motion_prompt"]
-        # The action, done and held; the finale named as what NOT to show yet, not painted.
-        assert "动作已完成" in part["visual_prompt"] and "不提前出现" in part["visual_prompt"]
-    # Only the last part lands the stage's final tableau; the earlier ones pause mid-stage.
+        # The action named as past or in progress; the finale pending - never painted early.
+        assert ("已完成" in part["visual_prompt"] or "正在进行中" in part["visual_prompt"])
+    # Part 1 ends mid-action; middle parts pause; only the last part lands the stage's tableau.
+    assert "后续分段才成立" in parts[0]["end_state"]
+    assert "尚未发生" in parts[1]["end_state"]
     assert parts[-1]["end_state"] == "林凡站在门外台阶上"
-    assert all("尚未发生" in part["end_state"] for part in parts[:-1])
 
 
 # ---------------------------------------------------------------- 29: a forced H3 rebuild that fails
