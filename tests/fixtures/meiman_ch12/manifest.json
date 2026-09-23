@@ -1,6 +1,6 @@
 {
  "frozen_from": "outputs/meiman-daoshi/meiman-daoshi_12 (HEAD ecc6caa 工作区)",
- "why": "PR3-PR5 联调验收的冻结对照：原文→规划→打包→请求全链证据。图片本体不进 Git，清单为准。",
+ "why": "PR3-PR5 联调验收的冻结对照：原文→规划→打包→请求全链证据。图片本体不进 Git，清单为准。 response_attempt_01.raw.json 是模型原始输出：PR-E 用它重放修后的 validate_and_normalize 链。",
  "chapter": 12,
  "novel_id": "meiman-daoshi",
  "known_issues_at_freeze": [
@@ -17,6 +17,11 @@
   "episode_plan.json": "a7e3d7654c2cef46",
   "request_attempt_01.json": "f515c81145ad5ac2",
   "thin_media_report.json": "0409df91d7f33368",
-  "identity_context.json": "4a941bce5c8533ae"
+  "identity_context.json": "4a941bce5c8533ae",
+  "response_attempt_01.raw.json": "2480db93372c9927",
+  "分镜表.xlsx": "cb652dc9db0111dd",
+  "agent_storyboard.json": "254c91a2d5fc3b02",
+  "story_bible.json": "45967ce3d840ba28",
+  "bible_aliases.json": "cf523b285d4ac489"
  }
 }

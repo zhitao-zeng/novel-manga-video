@@ -1,0 +1,15 @@
+{
+ "status": "accepted",
+ "run": "meiman-daoshi-ch0012-shanyin",
+ "attempt": "20260922-051923-shanyin",
+ "skill": "shanyin",
+ "sheets": [
+  "output/分镜表.xlsx"
+ ],
+ "sheet": "agent_storyboard/分镜表.xlsx",
+ "sheet_name": "第十二集分镜表",
+ "sheet_digest": "cb652dc9db0111dd",
+ "accepted_from": "20260922-051923-shanyin:output/分镜表.xlsx",
+ "accepted_at": "2026-09-22 05:47:05",
+ "accepted_by": "auto:one-readable-sheet-v1"
+}
