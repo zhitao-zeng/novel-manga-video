@@ -58,6 +58,11 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
         # 道具只能来自圣经名单：枚举之外的名字是模型的幻觉，不是新道具
         stage["properties"]["props"] = {"type": "array", "maxItems": 2,
                                         "items": {"type": "string", "enum": prop_names}}
+        # 镜头级穿戴：{角色名: 道具名|null（null=这一镜脱下）}。只有书里有道具才出现
+        # 这个字段——没道具的书 schema 逐字节不变。
+        stage["properties"]["wears"] = {"type": "object",
+                                        "additionalProperties": {"type": ["string", "null"],
+                                                                 "enum": [*prop_names, None]}}
     if ctx.story_blueprint:
         beats = [b['beat_id'] for b in ctx.story_blueprint.get('beats', []) if b['segment_id'] in segment_ids]
         if beats:

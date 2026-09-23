@@ -62,13 +62,25 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
     clip_prop_names = list(dict.fromkeys(
         prop for shot in clip["shots"] for prop in (shot.get("props") or [])))
     # Shot-level wearing state: a stage may put a wearable on, take it off, or fly an empty suit in.
-    # Every stage of the clip gets a say; the last word wins per name, and a clip whose stages
-    # disagree takes the union of what anyone wears (a prop card rides or it does not - half-wearing
-    # a suit into a request is the one option that draws a wrong picture).
-    worn_overrides: dict[str, str | None] = {}
+    # One request renders the whole clip, so per-name this is a TIMELINE, not a last-wins value:
+    # worn at any stage → the card rides and the binding says what happens across the stages;
+    # bare for the whole clip (or the last state is off with none earlier on) → no card, and the
+    # wearer's reference stays the base card.  The stages' own picture text carries the moment
+    # of the change; what the references must not do is show the armour half-present.
+    worn_timeline: dict[str, list[str | None]] = {}
     for shot in clip["shots"]:
         for name, wears in (shot.get("wears") or {}).items():
-            worn_overrides[name] = str(wears) if wears else None
+            worn_timeline.setdefault(name, []).append(str(wears) if wears else None)
+    worn_overrides: dict[str, str | None] = {}
+    for name, states in worn_timeline.items():
+        ever_on = any(state for state in states)
+        ends_off = states and states[-1] is None
+        if ever_on and not ends_off:
+            worn_overrides[name] = states[-1]          # on throughout, or ends on
+        elif ever_on and ends_off:
+            worn_overrides[name] = states[0]           # on then off within this clip: card rides, binding narrates the change
+        else:
+            worn_overrides[name] = None                # bare throughout
     references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"), props=clip_prop_names or None, props_index={p.name: p for p in getattr(bible, "props", None) or []}, worn_overrides=worn_overrides or None)
     if any(s.get('scene_id') for s in clip['shots']):
         location_binding = location_binding.replace('、固定道具和光线', '和地形；时间、光线和可移动道具以本场逐镜描述为准')

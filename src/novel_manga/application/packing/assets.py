@@ -73,19 +73,27 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     # Shot-level wearing state, over the chapter phase: a stage may put the armour on, take it off,
     # or fly a second empty suit in - the chapter default cannot say any of those.  {name: prop}
     # wears it for this clip; {name: None} wears nothing this clip.  Absent = the chapter phase decides.
-    # The wearer's own card stays the chapter phase's (a wearing phase card is drawn from the prop's);
-    # what changes at shot level is only whether the prop's card rides along, and the binding says so.
+    # A wearing phase's card is drawn FROM the prop's; a clip that is bare throughout must not show
+    # that card either - the reference falls back to the base card, or the armour stays on paper.
     overrides = {k: v for k, v in (worn_overrides or {}).items() if k in cast and v != ""}
     shot_wearing: dict[str, str] = {}
+    bare_this_clip: set[str] = set()
     for name in cast:
         if name in overrides:
             shot_wearing[name] = "" if overrides[name] is None else overrides[name]
+            if overrides[name] is None:
+                bare_this_clip.add(name)
             continue
         phase = phase_for(phases, name, chapter)
         shot_wearing[name] = str(phase.get("wears")) if phase and phase.get("wears") else ""
     worn_props = [p for p in shot_wearing.values() if p]
     for name in cast:
         phase = phase_for(phases, name, chapter)
+        # The wearer shed the wearable for this whole clip: the phase card that was drawn wearing
+        # it is the wrong appearance.  A phase with no `wears` of its own (白发, a different age)
+        # still governs the look - only the armour phase steps aside.
+        if name in bare_this_clip and phase and phase.get("wears"):
+            phase = None
         asset = str(phase["asset_id"]) if phase else f"character_{character_index[name]:03d}"
         look = phased(by_name[name], phase)
         host = bodies.get(name)
