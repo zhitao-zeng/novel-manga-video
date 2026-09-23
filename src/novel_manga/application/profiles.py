@@ -202,17 +202,23 @@ def plan_fingerprint(plan: dict) -> str:
 def h3_compile_inputs(clip: dict) -> dict:
     """The fields other than the Chinese prose that compose() reads when it builds the English prompt.
 
-    The stamp is only as good as this: the medium sentence and the per-shot durations are compiled into the
-    request, so a clip whose medium was corrected must be recompiled, and the digest has to know it.
+    The stamp is only as good as this: the medium sentence, the per-shot durations, the reference
+    pictures (their order numbers the subjects and now the props), the bound dialogue and the
+    crowd clothing rules are all compiled into the request, so a clip whose any of them was
+    corrected must be recompiled, and the digest has to know it.
 
-    Scoped to the authored-scene path, because that is the only place compose() reads either of them.  An
-    older clip keeps the stamp it has, so correcting a sentence it never contained does not mark tens of
-    thousands of accepted videos stale and re-render whole finished books to change nothing.
+    Scoped to the authored-scene path, because that is the only place compose() reads them.  An
+    older clip keeps the stamp it has, so correcting a sentence it never contained does not mark
+    tens of thousands of accepted videos stale and re-render whole finished books to change
+    nothing.
     """
     if not clip.get('scene_ids'):
         return {}
     return {'render_family': str(clip.get('render_family') or clip.get('animation_style') or ''),
-            'shot_timing': clip.get('shot_timing') or []}
+            'shot_timing': clip.get('shot_timing') or [],
+            'references': [(r.get('role'), r.get('name'), r.get('path')) for r in (clip.get('references') or [])],
+            'dialogue_bindings': [(r.get('stage'), r.get('speaker_name'), r.get('delivery_mode'),
+                                   r.get('text')) for r in (clip.get('dialogue_bindings') or [])]}
 
 
 def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = None,

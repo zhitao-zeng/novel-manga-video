@@ -314,6 +314,22 @@ class ThinMediaRunner:
             raise CacheMiss(f"{clip['clip_id']} attempt {attempt}: not in the cache")
         if self.english_correction_for_new_take(clip):
             return self.generate_clip(clip, attempt)
+        if self.context.settings.local_h3_base_url and not self.context.cache_only:
+            # About to submit a NEW request on an H3 lane: the caches above did not hold.  Two ways
+            # to submit the wrong words - clip_base falls back to the Chinese prompt when there is
+            # no current English one (H3 then recites stage directions as dialogue), or uses an
+            # English one made from an earlier Chinese prompt (a re-pack or a new correction).  The
+            # correction gate above only guarded takes that carried a note; this closes the gap for
+            # every entry point.  Old passed caches never reach here - they returned above.
+            from novel_manga.application.profiles import h3_prompt_outdated
+            note = str(self.context.feedback.get(clip['clip_id']) or '').strip()
+            if not generation.uses_h3_prompt(self.context, clip) or h3_prompt_outdated(clip, note):
+                why = ('no English prompt yet' if not clip.get('prompt_h3')
+                       else 'prompt_h3_skip is set on a clip that has no matching cache to reuse'
+                       if clip.get('prompt_h3_skip')
+                       else 'its English prompt predates the current Chinese one (re-packed or re-corrected)')
+                raise RuntimeError(f"{clip['clip_id']}: H3 lane cannot submit a new request from stale words ({why}); "
+                                   "run scripts/build_h3_prompts.py for this chapter first")
         if generation.uses_h3_prompt(self.context, clip):
             from novel_manga.story.h3 import request_issues
             contradictions = request_issues(clip)
