@@ -32,6 +32,7 @@ flowchart TD
 | `application/repair` | 候选准备、派单、历史、发布及管理器 |
 | `application/preparation` | 已有剧本的开拍准备、资产与请求检查 |
 | `application/production` | 批量调度、进程、统一启动停止和状态 |
+| `application/agents` | 沙箱执行（run/attempt）、agent 分镜提案、采用状态机与整本批量驱动 |
 | `application/dashboard` | 状态采集、后台刷新和 HTTP 服务 |
 | `application/configuration.py`、`profiles.py` | 运行配置组装、路径和小说级策略 |
 | `story` | 共享字段、身份、动作、对白、构图、场景解析及中文/H3 表达 |
@@ -53,6 +54,8 @@ flowchart TD
 
 | 修改 | 位置 |
 |---|---|
+| 沙箱容器、端点、技能模板、并发时段 | `configs/agent_sandbox.json`；执行在 `application/agents/sandbox.py` |
+| agent 分镜的提案、采用、新地点入圣经 | `application/agents/storyboard.py`；批量驱动在 `storyboard_batch.py` |
 | 动物/物件/画外目标、自我动作 | `story/fields.py`、`actions.py` |
 | 已确认的别名、形态和说话人 | `story/identity.py`、`scene.py`、`dialogue.py` |
 | 听者站位、可见说话人分组 | `story/framing.py` |
@@ -73,7 +76,8 @@ flowchart TD
 | 来源 | 提供什么 | 保留的优先关系 |
 |---|---|---|
 | `configs/pipeline.json` | 小说名单、标题/显示顺序、章节范围、规划与视频资源、准备/修复默认参数 | 小说配置覆盖相应 defaults；资源名引用同一 resources |
-| `outputs/<novel>/profile.json` | 画风、画幅、tier、小说级质检选择 | 已有显式 CLI 覆盖值优先于 profile，再使用原默认值 |
+| `outputs/<novel>/profile.json` | 画风、画幅、tier、小说级质检选择、`planning_backend`/`agent_skill`（沙箱 agent 后端） | 已有显式 CLI 覆盖值优先于 profile，再使用原默认值 |
+| `configs/agent_sandbox.json` | 沙箱镜像、端点、模型、技能模板名、分时段并发 | 只描述环境位置；章节采用状态在章节目录的 agent_storyboard.json |
 | 已保存 clip_plan | 重新打包时的画幅、tier、片段长度 | 继续优先使用该计划记录的限制 |
 | 环境变量和 `.env` | 端点、凭据变量名、服务连接及环境选项 | 已有环境优先于 `.env` 补充值；各流程原有强制通道选项保留 |
 | repair_manager 的 scope | 指定章节的语音门等已有修复范围 | 原范围内覆盖小说策略；范围外沿用 profile |

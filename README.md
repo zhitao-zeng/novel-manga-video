@@ -51,11 +51,22 @@ uv run pytest
 .venv/bin/python scripts/status_server.py 8765
 ```
 
-访问本机 `http://127.0.0.1:8765/` 或 `/board`。看板独立于已移除的旧生成 API，继续展示交付进度、修复、资源及三条流程的运行状态。
+访问本机 `http://127.0.0.1:8765/` 或 `/board`。看板独立于已移除的旧生成 API，继续展示交付进度、修复、资源及三条流程的运行状态。`/workbench` 是看板旁的工作台：磁盘上找到的书、分集内容和资产货架（含缩略图、实验货架和 agent 归因）。
 
 ## 代码与维护
 
-章节规划可通过 `--story-method shanyin|community|drama|dream|leos|visual` 选择六种本地编剧/导演方法，也可在小说 `profile.json` 设置 `story_method` 供批量流程继承。用 `scripts/plan_chapter_thin.py --list-methods` 查看，完整用法见[本地剧本方法](docs/story-methods.md)。默认规划方式保持不变。
+章节规划有两层选择：`story_method` 选六种本地编剧/导演方法（`--story-method shanyin|community|drama|dream|leos|visual`，`scripts/plan_chapter_thin.py --list-methods` 查看用法，详见[本地剧本方法](docs/story-methods.md)）；`planning_backend` 选规划发生在本地还是沙箱 agent（在小说 `profile.json` 设置，详见[沙箱分镜](docs/authored-pipeline.md)）。沙箱后端还需在 `profile.json` 指定 `agent_skill`。
+
+### 沙箱 agent 规划
+
+```bash
+.venv/bin/python scripts/run_agent_thin.py --run v3-drama-1 --skills drama   # 裸跑一个 agent
+.venv/bin/python scripts/agent_storyboard_thin.py --novel-dir outputs/<书> --chapter 3 --propose
+.venv/bin/python scripts/agent_storyboard_thin.py --novel-dir outputs/<书> --chapter 3 --accept output/分镜.xlsx
+.venv/bin/python scripts/agent_storyboard_batch_thin.py --novel-dir outputs/<书> --chapters 1-300
+```
+
+沙箱的容器、镜像、技能模板、端点和分时段并发在 `configs/agent_sandbox.json`。一次 run 的每次执行是独立 attempt，产出互不覆盖；选定的分镜以快照加 digest 固定在章节旁，重新提案不会改写已采用的版本。批量驱动把「提案→自动采用→绑定→对照」放在同一槽位，可安全中断续跑，进度和等人的章节写在 `agent_storyboard_batch.md`。自动采用只在唯一一份可读分镜时发生，其余情况留给人选。
 
 正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
 
