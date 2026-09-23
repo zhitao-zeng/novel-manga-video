@@ -157,7 +157,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      }
     },
@@ -819,7 +820,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      }
     },
@@ -1258,7 +1260,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -1703,7 +1706,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -2194,7 +2198,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      }
     },
@@ -2633,7 +2638,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -3078,7 +3084,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -3742,7 +3749,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      }
     },
@@ -4181,7 +4189,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -4626,7 +4635,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -5292,7 +5302,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      }
     },
@@ -5731,7 +5742,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -6176,7 +6188,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -6667,7 +6680,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      }
     },
@@ -7106,7 +7120,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -7757,7 +7772,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      }
     },
@@ -8196,7 +8212,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {
@@ -8641,7 +8658,8 @@
       "source_quote_chars": "8-200",
       "max_skipped_segments": 0,
       "one_visible_speaker_per_shot": true,
-      "no_narration_no_inner_voice": true,
+      "no_omniscient_narration": true,
+      "inner_monologue": "allowed",
       "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来"
      },
      "repair": {

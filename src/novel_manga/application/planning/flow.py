@@ -394,7 +394,10 @@ def run(args, ctx: PlannerContext) -> int:
             "source_quote_chars": f"{pc_constants.QUOTE_MIN_CHARS}-{pc_constants.QUOTE_MAX_CHARS}",
             "max_skipped_segments": ctx.max_skipped,
             "one_visible_speaker_per_shot": True,
-            "no_narration_no_inner_voice": True,
+            # 全知旁白禁止；内心独白放开（由编剧按叙事需要选择，规则见系统提示词第3条）。
+            # 两者不再共用一个开关：一个管"谁能说话"，一个管"心之所想能否被听见"。
+            "no_omniscient_narration": True,
+            "inner_monologue": "allowed",
             # An unexplained optional field is ignored: the enum alone did not get a single prop
             # marked in the pilot.  The instruction is what makes the seat get used.
             **({"props_usage": "story_bible.props 是本书已建档的剧情道具。某 stage 画面里道具本体实际出现时（被拿着、被展示、被使用、被特写都算），在该 stage 的 props 字段标出它的名单名字——画面描述不管用什么称呼（玉石、那东西），只要指的就是它就标；最多 2 件，没出现就留空。标注的道具渲染时携带参考图以保持跨集一致"} if prop_names else {}),
@@ -586,6 +589,36 @@ def run(args, ctx: PlannerContext) -> int:
         if marked:
             from novel_manga.llm import client as model_client
             model_client.log(f"prop marks: {marked}")
+    # 在场分级走判官后置 pass：字段规则分不清「画面里的佩珀」和「被谈到的佩珀」——
+    # 规划器把"席勒提到霍华德和佩珀"写进事件行，规则只能看见名字在场。判官逐镜分级，
+    # 然后双向纠正：talked_about 的降出演员表（留候选记录），on_camera 的补进去；
+    # 可见说话人和动作参与者是结构事实，永远在画，不归判官管。判官挂了就回落规则分级。
+    # replay 是确定性重放（响应已存盘），不再发起任何模型调用。
+    if not args.replay:
+        from novel_manga.application.planning.presence import grade_presence, structural_on_camera
+        grades = grade_presence(shots, names, ctx=ctx)
+        demoted, promoted = [], []
+        for position, shot in enumerate(shots, start=1):
+            judged = grades.get(position) or {}
+            if not judged:
+                continue
+            structural = structural_on_camera(shot)
+            cast = list(shot.get("characters") or [])
+            # 补：判官说在画、名单允许、但演员表没有的
+            for name, grade in judged.items():
+                if grade == "on_camera" and name in names and name not in cast:
+                    cast.append(name)
+                    promoted.append(f"镜{position}:{name}")
+            # 降：判官说只是被谈到、且不是结构在画、但演员表里有的
+            for name in cast:
+                if judged.get(name) == "talked_about" and name not in structural and name in names:
+                    cast.remove(name)
+                    shot.setdefault("mentioned_only", []).append(name)
+                    demoted.append(f"镜{position}:{name}")
+            shot["characters"] = cast
+        if demoted or promoted:
+            from novel_manga.llm import client as model_client
+            model_client.log(f"presence grades: promoted {promoted[:8]}, demoted to mentioned {demoted[:8]}")
     atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped,
         **({'story_method': method.describe(), 'story_blueprint': ctx.story_blueprint} if method else {})})
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
