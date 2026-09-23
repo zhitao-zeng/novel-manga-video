@@ -577,11 +577,12 @@ def run(args, ctx: PlannerContext) -> int:
     if prop_names:
         # 道具标注走判官后置 pass：试点里规划器（flashnext）对每个镜头都答空，
         # 判官（27B）一次标对获得镜头。union，不否决规划器自己的标注。
+        # 键是镜头在 shots 里的位置：origin_index 在 framing 拆镜后会重复。
         from novel_manga.application.planning.prop_marks import mark_props
         marked = mark_props(shots, [p for p in prop_all if p.name in prop_names])
-        for shot in shots:
-            if shot.get("origin_index") in marked:
-                shot["props"] = marked[shot["origin_index"]]
+        for position, shot in enumerate(shots, start=1):
+            if position in marked:
+                shot["props"] = marked[position]
         if marked:
             from novel_manga.llm import client as model_client
             model_client.log(f"prop marks: {marked}")
