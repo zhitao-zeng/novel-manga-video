@@ -139,8 +139,15 @@ def clip_bindings(shots: list[dict]) -> list[dict]:
             for stage, shot in enumerate(shots, 1) for turn in merged_turns(shot)
             if turn['delivery_mode'] in {'visible_dialogue','offscreen_dialogue'}]
 
+IMAGE_ROLES = frozenset({'character', 'location', 'prop'})
+
+
 def indexed_pictures(clip: dict):
-    return enumerate((r for r in clip.get('references', []) if r.get('role') in {'character', 'location'}), 1)
+    """Every image reference in declaration order - what the request actually sends
+    (generation.py sends role != 'voice').  Props are images too: they took a seat in
+    build_references, so they take a number here, and a picture with no declaration
+    is an image the model was sent and told nothing about."""
+    return enumerate((r for r in clip.get('references', []) if r.get('role') in IMAGE_ROLES), 1)
 
 
 def character_pictures(clip: dict) -> dict:

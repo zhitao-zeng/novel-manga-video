@@ -131,6 +131,11 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             else:
                 defs.append(f"<Picture {picture}> is the setting shown in it: take its architecture, ground, "
                             f"fixed props and light from it, and none of the people in it.")
+        elif ref.get("role") == "prop":
+            # Not a subject: no face, no single-instance clause, no part in the shot's <Subject N> addressing.
+            # The Chinese binding says the same thing - appearance, material, structure, unchanged scale.
+            defs.append(f"<Picture {picture}> is a prop shown in it: take its appearance, material and structure "
+                        'exactly as drawn, at its drawn scale relative to the people; it is neither a person nor a subject.')
     return defs, subject_of
 
 
@@ -271,6 +276,15 @@ def final_dialogue_issues(clip: dict) -> list[str]:
     if 'dialogue_bindings' not in clip or not clip.get('prompt_h3'):
         return []
     subjects = subject_map(clip)
+    # A visible speaker the references cannot show is an upstream miss (a dropped card, a renamed
+    # cast), and compiling it as an off-screen voice hides it behind closed lips.  The turn was
+    # planned VISIBLE: say so instead of silently degrading it.  A genuine offscreen turn keeps
+    # its right to stay out of frame.
+    unseen = sorted({r['speaker_name'] for r in clip['dialogue_bindings']
+                     if r.get('delivery_mode') == 'visible_dialogue' and r['speaker_name'] not in subjects})
+    if unseen:
+        return [f"dialogue binding: {', '.join(unseen)} speaks visibly but has no subject picture; "
+                "fix the references or the turn, do not demote it to a voiceover"]
     body = clip['prompt_h3'].split('detailed_description:',1)[-1].split('overall_soundscape:',1)[0]
     actual = []
     for block in re.finditer(r'\[Shot (\d+)\](.*?)(?=\[Shot \d+\]|\Z)', body, re.S):

@@ -94,7 +94,7 @@ def plan_issues(plan: dict, script: dict | None = None) -> dict[str, list[str]]:
             if not isinstance(pair, list) or len(pair) != 2 or not all(isinstance(n, int) for n in pair) or not 1 <= pair[0] <= pair[1]:
                 issues[cid].append("ranges: invalid part number or part count")
         for ref in clip.get("references", []):
-            if ref.get("role") in {"character", "location"} and not ref.get("path"):
+            if ref.get("role") in {"character", "location", "prop"} and not ref.get("path"):
                 issues[cid].append("reference: required image has no path")
     for source, owners in by_source.items():
         # Mixed legacy/explicit records cannot prove a gap. Their duration and
@@ -113,11 +113,11 @@ def plan_issues(plan: dict, script: dict | None = None) -> dict[str, list[str]]:
 
 def reference_issues(clip: dict, novel_dir: Path) -> list[str]:
     reasons = [f"asset: missing required image {ref.get('path') or '(no path)'}"
-            for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}
+            for ref in clip.get("references", []) if ref.get("role") in {"character", "location", "prop"}
             and (not ref.get("path") or not (novel_dir / ref["path"]).is_file())]
     types = read(novel_dir / 'entity/types.json', {})
     for ref in clip.get('references', []):
-        if ref.get('role') not in {'character', 'location'}:
+        if ref.get('role') not in {'character', 'location', 'prop'}:
             continue
         if ref['role'] == 'character' and types.get(ref.get('name'), {}).get('kind') == 'object':
             reasons.append(f"entity: object {ref['name']} is bound as a character")
@@ -155,7 +155,7 @@ def inspect_episode(directory: Path, *, assets: bool = False) -> tuple[dict, dic
 def input_state(directory: Path, plan: dict) -> dict:
     paths = {"plan": directory / "clip_plan.json", "script": directory / "chapter_script.json"}
     paths.update({ref["path"]: directory.parent / ref["path"] for clip in plan.get("clips", [])
-                  for ref in clip.get("references", []) if ref.get("role") in {"character", "location"} and ref.get("path")})
+                  for ref in clip.get("references", []) if ref.get("role") in {"character", "location", "prop"} and ref.get("path")})
     result = {}
     for key, path in paths.items():
         stat = path.stat() if path.is_file() else None
