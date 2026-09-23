@@ -46,12 +46,52 @@ def mentioned_characters(text: str, everyone: list[str], *, ctx: PlannerContext)
     return seen
 
 
+PRESENCE_FIELDS = ('visual_prompt', 'motion_prompt', 'end_state')
+
+
+def presence_candidates(characters: list[str], shot: dict, everyone: list[str], *, ctx: PlannerContext) -> dict[str, list[dict]]:
+    """Who the shot's own text names, and where - each mention tagged by what it is evidence of.
+
+    Two grades, because one rule for both invented ghosts and lost actors in the same week:
+
+      on_camera    the name appears in the picture the stage paints (开始时/事件/结束时 tableau):
+                   someone standing, moving or being acted on there.  This is what the 761 defect
+                   was about (the description said 薇奥拉 kissed 莱恩 and the cat did the kissing).
+      talked_about the name appears only in spoken lines (or nowhere the picture paints it): 席勒
+                   mentions 佩珀 in a threat, 托尼 worries about 贾维斯.  A line of dialogue is not
+                   a camera; a name in it is a candidate for a later shot, never presence here.
+
+    Returns {name: [{'field': ..., 'grade': 'on_camera'|'talked_about'}, ...]}; `characters` are
+    not included - they are already in the cast.
+    """
+    picture = "\n".join(str(shot.get(field) or '') for field in PRESENCE_FIELDS)
+    spoken = "\n".join(str(turn.get('text') or '') for turn in (shot.get('turns') or []))
+    on_camera = set(mentioned_characters(picture, everyone, ctx=ctx))
+    talked = set(mentioned_characters(spoken, everyone, ctx=ctx)) - on_camera
+    out: dict[str, list[dict]] = {}
+    for name in sorted(on_camera | talked):
+        if name in characters:
+            continue
+        evidence = []
+        for field in PRESENCE_FIELDS:
+            if name in mentioned_characters(str(shot.get(field) or ''), everyone, ctx=ctx) and name in on_camera:
+                evidence.append({'field': field, 'grade': 'on_camera'})
+        if name in talked:
+            evidence.append({'field': 'turns', 'grade': 'talked_about'})
+        out[name] = evidence
+    return out
+
+
 def complete_characters(characters: list[str], shot: dict, everyone: list[str], cap: int = 6, *, ctx: PlannerContext) -> tuple[list[str], list[str]]:
     """The shot's cast plus every character its own description puts on camera.  2026-09-13, 雾月 761:
-    the description said 薇奥拉 kissed 莱恩, the enum had no 薇奥拉, the cast was [莱恩, 琥珀] - and the
-    cat did the kissing.  Returns the cast and what was added."""
-    # 结束时 is a tableau like 开始时: someone standing there when the shot ends was standing there.
-    described = mentioned_characters("\n".join(str(shot.get(field) or '') for field in
-                                                ('visual_prompt', 'motion_prompt', 'end_state')), everyone, ctx=ctx)
-    added = [name for name in described if name not in characters][: max(0, cap - len(characters))]
+    the description said 薇奥拉 kissed 莱恩, the enum had no 薇奥拉, the cast was [莱恩, 琥珀] - and
+    the cat did the kissing.  Returns the cast and what was added.
+
+    Only the picture's own tableau adds people here (the on_camera grade of presence_candidates).
+    A name the lines merely speak of - 佩珀 in a threat, 贾维斯 in a complaint - is a candidate
+    recorded for the next shot, not a body in this one: giving it a card here is how 佩珀 walked
+    into the clinic the moment the entity index learned her short name."""
+    candidates = presence_candidates(characters, shot, everyone, ctx=ctx)
+    added = [name for name, evidence in candidates.items()
+             if any(e['grade'] == 'on_camera' for e in evidence)][: max(0, cap - len(characters))]
     return list(characters) + added, added

@@ -20,6 +20,13 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
     characters, added = pc_cast.complete_characters(characters, shot, everyone, ctx=ctx)
     if added:
         warnings.append(f"{position}: characters 补上镜头描述里出现的 {added}")
+    # Names the lines speak of stay candidates: a spoken 佩珀 is a person to put in a LATER shot
+    # when the picture paints her, not a card in this one.  Recorded, not silently dropped - the
+    # volume review reads these to catch a cast the planner keeps forgetting.
+    talked = [name for name, evidence in pc_cast.presence_candidates(characters, shot, everyone, ctx=ctx).items()
+              if all(e['grade'] == 'talked_about' for e in evidence)]
+    if talked:
+        warnings.append(f"{position}: 台词提及 {talked}，未入画（候选，等画面出现再补）")
     # Extra descriptions are scene-local references, not entries in the
     # portrait catalogue. Resolve them before global name aliases.
     extras = [e for e in normalize_extras(shot.get('extras')) if pc_cast.canonical(e, ctx=ctx) not in names]

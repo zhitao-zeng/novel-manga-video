@@ -58,6 +58,18 @@ def test_a_listener_keeps_the_card_that_says_whose_back_it_is():
     assert ClipCompiler(compiler_options()).clip_cast(clip) == ["席勒", "托尼·斯塔克"]
 
 
+def test_the_one_acted_on_while_someone_else_speaks_shows_a_profile_not_a_face_off():
+    """The review's split: 参与动作 and 正脸可见 are different things.  席勒 speaks and rests a hand
+    on 托尼's shoulder: 托尼 stays in frame for the action, but the note asks for a profile turned
+    to the speaker - a reaction shot, not two faces squared off at the camera."""
+    note = blocking_note(shot(["席勒", "托尼·斯塔克"],
+                              [{"actor": "席勒", "action": "搭肩", "target": "托尼·斯塔克"}],
+                              [speaks("席勒")]))
+    assert "席勒在画面左侧前景" in note
+    assert "托尼·斯塔克在右侧前景" in note
+    assert "侧" in note                                   # 侧面相对：听者不与说话人正脸对立
+
+
 def test_every_listener_keeps_a_card_however_many_there_are():
     """This asserted the opposite this morning, when a listener was a bystander the crowding rule
     could drop.  The picture-text scan (2026-09-22) made that rule fire on people the shot plainly
