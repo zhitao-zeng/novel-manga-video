@@ -46,6 +46,9 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             # actor / verb phrase / target - the renderer was given four "core subjects" and one sentence, and
             # picked two of them to kiss (雾月 761)
             "in_frame": cast_array,
+            # optional: a stage may happen somewhere else than the clip's header says (诊室 → 公交站
+            # within one clip).  Absent keeps the clip's location, as every existing stage does.
+            "location": {"type": "string", "enum": location_names},
             # unnamed people the passage puts in the picture, by a short description; they have no card
             "extras": extras_field(),
             "actions": actions_field(),

@@ -30,7 +30,9 @@ def flatten_clips(raw: dict) -> list[dict]:
                 {
                     "clip_hint": clip_id,
                     "label": f"{clip_id} stage {stage_number}",
-                    "location": clip.get("location", ""),
+                    # A stage may name its own place (诊室 → 公交站 within one clip); the header stays
+                    # the default, so every existing stage keeps the location it always had.
+                    "location": str(stage.get("location") or clip.get("location", "")),
                     "characters": list(stage.get("in_frame", []) if stage.get('scene_id') else (stage.get("in_frame") or clip.get("characters") or [])),
                     "in_frame_given": ('in_frame' in stage) if stage.get('scene_id') else bool(stage.get("in_frame")),
                     "actions": [a for a in (stage.get("actions") or []) if isinstance(a, dict)],
