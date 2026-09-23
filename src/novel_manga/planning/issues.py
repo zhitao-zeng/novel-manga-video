@@ -25,6 +25,8 @@ class PlanningCode(Enum):
     MISSING_CHAT = ('missing_chat', 'chapter')
     UNCITED_SEGMENT = ('uncited_segment', 'segment')
     BEAT_LINE_LOST = ('beat_line_lost', 'chapter')
+    SCENE_OPENING_COPIED = ('scene_opening_copied', 'stage')
+    HANDOFF_LINE_LOST = ('handoff_line_lost', 'chapter')
     STRICT_SPEECH_BELOW_MINIMUM = ('strict_speech_below_minimum', 'chapter')
     STRICT_SPEECH_ABOVE_MAXIMUM = ('strict_speech_above_maximum', 'chapter')
 

@@ -32,6 +32,9 @@ class PlannerContext:
     max_skipped: int = 0
     story_method: str = ""
     story_blueprint: dict = field(default_factory=dict)
+    # Scene-exit question/answer pairs from the source (text.handoff_pairs): the question must be
+    # heard whatever the outline did with it - the pair is the cut itself.
+    handoff_pairs: list = field(default_factory=list)
     # Set when --bind-storyboard binds a sheet a person wrote: its cuts and its length are
     # the author's, and compressing them is the one thing binding exists to avoid.
     authored_storyboard: bool = False

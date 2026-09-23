@@ -61,6 +61,51 @@ def _line_carries(spoken_key: str, quote_key_text: str, *, share=0.6) -> bool:
     return common >= len(quote_key_text) * 0.8
 
 
+def _copied_from_previous_scene(new_opening_key: str, previous_shot: dict, *, min_chars: int = 16) -> tuple[str, str] | None:
+    """(field, copied text) when a new scene's opening repeats a previous-scene shot's text.
+
+    The tell of the ch12 replan defect: the model opened the bus-stop shot with the clinic's
+    whole event sentence, '开场瞬间：…' and all.  A shared long run between the new start_state
+    and any previous-scene shot's motion/end/picture text is a copy, not a coincidence - writers
+    do not independently produce 16 identical characters.
+    """
+    if not new_opening_key:
+        return None
+    for field in ("motion_prompt", "end_state", "visual_prompt"):
+        old_text = pc_text.quote_key(str(previous_shot.get(field) or ""))
+        if len(old_text) < min_chars:
+            continue
+        head = old_text[: max(min_chars, len(old_text) // 3)]
+        if head and head in new_opening_key:
+            return field, str(previous_shot.get(field))
+    return None
+
+
+def handoff_lines_survive(shots: list[dict], pairs, errors: list) -> None:
+    """A scene-exit question must be heard - its answer may be the next scene's first frame.
+
+    The pair's question is the set-up of the cut; losing it (both ch12 routes did) leaves the next
+    scene arriving from nowhere.  The answer may be spoken OR given by the next scene's picture
+    (the bus stop IS the answer), so only the question is a hard error; the answer unspoken and
+    un-pictured is a warning the reviewer reads.
+    """
+    if not pairs:
+        return
+    spoken = [pc_text.quote_key(turn.get("text") or "") for shot in shots
+              for turn in shot.get("turns") or []
+              if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}]
+    pictures = pc_text.quote_key("".join(str(shot.get("visual_prompt") or "") + str(shot.get("motion_prompt") or "")
+                                         for shot in shots))
+    for question, answer in pairs:
+        if not any(_line_carries(line, question) for line in spoken):
+            errors.append(PlanningIssue(PlanningCode.HANDOFF_LINE_LOST,
+                f"换场问答「{question[:36]}」没有出现在任何台词里；这一问是下一场的铺垫，必须可听（其回答"
+                f"「{answer[:36]}」可以由下一场第一镜的画面回答，也可以入台词）", field='turns'))
+        elif not any(_line_carries(line, answer) for line in spoken) \
+                and pc_text.quote_key(answer)[:8] not in pictures:
+            pass    # the answer rides the next scene's picture; said out loud is only one option
+
+
 def flatten_clips(raw: dict) -> list[dict]:
     """Turn model clips/stages into the flat shot list the gates and packer use."""
     shots: list[dict] = []
@@ -216,6 +261,29 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         normalized.extend(framed)
         warnings.extend(notes)
 
+    # A new scene's first frame copied from the previous scene's text: the second pass carried the
+    # last shot's event line into the new location's start_state whole (ch12's replan: the clinic
+    # tableau opened the bus-stop shot).  The copy may come from ANY shot of the previous scene -
+    # round three copied the scene's OPENING, not its closing - so the check holds every previous
+    # scene shot's text, not just the immediately preceding one.
+    by_scene: list[tuple[str, list[dict]]] = []
+    for shot in normalized:
+        if by_scene and by_scene[-1][0] == shot.get('scene_id'):
+            by_scene[-1][1].append(shot)
+        else:
+            by_scene.append((shot.get('scene_id') or '', [shot]))
+    for index, (scene_id, scene_shots) in enumerate(by_scene):
+        if index == 0 or not scene_id:
+            continue
+        new_opening = pc_text.quote_key(str(scene_shots[0].get("visual_prompt") or ""))
+        for previous_shot in by_scene[index - 1][1]:
+            copied = _copied_from_previous_scene(new_opening, previous_shot)
+            if copied:
+                errors.append(PlanningIssue(PlanningCode.SCENE_OPENING_COPIED,
+                    f"{scene_shots[0].get('label') or scene_shots[0].get('origin_index')}: 新场景第一镜的{copied[0]}复制了上一场的画面/事件文本"
+                    f"（{copied[1][:40]}…）；按提纲 scene_handoffs 的开场写新场景自己的画面", field='start_state'))
+                break
+
     validate_duration(normalized, ctx, errors, warnings)
     if ctx.story_blueprint and ctx.story_blueprint.get('version') != 'scene-screenplay-v2':
         owners = {b['beat_id']: b['segment_id'] for b in ctx.story_blueprint['beats']}
@@ -225,6 +293,9 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                 errors.append(PlanningIssue(PlanningCode.METHOD_CONTRACT,
                     f"{bid} source ownership changed during quote normalization; correct its source_quote"))
         beat_lines_survive(ctx.story_blueprint, normalized, errors)
+    # The hand-off pair survives on every route: a question whose answer is the next scene is the
+    # cut itself (ch12: both the sandbox sheet and the local two-pass dropped it).
+    handoff_lines_survive(normalized, getattr(ctx, "handoff_pairs", ()) or [], errors)
     chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings,
                      known_speakers=[*names, *ctx.aliases])
     return ValidationResult(errors, warnings, normalized)

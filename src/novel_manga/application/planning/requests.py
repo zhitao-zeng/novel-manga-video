@@ -15,6 +15,7 @@ import time
 import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.contracts as pc_contracts
 import novel_manga.planning.prompts as pc_prompts
+import novel_manga.planning.text as pc_text
 import novel_manga.planning.validation as pc_validation
 from novel_manga.planning.methods import get_method
 from novel_manga.planning.methods.base import StoryMethod
@@ -220,6 +221,11 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
             ctx.story_blueprint = json.loads(analysis)
             schema = pc_contracts.bind_blueprint_schema(schema, ctx.story_blueprint)
         analysis_seconds = round(time.monotonic() - started, 1)
+        # Scene-exit question-and-answer pairs, straight from the source: both writers (the sandbox
+        # sheet and the local two-pass) dropped the pair that carries 诊室 into 公交站 - the outline
+        # may compress prose, but a question whose answer is the NEXT SCENE cannot be lost silently.
+        pairs = pc_text.handoff_pairs("\n".join(str(s.get("text") or "") for s in payload.get("segments") or []))
+        pair_text = ("；".join(f"问「{q}」答「{a}」" for q, a in pairs[:8]) or "（本章无）")
         body = post_any(client, endpoints, headers, {
             "model": model,
             "temperature": 0.3,
@@ -233,7 +239,16 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
-                {"role": "user", "content": "第一遍提纲已完整生成并通过检查。按完整提纲和原始请求输出最终镜头JSON，不要解释。\n完整提纲：" + analysis},
+                {"role": "user", "content":
+                    "第一遍提纲已完成（检查只验证了结构完整，内容质量由你负责）。按提纲和原始请求写最终镜头JSON，不要解释。落实提纲时遵守：\n"
+                    "1. 提纲 scene_handoffs 里每场的「开始于…」就是这一场第一个镜头的画面内容——新场景的第一镜必须画新场景的画面，"
+                    "不得把上一场的画面或事件句复制进 start_state；「结束于…」是这一场最后一镜之后留下的状态或问题，用可听的对白或可见的画面交代，不能只在 event 里描述。\n"
+                    "2. 提纲 retained_dialogue 列出的关键台词必须逐条进入对应镜头的 turns：包括成对的问答（提问和它的回答/画面回答都要有），"
+                    "一句都不许只留在提纲里。\n"
+                    "3. 换场前后时段连续（提纲没有写时间跳跃就是同一天同一时段），地点卡的默认时段不覆盖故事连续性。\n"
+                    "4. 下面这些原文问答对是换场的关键交接，无论提纲是否保留，都必须有对应的镜头表达（提问和回答都要可听，或回答由下一场第一镜的画面直接给出）："
+                    + pair_text + "\n"
+                    "完整提纲：" + analysis},
             ],
         })
     choice = body["choices"][0]

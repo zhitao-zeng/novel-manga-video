@@ -118,6 +118,9 @@ def run(args, ctx: PlannerContext) -> int:
     ctx.story_method = method.key if method else ''
     ctx.story_blueprint = {}
     ctx.method_artifacts = {}
+    # Scene-exit pairs from the source: the validator makes the question heard whatever the
+    # outline did with it, and the payload tells the model they are coming.
+    ctx.handoff_pairs = pc_text.handoff_pairs(episode.source_text)
     genre = load_genre(profile)
     # The book's own roles win over the genre's eight, and the file is read on every run so that a
     # role added while reviewing cards is in the next plan without rebuilding anything.
@@ -385,6 +388,8 @@ def run(args, ctx: PlannerContext) -> int:
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
         **({"previous_episode_ending": previous_ending, "previous_episode_ending_usage": "这是上一集最后一个画面的状态（地点、在场的人、结束时的动作）。本集开场如果是同一场景可以直接接上，不必重新交代；换了场景就忽略。"} if previous_ending else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
+        # 换场问答对：问题是下一场的铺垫，无论提纲怎么压缩都必须可听（validator 会查）
+        **({"handoff_pairs_that_must_be_heard": [{"question": q, "answer": a} for q, a in ctx.handoff_pairs]} if ctx.handoff_pairs else {}),
         **({"authored_storyboard": authored, "authored_storyboard_usage": pc_constants.AUTHORED_STORYBOARD_USAGE} if authored else {}),
         **({"ledger_snapshot": ledger_snapshot} if ledger_snapshot else {}),
         "quoted_lines_that_must_be_kept": pc_text.chapter_quotes(episode.source_text),

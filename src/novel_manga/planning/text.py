@@ -66,6 +66,34 @@ def compact(value: str) -> str:
     return re.sub(r"[\s　]+", "", value or "")
 
 
+def handoff_pairs(text: str) -> list[tuple[str, str]]:
+    """Quoted question-and-answer pairs that carry a scene's exit into the next scene's opening.
+
+    The ch12 defect, both routes: 席勒 asks 你该不会想让我坐这个过去吧？, 托尼 answers 不然呢？你打算
+    怎么过去？ - and the next scene IS the answer (the two of them at the bus stop).  Both writers
+    dropped the pair and cut to the bus with the question unspoken; the audience never learns the
+    trip was a joke between the two of them.
+
+    The tell is the scene-change marker right after the answer: 几分钟后/出现在/来到了 - prose that
+    jumps place or time, which is what a cut renders.  A question answered and then followed by
+    ordinary continuous prose is dialogue inside a scene (the 实验室 interrogation chain is ten
+    pairs of those); it stays where it is, and only the pair at the door goes with the hand-off.
+    """
+    pairs: list[tuple[str, str]] = []
+    quotes = [(m.start(), m.end(), m.group(1).strip()) for m in re.finditer(r"[“\"]([^”\"]{2,120})[”\"]", text)]
+    for (pos, end, line), (next_pos, next_end, next_line) in zip(quotes, quotes[1:]):
+        if not line.endswith("？"):
+            continue
+        if next_pos - end > 60:            # a question and its answer sit together in prose
+            continue
+        if spoken_chars(line) < 4 or spoken_chars(next_line) < 2:
+            continue
+        after = text[next_end: next_end + 40]
+        if re.search(r"(几分钟|出现在|来到了|来到|赶到|来到|抵达|时已是|已是|当晚|次日|翌日|转眼)", after):
+            pairs.append((line, next_line))
+    return pairs
+
+
 def quote_key(value: str) -> str:
     """Provenance key: letters, digits and CJK only.
 
