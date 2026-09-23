@@ -191,8 +191,12 @@ def test_the_later_parts_of_a_split_stage_carry_on_instead_of_repeating_its_acti
     parts = ClipCompiler(compiler_options()).split_long_shot(shot)
     assert len(parts) == 3 and parts[0]["motion_prompt"] == "林凡推门走出去" and parts[0]["visual_prompt"] == "林凡站在屋内门边"
     for part in parts[1:]:
-        assert "推门" not in part["motion_prompt"] and "林凡站在门外台阶上" in part["visual_prompt"]
-    assert all(part["end_state"] == "林凡站在门外台阶上" for part in parts)
+        assert "推门" not in part["motion_prompt"]
+        # The action, done and held; the finale named as what NOT to show yet, not painted.
+        assert "动作已完成" in part["visual_prompt"] and "不提前出现" in part["visual_prompt"]
+    # Only the last part lands the stage's final tableau; the earlier ones pause mid-stage.
+    assert parts[-1]["end_state"] == "林凡站在门外台阶上"
+    assert all("尚未发生" in part["end_state"] for part in parts[:-1])
 
 
 # ---------------------------------------------------------------- 29: a forced H3 rebuild that fails

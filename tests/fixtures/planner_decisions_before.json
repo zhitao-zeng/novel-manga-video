@@ -349,6 +349,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -539,48 +545,6 @@
     ],
     "elapsed_seconds": 3.0
    },
-   "chapter_script.json": {
-    "video_title": "庭院",
-    "source_title": "第一章 庭院",
-    "episode_index": 1,
-    "profile": {
-     "style": "2d",
-     "frame": "9:16",
-     "tier": "quality",
-     "genre": "generic"
-    },
-    "hook": "院门紧闭",
-    "summary": "主角来到庭院",
-    "clip_count": 0,
-    "shots": [
-     {
-      "origin_index": 1,
-      "clip_hint": "clip_1",
-      "segment_id": "seg_1",
-      "source_quote": "主角走入庭院，看见院门紧闭。",
-      "location": "庭院",
-      "characters": [
-       "主角"
-      ],
-      "visual_prompt": "主角站在门口",
-      "motion_prompt": "主角停下",
-      "end_state": "主角停下",
-      "camera": "固定",
-      "light": "日光",
-      "shot_scale": "中景",
-      "turns": [
-       {
-        "speaker_name": "主角",
-        "delivery_mode": "visible_dialogue",
-        "text": "院门紧闭。",
-        "emotion": "平静",
-        "chat_target": ""
-       }
-      ]
-     }
-    ],
-    "skipped_segments": {}
-   },
    "episode_plan.json": {
     "video_title": "庭院",
     "hook": "院门紧闭",
@@ -652,6 +616,48 @@
     "dramaturgy": null,
     "showrunner_plan": null,
     "episode_contract": null
+   },
+   "chapter_script.json": {
+    "video_title": "庭院",
+    "source_title": "第一章 庭院",
+    "episode_index": 1,
+    "profile": {
+     "style": "2d",
+     "frame": "9:16",
+     "tier": "quality",
+     "genre": "generic"
+    },
+    "hook": "院门紧闭",
+    "summary": "主角来到庭院",
+    "clip_count": 0,
+    "shots": [
+     {
+      "origin_index": 1,
+      "clip_hint": "clip_1",
+      "segment_id": "seg_1",
+      "source_quote": "主角走入庭院，看见院门紧闭。",
+      "location": "庭院",
+      "characters": [
+       "主角"
+      ],
+      "visual_prompt": "主角站在门口",
+      "motion_prompt": "主角停下",
+      "end_state": "主角停下",
+      "camera": "固定",
+      "light": "日光",
+      "shot_scale": "中景",
+      "turns": [
+       {
+        "speaker_name": "主角",
+        "delivery_mode": "visible_dialogue",
+        "text": "院门紧闭。",
+        "emotion": "平静",
+        "chat_target": ""
+       }
+      ]
+     }
+    ],
+    "skipped_segments": {}
    }
   }
  },
@@ -1005,6 +1011,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -1444,6 +1456,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -1882,6 +1900,12 @@
                "主角"
               ]
              }
+            },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
             },
             "extras": {
              "type": "array",
@@ -2362,6 +2386,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -2801,6 +2831,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -3239,6 +3275,12 @@
                "主角"
               ]
              }
+            },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
             },
             "extras": {
              "type": "array",
@@ -3426,48 +3468,6 @@
     ],
     "elapsed_seconds": 3.0
    },
-   "chapter_script.json": {
-    "video_title": "庭院",
-    "source_title": "第一章 庭院",
-    "episode_index": 1,
-    "profile": {
-     "style": "2d",
-     "frame": "9:16",
-     "tier": "quality",
-     "genre": "generic"
-    },
-    "hook": "院门紧闭",
-    "summary": "主角来到庭院",
-    "clip_count": 0,
-    "shots": [
-     {
-      "origin_index": 1,
-      "clip_hint": "clip_1",
-      "segment_id": "seg_1",
-      "source_quote": "主角走入庭院，看见院门紧闭。",
-      "location": "庭院",
-      "characters": [
-       "主角"
-      ],
-      "visual_prompt": "主角站在门口",
-      "motion_prompt": "主角停下",
-      "end_state": "主角停下",
-      "camera": "固定",
-      "light": "日光",
-      "shot_scale": "中景",
-      "turns": [
-       {
-        "speaker_name": "主角",
-        "delivery_mode": "visible_dialogue",
-        "text": "院门紧闭。",
-        "emotion": "平静",
-        "chat_target": ""
-       }
-      ]
-     }
-    ],
-    "skipped_segments": {}
-   },
    "episode_plan.json": {
     "video_title": "庭院",
     "hook": "院门紧闭",
@@ -3539,6 +3539,48 @@
     "dramaturgy": null,
     "showrunner_plan": null,
     "episode_contract": null
+   },
+   "chapter_script.json": {
+    "video_title": "庭院",
+    "source_title": "第一章 庭院",
+    "episode_index": 1,
+    "profile": {
+     "style": "2d",
+     "frame": "9:16",
+     "tier": "quality",
+     "genre": "generic"
+    },
+    "hook": "院门紧闭",
+    "summary": "主角来到庭院",
+    "clip_count": 0,
+    "shots": [
+     {
+      "origin_index": 1,
+      "clip_hint": "clip_1",
+      "segment_id": "seg_1",
+      "source_quote": "主角走入庭院，看见院门紧闭。",
+      "location": "庭院",
+      "characters": [
+       "主角"
+      ],
+      "visual_prompt": "主角站在门口",
+      "motion_prompt": "主角停下",
+      "end_state": "主角停下",
+      "camera": "固定",
+      "light": "日光",
+      "shot_scale": "中景",
+      "turns": [
+       {
+        "speaker_name": "主角",
+        "delivery_mode": "visible_dialogue",
+        "text": "院门紧闭。",
+        "emotion": "平静",
+        "chat_target": ""
+       }
+      ]
+     }
+    ],
+    "skipped_segments": {}
    }
   }
  },
@@ -3892,6 +3934,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -4331,6 +4379,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -4769,6 +4823,12 @@
                "主角"
               ]
              }
+            },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
             },
             "extras": {
              "type": "array",
@@ -4958,48 +5018,6 @@
     ],
     "elapsed_seconds": 3.0
    },
-   "chapter_script.json": {
-    "video_title": "庭院",
-    "source_title": "第一章 庭院",
-    "episode_index": 1,
-    "profile": {
-     "style": "2d",
-     "frame": "9:16",
-     "tier": "quality",
-     "genre": "generic"
-    },
-    "hook": "院门紧闭",
-    "summary": "主角来到庭院",
-    "clip_count": 0,
-    "shots": [
-     {
-      "origin_index": 1,
-      "clip_hint": "clip_1",
-      "segment_id": "seg_1",
-      "source_quote": "主角走入庭院，看见院门紧闭。",
-      "location": "庭院",
-      "characters": [
-       "主角"
-      ],
-      "visual_prompt": "主角站在门口",
-      "motion_prompt": "主角停下",
-      "end_state": "主角停下",
-      "camera": "固定",
-      "light": "日光",
-      "shot_scale": "中景",
-      "turns": [
-       {
-        "speaker_name": "主角",
-        "delivery_mode": "visible_dialogue",
-        "text": "院门紧闭。",
-        "emotion": "平静",
-        "chat_target": ""
-       }
-      ]
-     }
-    ],
-    "skipped_segments": {}
-   },
    "episode_plan.json": {
     "video_title": "庭院",
     "hook": "院门紧闭",
@@ -5071,6 +5089,48 @@
     "dramaturgy": null,
     "showrunner_plan": null,
     "episode_contract": null
+   },
+   "chapter_script.json": {
+    "video_title": "庭院",
+    "source_title": "第一章 庭院",
+    "episode_index": 1,
+    "profile": {
+     "style": "2d",
+     "frame": "9:16",
+     "tier": "quality",
+     "genre": "generic"
+    },
+    "hook": "院门紧闭",
+    "summary": "主角来到庭院",
+    "clip_count": 0,
+    "shots": [
+     {
+      "origin_index": 1,
+      "clip_hint": "clip_1",
+      "segment_id": "seg_1",
+      "source_quote": "主角走入庭院，看见院门紧闭。",
+      "location": "庭院",
+      "characters": [
+       "主角"
+      ],
+      "visual_prompt": "主角站在门口",
+      "motion_prompt": "主角停下",
+      "end_state": "主角停下",
+      "camera": "固定",
+      "light": "日光",
+      "shot_scale": "中景",
+      "turns": [
+       {
+        "speaker_name": "主角",
+        "delivery_mode": "visible_dialogue",
+        "text": "院门紧闭。",
+        "emotion": "平静",
+        "chat_target": ""
+       }
+      ]
+     }
+    ],
+    "skipped_segments": {}
    }
   }
  },
@@ -5424,6 +5484,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -5863,6 +5929,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -6301,6 +6373,12 @@
                "主角"
               ]
              }
+            },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
             },
             "extras": {
              "type": "array",
@@ -6781,6 +6859,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -7220,6 +7304,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -7393,48 +7483,6 @@
     ],
     "elapsed_seconds": 2.0
    },
-   "chapter_script.json": {
-    "video_title": "庭院",
-    "source_title": "第一章 庭院",
-    "episode_index": 1,
-    "profile": {
-     "style": "2d",
-     "frame": "9:16",
-     "tier": "quality",
-     "genre": "generic"
-    },
-    "hook": "院门紧闭",
-    "summary": "主角来到庭院",
-    "clip_count": 0,
-    "shots": [
-     {
-      "origin_index": 1,
-      "clip_hint": "clip_1",
-      "segment_id": "seg_1",
-      "source_quote": "主角走入庭院，看见院门紧闭。",
-      "location": "庭院",
-      "characters": [
-       "主角"
-      ],
-      "visual_prompt": "主角站在门口",
-      "motion_prompt": "主角停下",
-      "end_state": "主角停下",
-      "camera": "固定",
-      "light": "日光",
-      "shot_scale": "中景",
-      "turns": [
-       {
-        "speaker_name": "主角",
-        "delivery_mode": "visible_dialogue",
-        "text": "院门紧闭。",
-        "emotion": "平静",
-        "chat_target": ""
-       }
-      ]
-     }
-    ],
-    "skipped_segments": {}
-   },
    "episode_plan.json": {
     "video_title": "庭院",
     "hook": "院门紧闭",
@@ -7506,6 +7554,48 @@
     "dramaturgy": null,
     "showrunner_plan": null,
     "episode_contract": null
+   },
+   "chapter_script.json": {
+    "video_title": "庭院",
+    "source_title": "第一章 庭院",
+    "episode_index": 1,
+    "profile": {
+     "style": "2d",
+     "frame": "9:16",
+     "tier": "quality",
+     "genre": "generic"
+    },
+    "hook": "院门紧闭",
+    "summary": "主角来到庭院",
+    "clip_count": 0,
+    "shots": [
+     {
+      "origin_index": 1,
+      "clip_hint": "clip_1",
+      "segment_id": "seg_1",
+      "source_quote": "主角走入庭院，看见院门紧闭。",
+      "location": "庭院",
+      "characters": [
+       "主角"
+      ],
+      "visual_prompt": "主角站在门口",
+      "motion_prompt": "主角停下",
+      "end_state": "主角停下",
+      "camera": "固定",
+      "light": "日光",
+      "shot_scale": "中景",
+      "turns": [
+       {
+        "speaker_name": "主角",
+        "delivery_mode": "visible_dialogue",
+        "text": "院门紧闭。",
+        "emotion": "平静",
+        "chat_target": ""
+       }
+      ]
+     }
+    ],
+    "skipped_segments": {}
    }
   }
  },
@@ -7859,6 +7949,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -8298,6 +8394,12 @@
               ]
              }
             },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
+            },
             "extras": {
              "type": "array",
              "maxItems": 3,
@@ -8736,6 +8838,12 @@
                "主角"
               ]
              }
+            },
+            "location": {
+             "type": "string",
+             "enum": [
+              "庭院"
+             ]
             },
             "extras": {
              "type": "array",

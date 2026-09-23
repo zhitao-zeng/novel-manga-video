@@ -248,9 +248,16 @@ class ClipCompiler:
                 # carry on from there and only finish the lines.  Copying the action into every part had a character
                 # push the same door open three times.
                 end = self.compact(shot.get("end_state", ""))
-                text = f"承接上一段结束时的画面：{end}" if end else "承接上一段结束时的画面"
-                # Who was in the picture stays in it.  clip_cast keeps a silent character of a crowded stage only when the
-                # stage text names them, and with the stage's own text gone they dropped to the background, card and all
+                # The final tableau names the stage's RESULT; part 1 has only performed the action's
+                # opening strokes so far, and pasting the result here had the later parts open on the
+                # finished outcome before the lines that lead to it were spoken.  What part 1
+                # honestly reaches is its own action done and held - not the reaction the stage's
+                # end_state adds on top of it.  Keep the tableau's stance, defer its result.
+                text = f"承接上一段：{self.compact(str(shot.get('motion_prompt') or ''))}的动作已完成，人物保持该姿态"
+                if end:
+                    text += f"；本分段不提前出现最终结果（{end}）"
+                # Who was in the picture stays in it.  clip_cast keeps a silent character of a crowded stage only when
+                # the stage text names them, and with the stage's own text gone they dropped to the background, card and all
                 # (星海 706: 金曜 and 伊芙 at the table in part 1, gone from parts 2 and 3).  Named only where clip_cast would
                 # drop them - more than two listed - so every other part keeps its wording, and its rendered takes.
                 speakers = [t["speaker_name"] for t in part if t.get("delivery_mode") == "visible_dialogue" and t.get("speaker_name")]
@@ -260,6 +267,12 @@ class ClipCompiler:
                     text += "；" + "、".join(kept) + "仍在画面中"
                 piece["visual_prompt"] = text
                 piece["motion_prompt"] = "人物保持上一段结束时的位置和姿态，接着把话说完，不重复上一段的动作"
+            if number < len(parts):
+                # The stage's end_state is where the WHOLE stage lands; a part that is not the last
+                # has only played its own turns so far, and a tableau of the finale here had part 1
+                # open already standing on the outcome - the door already open, the guest already
+                # gone - before the lines that lead there were spoken.  The last part keeps it.
+                piece["end_state"] = "话说到此暂停，人物位置和姿态不变，本阶段的最终结果尚未发生（在后续分段）"
             pieces.append(piece)
         return pieces
 
