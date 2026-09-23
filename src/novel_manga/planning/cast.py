@@ -47,27 +47,50 @@ def mentioned_characters(text: str, everyone: list[str], *, ctx: PlannerContext)
 
 
 PRESENCE_FIELDS = ('visual_prompt', 'motion_prompt', 'end_state')
+# A clause that says someone 提到/想起/说起 someone else paints words, not a body.  The field-grade
+# rules cannot read; this keeps the fallback (judge down) from seating every talked-about name the
+# way the original defect did.  Narrow on purpose: 提到, not 处于 - an over-broad verb list would
+# drop real presences the tableau paints.
+_MENTION_VERBS = ("提到", "提及", "想起", "回忆起", "说到", "谈起", "提起", "念叨", "转述")
+
+
+def _mention_clause(text: str) -> bool:
+    return any(verb in text for verb in _MENTION_VERBS)
 
 
 def presence_candidates(characters: list[str], shot: dict, everyone: list[str], *, ctx: PlannerContext) -> dict[str, list[dict]]:
     """Who the shot's own text names, and where - each mention tagged by what it is evidence of.
 
-    Two grades, because one rule for both invented ghosts and lost actors in the same week:
+    Three grades, because one rule for both invented ghosts and lost actors in the same week:
 
-      on_camera    the name appears in the picture the stage paints (开始时/事件/结束时 tableau):
-                   someone standing, moving or being acted on there.  This is what the 761 defect
-                   was about (the description said 薇奥拉 kissed 莱恩 and the cat did the kissing).
-      talked_about the name appears only in spoken lines (or nowhere the picture paints it): 席勒
-                   mentions 佩珀 in a threat, 托尼 worries about 贾维斯.  A line of dialogue is not
-                   a camera; a name in it is a candidate for a later shot, never presence here.
+      on_camera    the name appears in the picture the stage paints (开始时/事件/结束时 tableau)
+                   OUTSIDE a mention clause: someone standing, moving or being acted on.  This is
+                   what the 761 defect was about (the description said 薇奥拉 kissed 莱恩 and the
+                   cat did the kissing).  席勒提到佩珀 in an event line is NOT this, whatever the
+                   field it sits in - the verb says the picture paints a mention, not a person.
+      talked_about the name appears only inside a mention clause or in spoken lines: 席勒 mentions
+                   佩珀 in a threat, 托尼 worries about 贾维斯.  A line of dialogue is not a camera;
+                   a name in it is a candidate for a later shot, never presence here.
+
+    The judge pass (application/planning/presence.py) reads the prose and grades properly; this
+    rule version is the fallback it degrades to, and the candidate list both start from.
 
     Returns {name: [{'field': ..., 'grade': 'on_camera'|'talked_about'}, ...]}; `characters` are
     not included - they are already in the cast.
     """
+    mention_text = "；".join(str(shot.get(field) or '') for field in PRESENCE_FIELDS)
+    mentioned_anywhere = _mention_clause(mention_text)
     picture = "\n".join(str(shot.get(field) or '') for field in PRESENCE_FIELDS)
     spoken = "\n".join(str(turn.get('text') or '') for turn in (shot.get('turns') or []))
-    on_camera = set(mentioned_characters(picture, everyone, ctx=ctx))
-    talked = set(mentioned_characters(spoken, everyone, ctx=ctx)) - on_camera
+    named = set(mentioned_characters(picture, everyone, ctx=ctx))
+    on_camera = named
+    if mentioned_anywhere:
+        # A mention clause in the tableau demotes every name that appears nowhere else to
+        # talked_about; a name also painted by its own action (站着、走进来) stays on_camera.
+        # Coarse by design: the judge pass refines what this only has to survive.
+        on_camera = {name for name in named
+                     if name in mentioned_characters(_paint_without_mentions(picture, everyone, ctx=ctx), everyone, ctx=ctx)}
+    talked = (set(mentioned_characters(spoken, everyone, ctx=ctx)) | (named - on_camera)) - on_camera
     out: dict[str, list[dict]] = {}
     for name in sorted(on_camera | talked):
         if name in characters:
@@ -78,8 +101,18 @@ def presence_candidates(characters: list[str], shot: dict, everyone: list[str], 
                 evidence.append({'field': field, 'grade': 'on_camera'})
         if name in talked:
             evidence.append({'field': 'turns', 'grade': 'talked_about'})
+        if not evidence:
+            evidence.append({'field': 'tableau', 'grade': 'talked_about'})   # named only in a mention clause
         out[name] = evidence
     return out
+
+
+def _paint_without_mentions(text: str, everyone: list[str], *, ctx: PlannerContext) -> str:
+    """The tableau with mention clauses removed: clauses around 提到/想起/说到 cut at their brackets
+    or commas, so what the picture actually paints stays and the talk about absent people goes."""
+    import re
+    pattern = re.compile(r"[^。；，]*(" + "|".join(_MENTION_VERBS) + r")[^。；]*[。；]?")
+    return pattern.sub("", text)
 
 
 def complete_characters(characters: list[str], shot: dict, everyone: list[str], cap: int = 6, *, ctx: PlannerContext) -> tuple[list[str], list[str]]:
