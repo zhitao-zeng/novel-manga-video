@@ -55,10 +55,10 @@ def test_prop_chain_end_to_end(tmp_path, monkeypatch):
     stage = schema["properties"]["clips"]["items"]["properties"]["stages"]["items"]["properties"]
     assert stage["props"]["items"]["enum"] == ["青铜短剑"]
 
-    # 4) 装配：clip 点名道具 → 道具座位落在 detail.jpeg（closeup）
+    # 4) 装配：clip 点名道具 → 道具座位落在 detail.jpeg（closeup），绑定跟场景行
     from novel_manga.application.packing.assets import build_references
-    refs, bindings, _ = build_references(["莱恩"], "事务所", bible, {"事务所": "事务所：临街小屋"},
-                                         novel_dir=novel, chapter=1, props=["青铜短剑"])
+    refs, bindings, loc = build_references(["莱恩"], "事务所", bible, {"事务所": "事务所：临街小屋"},
+                                           novel_dir=novel, chapter=1, props=["青铜短剑"])
     seats = [(r["role"], r["path"]) for r in refs]
     assert ("prop", "series_assets/props/prop_001/detail.jpeg") in seats
-    assert any("青铜短剑" in b for b in bindings)
+    assert not any("青铜短剑" in b for b in bindings) and "青铜短剑" in loc

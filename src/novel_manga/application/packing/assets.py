@@ -47,7 +47,7 @@ def prop_assets_on_disk(novel_dir) -> dict[str, set[str]]:
     return out
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None, props: list[str] | None = None, props_index: dict | None = None, props_on_disk: set[str] | None = None) -> tuple[list[dict], list[str], str]:
+def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None, props: list[str] | None = None, props_index: dict | None = None, props_on_disk: set[str] | None = None, worn_overrides: dict[str, str | None] | None = None) -> tuple[list[dict], list[str], str]:
     settings = settings or compiler_options()
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
@@ -57,6 +57,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     leads = {character.name for character in bible.characters if str(character.role or "") in LEAD_ROLES}
     references: list[dict] = []
     bindings: list[str] = []
+    prop_bindings: list[str] = []   # 物品不是人物：中文提示里和人物绑定分开表达
     count = 0
     # Two views per actor sharpen identity, but a crowded shot would then carry
     # ten reference images and the model starts blending faces.  Past two named
@@ -69,11 +70,22 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     phases = identity_data.catalog.phases if identity_data is not None else load_phases(novel_dir) if novel_dir is not None else {}
     by_name = {character.name: character for character in bible.characters}
     bodies = body_refs if body_refs is not None else (bodies_for(novel_dir, chapter) if novel_dir is not None and chapter else {})
-    worn_props: list[str] = []   # phases wearing a prop: the wearer's card and the prop's card both ride
+    # Shot-level wearing state, over the chapter phase: a stage may put the armour on, take it off,
+    # or fly a second empty suit in - the chapter default cannot say any of those.  {name: prop}
+    # wears it for this clip; {name: None} wears nothing this clip.  Absent = the chapter phase decides.
+    # The wearer's own card stays the chapter phase's (a wearing phase card is drawn from the prop's);
+    # what changes at shot level is only whether the prop's card rides along, and the binding says so.
+    overrides = {k: v for k, v in (worn_overrides or {}).items() if k in cast and v != ""}
+    shot_wearing: dict[str, str] = {}
+    for name in cast:
+        if name in overrides:
+            shot_wearing[name] = "" if overrides[name] is None else overrides[name]
+            continue
+        phase = phase_for(phases, name, chapter)
+        shot_wearing[name] = str(phase.get("wears")) if phase and phase.get("wears") else ""
+    worn_props = [p for p in shot_wearing.values() if p]
     for name in cast:
         phase = phase_for(phases, name, chapter)
-        if phase and phase.get("wears"):
-            worn_props.append(str(phase["wears"]))
         asset = str(phase["asset_id"]) if phase else f"character_{character_index[name]:03d}"
         look = phased(by_name[name], phase)
         host = bodies.get(name)
@@ -123,13 +135,21 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     location_asset = f"location_{location_index[location_short]:03d}"
     count += 1
     references.append({"tag": f"@图片{count}", "role": "location", "name": location_short, "asset_id": location_asset, "path": f"series_assets/locations/{location_asset}/establishing.jpeg"})
+    # The location's seat number is fixed the moment it takes it: a prop appended below must not
+    # shift the binding that tells the model which picture is the place.
+    location_tag = references[-1]["tag"]
     # The prop seat: one slot after the location, never at the cost of a character's view - ten
     # reference images and the model starts blending faces.  A prop the bible does not list (a
     # planner hallucination) or whose card was never built is dropped, not invented.
     prop_by_name = dict(props_index) if props_index is not None else {
         p.name: p for p in getattr(bible, "props", None) or []}
     prop_order = {p.name: i for i, p in enumerate(getattr(bible, "props", None) or [], start=1)}
-    seat_candidates = list(dict.fromkeys([*(props or []), *worn_props]))
+    # The worn wearable rides first: it is part of the wearer's appearance - a seat given to a
+    # stage prop instead leaves the armour to be invented while its card sits on disk.
+    seat_candidates = list(dict.fromkeys([*worn_props, *(props or [])]))
+    # Who wears what, for the binding: a wearer and his armour are ONE person's one stance, not
+    # two actors facing each other; an uncrewed suit is a moving prop nobody stands opposite.
+    wearers = {prop: [n for n in cast if shot_wearing.get(n) == prop] for prop in seat_candidates}
     if seat_candidates:
         present = props_on_disk if props_on_disk is not None else (
             prop_assets_on_disk(novel_dir) if novel_dir is not None else None)
@@ -147,8 +167,11 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
             count += 1
             references.append({"tag": f"@图片{count}", "role": "prop", "name": prop_name, "asset_id": asset,
                                "path": f"series_assets/props/{asset}/{image}"})
-            bindings.append(f"<{prop_name}>对应@图片{count}：只采用该物品的外观、材质与结构，"
-                            "不放大、不缩小、不改变相对人物的比例")
+            wearing = wearers.get(prop_name) or []
+            prop_bindings.append(f"<{prop_name}>对应@图片{count}：只采用该物品的外观、材质与结构，"
+                                 "不放大、不缩小、不改变相对人物的比例；它是物品，不是人物"
+                                 + (f"；{'、'.join(wearing)}穿戴它时，它是{'、'.join(wearing)}的身体外观，"
+                                    "不占独立站位、不与人对峙，画面里不因此多出一个人" if wearing else "；本镜无人穿戴时它是独立移动的物体，不计入人数"))
             break  # 道具位硬上限：每 clip 一件
     # One reference voice per speaking character that has one in the bank.  The
     # model listens to the references and matches them to the on-screen speakers
@@ -158,5 +181,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     for voice_index, name in enumerate((n for n in cast if n in speakers and n in settings.voices), start=1):
         references.append({"tag": f"@音频{voice_index}", "role": "voice", "name": name, "path": settings.voices[name]})
     description = compact(full.split("：", 1)[1] if "：" in full else full, 40)
-    location_binding = f"@图片{count}用于<{location_short}>的建筑、地面、固定道具和光线（{description}），不采用图中人物"
+    location_binding = f"{location_tag}用于<{location_short}>的建筑、地面、固定道具和光线（{description}），不采用图中人物"
+    if prop_bindings:
+        location_binding += "。" + "。".join(prop_bindings)
     return references, bindings, location_binding
