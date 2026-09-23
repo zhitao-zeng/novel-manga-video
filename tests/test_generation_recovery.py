@@ -43,7 +43,7 @@ from novel_manga.providers.base import ImageResult  # noqa: E402
 from novel_manga.providers.h3_pool import PoolUnavailable  # noqa: E402
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
 from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
-from novel_manga.application.profiles import h3_prompt_outdated, h3_source_digest
+from novel_manga.application.profiles import h3_prompt_outdated, h3_source_digest, h3_stamp
 from novel_manga.application.production.runs import count_run, render_runs
 
 NOVEL = "nov"
@@ -230,7 +230,7 @@ def test_a_correction_goes_into_the_english_prompt_in_english(tmp_path, monkeypa
     note = "林凡的衣服必须是蓝色长袍"
     prompt = "【阶段1】林凡推门走进大殿。【阶段2】林凡抬头看向王座。"
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": prompt, "request_seconds": 10, "references": [],
-            "prompt_h3": "english", "prompt_h3_of": h3_source_digest(prompt)}
+            "prompt_h3": "english", "prompt_h3_of": h3_stamp({"prompt": prompt})}
     assert "【导演修正】" not in generation.clip_base(runner(tmp_path, local='pool', feedback={'clip_01': note}).context, clip)  # H3 read it out
     assert generation.clip_base(runner(tmp_path, feedback={'clip_01': note}).context, clip).endswith(f"【导演修正】{note}")  # Seedance keeps it
     assert not h3_prompt_outdated(clip) and h3_prompt_outdated(clip, note)  # a new correction rebuilds the English prompt
@@ -242,7 +242,8 @@ def test_a_correction_goes_into_the_english_prompt_in_english(tmp_path, monkeypa
     assert h3prompts.convert(fresh, note=note)
     section = fresh["prompt_h3"].split("summary:\n")[1].split("\n\nretention_analysis")[0]
     assert section.endswith("The man wears a blue robe.") and not re.search("[一-鿿]", section)
-    assert fresh["prompt_h3_of"] == h3_source_digest(prompt, note)
+    from novel_manga.application.profiles import h3_compile_inputs
+    assert fresh["prompt_h3_of"] == "2:" + h3_source_digest(prompt, note, fresh.get("crowd_roles"), h3_compile_inputs(fresh))
 
 
 # ---------------------------------------------------------------- split parts keep their cast (11)

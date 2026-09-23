@@ -199,32 +199,46 @@ def plan_fingerprint(plan: dict) -> str:
     return hashlib.sha256(json.dumps(material, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+STAMP_V2_PREFIX = "2:"   # a stamp this call writes; it proves the reference seating was covered
+
+
 def h3_compile_inputs(clip: dict) -> dict:
-    """The fields other than the Chinese prose that compose() reads when it builds the English prompt.
+    """The fields other than the Chinese prose that compose() reads when it builds the English
+    prompt - the formula a v2 stamp is made from.
 
     The stamp is only as good as this: the medium sentence, the per-shot durations, the reference
-    pictures (their order numbers the subjects and now the props), the bound dialogue and the
-    crowd clothing rules are all compiled into the request, so a clip whose any of them was
-    corrected must be recompiled, and the digest has to know it.
-
-    Scoped to the authored-scene path, because that is the only place compose() reads them.  An
-    older clip keeps the stamp it has, so correcting a sentence it never contained does not mark
-    tens of thousands of accepted videos stale and re-render whole finished books to change
-    nothing.
+    pictures (their order numbers the subjects and the props), the bound dialogue and the crowd
+    clothing rules are all compiled into the request, so a clip whose any of them was corrected
+    must be recompiled, and the digest has to know it.  The reference list rides on every path:
+    a re-seated card renumbers the subjects an English prompt addresses, whatever route the clip
+    was planned by.
     """
+    inputs: dict = {'references': [(r.get('role'), r.get('name'), r.get('path')) for r in (clip.get('references') or [])]}
     if not clip.get('scene_ids'):
-        return {}
+        return inputs
     return {'render_family': str(clip.get('render_family') or clip.get('animation_style') or ''),
             'shot_timing': clip.get('shot_timing') or [],
-            'references': [(r.get('role'), r.get('name'), r.get('path')) for r in (clip.get('references') or [])],
+            **inputs,
             'dialogue_bindings': [(r.get('stage'), r.get('speaker_name'), r.get('delivery_mode'),
                                    r.get('text')) for r in (clip.get('dialogue_bindings') or [])]}
 
 
+def _legacy_compile_inputs(clip: dict) -> dict:
+    """The formula stamps were made from before references joined it.  A bare (unprefixed) stamp
+    compares against this, so an untouched old clip still matches itself and finished books keep
+    their takes; what such a stamp cannot do is prove the current reference seating matches.
+    """
+    if not clip.get('scene_ids'):
+        return {}
+    return {'render_family': str(clip.get('render_family') or clip.get('animation_style') or ''),
+            'shot_timing': clip.get('shot_timing') or []}
+
+
 def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = None,
                      compiled: dict | None = None) -> str:
-    """What build_h3_prompts.py stamps as prompt_h3_of: which Chinese prompt - and director correction, which goes into
-    the English prompt - an English one was made from.  Without a correction it is the digest of the prompt alone."""
+    """What an English prompt was made from: the Chinese prompt, the director's correction (which
+    goes into the English), the crowd rules and the compile inputs.  Without a correction it is
+    the digest of the prompt alone."""
     note = (note or "").strip()
     material = prompt + (f"\n【导演修正】{note}" if note else "")
     if crowd_roles:
@@ -234,16 +248,36 @@ def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = Non
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
-def h3_prompt_outdated(clip: dict, note: str = "") -> bool:
-    """A video clip a local-H3 lane cannot render yet: it has no English prompt, or one made from an
-    earlier Chinese prompt (the chapter was re-packed since) or before its current correction."""
+def h3_stamp(clip: dict, note: str = "") -> str:
+    """The stamp a current translation carries: the version prefix and the digest of everything
+    compose() reads - words, correction, crowd rules, reference seating, bound dialogue."""
+    return STAMP_V2_PREFIX + h3_source_digest(clip.get("prompt") or "", note,
+                                              clip.get('crowd_roles'), h3_compile_inputs(clip))
+
+
+def h3_prompt_outdated(clip: dict, note: str = "", *, strict: bool = False) -> bool:
+    """A video clip a local-H3 lane cannot render yet: it has no English prompt, or one made from
+    an earlier Chinese prompt (the chapter was re-packed since) or before its current correction.
+
+    strict=True is the question a NEW submission asks: the stamp must prove the English matches
+    the plan as it now stands, reference seating included - a pre-v2 stamp never covered the
+    seating, so it is outdated until recompiled.  strict=False keeps the old reading for cache
+    reuse and repair history: a bare stamp made under the old formula still matches itself there,
+    or finished books would re-render whole for nothing.
+    """
     if not clip.get("prompt_h3"):
         return True
-    made_from = clip.get("prompt_h3_of")
+    made_from = str(clip.get("prompt_h3_of") or "")
     if str(note or '').strip() and not made_from:
         return True  # an unstamped old translation cannot prove it includes a new correction
-    return bool(made_from) and made_from != h3_source_digest(clip.get("prompt") or "", note,
-                                                             clip.get('crowd_roles'), h3_compile_inputs(clip))
+    if made_from.startswith(STAMP_V2_PREFIX):
+        return made_from != h3_stamp(clip, note)
+    if strict:
+        return True  # a pre-v2 stamp proves the words, never the seating
+    if not made_from:
+        return False  # unstamped legacy: reuse paths keep working; the admission gate demands one
+    return made_from != h3_source_digest(clip.get("prompt") or "", note, clip.get('crowd_roles'),
+                                        _legacy_compile_inputs(clip))
 
 
 def h3_prompt_fingerprint(plan: dict) -> str:

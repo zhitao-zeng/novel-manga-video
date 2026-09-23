@@ -32,7 +32,7 @@ import novel_manga.review.storage as review_storage
 import novel_manga.application.review.episode as review_episode
 import novel_manga.application.review.evidence as review_evidence
 import novel_manga.application.review.judges as review_judges
-from novel_manga.application.profiles import h3_prompt_fingerprint, h3_source_digest, plan_fingerprint
+from novel_manga.application.profiles import h3_prompt_fingerprint, h3_source_digest, h3_stamp, plan_fingerprint
 from novel_manga.application.production.runs import RENDER_RUNS_PER_PLAN, count_run, render_runs
 
 NOVEL = "nov"
@@ -140,7 +140,7 @@ def test_a_chapter_too_short_to_plan_is_marked_skipped(tmp_path):
 def warned_episode(tmp_path: Path) -> Path:
     directory = episode(tmp_path)
     clip = video_clip(prompt_h3="english")
-    clip["prompt_h3_of"] = h3_source_digest(clip["prompt"])
+    clip["prompt_h3_of"] = h3_stamp(clip)
     write_report(directory, write_plan(directory, [clip]), gate_failed_clips=["clip_01"])
     return directory
 
@@ -251,7 +251,7 @@ def test_a_free_lane_converts_an_episode_without_english_prompts_before_renderin
         if command[1].endswith("build_h3_prompts.py"):
             plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
             for clip in plan["clips"]:
-                clip["prompt_h3"], clip["prompt_h3_of"] = "english", h3_source_digest(clip["prompt"])
+                clip["prompt_h3"], clip["prompt_h3_of"] = "english", h3_stamp(clip)
             (directory / "clip_plan.json").write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
         return 0, ""
     monkeypatch.setattr(batch, "run", run)
@@ -283,7 +283,7 @@ def test_a_translation_with_the_wrong_number_of_shots_is_asked_again_then_left_o
     clip = video_clip()
     assert h3prompts.convert(clip)
     assert "He looks up at the throne." in clip["prompt_h3"] and "大殿" not in clip["prompt_h3"]
-    assert clip["prompt_h3_of"] == h3_source_digest(clip["prompt"])
+    assert clip["prompt_h3_of"] == h3_stamp(clip)
     calls = []
 
     def short(*args, **kwargs):

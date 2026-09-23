@@ -35,7 +35,7 @@ from pathlib import Path
 ROOT = project_root()
 from novel_manga.application.configuration import h3_translation_endpoint
 from novel_manga.llm.client import ask_json
-from novel_manga.application.profiles import h3_prompt_outdated, h3_source_digest, h3_compile_inputs
+from novel_manga.application.profiles import h3_compile_inputs, h3_prompt_outdated, h3_source_digest, h3_stamp
 from novel_manga.application.production.runs import corrections
 
 from novel_manga.util import atomic_write_json  # noqa: E402
@@ -143,8 +143,11 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     (雾月 2026-09-13: 190 episodes looped on the folded answer)."""
     prompt = clip.get("prompt") or ""
     note = str(note or "").strip()
-    digest = h3_source_digest(prompt, note, clip.get('crowd_roles'), h3_compile_inputs(clip))
-    if clip.get("prompt_h3_of") == digest and clip.get("prompt_h3") and not request_issues(clip):
+    # The stamp this conversion writes is versioned ("2:<digest>") and covers the reference
+    # seating; a bare stamp from before is compared under the old formula instead.
+    from novel_manga.application.profiles import h3_stamp
+    stamp = h3_stamp(clip, note)
+    if clip.get("prompt_h3_of") == stamp and clip.get("prompt_h3") and not request_issues(clip):
         return False
     stages = stages_of(prompt)
     if not stages:
@@ -207,7 +210,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
                         conflicts = request_issues({**clip, 'prompt_h3':candidate})
                         if not conflicts:
                             clip['prompt_h3'] = candidate
-                            clip['prompt_h3_of'] = digest
+                            clip['prompt_h3_of'] = stamp
                             return True
                         problem = '; '.join(conflicts)
                         continue
@@ -226,7 +229,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             conflicts = request_issues({**clip, 'prompt_h3':candidate})
             if not conflicts:
                 clip['prompt_h3'] = candidate
-                clip['prompt_h3_of'] = digest
+                clip['prompt_h3_of'] = stamp
                 return True
             problem = '; '.join(conflicts)
             continue
@@ -276,7 +279,9 @@ def main() -> int:
         notes = {key: str(value) for key, value in corrections(episode).items()}  # director corrections, per clip
         # Every clip whose English prompt is due - all of them with --rebuild - and does not get one is a failure:
         # an older English prompt left in place is not a rebuild (it used to pass as one, exit code 0).
-        due = [clip for clip in video if args.rebuild or h3_prompt_outdated(clip, notes.get(clip["clip_id"], ""))]
+        # Strict: conversion itself requires the versioned stamp, so a pre-v2 or unstamped English
+        # prompt is recompiled once here - the seating becomes provable, the videos stay untouched.
+        due = [clip for clip in video if args.rebuild or h3_prompt_outdated(clip, notes.get(clip["clip_id"], ""), strict=True)]
         if args.rebuild:
             for clip in due:
                 clip.pop("prompt_h3_of", None)
@@ -291,7 +296,7 @@ def main() -> int:
             now = {key: str(value) for key, value in corrections(episode).items()}
             for clip in current.get("clips", []):
                 new = made.get(clip.get("clip_id"))
-                if new and new["prompt_h3_of"] == h3_source_digest(clip.get("prompt") or "", now.get(clip.get("clip_id"), ""), clip.get('crowd_roles'), h3_compile_inputs(clip)):
+                if new and new["prompt_h3_of"] == h3_stamp(clip, now.get(clip.get("clip_id"), "")):
                     clip["prompt_h3"], clip["prompt_h3_of"] = new["prompt_h3"], new["prompt_h3_of"]
             atomic_write_json(path, current)
             plan = current

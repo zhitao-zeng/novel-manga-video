@@ -175,12 +175,15 @@ def test_explicit_generation_retry_invalidates_old_cache_without_spoken_instruct
 def test_contradictory_request_is_blocked_before_acquiring_a_generation_slot(tmp_path,monkeypatch):
     from types import SimpleNamespace
     import novel_manga.application.rendering.flow as render
+    from novel_manga.application.profiles import h3_stamp
     r=uninitialized_runner()
     r.context.work=tmp_path/'work';r.context.novel_dir=tmp_path;r.context.cache_only=False;r.context.feedback={};r.context.prescreen=False
     r.context.settings=SimpleNamespace(local_h3_base_url='pool')
     r.clip_prompt=lambda clip:clip['prompt_h3']
     clip={'clip_id':'c','request_seconds':5,'references':[],
           'prompt_h3':'detailed_description:\nTwo <Subject 2> stand up.'}
+    # a current v2 stamp, so the admission gate passes and the identity check is what blocks
+    clip['prompt_h3_of']=h3_stamp(clip)
     monkeypatch.setattr(render,'acquire_inflight_slot',lambda *a:pytest.fail('must not take a generation slot'))
     with pytest.raises(ValueError,match='identity repair'):
         r.generate_clip(clip,1)

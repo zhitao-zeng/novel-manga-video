@@ -369,7 +369,7 @@ class Batch:
         _, blocked = inspect_episode(directory)
         return sum(1 for clip in plan.get("clips", []) if clip.get("kind") == "video"
                    and clip["clip_id"] not in blocked
-                   and thin_profile.h3_prompt_outdated(clip, str(notes.get(clip.get("clip_id"), ""))))
+                   and thin_profile.h3_prompt_outdated(clip, str(notes.get(clip.get("clip_id"), "")), strict=True))
 
     def prepare_cards(self, chapter: int) -> None:
         """Build the cards this episode references; in review mode judge just those

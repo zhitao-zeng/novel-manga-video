@@ -74,9 +74,9 @@ def test_stale_translation_blocks_the_new_request(tmp_path, monkeypatch):
 
 def test_reference_reorder_blocks_the_new_request(tmp_path, monkeypatch):
     """Seats reordered: subject and picture numbers would shift, so the compiled stamp changed."""
-    from novel_manga.application.profiles import h3_compile_inputs, h3_source_digest
+    from novel_manga.application.profiles import h3_stamp
     reordered = _bound()
-    reordered["prompt_h3_of"] = h3_source_digest(reordered["prompt"], "", None, h3_compile_inputs(reordered))
+    reordered["prompt_h3_of"] = h3_stamp(reordered)
     assert not _outdated(reordered)                     # stamp covers the current shape
     reordered["references"] = [{"role": "character", "name": "甲", "path": "c1/turnaround.jpeg"},
                                 {"role": "location", "name": "门廊", "path": "l1/establishing.jpeg"}]
@@ -100,9 +100,28 @@ def test_dialogue_binding_change_blocks_the_new_request(tmp_path, monkeypatch):
 
 def test_current_translation_still_submits(tmp_path, monkeypatch):
     """The gate stops nothing when the English prompt is current: the request goes out."""
-    from novel_manga.application.profiles import h3_compile_inputs, h3_source_digest
+    from novel_manga.application.profiles import h3_stamp
     fresh = _bound()
-    fresh["prompt_h3_of"] = h3_source_digest(fresh["prompt"], "", None, h3_compile_inputs(fresh))
+    fresh["prompt_h3_of"] = h3_stamp(fresh)
+    r = runner_for(tmp_path, monkeypatch, fresh)
+    submitted = []
+
+    class Slot:
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(rendering, "wait_for_inflight_redraws", lambda refs: None)
+    monkeypatch.setattr(rendering, "acquire_inflight_slot", lambda *a, **kw: Slot())
+    monkeypatch.setattr(rendering.generation, "submit",
+                        lambda ctx, clip, request, output, refs: submitted.append(request))
+    monkeypatch.setattr(rendering.time, "sleep", lambda s: None)
+    try:
+        r.generate_clip(fresh, 1)
+    except Exception:                                  # the stub provider ends the take; the request is what matters
+        pass
+    assert submitted and "【生成目标】" not in submitted[0]["prompt"]
     r = runner_for(tmp_path, monkeypatch, fresh)
     submitted = []
 
@@ -142,3 +161,56 @@ def test_a_matching_cached_take_is_reused_not_regated(tmp_path, monkeypatch):
 def _outdated(clip) -> bool:
     from novel_manga.application.profiles import h3_prompt_outdated
     return h3_prompt_outdated(clip, "")
+
+
+def test_an_unstamped_english_prompt_blocks_a_new_request(tmp_path, monkeypatch):
+    """The strict gate: an English prompt with no stamp at all proves nothing about what plan it
+    was made from - it must not ride into a new submission."""
+    unstamped = _bound()                                 # _bound() carries no prompt_h3_of
+    r = runner_for(tmp_path, monkeypatch, unstamped)
+    with pytest.raises(RuntimeError, match="no English prompt yet|stale words|build_h3_prompts"):
+        r.generate_clip(unstamped, 1)
+
+
+def test_a_pre_v2_stamp_blocks_a_new_request_but_not_a_cache_reuse(tmp_path, monkeypatch):
+    """A bare stamp from before references joined the digest covers the words but not the seating:
+    strict admission treats it as unproven; the loose reuse check still accepts it, so finished
+    books keep their takes."""
+    from novel_manga.application.profiles import _legacy_compile_inputs, h3_prompt_outdated, h3_source_digest
+    old = _bound()
+    old["prompt_h3_of"] = h3_source_digest(old["prompt"], "", None, _legacy_compile_inputs(old))  # bare, old formula
+    assert not h3_prompt_outdated(old, "")               # loose: the old stamp matches the old digest
+    assert h3_prompt_outdated(old, "", strict=True)      # strict: it never covered the references
+    r = runner_for(tmp_path, monkeypatch, old)
+    with pytest.raises(RuntimeError, match="stale words|build_h3_prompts"):
+        r.generate_clip(old, 1)
+
+
+def test_a_v2_stamp_covers_the_reference_seating():
+    """A reference re-seated after a v2 stamp makes it stale - on the plain path too, because the
+    prefix says the digest was computed with references included."""
+    from novel_manga.application.profiles import h3_compile_inputs, h3_prompt_outdated, h3_source_digest, h3_stamp
+    clip = _bound()
+    clip["prompt_h3_of"] = h3_stamp(clip)
+    assert not h3_prompt_outdated(clip, "")
+    assert not h3_prompt_outdated(clip, "", strict=True)
+    clip["references"] = [{"role": "character", "name": "甲", "path": "c1/turnaround.jpeg"},
+                           {"role": "character", "name": "乙", "path": "c2/turnaround.jpeg"},
+                           *clip["references"]]
+    assert h3_prompt_outdated(clip, "")                  # re-seated: stale, loose and strict alike
+    assert h3_prompt_outdated(clip, "", strict=True)
+
+
+def test_a_v2_stamp_covers_the_reference_seating():
+    """A reference re-seated after a v2 stamp makes it stale - on the plain path too, because the
+    prefix says the digest was computed with references included."""
+    from novel_manga.application.profiles import h3_compile_inputs, h3_prompt_outdated, h3_source_digest, h3_stamp
+    clip = _bound()
+    clip["prompt_h3_of"] = h3_stamp(clip)
+    assert not h3_prompt_outdated(clip, "")
+    assert not h3_prompt_outdated(clip, "", strict=True)
+    clip["references"] = [{"role": "character", "name": "甲", "path": "c1/turnaround.jpeg"},
+                           {"role": "character", "name": "乙", "path": "c2/turnaround.jpeg"},
+                           *clip["references"]]
+    assert h3_prompt_outdated(clip, "")                  # re-seated: stale, loose and strict alike
+    assert h3_prompt_outdated(clip, "", strict=True)

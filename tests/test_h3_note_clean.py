@@ -81,7 +81,9 @@ def test_a_folded_correction_is_merged_into_the_shots(monkeypatch):
     assert h3.convert(clip, note=note)
     assert len(asked) == 2 and "导演修正" in asked[1] and "导演修正" not in asked[0]
     assert "director_note" not in clip["prompt_h3"] and "orange cat" in clip["prompt_h3"]
-    assert clip["prompt_h3_of"] == h3_source_digest(prompt, note)
+    # The stamp is versioned: the marker says the digest covers the reference seating too.
+    from novel_manga.application.profiles import h3_compile_inputs, h3_source_digest
+    assert clip["prompt_h3_of"] == "2:" + h3_source_digest(prompt, note, clip.get('crowd_roles'), h3_compile_inputs(clip))
 
 
 def test_compose_follows_the_official_six_sections():

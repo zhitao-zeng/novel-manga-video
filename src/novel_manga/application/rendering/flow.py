@@ -323,7 +323,7 @@ class ThinMediaRunner:
             # every entry point.  Old passed caches never reach here - they returned above.
             from novel_manga.application.profiles import h3_prompt_outdated
             note = str(self.context.feedback.get(clip['clip_id']) or '').strip()
-            if not generation.uses_h3_prompt(self.context, clip) or h3_prompt_outdated(clip, note):
+            if not generation.uses_h3_prompt(self.context, clip) or h3_prompt_outdated(clip, note, strict=True):
                 why = ('no English prompt yet' if not clip.get('prompt_h3')
                        else 'prompt_h3_skip is set on a clip that has no matching cache to reuse'
                        if clip.get('prompt_h3_skip')

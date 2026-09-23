@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from novel_manga.application.profiles import h3_compile_inputs, h3_prompt_outdated, h3_source_digest
+from novel_manga.application.profiles import h3_compile_inputs, h3_prompt_outdated, h3_source_digest, h3_stamp
 from novel_manga.story.dialogue import character_pictures, subject_map
 from novel_manga.story.h3 import compose, render_family, request_issues, stages_of, subject_lines
 
@@ -53,13 +53,14 @@ def test_the_stamp_covers_the_medium_but_only_where_the_compiler_reads_it():
     """Correcting the medium has to recompile the clips that carry the sentence - and must NOT mark the
     finished books stale, because they never had one and re-rendering them would buy nothing."""
     scene = scene_clip(render_family='2d', prompt=PROMPT, prompt_h3='english')
-    scene['prompt_h3_of'] = h3_source_digest(PROMPT, '', None, h3_compile_inputs(scene))
+    scene['prompt_h3_of'] = h3_stamp(scene)
     assert not h3_prompt_outdated(scene)
     assert h3_prompt_outdated({**scene, 'render_family': '3d'})
 
     old = {'prompt': PROMPT, 'prompt_h3': 'english', 'animation_style': '3d'}
-    old['prompt_h3_of'] = h3_source_digest(PROMPT)
-    assert h3_compile_inputs(old) == {}
+    old['prompt_h3_of'] = h3_source_digest(PROMPT)   # a bare pre-v2 stamp
+    from novel_manga.application.profiles import _legacy_compile_inputs
+    assert _legacy_compile_inputs(old) == {} and 'references' in h3_compile_inputs(old)
     assert not h3_prompt_outdated(old)
 
 

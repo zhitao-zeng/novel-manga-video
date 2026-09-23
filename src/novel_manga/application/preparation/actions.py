@@ -134,7 +134,7 @@ def translate_and_check(directory, plan, answer):
         if clip.get('kind') != 'video':
             continue
         note = str(notes.get(clip['clip_id'], ''))
-        if h3_prompt_outdated(clip, note):
+        if h3_prompt_outdated(clip, note, strict=True):
             if not convert(clip, note=note):
                 return record(directory, 'error', reason='English prompt incomplete: ' + clip['clip_id'])
             atomic_write_json(plan_path, plan)  # each completed translation survives an interruption
