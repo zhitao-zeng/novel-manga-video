@@ -62,11 +62,18 @@ class ReferenceMaterials:
             return f"asset://{record['asset_id']}"
         if getattr(self.settings, "phanrouter_asset_public_base", None):
             hosted_url = self.public_card_url(path, digest)
+            # publish_cards.sh was never in this repo; the copy step lives here now.  Write it,
+            # then probe: the probe is what tells you the tunnel actually serves the publish dir.
+            try:
+                from ..media.publish import publish_file, publish_root
+                published = publish_file(path, publish_root(getattr(self.settings, "output_root", None)))
+            except OSError:
+                published = None
             probe = self.client.head(hosted_url, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
                                      headers={"ngrok-skip-browser-warning": "1"}, follow_redirects=True)
             if probe.status_code != 200:
-                raise RuntimeError(f"{path.parent.name}/{path.name} is not published at {hosted_url} (HTTP {probe.status_code}); "
-                                   "run publish_cards.sh for this novel first")
+                where = f" (the copy is at {published}; point the tunnel serving PHANROUTER_ASSET_PUBLIC_BASE at that directory - the dashboard's /published/ route serves it)" if published else ""
+                raise RuntimeError(f"{path.parent.name}/{path.name} is not published at {hosted_url} (HTTP {probe.status_code});{where}")
         elif hosted_url is None:
             hosted_url = self._hosted_image_url(image)
         # Names are unique per user: novel, card, view and a piece of the content hash; a clash gets a suffix.

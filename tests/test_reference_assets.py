@@ -99,16 +99,19 @@ def test_public_base_uses_the_published_copy_after_a_head_check(tmp_path):
     assert client.heads == [] and client.calls == []
 
 
-def test_unpublished_card_is_an_error_not_a_silent_fallback(tmp_path):
+def test_unpublished_card_is_an_error_not_a_silent_fallback(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOVEL_ASSET_PUBLISH_DIR", str(tmp_path / "published"))
     p, _, card = provider(tmp_path, phanrouter_asset_public_base="https://pub.example/novel")
     p.client = Client(head_status=404)
     try:
         p._restore_image_url(ImageResult(path=card))
     except RuntimeError as error:
-        assert "publish_cards.sh" in str(error) and "404" in str(error)
+        assert "not published" in str(error) and "404" in str(error)
     else:
         raise AssertionError("an unpublished card must not be registered from a dead URL")
     assert p.client.calls == []
+    # 自动发布先发生：副本已在发布目录，404 意味着隧道那头没指过来
+    assert list((tmp_path / "published").rglob("*.jpeg"))
 
 
 def test_group_id_is_required(tmp_path):

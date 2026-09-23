@@ -1,6 +1,7 @@
 """status_server responsibilities; existing dashboard metric definitions."""
 from __future__ import annotations
 from http.server import BaseHTTPRequestHandler
+from pathlib import Path
 import json
 import re
 import time
@@ -48,6 +49,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_file(target, workbench.MEDIA_TYPES[target.suffix.lower()])
             except (KeyError, IndexError):
                 self.send_error(404)
+            return
+        elif path.startswith("/published/"):
+            # Published card copies, served to the video provider's asset library through the
+            # tunnel.  The provider's pre-flight is a HEAD; do_HEAD below answers it.
+            self._published(path, head_only=False)
             return
         elif path.startswith("/thumb/"):
             # /thumb/<book>/<relative path>?w=520: the gallery's downscaled JPEG of an image
@@ -166,6 +172,33 @@ class Handler(BaseHTTPRequestHandler):
                 except (BrokenPipeError, ConnectionResetError):
                     return
                 remaining -= len(chunk)
+
+    def _published(self, path: str, *, head_only: bool):
+        from novel_manga.media.publish import publish_root
+        relative = urlsplit(path).path.removeprefix("/published/")
+        parts = Path(relative).parts
+        if not parts or Path(relative).is_absolute() or ".." in parts:
+            self.send_error(404)
+            return
+        target = publish_root(config.ROOT / "outputs").joinpath(*parts)
+        content_type = workbench.MEDIA_TYPES.get(target.suffix.lower(), "")
+        if not content_type.startswith("image/") or not target.is_file():
+            self.send_error(404)
+            return
+        if head_only:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(target.stat().st_size))
+            self.end_headers()
+            return
+        self._send_file(target, content_type)
+
+    def do_HEAD(self):  # noqa: N802 - http.server's interface; the provider's pre-flight is a HEAD
+        path = unquote(urlsplit(self.path).path)
+        if path.startswith("/published/"):
+            self._published(path, head_only=True)
+        else:
+            self.send_error(404)
 
     def log_message(self, *args):  # quiet: this runs for months
         pass
