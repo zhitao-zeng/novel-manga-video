@@ -17,7 +17,7 @@ def test_performance_notes_do_not_replace_the_legacy_speaker():
     assert stages[0][1] == [('洛恩', '我们走吧。', False, '平静')]
     clip = {'references': [{'role': 'character', 'name': '洛恩'}], 'request_seconds': 15}
     request = compose(clip, ['<Subject 1> opens the door.'], stages)
-    assert '<Subject 1> (S1) says <d>[Chinese] 我们走吧。</d>' in request
+    assert '<Subject 1> (S1) says <d>[Chinese] 我们走吧.</d>' in request
     assert 'An off-screen voice' not in request
 
 
@@ -92,8 +92,9 @@ def test_compose_follows_the_official_six_sections():
         {"role": "character", "name": "莱恩·格雷", "path": "a"}, {"role": "character", "name": "比尔·维克托", "path": "b"},
         {"role": "location", "name": "书房", "path": "c"}, {"role": "voice", "name": "莱恩·格雷", "path": "v"}]}
     stages = [(None, [("莱恩·格雷", "你来了", False), ("比尔·维克托", "我在门外", True), ("", "旁白句", True)])]
-    text = bh.compose(clip, ["<Subject 1> stands by the door."], stages, note="<Subject 1> stands alone by the door.")
-    assert "director_note" not in text and "Direction for this take: <Subject 1> stands alone" in text
+    text = bh.compose(clip, ["<Subject 1> stands alone by the door."], stages)
+    assert "director_note" not in text and "Direction for this take" not in text
+    assert '[Shot 1] <Subject 1> stands alone by the door.' in text
     assert "Exactly one <Subject 1> appears" in text and "<Subject 1>: fully_preserved" in text
     assert "<Subject 1> (S1) says <d>[Chinese] 你来了</d>" in text
     assert "<Subject 2> (S2) says in an off-screen voiceover <d>[Chinese] 我在门外</d> The on-screen characters' lips remain closed." in text

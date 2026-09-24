@@ -52,6 +52,9 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             # unnamed people the passage puts in the picture, by a short description; they have no card
             "extras": extras_field(),
             "actions": actions_field(),
+            # A chapter can contain an ordinary object before its bible has a prop card.
+            # It still needs an object slot; extras is reserved for living performers.
+            "scene_objects": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 80}},
         },
     }
     if prop_names:

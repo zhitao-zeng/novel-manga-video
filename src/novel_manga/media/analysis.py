@@ -69,7 +69,8 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
         # The record names the take it was made from, but its clip directory can be renamed under it
         # (split_long_stages renumbers clips): the take is the file beside the record, never the path inside it.
         cached = {**json.loads(asr_path.read_text(encoding="utf-8")), "clip_id": clip["clip_id"], "video": str(video)}
-        if 'reference' in cached and cached['reference'] != reference:
+        if 'reference' in cached and (cached['reference'] != reference
+                or (cached.get('chunks') and cached.get('speech_evaluation_policy') != speech.EVALUATION_POLICY)):
             rows = speech.corrected_rows(cached.get('chunks', []), reference, ctx.protected_terms, ctx.aliases)
             if not rows and cached.get('hypothesis'):
                 # Existing aggregate records can be evaluated, but contain no new timing evidence.

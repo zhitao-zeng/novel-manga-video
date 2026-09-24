@@ -113,6 +113,19 @@ def resolve_scene(script: dict | ResolvedScene, context: SceneContext) -> Resolv
                 shot['actions'] = normalize_actions(shot['actions'], aliases=aliases, extras=shot.get('extras', []))
     bindings = confirmed_bindings(shots, context.speaker_facts, context.identity, context.segments)
     apply_bindings(shots, bindings)
+    # Wearing is a state, not a one-shot action. An omitted field keeps the
+    # established outfit; an explicit null removes it. Only visible bodies
+    # receive the carried prop, so a spoken-about person earns no reference.
+    wearing = {}
+    for shot in shots:
+        wearing.update(shot.get('wears') or {})
+        visible = set(shot.get('characters') or []) | set(shot.get('listeners') or []) | set(shot.get('in_frame') or [])
+        carried = {name: item for name, item in wearing.items() if name in visible}
+        if carried:
+            shot['wears'] = {**carried, **(shot.get('wears') or {})}
+            props = [item for item in carried.values() if item]
+            if props:
+                shot['props'] = list(dict.fromkeys([*(shot.get('props') or []), *props]))
     # "同上" is only meaningful inside one prompt.  Resolve it (and blanks)
     # from the last concrete value in reading order so that the first stage of
     # every clip states its light and camera explicitly.

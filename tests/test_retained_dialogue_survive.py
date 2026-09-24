@@ -65,8 +65,8 @@ def test_no_section_or_empty_section_is_no_check():
     assert retained_dialogue_issues(None, []) == []
 
 
-def test_validate_plan_holds_the_second_pass_to_the_outline():
-    """Through the full validator: the outline rides on the context, and the lost line is an error."""
+def test_structural_validator_leaves_meaning_to_the_planning_review():
+    """String similarity cannot settle whether a rewritten line kept its meaning."""
     raw = {"video_title": "t", "hook": "h", "summary": "s", "clips": [
         {"clip_id": "clip_1", "location": "诊所", "characters": ["托尼·斯塔克", "席勒"], "avoid": "",
          "stages": [{"segment_id": "s1", "source_quote": "十六个字以上的原文引用，用来通过引用检查的句子。",
@@ -90,6 +90,4 @@ def test_validate_plan_holds_the_second_pass_to_the_outline():
                                     "托尼找席勒修贾维斯，席勒答应免费同去。因为钢铁侠扛着地狱巴士飞行的画面一定很美。",
                                     ctx=ctx, everyone=["托尼·斯塔克", "席勒"])
     codes = [issue.code for issue in result.issues]
-    assert PlanningCode.RETAINED_LINE_LOST in codes
-    message = next(issue.message for issue in result.issues if issue.code == PlanningCode.RETAINED_LINE_LOST)
-    assert "钢铁侠扛着地狱巴士飞行" in message and "第二遍必须逐条落实" in message
+    assert PlanningCode.RETAINED_LINE_LOST not in codes

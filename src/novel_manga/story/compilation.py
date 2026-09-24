@@ -38,7 +38,7 @@ STRIP_PUNCT = r"[\s　，。！？；：、…—,.!?;:\"“”'‘’（）()]"
 
 STAGE_LABELS = ["一", "二", "三", "四", "五", "六"]
 
-EXECUTION_RULES = ("location", "scene_boundary", "duration", "stage_limit")
+EXECUTION_RULES = ("location", "scene_boundary", "duration", "stage_limit", "vocal_boundary")
 
 SENTENCE_END = re.compile(r"(?<=[。！？!?…；;])")
 
@@ -198,9 +198,16 @@ class ClipCompiler:
 
     is_title_card = staticmethod(is_title_card)
 
+    def vocal_boundary(self, shots: list[dict]) -> bool:
+        spoken = [t for s in shots for t in s['turns']
+                  if t['delivery_mode'] in {'visible_dialogue', 'offscreen_dialogue'} and t.get('text')]
+        return ((bool(self.options.voices) and len({t['speaker_name'] for t in spoken}) > 1)
+                or len({bool(t.get('inner_monologue')) for t in spoken}) > 1)
+
     def _cut_checks(self, current: dict, last: dict, shot: dict, seconds: float) -> dict[str, bool]:
         """Every cut condition the packer tests, in the order it tests them."""
         return {
+            "vocal_boundary": self.vocal_boundary([*current['shots'], shot]),
             "location": shot["location"] != current["location"],
             "scene_boundary": last.get('scene_id') != shot.get('scene_id'),
             "clip_hint": bool(shot.get("clip_hint") and shot.get("clip_hint") != last.get("clip_hint")),
@@ -261,7 +268,7 @@ class ClipCompiler:
                 if number == total:
                     text = f"承接上一段：{action}已完成，人物保持该姿态；本分段收尾并呈现最终结果"
                 else:
-                    text = f"承接上一段：{action}的动作正在进行中，人物保持该姿态，本分段不重复该动作"
+                    text = f"承接上一段：{action}的动作正在进行中，沿用当前站位，本分段继续台词和反应，不重复该动作"
                     if end:
                         text += f"，最终结果（{end}）尚未发生"
                 # Who was in the picture stays in it.  clip_cast keeps a silent character of a crowded stage only when
@@ -276,10 +283,10 @@ class ClipCompiler:
                 piece["visual_prompt"] = text
                 piece["motion_prompt"] = ("完成上一段动作的收尾，呈现阶段结束时的最终状态，不重复已完成的部分"
                                           if number == total
-                                          else "人物保持上一段结束时的位置和姿态，接着把话说完，不重复上一段的动作")
+                                          else "沿用上一段的站位与动作状态，表情和视线随本段明确给出的台词变化；说完本段台词后闭嘴，不自行延长发言，不重复上一段动作")
             if 1 < number < total:
                 # A middle part neither lands the result nor replays the opening: it pauses.
-                piece["end_state"] = "话说到此暂停，人物位置和姿态不变，本阶段的最终结果尚未发生（在后续分段）"
+                piece["end_state"] = "本段台词已说完，人物闭嘴、保持原站位，以表情回应；后续剧情动作留给下一片段，本片段不提前执行"
             pieces.append(piece)
         return pieces
 
@@ -343,6 +350,7 @@ class ClipCompiler:
                         and neighbour['shots'][0].get('scene_id') == clip['shots'][0].get('scene_id')
                         and neighbour["seconds"] + clip["seconds"] <= self.options.max_clip_seconds
                         and len(neighbour["shots"]) + len(clip["shots"]) <= self.options.max_stages
+                        and not self.vocal_boundary(neighbour['shots'] + clip['shots'])
                     ):
                         shots = clip["shots"] + neighbour["shots"] if neighbour_index > index else neighbour["shots"] + clip["shots"]
                         self.decisions.append({"kind": "absorbed", "small_clip_seconds": clip["seconds"],
@@ -520,11 +528,17 @@ class ClipCompiler:
             witness = carried("camera", "机位")
             source_light = carried("light", "光源")
             extras_note = f"本阶段无参考图的配角：{'、'.join(shot['extras'])}（按描述画）。" if shot.get("extras") else ""
+            props_note = f"本阶段物件：{'、'.join(shot['props'])}（物件不是人物）。" if shot.get("props") else ""
+            local_objects = f"本阶段临时物件：{'、'.join(shot['scene_objects'])}（物件不是人物）。" if shot.get('scene_objects') else ''
+            wears_note = "".join(f"{name}{'脱下穿戴物' if item is None else '穿着' + str(item)}；"
+                                  for name, item in (shot.get("wears") or {}).items() if name in cast)
+            if wears_note:
+                wears_note = "穿戴状态：" + wears_note
             listen_note = (f"本阶段只有{'、'.join(shot['characters'])}正脸入镜；{'、'.join(shot['listeners'])}只露背影或在画外，不入近景、嘴不动。"
                            if shot.get("listeners") else "")
             lines.append(
                 f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{self.compact(shot['motion_prompt'])}。"
-                f"{('入镜：' + ('、'.join(shot.get('in_frame', shot['characters'])) or '无具名人物') + '。') if shot.get('scene_id') else blocking_note(shot)}{extras_note}{listen_note}"
+                f"{('入镜：' + ('、'.join(shot.get('in_frame', shot['characters'])) or '无具名人物') + '。') if shot.get('scene_id') else blocking_note(shot)}{extras_note}{props_note}{local_objects}{wears_note}{listen_note}"
                 f"{self.screen_clause(shot)}声音：{self._sound_clause(shot)}。结束时：{self.compact(shot['end_state'])}。"
             )
         scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))

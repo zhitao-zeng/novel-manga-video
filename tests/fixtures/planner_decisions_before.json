@@ -330,6 +330,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -387,6 +391,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -993,6 +1005,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -1050,6 +1066,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -1439,6 +1463,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -1496,6 +1524,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -1885,6 +1921,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -1942,6 +1982,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -2371,6 +2419,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -2428,6 +2480,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -2817,6 +2877,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -2874,6 +2938,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -3263,6 +3335,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -3320,6 +3396,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -3922,6 +4006,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -3979,6 +4067,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -4368,6 +4464,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -4425,6 +4525,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -4814,6 +4922,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -4871,6 +4983,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -5475,6 +5595,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -5532,6 +5656,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -5921,6 +6053,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -5978,6 +6114,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -6367,6 +6511,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -6424,6 +6572,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -6853,6 +7009,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -6910,6 +7070,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -7299,6 +7467,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -7356,6 +7528,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -7945,6 +8125,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -8002,6 +8186,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -8391,6 +8583,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -8448,6 +8644,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }
@@ -8837,6 +9041,10 @@
                "emotion": {
                 "type": "string"
                },
+               "inner_monologue": {
+                "type": "boolean",
+                "description": "仅角色心声为true；delivery_mode仍用offscreen_dialogue，普通画外对白为false"
+               },
                "chat_target": {
                 "type": "string",
                 "enum": [
@@ -8894,6 +9102,14 @@
                 "maxLength": 80
                }
               }
+             }
+            },
+            "scene_objects": {
+             "type": "array",
+             "maxItems": 3,
+             "items": {
+              "type": "string",
+              "maxLength": 80
              }
             }
            }

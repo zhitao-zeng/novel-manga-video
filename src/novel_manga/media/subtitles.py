@@ -221,8 +221,8 @@ def subtitle_events(ctx, clip_id: str, analysis: dict) -> list[dict]:
     One caption per script line (so two speakers never share a caption),
     timed by character count inside the chunk, then capped and floored by
     reading speed so a caption neither lingers over the next speaker nor
-    flashes by.  Speech that matches no line is shown as heard whenever the
-    block is long enough to be a line at all; shorter murmurs stay silent.
+    flashes by. Unmatched recognition stays in the review record; it must not
+    become invented subtitles in the film. The speech gate handles that defect.
     """
     rows: list[list] = []  # [start, end, text, source]
     for row, text, score, pieces in align_chunks(script_lines(ctx, clip_id), analysis["chunks"]):
@@ -234,7 +234,7 @@ def subtitle_events(ctx, clip_id: str, analysis: dict) -> list[dict]:
             verdict = classify_unmatched(heard, end - start)
             row["subtitle"] = verdict
             if verdict == "asr_text":
-                rows.append([start, end, heard, "asr_text"])
+                row['subtitle'] = 'rejected_unplanned_speech'
             continue
         row["subtitle"] = "script_span"
         weights = [max(1, len(normalize_text(piece))) for _, piece in pieces]
@@ -242,7 +242,11 @@ def subtitle_events(ctx, clip_id: str, analysis: dict) -> list[dict]:
         cursor = start
         for index, ((_, piece), weight) in enumerate(zip(pieces, weights)):
             piece_end = end if index == len(pieces) - 1 else cursor + (end - start) * weight / total
-            rows.append([cursor, piece_end, piece, "native_audio_asr"])
+            clip = next((c for c in ctx.clip_plan['clips'] if c['clip_id'] == clip_id), {})
+            planned = [line for line in clip.get('lines', []) if normalize_text(line.get('text', ''))]
+            line_index = pieces[index][0]
+            inner = line_index < len(planned) and planned[line_index].get('inner_monologue')
+            rows.append([cursor, piece_end, ('（心声）' if inner else '') + piece, "native_audio_asr"])
             cursor = piece_end
     clip_seconds = float(analysis.get("duration") or 0.0) or (rows[-1][1] if rows else 0.0)
     for index, item in enumerate(rows):

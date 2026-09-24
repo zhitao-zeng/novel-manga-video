@@ -198,7 +198,7 @@ def test_scene_boundary_duration_and_sound_survive_native_packing_and_h3(tmp_pat
     assert 'non_diegetic_music:\nNone.' in clip['prompt_h3']
     spoken = plan['clips'][0]
     assert h3.convert(spoken, tries=1)
-    assert '<d>[Chinese] 终于……拿回来了。</d>' in spoken['prompt_h3']
+    assert '<d>[Chinese] 终于……拿回来了.</d>' in spoken['prompt_h3']
     assert not request_issues(spoken)
 
 

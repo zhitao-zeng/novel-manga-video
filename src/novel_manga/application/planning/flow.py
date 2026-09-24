@@ -24,6 +24,7 @@ from novel_manga.application.profiles import load_profile
 import fcntl
 import hashlib
 import json
+import math
 import re
 import shutil
 import sys
@@ -139,6 +140,7 @@ def run(args, ctx: PlannerContext) -> int:
         planning_budget = pc_budget.configure_budget(episode.text_count, fast=fast, min_seconds=args.min_seconds, ctx=ctx)
     except ValueError as error:
         raise PlanningInputError(str(error)) from error
+    usual_ceiling = ctx.episode_seconds_max
     if method:
         # A method may tell the chapter through action and silence. The existing
         # duration/source checks remain; a speech quota must not invent dialogue.
@@ -149,8 +151,22 @@ def run(args, ctx: PlannerContext) -> int:
         ctx.episode_seconds_max = args.max_seconds
         planning_budget['episode_max_seconds'] = args.max_seconds
     if getattr(args, 'max_seconds', None) is not None:
+        if not method and args.max_seconds > usual_ceiling:
+            # A longer explicit ceiling must also give the writer enough room
+            # to tell the story. Keeping the 90s target and 300 spoken chars
+            # made ch12 discard its set-up while trying to fit 150s.
+            ctx.episode_seconds_target = max(ctx.episode_seconds_target,
+                                             min(args.max_seconds - 15, 10 * ctx.max_clip_seconds))
+            ctx.spoken_range = (ctx.spoken_range[0], max(ctx.spoken_range[1],
+                round(ctx.episode_seconds_target * pc_parts.SPEECH_CHARS_PER_SECOND)))
+            planning_budget['spoken_chars'] = list(ctx.spoken_range)
         ctx.episode_seconds_target = min(ctx.episode_seconds_target, args.max_seconds)
         planning_budget['episode_target_seconds'] = ctx.episode_seconds_target
+        # Ten authored containers may compile into more video requests when
+        # the compiler splits long shots at the real H3 clip cap.
+        needed = min(10, math.ceil(args.max_seconds / ctx.max_clip_seconds))
+        ctx.clip_range = (ctx.clip_range[0], max(ctx.clip_range[1], needed))
+        planning_budget['clip_count'] = list(ctx.clip_range)
     ctx.chat_self, ctx.chat_card_mode = "", True
     chat_screen_path = novel_dir / "chat_screen.json"
     if chat_screen_path.is_file():
@@ -358,7 +374,7 @@ def run(args, ctx: PlannerContext) -> int:
     # Props join the slice the way people and places do: only the ones this chapter's text names.
     # A book without props keeps prop_names empty and the schema byte-identical to before.
     prop_all = list(getattr(full_bible, "props", None) or [])
-    prop_names = [p.name for p in prop_all if p.name and p.name in episode.source_text]
+    prop_names = [p.name for p in pc_prompts.props_for_chapter(prop_all, episode.source_text)]
     if prop_all:
         bible = bible.model_copy(update={"props": [p for p in prop_all if p.name in prop_names]})
     # A bound sheet is not re-planned: the model answers one object per authored shot with only the
@@ -435,17 +451,22 @@ def run(args, ctx: PlannerContext) -> int:
         if args.replay and attempt == 1:
             content = Path(args.replay).read_text(encoding="utf-8")
             meta = {"replayed_from": str(args.replay)}
+            replay = Path(args.replay)
+            number = re.search(r'response_attempt_(\d+)', replay.name)
+            outline_path = replay.parent / f'analysis_attempt_{number.group(1) if number else "01"}.txt'
+            if not outline_path.is_file():
+                raise PlanningInputError('replay needs its adjacent analysis_attempt_NN.txt outline')
+            outline = outline_path.read_text(encoding='utf-8')
             if method:
-                replay = Path(args.replay)
-                number = re.search(r'response_attempt_(\d+)', replay.name)
-                outline_path = replay.parent / f'analysis_attempt_{number.group(1) if number else "01"}.txt'
-                if not outline_path.is_file():
-                    raise PlanningInputError('method replay needs its adjacent analysis_attempt_NN.txt outline')
-                outline = outline_path.read_text(encoding='utf-8')
                 problems = validate_blueprint(outline, method, payload['segments'])
                 if problems:
                     raise PlanningInputError('invalid method replay outline: ' + '; '.join(problems))
                 ctx.story_blueprint = json.loads(outline)
+            else:
+                try:
+                    ctx.outline = json.loads(outline)
+                except ValueError as error:
+                    raise PlanningInputError('invalid replay outline: ' + str(error)) from error
         else:
             try:
                 content, meta = planner_requests.call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema,
@@ -540,6 +561,33 @@ def run(args, ctx: PlannerContext) -> int:
                 errors = strict_decision.errors
                 attempts[-1]["errors"] = errors
                 print(json.dumps({"attempt": attempt, "strict_errors": errors}, ensure_ascii=False), flush=True)
+        if not errors and not authored:
+            from novel_manga.application.planning import retention
+            section = retention.section_of(ctx.outline)
+            if section:
+                evidence_dir = Path(args.replay).parent if args.replay else episode_dir
+                evidence_number = (re.search(r'response_attempt_(\d+)', Path(args.replay).name).group(1)
+                                   if args.replay and re.search(r'response_attempt_(\d+)', Path(args.replay).name)
+                                   else f'{attempt:02d}')
+                evidence_path = evidence_dir / f"retained_review_attempt_{evidence_number}.json"
+                try:
+                    if args.replay:
+                        if not evidence_path.is_file():
+                            raise PlanningInputError('replay needs its adjacent retained_review_attempt_NN.json')
+                        verdict = json.loads(evidence_path.read_text(encoding='utf-8'))
+                        retained_issues = retention.interpret(verdict, section)
+                    else:
+                        verdict, retained_issues = retention.review(section, shots, episode.source_text)
+                        atomic_write_json(evidence_path, verdict)
+                except PlanningInputError:
+                    raise
+                except Exception as error:  # noqa: BLE001 - unreviewed script must not advance to H3
+                    final_errors = [f"保留内容审查未完成：{type(error).__name__}: {str(error)[:150]}"]
+                    attempts[-1]["errors"] = final_errors
+                    break
+                if retained_issues:
+                    errors = [*errors, *(issue.message for issue in retained_issues)]
+                    attempts[-1]["errors"] = errors
         if errors:
             final_errors = errors
             repair = pc_decisions.revision_feedback(errors, raw, resent=bool(resent))
@@ -588,7 +636,7 @@ def run(args, ctx: PlannerContext) -> int:
         "attempts": attempts,
         "elapsed_seconds": round(time.monotonic() - started, 1),
     }
-    if prop_names:
+    if prop_names and not args.replay:
         # 道具标注走判官后置 pass：试点里规划器（flashnext）对每个镜头都答空，
         # 判官（27B）一次标对获得镜头。union，不否决规划器自己的标注。
         # 键是镜头在 shots 里的位置：origin_index 在 framing 拆镜后会重复。
@@ -606,30 +654,19 @@ def run(args, ctx: PlannerContext) -> int:
     # 可见说话人和动作参与者是结构事实，永远在画，不归判官管。判官挂了就回落规则分级。
     # replay 是确定性重放（响应已存盘），不再发起任何模型调用。
     if not args.replay:
-        from novel_manga.application.planning.presence import grade_presence, structural_on_camera
+        from novel_manga.application.planning.presence import grade_presence, apply_presence_grades
         # 判官分级需要知道谁没有身体：档案里的外观描述（无实体/全息/声纹）是判定依据，
         # 只给名字它无从知道贾维斯不该入画。
         roster = {c.name: c.appearance for c in full_bible.characters}
-        grades = grade_presence(shots, names, ctx=ctx, roster=roster)
+        grades = grade_presence(shots, everyone, ctx=ctx, roster=roster)
         demoted, promoted = [], []
         for position, shot in enumerate(shots, start=1):
             judged = grades.get(position) or {}
             if not judged:
                 continue
-            structural = structural_on_camera(shot)
-            cast = list(shot.get("characters") or [])
-            # 补：判官说在画、名单允许、但演员表没有的
-            for name, grade in judged.items():
-                if grade == "on_camera" and name in names and name not in cast:
-                    cast.append(name)
-                    promoted.append(f"镜{position}:{name}")
-            # 降：判官说只是被谈到、且不是结构在画、但演员表里有的
-            for name in cast:
-                if judged.get(name) == "talked_about" and name not in structural and name in names:
-                    cast.remove(name)
-                    shot.setdefault("mentioned_only", []).append(name)
-                    demoted.append(f"镜{position}:{name}")
-            shot["characters"] = cast
+            added, removed = apply_presence_grades(shot, judged, everyone)
+            promoted.extend(f"镜{position}:{name}" for name in added)
+            demoted.extend(f"镜{position}:{name}" for name in removed)
         if demoted or promoted:
             from novel_manga.llm import client as model_client
             model_client.log(f"presence grades: promoted {promoted[:8]}, demoted to mentioned {demoted[:8]}")

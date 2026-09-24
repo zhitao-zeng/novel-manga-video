@@ -160,6 +160,7 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
         # both render_family 3d, and 真人, which is photographed - asked H3 for 2D animation while its
         # reference cards were drawn in something else.
         "render_family": str(load_style(profile, episode_dir.parent).get("render_family") or ""),
+        "h3_style_line": str(load_style(profile, episode_dir.parent).get("h3_style_line") or ""),
         "compiler_options": options, "identity_data": identity_data,
         "location_map": {full.split("：", 1)[0].strip(): full for full in bible.locations},
         "overrides": json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {},

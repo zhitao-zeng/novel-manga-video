@@ -64,6 +64,37 @@ def test_the_stamp_covers_the_medium_but_only_where_the_compiler_reads_it():
     assert not h3_prompt_outdated(old)
 
 
+def test_regular_clips_carry_style_and_physical_sound_into_h3(monkeypatch):
+    from novel_manga.application.rendering import h3 as translator
+
+    clip = {'clip_id': 'clip_01', 'request_seconds': 5,
+            'prompt': '【阶段一】莱恩穿着机甲飞出窗户。声音：机甲喷气声。结束时：莱恩在窗外。画面呈现',
+            'references': [{'role': 'character', 'name': '莱恩', 'path': 'c.jpeg'}],
+            'render_family': '2d',
+            'h3_style_line': 'Crisp black ink outlines and flat color blocks. No 3D rendering.',
+            'shot_sound': ['机甲喷气声']}
+    seen = {}
+
+    def translate(parts, schema, **kwargs):
+        seen['ask'] = parts[0]['text']
+        return {'shots': ['<Subject 1> flies out of the window wearing his armor. Its jet engine roars.']}
+
+    monkeypatch.setattr(translator, 'ask_json', translate)
+    monkeypatch.setattr(translator, 'english_delivery', lambda *_: {})
+    assert translator.convert(clip)
+    assert '同期声：机甲喷气声' in seen['ask']
+    assert 'whether someone enters or exits' in seen['ask']
+    assert 'Crisp black ink outlines' in clip['prompt_h3']
+    assert 'jet engine roars' in clip['prompt_h3']
+    assert '2D animation' in clip['prompt_h3']
+    assert h3_stamp({**clip, 'shot_sound': ['窗外风声']}) != clip['prompt_h3_of']
+
+
+def test_vocal_translation_must_not_invent_sobbing_from_distress():
+    from novel_manga.application.rendering.h3 import DELIVERY_ASK
+    assert '崩溃' in DELIVERY_ASK and 'Never add crying, sobbing' in DELIVERY_ASK
+
+
 # --- one person, two pictures ------------------------------------------------------------------
 
 def two_view_clip() -> dict:
@@ -83,7 +114,8 @@ def test_two_views_of_one_actor_are_one_subject_with_two_pictures():
     # each picture keeps its own job: the bust stops at the collar and cannot answer for a costume
     assert 'face, hair, age and skin tone from <Picture 2>' in defs[0]
     assert 'body proportions, garment cut, main colours and accessories from <Picture 1>' in defs[0]
-    assert sum(d.startswith('<Subject') for d in defs) == 2  # two people, not three
+    assert sum('is the person shown' in d for d in defs) == 2  # scenes also have Subject labels
+    assert any(d.startswith('<Subject 3> is the setting') for d in defs)
 
 
 def test_a_second_photo_declared_as_a_second_person_is_reported():
@@ -125,7 +157,7 @@ def test_two_performances_of_one_line_no_longer_compile_to_the_same_request():
     assert quiet_request != loud_request
     assert 'low, hesitant voice' in quiet_request and 'furious shout' in loud_request
     # the words themselves are still the packed ones, and the checker still recognises the syntax
-    assert '<Subject 1> (S1) says <d>[Chinese] 谁在那里？</d>' in quiet_request
+    assert '<Subject 1> (S1) says <d>[Chinese] 谁在那里?</d>' in quiet_request
     assert not request_issues({**clip, 'prompt_h3': quiet_request})
 
 
@@ -142,5 +174,5 @@ def test_the_manner_travels_with_the_binding_not_with_the_prose():
 def test_an_untranslated_manner_costs_the_line_its_performance_and_nothing_else():
     clip = scene_clip(render_family='2d')
     request = compose(clip, ['<Subject 1> waits by a door.'], stages_of(PROMPT), '', {})
-    assert '<Subject 1> (S1) says <d>[Chinese] 谁在那里？</d>' in request
+    assert '<Subject 1> (S1) says <d>[Chinese] 谁在那里?</d>' in request
     assert not request_issues({**clip, 'prompt_h3': request})

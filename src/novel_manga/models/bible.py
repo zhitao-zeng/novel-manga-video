@@ -34,6 +34,7 @@ class Prop(BaseModel):
     card is drawn from this prop's card, so the armor has exactly one source of truth.
     """
     name: str
+    aliases: list[str] = Field(default_factory=list)
     category: str = "其他"          # 武器 | 信物 | 法器 | 工具 | 其他
     appearance: str = ""            # 稳定特征，不写当下状态（同人物外貌规则）
     material: str = ""

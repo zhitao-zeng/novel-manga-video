@@ -196,7 +196,8 @@ def test_the_later_parts_of_a_split_stage_carry_on_instead_of_repeating_its_acti
         assert ("已完成" in part["visual_prompt"] or "正在进行中" in part["visual_prompt"])
     # Part 1 ends mid-action; middle parts pause; only the last part lands the stage's tableau.
     assert "后续分段才成立" in parts[0]["end_state"]
-    assert "尚未发生" in parts[1]["end_state"]
+    assert "后续剧情动作留给下一片段" in parts[1]["end_state"]
+    assert "台词已说完" in parts[1]["end_state"]
     assert parts[-1]["end_state"] == "林凡站在门外台阶上"
 
 

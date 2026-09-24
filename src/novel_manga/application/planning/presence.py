@@ -15,6 +15,7 @@ which are what ran before this module existed.
 from __future__ import annotations
 
 from novel_manga.llm.client import ask_json
+from novel_manga.llm.config import endpoint_settings
 from novel_manga.planning import cast as pc_cast
 from novel_manga.planning.context import PlannerContext
 
@@ -42,6 +43,27 @@ def structural_on_camera(shot: dict) -> set[str]:
             if who:
                 keep.add(str(who))
     return keep
+
+
+def apply_presence_grades(shot: dict, judged: dict[str, str], names: list[str]) -> tuple[list[str], list[str]]:
+    """Apply a judge result to every on-screen list, not only to the main cast."""
+    structural = structural_on_camera(shot)
+    cast = list(shot.get('characters') or [])
+    promoted = []
+    for name, grade in judged.items():
+        if grade == 'on_camera' and name in names and name not in cast:
+            cast.append(name)
+            promoted.append(name)
+    seated = set(cast) | set(shot.get('listeners') or []) | set(shot.get('in_frame') or [])
+    removed = {name for name in seated if judged.get(name) in {'talked_about', 'absent'}
+               and name not in structural and name in names}
+    shot['characters'] = [name for name in cast if name not in removed]
+    for field in ('listeners', 'in_frame'):
+        if field in shot:
+            shot[field] = [name for name in (shot.get(field) or []) if name not in removed]
+    if removed:
+        shot['mentioned_only'] = list(dict.fromkeys([*(shot.get('mentioned_only') or []), *sorted(removed)]))
+    return promoted, sorted(removed)
 
 
 def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContext = None,
@@ -73,7 +95,8 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
         return {}
     roster_text = ""
     if roster:
-        described = "；".join(f"{name}：{str(roster.get(name) or '').strip()}" for name, _, _ in rows if roster.get(name))
+        described = "；".join(f"{name}：{str(roster[name]).strip()}"
+                             for name in dict.fromkeys(name for _, name, _ in rows) if roster.get(name))
         if described:
             roster_text = "\n人物档案（判断谁有身体时以此为据）：\n" + described
     lines = []
@@ -93,6 +116,7 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
         "注意：画面描述里「某人提到X」「某人想起X」「说到X」都是谈论，不是X在场；"
         "档案注明无实体、全息、声纹之类的人物，只有当画面文字实际描写他显形（全息影像亮起、"
         "屏幕上浮现他的形象）时才算 on_camera——台词里说他死机了、坏了，只是谈论他。"
+        "明确写在画外的人不能判on_camera；同处一个房间并不意味着本镜头能看见。"
         "只有真正在画面的人才是 on_camera。"
         + roster_text +
         "\n\n只输出JSON。\n"
@@ -100,7 +124,8 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
     )
     try:
         out = ask_json([{"type": "text", "text": prompt}], _SCHEMA, name="presence_grades",
-                       max_tokens=600, settings=settings)
+                       max_tokens=max(600, min(6000, 80 * len(rows))),
+                       settings=settings or endpoint_settings('local'))
     except Exception:  # noqa: BLE001 - no grades is not a planning failure; the rules stand in
         return {}
     grades: dict[int, dict[str, str]] = {}

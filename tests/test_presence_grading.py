@@ -58,19 +58,29 @@ def test_correct_both_ways_promote_and_demote(monkeypatch):
          {"shot": 1, "name": "托尼·斯塔克", "grade": "on_camera"}]))
     grades = presence.grade_presence(shots, NAMES, ctx=CTX)
     # apply what flow.py applies
-    from novel_manga.application.planning.presence import structural_on_camera
     shot = shots[0]
-    judged, structural = grades.get(1) or {}, structural_on_camera(shot)
-    cast = list(shot["characters"])
-    for name, grade in judged.items():
-        if grade == "on_camera" and name in NAMES and name not in cast:
-            cast.append(name)
-    for name in list(cast):
-        if judged.get(name) == "talked_about" and name not in structural:
-            cast.remove(name)
-            shot.setdefault("mentioned_only", []).append(name)
-    assert cast == ["席勒", "托尼·斯塔克"]
+    shot['listeners'] = ['佩珀']
+    added, removed = presence.apply_presence_grades(shot, grades.get(1) or {}, NAMES)
+    assert added == ['托尼·斯塔克'] and removed == ['佩珀']
+    assert shot['characters'] == ["席勒", "托尼·斯塔克"]
+    assert shot['listeners'] == []
     assert shot["mentioned_only"] == ["佩珀"]
+
+
+def test_talked_about_name_is_removed_even_when_only_listed_as_a_listener():
+    shot = {'characters': ['席勒'], 'listeners': ['贾维斯'], 'in_frame': ['席勒'],
+            'turns': [speaks('席勒', '贾维斯死机了。')], 'actions': []}
+    _, removed = presence.apply_presence_grades(shot, {'贾维斯': 'talked_about'}, NAMES)
+    assert removed == ['贾维斯']
+    assert shot['listeners'] == [] and shot['characters'] == ['席勒']
+
+
+def test_explicitly_off_frame_listener_is_not_a_second_body():
+    shot = {'characters': ['席勒', '托尼·斯塔克'], 'listeners': ['托尼·斯塔克'],
+            'turns': [speaks('席勒', '免费送你一次诊疗。')], 'actions': []}
+    presence.apply_presence_grades(shot, {'托尼·斯塔克': 'absent'}, NAMES)
+    assert shot['characters'] == ['席勒']
+    assert shot['listeners'] == []
 
 
 def test_a_visible_speaker_is_structural_and_never_graded():
@@ -124,7 +134,7 @@ def test_the_judge_gets_the_roster_so_it_knows_who_has_no_body(monkeypatch):
             "visual_prompt": "诊室", "end_state": "", "turns": [speaks("托尼·斯塔克", "贾维斯死机了。")]}
     grades = presence.grade_presence([shot], NAMES, ctx=CTX,
                                      roster={"贾维斯": "无实体，以全息投影或界面形式出现"})
-    assert "贾维斯" in seen["prompt"] and "无实体" in seen["prompt"]
+    assert "贾维斯：无实体，以全息投影或界面形式出现" in seen["prompt"]
     assert grades == {1: {"贾维斯": "talked_about"}}
 
 

@@ -139,6 +139,10 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
                 f"<{name}>{body_note}只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；"
                 "不得把该角色的长相用在其他人身上"
                 + (f"。{name}的辨识特征：{anchor}" if anchor else ""))
+    for index, text in enumerate(bindings):
+        for name, item in shot_wearing.items():
+            if item and text.startswith(f'<{name}>'):
+                bindings[index] = text.replace('体型和服装', '体型') + f'。当前穿着{item}，不采用人物卡的原服装。'
     full = location_map[location_short]
     location_asset = f"location_{location_index[location_short]:03d}"
     count += 1
@@ -174,7 +178,9 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
             image = "detail.jpeg" if prop.closeup and images is not None and "detail.jpeg" in images else "turnaround.jpeg"
             count += 1
             references.append({"tag": f"@图片{count}", "role": "prop", "name": prop_name, "asset_id": asset,
-                               "path": f"series_assets/props/{asset}/{image}"})
+                               "path": f"series_assets/props/{asset}/{image}",
+                               **({'aliases': list(prop.aliases)} if prop.aliases else {}),
+                               **({'wearers': wearers[prop_name]} if wearers.get(prop_name) else {})})
             wearing = wearers.get(prop_name) or []
             prop_bindings.append(f"<{prop_name}>对应@图片{count}：只采用该物品的外观、材质与结构，"
                                  "不放大、不缩小、不改变相对人物的比例；它是物品，不是人物"

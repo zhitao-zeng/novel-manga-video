@@ -214,7 +214,7 @@ def flatten_clips(raw: dict) -> list[dict]:
                     # length at all and was estimated as a generic silent stage.
                     **{k: stage[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
                        'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut',
-                       'authored_id', 'authored_seconds', 'authored_angle', 'props', 'wears') if k in stage},
+                       'authored_id', 'authored_seconds', 'authored_angle', 'props', 'scene_objects', 'wears') if k in stage},
                 }
             )
     return shots
@@ -274,6 +274,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         warnings.append(f"clip_count {clip_count} outside {ctx.clip_range[0]}-{ctx.clip_range[1]} (report only)")
     cited: dict[str, list[int]] = {}
     normalized: list[dict] = []
+    normalized_labels: list[str] = []
     for position, shot in enumerate(shots, start=1):
         position = shot.get("label") or f"shot {position}"
         segment_id, quote = source_address(shot, position, segment_keys, chapter_key, chapter_text, errors, warnings)
@@ -286,7 +287,9 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
                 elif position not in cited.setdefault(sid, []):
                     cited[sid].append(position)
 
-        characters, extras, actions, motion_text, location = cast_and_actions(shot, names, everyone, location_map, position, ctx, errors, warnings)
+        known_props = {p.name for p in getattr(bible, 'props', None) or []}
+        characters, extras, actions, motion_text, location = cast_and_actions(
+            shot, names, everyone, location_map, position, ctx, errors, warnings, prop_names=known_props)
         turns_out, visible = normalize_turns(shot, characters, names, position, ctx, errors, warnings)
         end_state = end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings)
         base = {
@@ -310,22 +313,44 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             "origin_index": len(normalized) + 1,
             **{k: shot[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
                'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut',
-               'authored_id', 'authored_seconds', 'authored_angle', 'props', 'wears') if k in shot},
+               'authored_id', 'authored_seconds', 'authored_angle', 'props', 'scene_objects', 'wears') if k in shot},
             **({'in_frame': characters} if shot.get('scene_id') else {}),
         }
         if "props" in base:
-            # 道具只认圣经名单：幻觉名字在这里丢（装配期还会再挡一次），空数组不落盘
-            known_props = {p.name for p in getattr(bible, "props", None) or []}
-            dropped = [p for p in base["props"] if p not in known_props]
-            if dropped:
-                warnings.append(f"{position}: props 不在圣经道具名单，已丢弃: {dropped}")
-            base["props"] = [p for p in base["props"] if p in known_props]
+            # Books with a prop catalogue bind cards by name. Books without one
+            # still need to describe ordinary objects without casting them as extras.
+            if known_props:
+                dropped = [p for p in base["props"] if p not in known_props]
+                if dropped:
+                    warnings.append(f"{position}: props 不在圣经道具名单，作为临时物件保留: {dropped}")
+                    base['scene_objects'] = list(dict.fromkeys([*(base.get('scene_objects') or []), *dropped]))
+                base["props"] = [p for p in base["props"] if p in known_props]
+            else:
+                base['scene_objects'] = list(dict.fromkeys([*(base.get('scene_objects') or []), *base['props']]))
+                base['props'] = []
             if not base["props"]:
                 base.pop("props")
+        for wearer, item in (base.get('wears') or {}).items():
+            if wearer not in names or (known_props and item is not None and item not in known_props):
+                errors.append(PlanningIssue(PlanningCode.INVALID_WEARABLE,
+                    f"穿戴状态 {wearer}:{item} 不是已登记的人物和圣经穿戴物；普通衣物留在角色外观中",
+                    stage=position, field='wears'))
         framed, notes = visible_speaker_shots(base, turns_out, visible, position,
                                               split=not ctx.authored_storyboard)
         normalized.extend(framed)
+        normalized_labels.extend([position] * len(framed))
         warnings.extend(notes)
+
+    for previous, current, prev_label, label in zip(normalized, normalized[1:], normalized_labels, normalized_labels[1:]):
+        if (prev_label != label and previous.get('location') == current.get('location')
+                and previous.get('source_quote') == current.get('source_quote')
+                and previous.get('motion_prompt') == current.get('motion_prompt')
+                and previous.get('end_state') == current.get('end_state')
+                and previous.get('actions') and previous.get('actions') == current.get('actions')):
+            errors.append(PlanningIssue(
+                PlanningCode.DUPLICATED_STAGE_ACTION,
+                '相邻镜头重复执行同一动作；前镜完成后，后镜应拍结果、反应或继续对话，不得再次执行动作',
+                stage=label, field='motion_prompt'))
 
     # A new scene's first frame copied from the previous scene's text: the second pass carried the
     # last shot's event line into the new location's start_state whole (ch12's replan: the clinic
@@ -334,10 +359,13 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
     # scene shot's text, not just the immediately preceding one.
     by_scene: list[tuple[str, list[dict]]] = []
     for shot in normalized:
-        if by_scene and by_scene[-1][0] == shot.get('scene_id'):
+        # The default planning schema has no scene_id. A change of location is
+        # still a scene boundary and must not inherit the previous tableau.
+        scene = str(shot.get('scene_id') or shot.get('location') or '')
+        if by_scene and by_scene[-1][0] == scene:
             by_scene[-1][1].append(shot)
         else:
-            by_scene.append((shot.get('scene_id') or '', [shot]))
+            by_scene.append((scene, [shot]))
     for index, (scene_id, scene_shots) in enumerate(by_scene):
         if index == 0 or not scene_id:
             continue
@@ -362,11 +390,8 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
     # The hand-off pair survives on every route: a question whose answer is the next scene is the
     # cut itself (ch12: both the sandbox sheet and the local two-pass dropped it).
     handoff_lines_survive(normalized, getattr(ctx, "handoff_pairs", ()) or [], errors)
-    # The outline's promised lines survive on every route that has an outline: the second pass
-    # may condense a line but not lose it (ch12 round five lost the bus punchline this way).
-    retained = ((getattr(ctx, "outline", {}) or {}).get("sections") or {}).get("retained_dialogue") or ""
-    for problem in retained_dialogue_issues(retained, normalized):
-        errors.append(PlanningIssue(PlanningCode.RETAINED_LINE_LOST, problem, field='turns'))
+    # The outline's promises are reviewed after structural validation. This
+    # pure validator cannot decide whether a paraphrase reversed the meaning.
     chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings,
                      known_speakers=[*names, *ctx.aliases])
     return ValidationResult(errors, warnings, normalized)

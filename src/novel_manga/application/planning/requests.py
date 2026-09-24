@@ -108,7 +108,9 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     clip_ids = [str(c.get("clip_id")) for c in raw.get("clips", []) if isinstance(c, dict)]
     if not clip_ids or not (missing_ids or faulty):
         raise ValueError("nothing to patch")
-    stage_of = lambda ids: pc_contracts.build_schema(names, locations, ids, ctx=ctx)["properties"]["clips"]["items"]["properties"]["stages"]["items"]  # noqa: E731
+    prop_names = list(dict.fromkeys(p for clip in raw.get('clips', []) for stage in clip.get('stages', [])
+                                   for p in [*(stage.get('props') or []), *(stage.get('wears') or {}).values()] if p))
+    stage_of = lambda ids: pc_contracts.build_schema(names, locations, ids, ctx=ctx, prop_names=prop_names)["properties"]["clips"]["items"]["properties"]["stages"]["items"]  # noqa: E731
     outline = []
     for clip in raw.get("clips", []):
         stages = clip.get("stages") or []
@@ -140,7 +142,9 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     picture_rule = ("画面描述不得出现血液、伤口、破皮、流血，" + pc_constants.FORBIDDEN_VISUAL_FIX["血液或伤口"].split("；", 1)[-1]
                     if ctx.renderer_moderates else "")
     parts.append("规则：source_quote 从该区段原文逐字复制 8 到 120 字；" + (picture_rule + "；" if picture_rule else "")
-                 + "offscreen_dialogue 和 chat_message 必须写 speaker_name；台词从原文取；只用给出的人物名，格式和已有阶段一致。")
+                 + "offscreen_dialogue 和 chat_message 必须写 speaker_name；对白保持原文事实、意图与知识边界，允许等义口语改写；"
+                 "心理叙述改为本人心声时，用本人视角表达自己的想法，不能保留导致指代变成其他人的第三人称；"
+                 "chat_message仍逐字取自原文；只用给出的人物名，格式和已有阶段一致。")
     parts.append(f"分镜大纲：{json.dumps(outline, ensure_ascii=False)}")
     parts.append(f"可用人物：{names}")
     if ctx.story_blueprint:

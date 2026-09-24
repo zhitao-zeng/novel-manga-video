@@ -279,8 +279,8 @@ def test_build_assets_checks_only_used_images_and_rebuilds_a_bad_used_card(tmp_p
     # Deliberately contains stale secondary and unrelated records; neither is needed by this episode.
     manifest = SimpleNamespace(characters=[SimpleNamespace(primary_image=str(p.relative_to(tmp_path)), secondary_image=None)
                                             for p in (selected, unused, old_sheet)], locations=[])
-    def build(factory, root, bible, characters, locations, expressions):
-        assert characters == {"character_001"} and not locations and expressions is False
+    def build(factory, root, bible, characters, locations, expressions, prop_ids):
+        assert characters == {"character_001"} and not locations and not prop_ids and expressions is False
         assert not selected.exists()
         Image.new("RGB", (2048, 1024), "white").save(selected)
         return manifest

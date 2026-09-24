@@ -465,11 +465,13 @@ class ThinMediaRunner:
                 attempts.append(analysis)
                 log(f"{clip['clip_id']} attempt {state.attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
                 decision = clip_retries.after_analysis(state, analysis,
-                    generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries)
+                    generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries,
+                    local_h3=bool(self.context.settings.local_h3_base_url))
                 if decision.action == 'check_cache':
                     decision = clip_retries.after_analysis(state, analysis,
                         generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries,
-                        next_cached=self.cached_take(clip, state.attempt + 1))
+                        next_cached=self.cached_take(clip, state.attempt + 1),
+                        local_h3=bool(self.context.settings.local_h3_base_url))
                 state.attempt, state.limit = decision.attempt, decision.limit
                 if decision.action == 'stop':
                     break

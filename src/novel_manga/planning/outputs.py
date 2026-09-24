@@ -37,7 +37,7 @@ def to_episode_plan(raw: dict, shots: list[dict], location_map: dict[str, str], 
                         role=turn["speaker_name"],
                         speaker_name=turn["speaker_name"],
                         speaking=(mode == "visible_dialogue"),
-                        delivery_mode=TurnDelivery(mode),
+                        delivery_mode=TurnDelivery.INNER_VOICE if turn.get('inner_monologue') else TurnDelivery(mode),
                         derivation=derivation,
                         **common,
                     )

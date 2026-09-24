@@ -2,13 +2,23 @@
 from __future__ import annotations
 import re
 from ..runtime_backends import correct_protected_lexicon, edit_distance
-from .subtitles import match_key, subsequence_overlap
+from .subtitles import match_key, subsequence_overlap, align_chunks, classify_unmatched
 from .issues import QualityIssue, missing_dialogue, replaced_by_speech_recheck
 
 MAX_MISSING = 0.5
 MIN_PEAK_DB = -35.0
 UNSCRIPTED_MIN_CHARS = 5
 UNSCRIPTED_MIN_DB = -40.0
+EVALUATION_POLICY = 2
+
+
+def unplanned_segments(reference, rows):
+    timed = [r for r in rows if 'start' in r and 'end' in r]
+    if not reference or not timed:
+        return []
+    return [row for row, text, score, pieces in align_chunks([reference], timed)
+            if not text and classify_unmatched(str(row.get('hypothesis', '')),
+                                               float(row['end']) - float(row['start'])) == 'asr_text']
 
 
 def corrected_rows(rows, reference, protected_terms, aliases):
@@ -36,11 +46,13 @@ def evaluate(reference, rows, mean_db, peak_db):
             issues.append(QualityIssue.VOICE_ENERGY_MISSING.code)
         if missing > MAX_MISSING:
             issues.append(missing_dialogue(missing, MAX_MISSING))
+        if unplanned_segments(reference, rows):
+            issues.append(QualityIssue.EXCESS_UNPLANNED_SPEECH.code)
     elif len(hypothesis_key) >= UNSCRIPTED_MIN_CHARS and (mean_db or -99) > UNSCRIPTED_MIN_DB:
         issues.append(QualityIssue.UNSCRIPTED_SPEECH.code)
     result = {
         "reference": reference, "hypothesis": hypothesis, "cer": cer, "missing": missing, "mean_volume_db": mean_db, "max_volume_db": peak_db,
-        "chunks": rows, "issues": issues, "passed": not issues,
+        "chunks": rows, "issues": issues, "passed": not issues, "speech_evaluation_policy": EVALUATION_POLICY,
     }
     return result
 
@@ -62,6 +74,8 @@ def recheck(reference, analysis, protected_terms, aliases):
         if missing > MAX_MISSING:
             issues.append(missing_dialogue(missing, MAX_MISSING))
         if len(heard) - len(expected) > max(12, len(expected) * 2):
+            issues.append(QualityIssue.EXCESS_UNPLANNED_SPEECH.code)
+        if unplanned_segments(reference, chunks):
             issues.append(QualityIssue.EXCESS_UNPLANNED_SPEECH.code)
     if re.search(r'keep\s*everything\s*above|this\s*is\s*take|spoken\s*clearly\s*and\s*completely', raw, re.I):
         issues.append(QualityIssue.DIRECTOR_INSTRUCTION_SPOKEN.code)

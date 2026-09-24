@@ -42,7 +42,8 @@ def test_only_the_last_part_keeps_the_final_end_state():
     _, _, pieces = split_into(3)
     assert pieces[-1]["end_state"] == "门开了，艾登愣在门口"
     assert "后续分段才成立" in pieces[0]["end_state"]      # part 1 ends mid-action
-    assert "尚未发生" in pieces[1]["end_state"]            # middle parts pause
+    assert "后续剧情动作留给下一片段" in pieces[1]["end_state"]
+    assert "台词已说完" in pieces[1]["end_state"]           # speech ends; story action waits
 
 
 def test_no_part_repeats_the_action():

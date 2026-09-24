@@ -75,10 +75,10 @@ def test_plural_role_uses_wardrobe_without_copying_one_identity():
     clip['crowd_roles']=crowds
     assert h3_prompt_outdated(clip)
     defs,subjects=subject_lines(clip)
-    assert subjects=={'警员':1} and 'clothing only for 2 distinct' in defs[1]
+    assert subjects=={'警员':1} and 'shared clothing design' in defs[1] and 'for 2 distinct' in defs[1]
     prompt=compose(clip,['The officer calls two unnamed waiters with different faces.'],[('stage',[])])
     assert not request_issues({'prompt_h3':prompt})
-    assert request_issues({'prompt_h3':prompt.replace('two unnamed waiters','<Subject 2>')})
+    assert request_issues({'prompt_h3':prompt.replace('two unnamed waiters','<Subject 3>')})
     clip['lines']=[{'speaker_name':'侍者','text':'谁？'}]
     assert not source_crowds(clip,bible,'两位男侍者说话。')
 

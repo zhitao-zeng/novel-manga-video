@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from .issues import PlanningIssue, PlanningCode
 from . import constants as pc_constants, text as pc_text, cast as pc_cast
-from novel_manga.story.actions import normalize_extras, normalize_actions, action_text
+from novel_manga.story.actions import normalize_extras, normalize_actions, anchored_event
 
-def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors, warnings):
+def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors, warnings, *, prop_names=()):
     characters = list(dict.fromkeys(pc_cast.canonical(name, ctx=ctx) for name in shot.get("characters", []) if pc_cast.canonical(name, ctx=ctx) in names))
     unknown = [str(name) for name in shot.get("characters", []) if pc_cast.canonical(name, ctx=ctx) not in names]
     if unknown:
@@ -29,7 +29,17 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
         warnings.append(f"{position}: 台词提及 {talked}，未入画（候选，等画面出现再补）")
     # Extra descriptions are scene-local references, not entries in the
     # portrait catalogue. Resolve them before global name aliases.
-    extras = [e for e in normalize_extras(shot.get('extras')) if pc_cast.canonical(e, ctx=ctx) not in names]
+    objects = {str(item).strip() for item in [*(shot.get('props') or []), *(shot.get('scene_objects') or [])]
+               if str(item).strip()}
+    mistaken_props = set(normalize_extras(shot.get('extras'))) & set(prop_names)
+    if mistaken_props:
+        errors.append(PlanningIssue(PlanningCode.PROP_AS_EXTRA,
+                     f"圣经物件 {sorted(mistaken_props)} 被写成 extras 配角；移到 props，穿戴者同时写 wears",
+                     stage=position, field='extras'))
+    extras = [e for e in normalize_extras(shot.get('extras'))
+              if pc_cast.canonical(e, ctx=ctx) not in names and e not in objects and e not in prop_names]
+    if objects.intersection(normalize_extras(shot.get('extras'))):
+        warnings.append(f"{position}: extras 与 props 重复，按物件处理")
     actions = normalize_actions(shot.get('actions'), aliases=ctx.aliases, extras=extras)
     for action in actions:
         for who in (action['actor'], action['target']):
@@ -47,8 +57,7 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
     if actions and not shot.get('scene_id'):
         # the event line names who does what to whom before anything else: that sentence is what the
         # renderer and the reviewer read as 主要事件
-        line = action_text(actions)
-        motion_text = f"{line}。{motion_text}" if motion_text and line not in motion_text else (motion_text or line)
+        motion_text = anchored_event(actions, motion_text)
     location = str(shot.get("location", ""))
     if location not in location_map:
         errors.append(PlanningIssue(PlanningCode.UNKNOWN_LOCATION, f"unknown location {location!r}; allowed: {list(location_map)}", stage=position, field='location'))
@@ -123,7 +132,8 @@ def normalize_turns(shot, characters, names, position, ctx, errors, warnings):
         if len(pieces) > 1:
             warnings.append(f"{position}: turn of {pc_text.spoken_chars(text)} chars split into {len(pieces)}")
         for piece in pieces:
-            turns_out.append({"speaker_name": speaker, "delivery_mode": mode, "chat_target": str(turn.get("chat_target") or "").strip(), "text": piece, "emotion": emotion})
+            turns_out.append({"speaker_name": speaker, "delivery_mode": mode, "chat_target": str(turn.get("chat_target") or "").strip(), "text": piece, "emotion": emotion,
+                              **({'inner_monologue': True} if turn.get('inner_monologue') and mode == 'offscreen_dialogue' else {})})
     if not turns_out:
         fallback = str(shot.get("motion_prompt") or shot.get("end_state") or "无声反应").strip()
         turns_out = [{"speaker_name": "", "delivery_mode": "silent_action", "text": fallback[:60], "emotion": "克制自然"}]

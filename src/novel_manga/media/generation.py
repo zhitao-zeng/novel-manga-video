@@ -128,13 +128,18 @@ def build_request(ctx, clip, attempt):
     request = {'clip_id': clip['clip_id'], 'attempt': attempt, 'duration': clip['request_seconds'],
                'prompt': prompt, 'references': [str(p) for p in references], 'reference_sha256': digests,
                'workflow': 'thin-seedance-native-dialogue-v1', 'repair_take': int(clip.get('repair_take', 0))}
+    if any(ref.get('role') == 'voice' for ref in clip.get('references', [])):
+        voices = tuple(path for _, path in chosen_voices(ctx, clip)[0])
+        request['reference_audios'] = [str(path) for path in voices]
+        request['reference_audio_sha256'] = reference_digests(voices)
     if ctx.settings.local_h3_base_url:
         request['seed_variant'] = int(clip.get('repair_take', 0))*100 + attempt - 1
     return request, references, digests, retry
 
 
 def submit(ctx, clip, request, output, references):
-    voices = reference_voices(ctx, clip)
+    voices = (tuple(Path(p) for p in request['reference_audios']) if 'reference_audios' in request
+              else reference_voices(ctx, clip))
     return ctx.provider.create_video(request['prompt'], None, output, duration=float(clip['request_seconds']),
             additional_images=references, reference_audios=voices,
             **({'seed_variant': request['seed_variant']} if ctx.settings.local_h3_base_url else {}))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import re
-from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants
+from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants, anchored_event
 from novel_manga.story.fields import field_instructions
 from .proposal import RepairProposal
 
@@ -81,7 +81,7 @@ def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = Fals
     if old_action_line and event.startswith(old_action_line + '。'):
         event = event[len(old_action_line) + 1:]
     shot["characters"] = in_frame
-    shot["motion_prompt"] = (f"{line}。{event}" if line and line not in event else event) or shot.get("motion_prompt", "")
+    shot["motion_prompt"] = anchored_event(actions, event) or shot.get("motion_prompt", "")
     shot["actions"] = actions
     shot["extras"] = normalize_extras(fix.get("extras"))
     shot["listeners"] = listeners

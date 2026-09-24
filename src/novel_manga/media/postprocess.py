@@ -178,6 +178,21 @@ def title_card_segment(ctx, clip: dict, background: Path | None) -> dict:
     return {"unit_id": clip["clip_id"], "role": "title", "segment": str(segment), "duration": seconds,
             "audio_source": "title_card", "subtitle_events": []}
 
+def inner_voice_audio(ctx, clip: dict, wav: Path) -> Path:
+    """A faint short reflection distinguishes private thought without changing the speaker's pitch."""
+    spoken = [r for r in clip.get('dialogue_bindings', [])
+              if r.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'}]
+    if not spoken or not all(r.get('inner_monologue') for r in spoken):
+        return wav
+    output = ctx.work / 'audio' / f"{clip['clip_id']}_inner.wav"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    duration = media_duration(wav)
+    run(['ffmpeg', '-y', '-v', 'error', '-i', str(wav), '-af',
+         f'aecho=1:0.92:45:0.10,atrim=duration={duration:.6f},asetpts=PTS-STARTPTS',
+         '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', str(output)])
+    return output
+
+
 def story_segments(ctx, results: list[dict]) -> list[dict]:
     """The episode's segments in plan order: chat cards, each clip, and the plan's title cards."""
     by_id = {record["clip_id"]: record for record in results}
@@ -205,7 +220,7 @@ def story_segments(ctx, results: list[dict]) -> list[dict]:
             continue
         selected = record["selected"]
         clip_video = Path(selected["video"])
-        wav = clip_video.parent / "native.wav"
+        wav = inner_voice_audio(ctx, clip, clip_video.parent / "native.wav")
         segment, duration = ctx.renderer.mux_visual_group(clip_video, wav, ctx.work / "segments" / f"{record['clip_id']}.mp4")
         segments.extend(chat_segments(ctx, record["clip_id"], clip_video))
         segments.append({"unit_id": record["clip_id"], "role": "dialogue", "segment": str(segment), "duration": duration, "audio_source": "native_dialogue", "subtitle_events": subtitles.subtitle_events(ctx, record["clip_id"], selected)})

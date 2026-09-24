@@ -1,5 +1,5 @@
 """Existing framing policy; never changes scene identities."""
-from .actions import action_participants
+from .actions import action_participants, action_text
 
 def blocking_note(shot: dict) -> str:
     """Where each person in frame stands.  MiniMax's own guide asks for every subject's position in every shot, and
@@ -90,6 +90,14 @@ def visible_speaker_shots(base, turns_out, visible, position, *, split=True):
     for group in groups:
         if group:
             speaker = next((t["speaker_name"] for t in group if t["delivery_mode"] == "visible_dialogue" and t["speaker_name"]), "")
-            normalized.append({**(framed(base, speaker) if speaker else base), "turns": group})
+            piece = dict(base)
+            if normalized:
+                piece['actions'] = []
+                piece['visual_prompt'] = '承接上一镜的站位与物件状态：' + str(base.get('visual_prompt') or '')
+                piece['motion_prompt'] = f'{speaker}接着回应上一句，其他人听着；已完成的动作不再执行。'
+            elif piece.get('actions'):
+                # One physical action belongs to the first turn, not every reply.
+                piece['motion_prompt'] = action_text(piece['actions']) + f'。{speaker}开口说话。'
+            normalized.append({**(framed(piece, speaker) if speaker else piece), "turns": group})
 
     return normalized, warnings

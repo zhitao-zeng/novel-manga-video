@@ -191,6 +191,13 @@
             "title": "Name",
             "type": "string"
           },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aliases",
+            "type": "array"
+          },
           "category": {
             "default": "其他",
             "title": "Category",

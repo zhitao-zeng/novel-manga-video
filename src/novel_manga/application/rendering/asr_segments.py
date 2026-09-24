@@ -28,7 +28,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     import sherpa_onnx
-    model_dir = Path(os.environ["NOVEL_SENSEVOICE_MODEL_DIR"])
+    from novel_manga.application.configuration import environment, project_root
+    model_path = environment(project_root()).get("NOVEL_SENSEVOICE_MODEL_DIR")
+    if not model_path:
+        raise ValueError("NOVEL_SENSEVOICE_MODEL_DIR is not configured")
+    model_dir = Path(model_path)
     recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
         model=str(model_dir / "model.int8.onnx"), tokens=str(model_dir / "tokens.txt"),
         language="zh", use_itn=False, num_threads=int(os.getenv("NOVEL_ASR_THREADS", "4")), provider="cpu",

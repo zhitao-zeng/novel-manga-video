@@ -42,9 +42,14 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
             "text": "\n".join(turn["text"] for turn in clip["shots"][0]["turns"]),
         }
     bible = ctx["bible"]
+    override = ctx["overrides"].get(clip_id, {}) if override is None else override
+    if override.get('request_seconds') is not None:
+        seconds = float(override['request_seconds'])
+        if not 4 <= seconds <= options.max_clip_seconds:
+            raise ValueError(f'{clip_id}: request_seconds override outside clip limits')
+        clip['seconds'] = seconds
     clip["request_seconds"] = int(min(options.max_clip_seconds, max(4, math.ceil(clip["seconds"]))))
     cast = clip_cast(clip, settings=options)
-    override = ctx["overrides"].get(clip_id, {}) if override is None else override
     if override.get("cast"):
         # Director fix: restrict the reference set (e.g. drop a silent
         # look-alike) so the video model cannot blend two faces.
@@ -82,13 +87,20 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         else:
             worn_overrides[name] = None                # bare throughout
     references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"), props=clip_prop_names or None, props_index={p.name: p for p in getattr(bible, "props", None) or []}, worn_overrides=worn_overrides or None)
+    # An episode can use an approved costume/armour card without changing that
+    # character's base card for every other chapter. The picture seat stays put.
+    chosen_pictures = override.get('reference_paths') or {}
+    for ref in references:
+        if ref.get('role') in {'character', 'location'} and ref.get('name') in chosen_pictures:
+            ref['path'] = str(chosen_pictures[ref['name']])
     if any(s.get('scene_id') for s in clip['shots']):
         location_binding = location_binding.replace('、固定道具和光线', '和地形；时间、光线和可移动道具以本场逐镜描述为准')
     prompt = ClipCompiler(options).compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])
     lint = {shot["index"]: lint_stage(shot, camera_policy=options.camera_policy) for shot in clip["shots"]}
     lint = {k: v for k, v in lint.items() if v}
     lines = [
-        {"speaker_name": turn["speaker_name"], "delivery_mode": turn["delivery_mode"], "text": turn["text"]}
+        {"speaker_name": turn["speaker_name"], "delivery_mode": turn["delivery_mode"], "text": turn["text"],
+         **({'inner_monologue': True} if turn.get('inner_monologue') else {})}
         for shot in clip["shots"]
         for turn in merged_turns(shot)
         if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}
@@ -119,16 +131,20 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         # frame: the entry keeps no shots, and the judge reads these from here
         "listeners": list(dict.fromkeys(l for shot in clip["shots"] for l in (shot.get("listeners") or []))),
         "extras": list(dict.fromkeys(e for shot in clip["shots"] for e in (shot.get("extras") or []))),
+        "shot_sound": ['；'.join(filter(None, [s.get('sfx', ''),
+                       *[t['speaker_name'] + '：' + t['text'] for t in s['turns'] if t['delivery_mode'] == 'singing']]))
+                       for s in clip['shots']],
+        "render_family": ctx.get('render_family') or '',
+        "h3_style_line": ctx.get('h3_style_line') or '',
     }
+    weights = [ClipCompiler(options).shot_seconds(s) for s in clip['shots']]
+    total_weight = sum(weights) or len(weights)
+    entry['shot_timing'] = [{'seconds': round(clip['request_seconds'] * w / total_weight, 3)} for w in weights]
     if any(s.get('scene_id') for s in clip['shots']):
         entry.update(scene_ids=list(dict.fromkeys(s['scene_id'] for s in clip['shots'])),
                      shot_ids=[s['shot_id'] for s in clip['shots']],
-                     shot_sound=['；'.join(filter(None, [s.get('sfx', ''),
-                         *[t['speaker_name'] + '：' + t['text'] for t in s['turns'] if t['delivery_mode'] == 'singing']]))
-                         for s in clip['shots']],
                      shot_timing=[{'seconds': s['duration_seconds'], 'cut': s.get('cut', '')} for s in clip['shots']],
-                     scene_time=clip['shots'][0].get('scene_time', ''),
-                     render_family=ctx.get('render_family') or '')
+                     scene_time=clip['shots'][0].get('scene_time', ''))
         entry['segment_ids'] = list(dict.fromkeys(r['segment_id'] for s in clip['shots'] for r in s.get('source_refs', [])))
     from novel_manga.story.h3 import source_crowds
     data = ctx.get('identity_data')

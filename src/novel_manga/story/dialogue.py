@@ -64,6 +64,7 @@ def merged_turns(shot: dict) -> list[dict]:
             and turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"}
             and merged[-1]["delivery_mode"] == turn["delivery_mode"]
             and merged[-1]["speaker_name"] == turn["speaker_name"]
+            and bool(merged[-1].get('inner_monologue')) == bool(turn.get('inner_monologue'))
             and merged[-1]["text"].rstrip()[-1:] not in TERMINAL_PUNCT
         ):
             merged[-1] = {**merged[-1], "text": merged[-1]["text"] + text}
@@ -135,7 +136,8 @@ def clip_bindings(shots: list[dict]) -> list[dict]:
     """
     return [{'stage': stage, 'source_stage': shot.get('index', shot.get('origin_index')),
              'speaker_name': turn['speaker_name'], 'delivery_mode': turn['delivery_mode'], 'text': turn['text'],
-             'emotion': turn.get('emotion') or ''}
+             'emotion': turn.get('emotion') or '',
+             **({'inner_monologue': True} if turn.get('inner_monologue') else {})}
             for stage, shot in enumerate(shots, 1) for turn in merged_turns(shot)
             if turn['delivery_mode'] in {'visible_dialogue','offscreen_dialogue'}]
 

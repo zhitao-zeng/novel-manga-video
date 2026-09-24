@@ -13,6 +13,7 @@ def build_assets(ctx, clips=None):
     clips = ctx.clip_plan["clips"] if clips is None else clips
     character_ids = {ref["asset_id"] for clip in clips for ref in clip.get("references", []) if ref["role"] == "character"}
     location_ids = {ref["asset_id"] for clip in clips for ref in clip.get("references", []) if ref["role"] == "location"}
+    prop_ids = {ref["asset_id"] for clip in clips for ref in clip.get("references", []) if ref["role"] == "prop"}
     required_images = {ctx.novel_dir / ref["path"] for clip in clips for ref in clip.get("references", [])
                        if ref.get("role") in {"character", "location"}}
     # Quality-mode construction may use/build the second view even if this
@@ -34,7 +35,8 @@ def build_assets(ctx, clips=None):
     manifest = None
     for attempt in range(1, ASSET_BUILD_ROUNDS + 1):
         try:
-            manifest = factory.build_selected(ctx.novel_dir / "series_assets", ctx.bible, character_ids, location_ids, expressions=not ctx.fast)
+            manifest = factory.build_selected(ctx.novel_dir / "series_assets", ctx.bible, character_ids, location_ids,
+                                              expressions=not ctx.fast, prop_ids=prop_ids)
         except ModerationRejected:
             raise
         except (RuntimeError, TimeoutError, OSError) as error:

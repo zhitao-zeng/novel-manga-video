@@ -58,11 +58,11 @@ def test_one_prop_through_the_whole_chain(tmp_path):
     assert "<青铜短剑>对应@图片4" in prompt
     assert "【人物】" in prompt and "青铜短剑" not in prompt.split("【场景】")[0].split("【人物】")[1]
 
-    # 2) H3 声明：道具拿到与座位一致的编号，且不是 Subject
+    # 2) 官方 Subject 也表示道具，但不占用演员编号或说话人身份。
     defs, subject_of = subject_lines(clip)
-    prop_def = next(d for d in defs if "is a prop shown in it" in d)
-    assert "<Picture 4>" in prop_def and "neither a person nor a subject" in prop_def
-    assert subject_of == {"莱恩": 1, "琥珀": 2}                  # 道具不占 Subject 位
+    prop_def = next(d for d in defs if "is the prop design" in d)
+    assert "<Subject 4>" in prop_def and "<Picture 4>" in prop_def and "not a person" in prop_def
+    assert subject_of == {"莱恩": 1, "琥珀": 2}
     english = compose(clip, ["He draws the bronze sword."], [(None, [])], note="")
     assert "<Picture 4>" in english
 

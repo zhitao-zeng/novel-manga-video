@@ -66,6 +66,11 @@ def grammar_text(grammar: dict | None) -> str:
     )
 
 
+def props_for_chapter(props, source: str):
+    """Use registered names and explicit aliases; never infer identity from name substrings."""
+    return [prop for prop in props if any(form and form in source for form in [prop.name, *prop.aliases])]
+
+
 def compact_bible(bible: StoryBible, location_map: dict[str, str]) -> dict:
     return {
         "novel_title": bible.novel_title,
@@ -81,7 +86,8 @@ def compact_bible(bible: StoryBible, location_map: dict[str, str]) -> dict:
             for character in bible.characters
         ],
         "locations": [{"name": short, "description": full} for short, full in location_map.items()],
-        **({"props": [{"name": prop.name, "appearance": prop.appearance, "category": prop.category}
+        **({"props": [{"name": prop.name, "appearance": prop.appearance, "category": prop.category,
+                       "aliases": prop.aliases, "owner": prop.owner, "wearable": prop.wearable}
                       for prop in bible.props]} if getattr(bible, "props", None) else {}),
         "continuity_rules": bible.continuity_rules,
     }

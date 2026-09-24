@@ -39,28 +39,46 @@ from novel_manga.application.profiles import h3_compile_inputs, h3_prompt_outdat
 from novel_manga.application.production.runs import corrections
 
 from novel_manga.util import atomic_write_json  # noqa: E402
-from novel_manga.story.h3 import request_issues, stages_of, subject_lines, compose, tag_names, clean_note, CJK, CHARACTER_TRAIT
+from novel_manga.story.h3 import request_issues, stages_of, subject_lines, asset_subjects, compose, tag_names, clean_note, CJK, CHARACTER_TRAIT
 
-SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots"],
-          "properties": {"shots": {"type": "array", "items": {"type": "string"}}}}
-ASK = ("Translate each numbered Chinese shot description into ONE English sentence that states only what the "
-       "camera sees: framing and angle, where the characters are and what they do, the light, the setting. "
+SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots", "soundscape"],
+          "properties": {"shots": {"type": "array", "items": {"type": "string"}},
+                         "soundscape": {"type": "string"}}}
+ASK = ("Translate each numbered Chinese shot description into concrete English shot directions that state what the "
+       "camera sees and, when explicitly listed, the physical sounds it hears: framing and angle, where the "
+       "characters are and what they do, the light, the setting. "
+       "Keep the start, action and end in their original order. Preserve whether someone enters or exits, "
+       "and whether an object is worn, empty, or separate from its wearer; do not put one person both inside "
+       "and outside a suit. Do not repeat an action already completed in the preceding shot. "
+       "Use more than one sentence within a shot when one sentence would reverse or omit an action. "
        "Never include spoken dialogue, and never invent any.\n"
+       "The structured action list and event prose describe the SAME event, not successive repetitions; "
+       "state each physical action once. Never add 'again' or a second copy merely because it is described twice. "
+       "Translate only observable behavior; psychological explanations do not introduce a visible person or object.\n"
+       "A lighting cue may refer to reflections on an off-screen person's clothing or equipment. Preserve only "
+       "the light's source, direction and color; omit the off-screen reflecting object. Never bring that object "
+       "into frame, put it in the background, or dress the visible person in it. Clothing follows that person's "
+       "own reference, except for an explicitly bound wearable.\n"
        "Preserve explicit counts of independent bodies and anatomical heads separately. The classifier in 三头X "
        "counts three individual animals; it does NOT also give each animal three heads. Only say multi-headed when "
        "the description explicitly supports multiple heads on one body, such as 一个身体、三颗头 or a fusion retaining "
        "three heads. An explicit statement of independent individuals takes precedence over an ambiguous classifier. "
        "Never add anatomical head counts, or merge independently acting subjects, from a species name alone.\n"
-       "Refer to each character by the tag given below, never by name and never by a translated name, "
-       "so the sentence points at the same reference picture the tag does.\n"
-       "Return one sentence per input shot, in order.\n\n")
+       "Refer to each referenced character, environment, garment and prop by the tag given below, never by name or a translated name. "
+       "Show a wearable as its wearer Subject wearing the garment Subject; neither the garment label nor its alias introduces another body. "
+       "so the sentence points at the same reference picture the tag does. A person without a declared tag "
+       "must not be named, shown or given a voice; if the shot addresses them outside the frame, call them only "
+       "an unseen off-screen listener.\n"
+       "Return one array item per input shot, in order. Also return soundscape: one short positive English "
+       "description of the actual ambience and physical sound sources in this scene. It contains no dialogue, "
+       "no instructions addressed to the generator and no prohibitions.\n\n")
 TRIES = 3  # translations per clip before it is left without an English prompt
 NOTE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["note"], "properties": {"note": {"type": "string"}}}
-NOTE_ASK = ("Rewrite this director's correction for one video clip as a direct instruction to the video generator: "
-            "imperative mood, present tense, describing only what the correct picture shows - who is in frame, who does what "
+NOTE_ASK = ("Rewrite this director's correction for one video clip as a description of the target picture: "
+            "a declarative, present-tense description of the corrected picture, not an imperative addressed to the generator: who is in frame, who does what "
             "to whom, who appears exactly once, who is absent. Never describe the mistake, the previous take or what "
             "'the director notes'. Refer to each character by the tag given below, never by name. Never quote dialogue. "
-            "Reply with the instruction only - no commentary and no remarks about the tag list; a character without a tag is left out.\n\n")
+            "Reply with the picture description only - no commentary and no remarks about the tag list; a character without a tag is left out.\n\n")
 
 
 
@@ -91,7 +109,11 @@ def english_note(note: str, naming: str) -> str:
 
 
 NOTE_LINE_ASK = ("The last numbered line is the director's correction for this clip, not a shot: translate it as its own "
-                 "sentence too, so the answer has exactly as many sentences as there are numbered lines.\n")
+                 "sentence too, so the answer has exactly as many sentences as there are numbered lines. "
+                 "Write that last sentence as a declarative description of the target picture, not an instruction to the generator. "
+                 "Apply that correction to every affected shot you translate above it. It overrides conflicting original "
+                 "camera, framing (including end-state framing), costume and background descriptions: replace obsolete directions rather than keeping "
+                 "both versions. Preserve the original dialogue, action order and story facts.\n")
 
 DELIVERY_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["manners"],
                    "properties": {"manners": {"type": "array", "items": {"type": "string"}}}}
@@ -99,6 +121,9 @@ DELIVERY_ASK = ("Each numbered Chinese phrase says how one spoken line is delive
                 "Rewrite each as ONE short English clause beginning 'The line is delivered', for example "
                 "'The line is delivered in a low, hesitant voice.' or 'The line is delivered as a furious shout.'\n"
                 "Describe only the voice: loudness, pitch, pace, steadiness, and whether it breaks or trails off. "
+                "Keep a complaint irritated or weary rather than turning it into playful teasing. "
+                "Never add crying, sobbing, laughter, screaming or a broken voice unless the Chinese phrase explicitly "
+                "names that vocal behavior; emotional words such as 崩溃 and 难过 alone do not. "
                 "Never describe the face, the body, the setting or the words themselves, and never add anything spoken.\n"
                 "Return one clause per input phrase, in order, in English only.\n\n")
 # The planner writes this when the storyboard left the emotion blank, so it says nothing about the voice.
@@ -162,8 +187,18 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     naming = "".join(
         f"{name} = <Subject {n}>" + (f" ({traits[name]})" if traits.get(name) else "") + "\n"
         for name, n in subject_of.items())
+    for n, _, ref in asset_subjects(clip):
+        if ref.get('role') in {'location', 'prop'} and ref.get('name') not in subject_of:
+            naming += f"{ref['name']} = <Subject {n}>\n"
+            naming += ''.join(f'{alias} = <Subject {n}>\n' for alias in ref.get('aliases', []) if alias not in subject_of)
     picture=0
     for ref in clip.get('references',[]):
+        if ref.get('role') == 'prop' and ref.get('wearers'):
+            wearer_tags = [f'<Subject {subject_of[n]}>' for n in ref['wearers'] if n in subject_of]
+            if wearer_tags:
+                naming += (f"Wearable {ref['name']}: a garment/armor worn by {', '.join(wearer_tags)}. "
+                           "A standing or moving description of this worn garment refers to its wearer, not an empty suit. "
+                           "Distinguish a separate explicitly unoccupied copy only when the shot calls for one.\n")
         if ref.get('role') in {'character','location'}:
             picture+=1
         crowd=clip.get('crowd_roles',{}).get(ref.get('name'))
@@ -171,7 +206,8 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             naming+=f"{ref['name']} = the {crowd['count'] or 'several'} distinct unnamed supporting people wearing the clothing from <Picture {picture}>\n"
     visuals = [tag_names(visual, naming) for visual, _ in stages]
     directed = bool(clip.get('scene_ids'))
-    if directed:
+    has_sound = 'shot_sound' in clip
+    if has_sound:
         # Unlike spoken lines, authored physical sound cues must survive the
         # SOUND removal above and reach H3 in English, in their own shot.
         if len(clip.get('shot_sound', [])) != len(stages):
@@ -181,17 +217,21 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
                    for i, visual in enumerate(visuals)]
     tagged = tag_names(note, naming) if note else ""
 
+    soundscape = ''
     def ask_lines(lines: list[str], extra: str) -> list[str]:
+        nonlocal soundscape
         feedback = ('\nThe previous output failed: ' + problem +
                     '. Use only the declared Subject tags; groups described without a Subject tag stay distinct unnamed people.\n') if problem else ''
         ask = ASK
-        if directed:
-            ask = ask.replace('states only what the camera sees:', 'states what the camera sees and the physical sounds it hears:')
+        if has_sound:
             ask += ('Preserve each shot\'s physical sound sources, their onset, fading or stopping. '
                     'Preserve explicitly scripted breath, crying, animal calls or wordless humming. '
                     'Use only English outside the separately bound spoken dialogue; add no new spoken content.\n')
         question = [{"type": "text", "text": ask + extra + feedback + naming + "\n" + "\n".join(f"{i}. {text}" for i, text in enumerate(lines, 1))}]
-        answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=200 + 220 * len(lines), settings=h3_translation_endpoint())
+        answer = ask_json(question, SCHEMA, name="h3prompt", max_tokens=400 + 350 * len(lines), settings=h3_translation_endpoint())
+        soundscape = str(answer.get('soundscape') or '').strip()
+        if CJK.search(soundscape):
+            raise ValueError('soundscape must be in English')
         return [str(s).strip() for s in (answer.get("shots") or [])]
 
     manners = ([str(r.get('emotion') or '') for r in clip['dialogue_bindings']] if 'dialogue_bindings' in clip
@@ -206,7 +246,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
                 if len(english) == len(visuals) + 1 and all(english):
                     direction = clean_note(english[-1], naming)
                     if direction:
-                        candidate = compose(clip, english[:-1], stages, direction, delivery)
+                        candidate = compose(clip, english[:-1], stages, direction, delivery, soundscape)
                         conflicts = request_issues({**clip, 'prompt_h3':candidate})
                         if not conflicts:
                             clip['prompt_h3'] = candidate
@@ -225,7 +265,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
         if len(english) == len(visuals) and all(english) and not (directed and any(CJK.search(s) for s in english)):
-            candidate = compose(clip, english, stages, '', delivery)
+            candidate = compose(clip, english, stages, '', delivery, soundscape)
             conflicts = request_issues({**clip, 'prompt_h3':candidate})
             if not conflicts:
                 clip['prompt_h3'] = candidate

@@ -29,6 +29,11 @@ def request_matches(ctx, clip: dict, saved: dict, references, digests: list[str]
             return False
         if not (references_match(saved, references, digests) and int(saved.get("duration", 0)) == int(clip["request_seconds"])):
             return False
+        if any(ref.get('role') == 'voice' for ref in clip.get('references', [])) or saved.get('reference_audios'):
+            audios = tuple(path for _, path in generation.chosen_voices(ctx, clip)[0])
+            if (saved.get('reference_audios', []) != [str(p) for p in audios]
+                    or saved.get('reference_audio_sha256', []) != reference_digests(audios)):
+                return False
         base = generation.clip_base(ctx, clip)
         english = generation.uses_h3_prompt(ctx, clip)
         forms = {base} if english else {base, soften_prompt(base, getattr(ctx, "softening_rules", None))}

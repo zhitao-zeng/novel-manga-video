@@ -176,7 +176,7 @@ def test_the_line_is_spoken_by_its_owner_in_the_authors_words_and_manner(traced)
     sheet, _, plan = traced
     spoken = next(c for c in plan["clips"] if c.get("dialogue_bindings"))
     words = authored_sound(sheet[0]["台词 / 声音"]).turns[0]["text"]
-    assert f"<d>[Chinese] {words}</d>" in spoken["prompt_h3"]
+    assert f"<d>[Chinese] {words.replace('。', '.')}</d>" in spoken["prompt_h3"]
     assert "relieved, breathy voice" in spoken["prompt_h3"]
 
 
