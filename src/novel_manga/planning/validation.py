@@ -106,6 +106,72 @@ def handoff_lines_survive(shots: list[dict], pairs, errors: list) -> None:
             pass    # the answer rides the next scene's picture; said out loud is only one option
 
 
+def retained_dialogue_issues(section_text: str, shots: list[dict]) -> list[str]:
+    """Every quoted line the outline's retained_dialogue section promised must be spoken somewhere.
+
+    ch12 round five: the outline kept 席勒's 因为钢铁侠扛着地狱巴士飞行的画面一定很美 - the punchline
+    the bus scene exists for - and the second pass dropped it, cutting to the lab with the joke
+    unspoken.  The section is free prose, so what is checked is its quoted lines (8+ spoken
+    chars, the chapter_quotes test of a real line): each must be carried by some turn, under a
+    looser match than a beat's own line gets - the promise names the line's substance
+    (钢铁侠扛着巴士飞), and a turn carrying that substance anywhere in it has kept the promise.
+    """
+    text = str(section_text or "")
+    if not text.strip():
+        return []
+    promised = [quote.strip() for quote in re.findall(r"[“\"]([^”\"]{2,120})[”\"]", text)
+                if 8 <= pc_text.spoken_chars(quote) <= 50]
+    # An outline that promises the chapter whole (57 quotes, 1200+ chars, for a 105-second
+    # episode) is promising nothing: the second pass MUST compress, and compressing is not
+    # losing.  The first eight promises are held hard - the instruction caps the section at
+    # eight, so the head of the list is what the outline chose as the important ones.
+    promised = promised[:8]
+    if not promised:
+        return []
+    spoken_per_turn = [pc_text.quote_key(turn.get("text") or "") for shot in shots
+                       for turn in shot.get("turns") or []
+                       if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}]
+    # Turns are capped at 26 chars, so a promised 40-char line arrives SPLIT across consecutive
+    # turns of one speaker: the promise is checked against the joined speech (split is legal -
+    # the packer's own rule 5 does it), never against a single turn.
+    joined_by_speaker: dict[str, str] = {}
+    for shot in shots:
+        for turn in shot.get("turns") or []:
+            if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}:
+                who = str(turn.get("speaker_name") or "")
+                joined_by_speaker[who] = joined_by_speaker.get(who, "") + pc_text.quote_key(turn.get("text") or "")
+    joined = list(joined_by_speaker.values())
+    missing = []
+    for quote in promised:
+        key = pc_text.quote_key(quote)
+        carried = any(_line_carries(line, quote) for line in spoken_per_turn) \
+            or any(_substance_carried(line, key) for line in spoken_per_turn + joined)
+        if not carried:
+            missing.append(f"提纲承诺保留的台词「{quote[:40]}」没有出现在任何镜头的 turns 里；第二遍必须逐条落实提纲的关键台词")
+    return missing
+
+
+def _substance_carried(spoken_key: str, quote_key: str) -> bool:
+    """A condensation keeps the promise when the turn still holds most of the line's characters
+    AND its longest distinctive run.  扛着地狱巴士飞 → 扛着巴士飞 drops 地狱 yet keeps the
+    punchline's words; an unrelated line shares characters only by noise, and the distinctive
+    run (钢铁侠扛着) is what noise cannot fake.
+    """
+    if len(spoken_key) < max(6, len(quote_key) * 0.5):
+        return False
+    common = sum(1 for character in quote_key if character in spoken_key)
+    if common < len(quote_key) * 0.7:
+        return False
+    for window in (8, 6):
+        if len(quote_key) < window:
+            continue
+        for start in range(0, len(quote_key) - window + 1):
+            run = quote_key[start: start + window]
+            if run in spoken_key:
+                return True
+    return False
+
+
 def flatten_clips(raw: dict) -> list[dict]:
     """Turn model clips/stages into the flat shot list the gates and packer use."""
     shots: list[dict] = []
@@ -296,6 +362,11 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
     # The hand-off pair survives on every route: a question whose answer is the next scene is the
     # cut itself (ch12: both the sandbox sheet and the local two-pass dropped it).
     handoff_lines_survive(normalized, getattr(ctx, "handoff_pairs", ()) or [], errors)
+    # The outline's promised lines survive on every route that has an outline: the second pass
+    # may condense a line but not lose it (ch12 round five lost the bus punchline this way).
+    retained = ((getattr(ctx, "outline", {}) or {}).get("sections") or {}).get("retained_dialogue") or ""
+    for problem in retained_dialogue_issues(retained, normalized):
+        errors.append(PlanningIssue(PlanningCode.RETAINED_LINE_LOST, problem, field='turns'))
     chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings,
                      known_speakers=[*names, *ctx.aliases])
     return ValidationResult(errors, warnings, normalized)

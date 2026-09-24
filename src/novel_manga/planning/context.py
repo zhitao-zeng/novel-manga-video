@@ -32,6 +32,10 @@ class PlannerContext:
     max_skipped: int = 0
     story_method: str = ""
     story_blueprint: dict = field(default_factory=dict)
+    # The first pass's parsed outline, when there is one: its retained_dialogue section is the
+    # promise the second pass is held to (a promised line that never reaches a turn is the
+    # bus-joke defect - lost in the second pass, not by the outline).
+    outline: dict = field(default_factory=dict)
     # Scene-exit question/answer pairs from the source (text.handoff_pairs): the question must be
     # heard whatever the outline did with it - the pair is the cut itself.
     handoff_pairs: list = field(default_factory=list)

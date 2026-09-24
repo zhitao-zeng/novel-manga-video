@@ -462,6 +462,12 @@ def run(args, ctx: PlannerContext) -> int:
         raw_path.write_text(content, encoding="utf-8")
         if meta.get("analysis"):
             (episode_dir / f"analysis_attempt_{attempt:02d}.txt").write_text(meta.pop("analysis"), encoding="utf-8")
+            # Keep the parsed outline where the validator can hold the second pass to it: the
+            # retained_dialogue section is a promise, not a suggestion.
+            try:
+                ctx.outline = json.loads((episode_dir / f"analysis_attempt_{attempt:02d}.txt").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                ctx.outline = {}
         try:
             if re.search(r"\s{2000,}", content):
                 raise ValueError("constrained decoding derailed into whitespace (finish_reason=%s)" % meta.get("finish_reason"))
