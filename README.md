@@ -71,6 +71,7 @@ uv run pytest
 正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
 
 - [当前架构与修改位置](docs/architecture.md)：职责、依赖、配置来源和产物写入者。
+- [生产经验与排查入口](docs/production-lessons.md)：身份、资产、H3、语音和修复中已踩过的坑，以及最新实拍证据的边界。
 - [测试与回归](tests/README.md)：请求、缓存、修复、媒体和看板的验证入口。
 - [完整重构计划](docs/full-refactor-plan-20260917.md)与[实施记录](docs/full-refactor-progress-20260917.md)。
 - [实验说明](experiments/README.md)：A/B、测速、人物库重建试验及旧整集实验。
