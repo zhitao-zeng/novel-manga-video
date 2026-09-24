@@ -51,7 +51,8 @@ PRESENCE_FIELDS = ('visual_prompt', 'motion_prompt', 'end_state')
 # rules cannot read; this keeps the fallback (judge down) from seating every talked-about name the
 # way the original defect did.  Narrow on purpose: 提到, not 处于 - an over-broad verb list would
 # drop real presences the tableau paints.
-_MENTION_VERBS = ("提到", "提及", "想起", "回忆起", "说到", "谈起", "提起", "念叨", "转述")
+_MENTION_VERBS = ("提到", "提及", "想起", "回忆起", "说到", "谈起", "提起", "念叨", "转述",
+                  "强调", "说明", "解释", "表示", "抱怨", "质问", "追问", "担心")
 
 
 def _mention_clause(text: str) -> bool:

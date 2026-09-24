@@ -45,13 +45,16 @@ def structural_on_camera(shot: dict) -> set[str]:
 
 
 def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContext = None,
-                   settings=None, log=None) -> dict[int, dict[str, str]]:
+                   settings=None, log=None, roster=None) -> dict[int, dict[str, str]]:
     """{shot position: {name: grade}} - the judged grade of every candidate the scan found.
 
-    Returns {} when there is nothing to grade or the judge cannot be reached: the caller then
-    keeps the rule-based grades.  Candidates only: names the scan found in the shot's own fields
-    or lines, excluding the cast (who are in by declaration) and the structurally-on-camera (who
-    are in by fact).
+    Returns {} when there is no judge or nothing to grade: the caller then keeps the rule-based
+    grades.  Candidates only: names the scan found in the shot's own fields or lines, excluding
+    the cast (who are in by declaration) and the structurally-on-camera (who are in by fact).
+
+    `roster` gives the judge each name's appearance line from the bible, so it knows whose body
+    is a hologram or a voice: the judge cannot tell 贾维斯 is bodiless from a name alone, and
+    graded him on camera in a shot that only spoke about his crash.
     """
     ctx = ctx or PlannerContext()
     everyone = list(everyone)
@@ -68,6 +71,11 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
             rows.append((position, name, where))
     if not rows:
         return {}
+    roster_text = ""
+    if roster:
+        described = "；".join(f"{name}：{str(roster.get(name) or '').strip()}" for name, _, _ in rows if roster.get(name))
+        if described:
+            roster_text = "\n人物档案（判断谁有身体时以此为据）：\n" + described
     lines = []
     for position, shot in enumerate(shots, start=1):
         text = "；".join(p for p in (str(shot.get("motion_prompt") or "").strip(),
@@ -83,7 +91,11 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
         "- talked_about：只被台词或叙述**谈论/提及**（想起、担心、威胁转述、回忆里说到），本体不在画面里\n"
         "- absent：两种都不像，或无法判断\n"
         "注意：画面描述里「某人提到X」「某人想起X」「说到X」都是谈论，不是X在场；"
-        "只有X自己出现在画面动作里才算 on_camera。只输出JSON。\n\n"
+        "档案注明无实体、全息、声纹之类的人物，只有当画面文字实际描写他显形（全息影像亮起、"
+        "屏幕上浮现他的形象）时才算 on_camera——台词里说他死机了、坏了，只是谈论他。"
+        "只有真正在画面的人才是 on_camera。"
+        + roster_text +
+        "\n\n只输出JSON。\n"
         + "\n".join(lines) + "\n\n候选名单：" + mentioned
     )
     try:

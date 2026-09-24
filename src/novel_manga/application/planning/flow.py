@@ -601,7 +601,10 @@ def run(args, ctx: PlannerContext) -> int:
     # replay 是确定性重放（响应已存盘），不再发起任何模型调用。
     if not args.replay:
         from novel_manga.application.planning.presence import grade_presence, structural_on_camera
-        grades = grade_presence(shots, names, ctx=ctx)
+        # 判官分级需要知道谁没有身体：档案里的外观描述（无实体/全息/声纹）是判定依据，
+        # 只给名字它无从知道贾维斯不该入画。
+        roster = {c.name: c.appearance for c in full_bible.characters}
+        grades = grade_presence(shots, names, ctx=ctx, roster=roster)
         demoted, promoted = [], []
         for position, shot in enumerate(shots, start=1):
             judged = grades.get(position) or {}

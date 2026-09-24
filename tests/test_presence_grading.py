@@ -108,3 +108,33 @@ def test_garbled_judge_rows_are_dropped_not_guessed(monkeypatch):
     shot = {"characters": ["席勒"], "motion_prompt": "席勒提到佩珀", "visual_prompt": "", "end_state": "",
             "turns": [speaks("席勒", "佩珀说的对。")]}
     assert presence.grade_presence([shot], NAMES, ctx=CTX) == {1: {"佩珀": "talked_about"}}
+
+
+def test_the_judge_gets_the_roster_so_it_knows_who_has_no_body(monkeypatch):
+    """ch12 round four: the event said 斯塔克强调贾维斯死机, the judge graded 贾维斯 on_camera
+    because a name cannot say who is bodiless.  The roster must reach the judge's prompt."""
+    seen = {}
+
+    def fake(parts, schema, **kw):
+        seen["prompt"] = parts[0]["text"]
+        return {"grades": [{"shot": 1, "name": "贾维斯", "grade": "talked_about"}]}
+
+    monkeypatch.setattr(presence, "ask_json", fake)
+    shot = {"characters": ["托尼·斯塔克"], "motion_prompt": "斯塔克强调贾维斯死机，要求席勒负责。",
+            "visual_prompt": "诊室", "end_state": "", "turns": [speaks("托尼·斯塔克", "贾维斯死机了。")]}
+    grades = presence.grade_presence([shot], NAMES, ctx=CTX,
+                                     roster={"贾维斯": "无实体，以全息投影或界面形式出现"})
+    assert "贾维斯" in seen["prompt"] and "无实体" in seen["prompt"]
+    assert grades == {1: {"贾维斯": "talked_about"}}
+
+
+def test_the_fallback_talk_verbs_do_not_seat_a_bodiless_name():
+    """强调/说明/解释 are talk-about verbs: with the judge down, the rules alone must keep
+    贾维斯 off camera when the event only says 斯塔克强调贾维斯死机."""
+    shot = {"characters": ["托尼·斯塔克"], "motion_prompt": "斯塔克强调贾维斯死机，要求席勒负责。",
+            "visual_prompt": "诊室", "end_state": "", "turns": [],
+            "actions": [{"actor": "托尼·斯塔克", "action": "强调", "target": ""}]}
+    cast, added = pc_cast.complete_characters(["托尼·斯塔克"], shot, NAMES, ctx=CTX)
+    assert added == [] and "贾维斯" not in cast
+    candidates = pc_cast.presence_candidates(["托尼·斯塔克"], shot, NAMES, ctx=CTX)
+    assert all(e["grade"] == "talked_about" for e in candidates["贾维斯"])
