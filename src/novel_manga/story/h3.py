@@ -233,9 +233,13 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
                 heard_voices.add(who)
             inner = bool(rest[1]) if len(rest) > 1 else False
             if inner and who in subject_of:
+                # The reaction follows the shot's own framing: a close-up of hands carries it in
+                # the hands, a face shot in the eyes - fixing "eyes and breathing" against a
+                # headless composition asked for a reaction nothing on camera could show (audit #5).
                 body.append(f"The following voice is <Subject {subject_of[who]}>'s private thought in their own voice, "
                             "heard only by the audience, not spoken aloud in the scene. Nobody in the scene hears or replies to it. "
-                            "The speaker's lips stay closed and the jaw does not move; only eyes and breathing carry the reaction.")
+                            "The speaker's lips stay closed and the jaw does not move; whatever the shot's framing shows of them "
+                            "(hands, shoulders, profile or face) carries the reaction within that framing.")
             if who in subject_of and not offscreen:
                 body.append(f"<Subject {subject_of[who]}> {sid(who)} says <d>[Chinese] {line}</d>{said}")
             elif who in subject_of:
