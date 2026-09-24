@@ -85,6 +85,17 @@ def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = Fals
     shot["actions"] = actions
     shot["extras"] = normalize_extras(fix.get("extras"))
     shot["listeners"] = listeners
+    # The repair model's own scene objects, props, wearing state and light write back (audit #1):
+    # the schema now offers them, and a fix that names them must not be silently dropped.  Absent
+    # keys keep the stage's own values - a repair that says nothing about them changes nothing.
+    if fix.get("scene_objects"):
+        shot["scene_objects"] = [str(o).strip() for o in fix["scene_objects"] if str(o).strip()]
+    if fix.get("props"):
+        shot["props"] = [str(p).strip() for p in fix["props"] if str(p).strip()]
+    if fix.get("wears"):
+        shot["wears"] = {str(k).strip(): (str(v).strip() if v else None) for k, v in fix["wears"].items()}
+    if fix.get("light"):
+        shot["light"] = str(fix["light"]).strip()[:60]
     if reframe:
         for key in ("visual_prompt", "camera", "shot_scale", "end_state", "location"):
             if fix.get(key):

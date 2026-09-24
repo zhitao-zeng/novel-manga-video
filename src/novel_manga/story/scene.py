@@ -131,6 +131,11 @@ def resolve_scene(script: dict | ResolvedScene, context: SceneContext) -> Resolv
     # every clip states its light and camera explicitly.
     last: dict[str, str] = {}
     last_scene = None
+    # An object's reflection belongs to the object being on camera: a stage that shoots 席勒
+    # alone inherits the CLINIC's lamp and moonlight from 同上, not the 机甲反光 of the stage
+    # before it - the armour is off frame here, and its reflection dragged a solo shot into
+    # describing light off something nobody can see (four-layer audit #4).
+    reflection = re.compile(r"(机甲|装甲|战甲|盔甲|反光|金属光泽)")
     for shot in shots:
         if shot.get('scene_id') and shot['scene_id'] != last_scene:
             last.clear()
@@ -140,7 +145,21 @@ def resolve_scene(script: dict | ResolvedScene, context: SceneContext) -> Resolv
             if value and value != "同上":
                 last[field] = value
             elif last.get(field):
-                shot[field] = last[field]
+                inherited = last[field]
+                if field == "light" and reflection.search(inherited):
+                    visible = set(shot.get("characters") or []) | set(shot.get("listeners") or []) | set(shot.get("in_frame") or [])
+                    worn_here = {item for item in (shot.get("wears") or {}).values() if item}
+                    # keep the reflection only when the reflective thing is on camera this stage:
+                    # somebody wears it, or its object/prop rides along, or an action names it
+                    on_camera = bool(worn_here) or bool(shot.get("props") or shot.get("scene_objects")) \
+                        or any(reflection.search(str(a.get("target") or "") + str(a.get("action") or ""))
+                               for a in shot.get("actions") or [])
+                    if not on_camera:
+                        kept = [part for part in re.split(r"[，,；;]", inherited)
+                                if not reflection.search(part)]
+                        inherited = "；".join(part for part in kept if part.strip()) or None
+                if inherited:
+                    shot[field] = inherited
     for index, shot in enumerate(shots, start=1):
         shot.setdefault("index", index)
     return result

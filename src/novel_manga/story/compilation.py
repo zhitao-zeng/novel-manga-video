@@ -482,14 +482,17 @@ class ClipCompiler:
         if bindings:
             lines.append("【人物】" + "。".join(bindings) + "。")
         if cast:
-            # 133 of 613 flagged clips in review had people who were never cast.
+            # 133 of 613 flagged clips had people who were never cast.  "始终只有这N位" read the
+            # clip's candidate roster as a headcount in every frame, and a clip that shoots 席勒
+            # alone in one stage and 托尼 alone in the next was told both were always there
+            # (audit #3).  The roster is who MAY appear; each stage's own note says who does.
             others = "；远处模糊背景里只允许" + "、".join(clip["background_only"]) if clip.get("background_only") else ""
             extras = list(dict.fromkeys(e for shot in shots for e in (shot.get("extras") or [])))
             if extras:
-                lines.append(f"【人数】画面中始终只有这{len(cast)}位具名人物：{cast_text}，另加{len(extras)}位无参考图的配角（按描述画，不得画成具名人物的样子）：{'、'.join(extras)}；"
+                lines.append(f"【人数】本片段可出现的具名人物共{len(cast)}位：{cast_text}，具体哪几位入镜以各阶段构图为准；另加{len(extras)}位无参考图的配角（按描述画，不得画成具名人物的样子）：{'、'.join(extras)}；"
                              f"除此之外不出现任何人（老者、路人、随从、背景人物都不要）{others}。")
             else:
-                lines.append(f"【人数】画面中始终只有这{len(cast)}位人物：{cast_text}；无名角色只在画外发声、不入镜；不出现任何未列出的人（老者、路人、随从、背景人物都不要）{others}。")
+                lines.append(f"【人数】本片段可出现的具名人物共{len(cast)}位：{cast_text}，具体哪几位入镜以各阶段构图为准；无名角色只在画外发声、不入镜；不出现任何未列出的人（老者、路人、随从、背景人物都不要）{others}。")
             if any(s.get('scene_id') for s in shots):
                 lines[-1] = (f"【人物范围】本段可出现的具名人物：{cast_text}；每阶段仅按该镜入镜列表呈现，"
                              "不因提供了人物参考图就让人物在每个镜头出现。")
@@ -534,8 +537,20 @@ class ClipCompiler:
                                   for name, item in (shot.get("wears") or {}).items() if name in cast)
             if wears_note:
                 wears_note = "穿戴状态：" + wears_note
-            listen_note = (f"本阶段只有{'、'.join(shot['characters'])}正脸入镜；{'、'.join(shot['listeners'])}只露背影或在画外，不入近景、嘴不动。"
-                           if shot.get("listeners") else "")
+            # Who faces the camera and who does not, without contradicting the blocking: characters
+            # are the shot's own visible cast (侧脸或正面 by the blocking note), the listeners stay
+            # back-to-camera or off frame.  The old line said 只有characters正脸入镜 while the
+            # same name sat in listeners too - one shot, three contradictory framings (audit #3);
+            # a listener outside the characters list still needs saying (she is in the clip's cast).
+            cast_names = shot.get("characters") or []
+            listeners = [name for name in (shot.get("listeners") or [])]
+            facing = [name for name in cast_names if name not in listeners]
+            listen_note = ""
+            if listeners:
+                if facing:
+                    listen_note = f"入镜人物：{'、'.join(facing)}；{'、'.join(listeners)}只露背影或在画外，不入近景、嘴不动。"
+                else:
+                    listen_note = f"本阶段{'、'.join(listeners)}只露背影或在画外，不入近景、嘴不动。"
             lines.append(
                 f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{self.compact(shot['motion_prompt'])}。"
                 f"{('入镜：' + ('、'.join(shot.get('in_frame', shot['characters'])) or '无具名人物') + '。') if shot.get('scene_id') else blocking_note(shot)}{extras_note}{props_note}{local_objects}{wears_note}{listen_note}"

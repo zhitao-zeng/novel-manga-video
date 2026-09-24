@@ -12,6 +12,18 @@ def schema_for(names: list[str], indexes: list[int], *, reframe=False, bible=Non
                                                                       "in_frame": cast_field(names),
                                                                       "actions": actions_field(),
                                                                       "extras": extras_field(),
+                                                                      # The repair model was told (fields.py) that unlisted objects
+                                                                      # go to scene_objects and wearables mark their wearer - but
+                                                                      # additionalProperties=false ate the field, and an empty
+                                                                      # armour became an extra (four-layer audit #1).  The stage
+                                                                      # now has somewhere legal to put each of them.
+                                                                      "scene_objects": {"type": "array", "maxItems": 4,
+                                                                                        "items": {"type": "string"}},
+                                                                      "props": {"type": "array", "maxItems": 4,
+                                                                                "items": {"type": "string"}},
+                                                                      "wears": {"type": "object",
+                                                                                "additionalProperties": {"type": ["string", "null"]}},
+                                                                      "light": {"type": "string", "maxLength": 60},
                                                                       "event": {"type": "string"}}}}}}
 
 
@@ -26,7 +38,7 @@ def schema_for(names: list[str], indexes: list[int], *, reframe=False, bible=Non
             "speakers": {"type": "array", **({"maxItems": 0} if not names else {}),
                 "items": {"type": "object", "additionalProperties": False,
                 "required": ['turn_index', 'speaker_name'], 'properties': {'turn_index': {'type': 'integer', 'minimum': 1},
-                'speaker_name': {'type': 'string', **({'enum': names} if names else {})}}}}})
+                'speaker_name': {"type": "string", **({'enum': names} if names else {})}}}}})
         if not bible.get('locations'):
             schema['properties']['stages']['items']['properties'].pop('location')
         schema["properties"]["stages"]["items"]["required"].extend(["visual_prompt", "camera", "shot_scale", "end_state", "speakers"])
