@@ -152,6 +152,14 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     if limits is not None:
         options = replace(options, **limits)
     overrides_path = episode_dir / "clip_overrides.json"
+    # One style source, both languages: the book's visual_grammar snapshot is from the chapter it
+    # was generated in, and the style package has since been re-cut (meiman 2026-09-24: 网点与交叉
+    #排线 in every Chinese prompt, the clean h3_style_line in every English request - the same clip
+    # asking for two aesthetics, audit #7).  The live style wins for the style line; the grammar's
+    # other axes (light, lens, composition) are not the style package's to speak of and stay.
+    style_now = load_style(profile, episode_dir.parent)
+    if (grammar or {}).get("style_line") and style_now.get("h3_style_line"):
+        grammar = {**grammar, "style_line": style_now["h3_style_line"]}
     return {
         "episode_dir": episode_dir, "bible": bible, "grammar": grammar, "profile": profile, "frame": frame_spec(profile),
         # What this book is actually rendered as, which is not the name of its style package.  The card

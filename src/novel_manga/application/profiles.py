@@ -263,7 +263,14 @@ def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = Non
 
 def h3_stamp(clip: dict, note: str = "") -> str:
     """The stamp a current translation carries: the version prefix and the digest of everything
-    compose() reads - words, correction, crowd rules, reference seating, bound dialogue."""
+    compose() reads - words, correction, crowd rules, reference seating, bound dialogue.
+
+    A correction already MERGED into the Chinese prompt (clip['prompt_correction_merged'], by
+    convert) is part of the words now: counting it again as a live note would mark the stamp
+    stale forever, so the note is spent once it is in the prompt it corrected.
+    """
+    if clip.get("prompt_correction_merged") and str(note or "").strip():
+        note = ""
     return STAMP_V2_PREFIX + h3_source_digest(clip.get("prompt") or "", note,
                                               clip.get('crowd_roles'), h3_compile_inputs(clip))
 

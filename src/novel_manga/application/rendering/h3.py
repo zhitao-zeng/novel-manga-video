@@ -150,7 +150,27 @@ def english_delivery(manners) -> dict:
     got = [str(s).strip() for s in (answer.get("manners") or [])]
     if len(got) != len(wanted):
         return {}
-    return {zh: en for zh, en in zip(wanted, got) if en and not CJK.search(en)}
+    return {zh: en for zh, en in zip(wanted, got)
+            if en and not CJK.search(en) and delivery_acceptable(zh, en)}
+
+
+# Vocal behaviours the ASK forbids unless the Chinese phrase itself names them: a 崩溃 once became
+# "a voice that breaks", the constraint was in the prompt and the answer sailed through anyway
+# (four-layer audit #6) - so the check lives here, not only in the ask.
+_NAMED_VOCAL = ("哭", "泣", "呜咽", "喊", "吼", "叫", "笑", "破音", "破嗓", "哽咽", "嘶哑", "沙哑", "颤抖", "发抖")
+_ADDED_VOCAL = re.compile(r"\b(cry|crying|sob|sobbing|scream|screaming|shout|breaks?|broken|laugh|laughter|choke[ds]?|sobbing)\b", re.I)
+# The face and the body are the camera's business (the shot translation covers them); the manner
+# clause is for the voice H3 generates, and 恐惧与无奈 once came back as "with a determined expression".
+_BODY_CREEP = re.compile(r"\b(face|facial|expression|eyes?|brow|mouth|lips?|jaw|hands?|fists?|shoulders?|body|posture)\b", re.I)
+
+
+def delivery_acceptable(chinese: str, english: str) -> bool:
+    """A manner clause is kept only when it invents nothing: no unnamed vocal behaviour, no body."""
+    if _ADDED_VOCAL.search(english) and not any(word in chinese for word in _NAMED_VOCAL):
+        return False
+    if _BODY_CREEP.search(english):
+        return False
+    return True
 
 
 def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
@@ -168,6 +188,18 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     (雾月 2026-09-13: 190 episodes looped on the folded answer)."""
     prompt = clip.get("prompt") or ""
     note = str(note or "").strip()
+
+    def merge_correction_into_prompt() -> None:
+        """The correction stops being a parallel truth (audit #5): once its English is in, the
+        Chinese prompt carries it too, and the note is spent - the plan is the one source, the
+        cache key moves with it, and no stage of the pipeline keeps quoting an old picture."""
+        if not note or clip.get("prompt_correction_merged"):
+            return
+        merge = f"\n【导演修正】{note}"
+        clip.setdefault("prompt_before_correction", prompt)
+        clip["prompt"] = prompt + merge
+        clip["prompt_correction_merged"] = True
+
     # The stamp this conversion writes is versioned ("2:<digest>") and covers the reference
     # seating; a bare stamp from before is compared under the old formula instead.
     from novel_manga.application.profiles import h3_stamp
@@ -251,6 +283,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
                         if not conflicts:
                             clip['prompt_h3'] = candidate
                             clip['prompt_h3_of'] = stamp
+                            merge_correction_into_prompt()
                             return True
                         problem = '; '.join(conflicts)
                         continue
@@ -270,6 +303,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             if not conflicts:
                 clip['prompt_h3'] = candidate
                 clip['prompt_h3_of'] = stamp
+                merge_correction_into_prompt()
                 return True
             problem = '; '.join(conflicts)
             continue
