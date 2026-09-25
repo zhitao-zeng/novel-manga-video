@@ -1,15 +1,19 @@
 """Load the existing chapter evidence for the pure scene resolver. No model requests."""
 from pathlib import Path
-import re
 from novel_manga.story.scene import SceneContext, ResolvedScene, resolve_scene
 from novel_manga.story.identity import unique_forms
 from novel_manga.application.identity.store import read, load_chapter, load_book
 from novel_manga.application.identity.context import effective_aliases, typed_entities
 
 
-def load_scene_context(novel: Path, chapter=None, *, segments=None, compilation=None, identity_data=None):
+def load_scene_context(novel: Path, chapter=None, *, directory: Path | None = None, segments=None,
+                       compilation=None, identity_data=None):
+    """The evidence one episode's scene is resolved against.  `chapter` only ever located the directory;
+    a caller holding the directory itself passes it, because a chapter cut into parts has one directory
+    per part and the number alone names none of them."""
     novel = Path(novel)
-    directory = novel / f'{novel.name}_{chapter}' if chapter is not None else None
+    if directory is None:
+        directory = novel / f'{novel.name}_{chapter}' if chapter is not None else None
     path = directory / 'segments.json' if directory else None
     source_available = segments is not None or bool(path and path.is_file())
     data = identity_data if identity_data is not None else load_chapter(directory) if directory else None
@@ -38,7 +42,9 @@ def load_scene_context(novel: Path, chapter=None, *, segments=None, compilation=
 
 
 def prepare_scene(script: dict | ResolvedScene, directory: Path, *, compilation=None, identity_data=None) -> ResolvedScene:
-    match = re.search(r'_(\d+)$', directory.name)
-    chapter = int(match[1]) if match else None
-    context = load_scene_context(directory.parent, chapter, compilation=compilation, identity_data=identity_data)
+    # The directory is passed through, not taken apart into a chapter number and rebuilt: the round
+    # trip read meiman-daoshi_12-1 with _(\d+)$, got nothing, and resolved every part of a cut
+    # chapter with source_available false and no speaker facts (four-layer audit, 2026-09-25, 9).
+    context = load_scene_context(Path(directory).parent, directory=Path(directory),
+                                 compilation=compilation, identity_data=identity_data)
     return resolve_scene(script, context)
