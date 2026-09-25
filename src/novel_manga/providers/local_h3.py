@@ -112,9 +112,9 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
             "target": {"short_edge": SHORT_EDGE, "aspect_ratio": self.ratio,
                        "duration_seconds": float(seconds)},
             "num_outputs_per_prompt": 1,
-            # Matched to the deployed 8step_v1.0_768p LoRA.  The previous 5 matched nothing:
-            # the build behind it was the four-step one.
-            "num_inference_steps": 8,
+            # This service counts sigma points, including the terminal point:
+            # nine points give the eight evaluations of the 8step_v1.0_768p LoRA.
+            "num_inference_steps": 9,
             "flow_shift": 12.0,
             "audio_flow_shift": 3.0,
         }

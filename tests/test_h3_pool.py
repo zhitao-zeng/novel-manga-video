@@ -13,6 +13,16 @@ from novel_manga.providers.h3_pool import H3Pool, PoolUnavailable, night_leases
 from novel_manga.providers.local_h3 import LocalH3MediaProvider
 
 
+def test_eight_evaluation_lora_request_includes_terminal_sigma_point():
+    provider = LocalH3MediaProvider.__new__(LocalH3MediaProvider)
+    provider.settings = types.SimpleNamespace(video_model='minimax-h3-ref2va-turbo')
+    provider.ratio = '16:9'
+    payload = provider._payload('A person waits.', [], (), 15)
+    assert payload['num_inference_steps'] == 9
+    assert payload['target']['short_edge'] == 768
+    assert (payload['flow_shift'], payload['audio_flow_shift']) == (12.0, 3.0)
+
+
 def write_pool(tmp_path: Path, **overrides) -> Path:
     config = {
         "slots": 1,
