@@ -98,3 +98,12 @@ def test_correct_reply_reaches_final_h3_without_old_state_or_extra_actor(tmp_pat
     assert clip['prompt_h3'].count('snaps once')==1
     assert clip['prompt_h3'].count('empty suit flies in')==1
     assert '本阶段无参考图的配角：空机甲' not in seen[0]
+
+
+def test_repair_can_remove_a_cancelled_action_sound():
+    from novel_manga.repair.contracts import schema_for
+    from novel_manga.repair.execution import apply_stage
+    assert 'sfx' in schema_for(['甲'],[1])['properties']['stages']['items']['properties']
+    shot={'characters':['甲'],'turns':[],'motion_prompt':'甲站立','sfx':'面罩机械声'}
+    apply_stage(shot,{'in_frame':['甲'],'actions':[],'extras':[],'event':'甲站立','sfx':''},['甲'])
+    assert shot['sfx']==''

@@ -213,6 +213,8 @@ def h3_compile_inputs(clip: dict) -> dict:
     a re-seated card renumbers the subjects an English prompt addresses, whatever route the clip
     was planned by.
     """
+    from novel_manga.story.voice_delivery import visual_request
+    clip = visual_request(clip)
     inputs: dict = {'references': [(r.get('role'), r.get('name'), r.get('path')) for r in (clip.get('references') or [])]}
     if clip.get('render_family') or clip.get('animation_style'):
         inputs['render_family'] = str(clip.get('render_family') or clip.get('animation_style'))

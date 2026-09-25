@@ -5,6 +5,7 @@ import math
 from .issues import PlanningIssue, PlanningCode
 from . import text as pc_text
 import novel_manga.planning.constants as pc_constants
+from novel_manga.story.compilation import line_parts
 
 def configure_budget(text_count: int, *, fast: bool, min_seconds: float = 0.0, ctx: PlannerContext) -> dict:
     """Use one episode budget for the model brief, request and validation.
@@ -70,12 +71,30 @@ def validate_duration(normalized, ctx, errors, warnings):
     for shot in normalized:
         # same rule as ClipCompiler.shot_seconds: a planned length is a planned length
         seconds = float(shot['duration_seconds']) if 'duration_seconds' in shot else pc_text.stage_seconds(shot["turns"], ctx=ctx)
+        if seconds > ctx.max_clip_seconds:
+            # A stage whose lines can be dealt into clips that fit is the packer's to cut - between its
+            # lines, with nothing written for the new parts (story.compilation.line_parts, shared so that
+            # what passes here is exactly what the packer cuts).  Handed to the writer, the cut failed ch12
+            # part one in all 17 drafts of three runs (2026-09-25): the 90-character speech stayed whole,
+            # or came back rewritten or repeated, or another beat fell out.  Only a length no line can
+            # cut goes back to the writer: a planned duration, or a silent action longer than a clip.
+            parts = [] if 'duration_seconds' in shot else line_parts(
+                shot["turns"], max_seconds=ctx.max_clip_seconds, seconds_of=lambda turns: pc_text.stage_seconds(turns, ctx=ctx))
+            if len(parts) > 1 and all(pc_text.stage_seconds(part, ctx=ctx) <= ctx.max_clip_seconds for part in parts):
+                warnings.append(f"{shot.get('label')}: 本镜估算{seconds:g}秒，打包时在台词之间切成{len(parts)}段，"
+                                "不改台词、不补写动作（report only）")
+            else:
+                errors.append(PlanningIssue(PlanningCode.STAGE_ABOVE_MAXIMUM,
+                    f'本镜估算{seconds:g}秒，超过单镜上限{ctx.max_clip_seconds:g}秒。'
+                    '由编剧拆成多个时长合规的完整阶段，逐镜写清起点、事件和末态；'
+                    '保留全部必要对白和剧情，不重复动作，也不能只缩短duration_seconds掩盖超长对白。',
+                    stage=shot.get('label'), field='turns'))
         clip_seconds[shot["clip_hint"]] = round(clip_seconds.get(shot["clip_hint"], 0.0) + seconds, 2)
     for clip_id, seconds in clip_seconds.items():
         if seconds > ctx.max_clip_seconds + pc_constants.CLIP_SECONDS_TOLERANCE:
             # The packer cuts overlong clips to this lane's duration limit.
             warnings.append(
-                f"{clip_id}: 估算 {seconds} 秒超过单段上限 {int(ctx.max_clip_seconds)} 秒，打包时会自动拆成两段（report only）"
+                f"{clip_id}: 估算 {seconds} 秒超过单段上限 {int(ctx.max_clip_seconds)} 秒，打包按已有阶段边界分段（report only）"
             )
     total_seconds = round(sum(clip_seconds.values()), 2)
     if ctx.episode_seconds_min and 0 < ctx.episode_seconds_min - total_seconds <= pc_constants.EPISODE_FLOOR_TOLERANCE:

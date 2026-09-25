@@ -51,18 +51,20 @@ class FramedAssetFactory:
         frame = self.style.frame_text
         return prompt.replace('9:16', frame.split('屏')[-1]).replace('竖屏', frame[:2]) if frame != '竖屏9:16' else prompt
 
-    def ensure_card(self, prompt: str, output: Path, *, reference=None, aspect_ratio=None):
+    def ensure_card(self, prompt: str, output: Path, *, reference=None, additional_references=(), aspect_ratio=None):
         """_ensure_image, and on a content-moderation refusal one retry with a
         toned-down prompt, then one attempt at the fallback model."""
         try:
-            return ensure_image(self.settings, self.provider, prompt, output, reference=reference, aspect_ratio=aspect_ratio)
+            return ensure_image(self.settings, self.provider, prompt, output, reference=reference,
+                                additional_references=tuple(additional_references), aspect_ratio=aspect_ratio)
         except RuntimeError as error:
             if not moderation_error(error):
                 raise
             safe = SCRUB_WORDS.sub("", prompt) + SAFE_SUFFIX
             log(f"assets: {output.parent.name}/{output.name} refused by content moderation; retrying with a toned-down prompt")
             try:
-                return ensure_image(self.settings, self.provider, safe, output, reference=reference, aspect_ratio=aspect_ratio)
+                return ensure_image(self.settings, self.provider, safe, output, reference=reference,
+                                    additional_references=tuple(additional_references), aspect_ratio=aspect_ratio)
             except RuntimeError as again:
                 if moderation_error(again):
                     return self._fallback_card(prompt, output, aspect_ratio, again)

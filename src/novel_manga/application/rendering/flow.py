@@ -186,7 +186,6 @@ class ThinMediaRunner:
     def build_assets(self, clips=None):
         return media_assets.build_assets(self.context, clips)
 
-
     def save_clip_plan(self) -> None:
         """Write the plan back without the runner's own bookkeeping keys."""
         with PLAN_WRITE_LOCK:
@@ -247,6 +246,33 @@ class ThinMediaRunner:
 
     def cached_take(self, clip: dict, attempt: int) -> bool:
         return cache.cached_take(self.context, clip, attempt)
+
+    def correct_speech_request(self, clip: dict, analysis: dict) -> bool:
+        """One corrected request within the existing take limit, never a blind seed retry."""
+        from novel_manga.media.speech_repair import correction, merge_note
+        from novel_manga.application.rendering.h3 import convert
+        from novel_manga.application.profiles import h3_prompt_outdated
+        from novel_manga.story.h3 import request_issues
+        old_note = str(self.context.feedback.get(clip['clip_id']) or '')
+        note = merge_note(old_note, correction(clip, analysis))
+        if not note or note == old_note:
+            return False
+        candidate = copy.deepcopy(clip)
+        convert(candidate, note=note)
+        if (h3_prompt_outdated(candidate, note, strict=True) or request_issues(candidate)
+                or candidate.get('prompt_h3') == clip.get('prompt_h3')):
+            return False
+        with PLAN_WRITE_LOCK:
+            before_plan = copy.deepcopy(self.context.clip_plan)
+            before_notes = dict(self.context.feedback)
+            clip.update(candidate)
+            self.context.feedback[clip['clip_id']] = note
+            atomic_write_json(self.context.episode_dir / FEEDBACK_FILE, self.context.feedback)
+            from novel_manga.application.repair.history import refresh_prepared_plan
+            refresh_prepared_plan(self.context.episode_dir, before_plan, self.context.clip_plan, before_notes, after_notes=self.context.feedback)
+        self.save_clip_plan()
+        log(f"{clip['clip_id']}: extra speech; corrected the English request before the next take")
+        return True
 
     def approved_cached_take(self, clip: dict) -> dict | None:
         """Reuse proof from an existing take, never issue a new over-budget request."""
@@ -375,6 +401,18 @@ class ThinMediaRunner:
 
     def analyse_clip(self, clip: dict, video: Path) -> dict:
         from novel_manga.application.profiles import speech_gate_result
+        from novel_manga.story.voice_delivery import postmixed, visual_request
+        if postmixed(clip):
+            visual = visual_request(clip)
+            raw = media_analysis.analyse_clip(self.context, visual, video)
+            raw = self.check_clip_black(visual, raw, video)
+            if not raw['passed']:
+                return raw
+            from novel_manga.media.inner_voice import mix
+            mixed = mix(self.context, clip, video)
+            final = media_analysis.analyse_clip(self.context, clip, mixed)
+            return {**speech_gate_result(self.context.novel_dir, final, self.context.episode_dir),
+                    'video': str(video), 'postmix_video': str(mixed), 'audio_source': 'postmixed_inner_voice'}
         raw = media_analysis.analyse_clip(self.context, clip, video)
         return speech_gate_result(self.context.novel_dir, self.check_clip_black(clip, self.recheck_speech(clip, raw, video), video), self.context.episode_dir)
 
@@ -426,6 +464,10 @@ class ThinMediaRunner:
         attempts: list[dict] = []
         state = clip_retries.RetryState(attempt=1, limit=self.context.max_attempts)
         try:
+            from novel_manga.story.voice_delivery import postmixed
+            if postmixed(clip):
+                from novel_manga.media.inner_voice import prepare
+                prepare(self.context, clip)
             from novel_manga.application.repair.history import source_accepted_take
             accepted = source_accepted_take(self.context.work.parent, clip, str(self.context.feedback.get(clip['clip_id']) or ''))
             if accepted is not None:
@@ -472,6 +514,9 @@ class ThinMediaRunner:
                         generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries,
                         next_cached=self.cached_take(clip, state.attempt + 1),
                         local_h3=bool(self.context.settings.local_h3_base_url))
+                if decision.action == 'correct_request' and not self.correct_speech_request(clip, analysis):
+                    log(f"{clip['clip_id']}: speech correction produced no usable new request; keeping the failure for review")
+                    break
                 state.attempt, state.limit = decision.attempt, decision.limit
                 if decision.action == 'stop':
                     break
@@ -511,8 +556,12 @@ class ThinMediaRunner:
         self.context._blocked_clips = {}
         self.context._approved_cached = {}
         if not self.context.cache_only:  # cached clips need no cards built (and none redrawn)
-            from novel_manga.application.preparation.readiness import plan_issues, reference_issues
+            from novel_manga.application.preparation.readiness import plan_issues, reference_issues, render_risk_report
             self.context._blocked_clips = plan_issues(self.context.clip_plan, self.context.script)
+            # The request is read for known ways a video goes wrong before any slot is spent; the full list
+            # lands in pre_render_check.json and only a wearer's card that shows other clothes blocks.
+            for cid, reasons in render_risk_report(self.context.episode_dir, self.context.clip_plan).items():
+                self.context._blocked_clips.setdefault(cid, []).extend(reasons)
             for clip in clips:
                 reasons = self.context._blocked_clips.get(clip["clip_id"])
                 if reasons and all(r.startswith("duration:") for r in reasons):

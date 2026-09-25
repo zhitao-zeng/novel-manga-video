@@ -119,8 +119,10 @@ def main() -> int:
             elif rec["verdict"] == "obvious":
                 promoted += 1
                 c["tier"] = "must_fix"
-                c["story_ok"] = False
-                c["story_kind"] = "原文中有动作的人物缺席" if rec.get("actor_missing") else "动作落在错误的人物身上"
+                from novel_manga.review.policy import verify_to_verdict
+                classified = verify_to_verdict(rec)
+                c['story_ok'] = classified['story_ok']
+                c['story_kind'] = classified['story_kind']
                 c["story_issue"] = str(rec.get("evidence", ""))[:300]
                 c["severity"] = "fail"
                 c["verified"] = {**note, "promoted": True}

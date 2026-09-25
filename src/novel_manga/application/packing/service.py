@@ -8,6 +8,7 @@ from novel_manga.story.compilation import ClipCompiler, plan_totals, lint_stage,
 from novel_manga.story.dialogue import merged_turns
 from novel_manga.application.packing.context import compiler_options, POLICY, PACKER_VERSION
 from novel_manga.application.packing.assets import build_references, bodies_for
+from novel_manga.application.packing.visor import closed_for
 from novel_manga.application.identity.store import load_chapter
 from novel_manga.application.identity.phases import chapter_of, phase_labels
 
@@ -23,7 +24,10 @@ def prepared_shots(script: dict, episode_dir: Path, *, identity_data=None) -> li
     from novel_manga.planning.storyboard import require_bound_storyboard
     require_bound_storyboard(script)
     from novel_manga.application.identity.scene import prepare_scene
-    return prepare_scene(script, episode_dir, identity_data=identity_data).shots
+    resolved = prepare_scene(script, episode_dir, identity_data=identity_data)
+    if resolved.issues:
+        raise ValueError('分镜需要明确本镜状态：' + '; '.join(resolved.issues))
+    return resolved.shots
 
 
 def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None) -> dict:
@@ -86,7 +90,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
             worn_overrides[name] = states[0]           # on then off within this clip: card rides, binding narrates the change
         else:
             worn_overrides[name] = None                # bare throughout
-    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"), props=clip_prop_names or None, props_index={p.name: p for p in getattr(bible, "props", None) or []}, worn_overrides=worn_overrides or None)
+    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"), props=clip_prop_names or None, props_index={p.name: p for p in getattr(bible, "props", None) or []}, worn_overrides=worn_overrides or None, faceplate_closed=closed_for(ctx["episode_dir"], clip, script=ctx.get("source_script"), states=ctx.get("visor_states")), faceplate_closed_only=closed_for(ctx["episode_dir"], clip, script=ctx.get("source_script"), states=ctx.get("visor_states"), throughout=True))
     # An episode can use an approved costume/armour card without changing that
     # character's base card for every other chapter. The picture seat stays put.
     chosen_pictures = override.get('reference_paths') or {}
@@ -95,7 +99,23 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
             ref['path'] = str(chosen_pictures[ref['name']])
     if any(s.get('scene_id') for s in clip['shots']):
         location_binding = location_binding.replace('、固定道具和光线', '和地形；时间、光线和可移动道具以本场逐镜描述为准')
-    prompt = ClipCompiler(options).compile_prompt(clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])
+    spoken = [t for s in clip['shots'] for t in s.get('turns', [])
+              if t.get('text') and t.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'}]
+    postmix = ctx.get('profile', {}).get('inner_voice_delivery') == 'postmix' and any(t.get('inner_monologue') for t in spoken)
+    prompt_clip = clip
+    inner_voice = None
+    if postmix:
+        if not all(t.get('inner_monologue') for t in spoken) or len({t['speaker_name'] for t in spoken}) != 1:
+            raise ValueError('后期心声需要单独片段和明确的一位说话者，请在规划中分开')
+        inner_voice = {'speaker': spoken[0]['speaker_name'], 'text': ''.join(t['text'] for t in spoken),
+                       'voice_references': [r for r in references if r.get('role') == 'voice']}
+        if override.get('inner_voice_audio'):
+            inner_voice['source_audio'] = str(override['inner_voice_audio'])
+        references = [r for r in references if r.get('role') != 'voice']
+        prompt_clip = copy.deepcopy(clip)
+        for shot in prompt_clip['shots']:
+            shot['turns'] = [t for t in shot.get('turns', []) if not t.get('inner_monologue')]
+    prompt = ClipCompiler(options).compile_prompt(prompt_clip, bible, cast, bindings, location_binding, ctx["grammar"], ctx["frame"])
     lint = {shot["index"]: lint_stage(shot, camera_policy=options.camera_policy) for shot in clip["shots"]}
     lint = {k: v for k, v in lint.items() if v}
     lines = [
@@ -138,6 +158,8 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "h3_style_line": ctx.get('h3_style_line') or '',
     }
     weights = [ClipCompiler(options).shot_seconds(s) for s in clip['shots']]
+    if inner_voice:
+        entry.update(audio_delivery='postmix', inner_voice=inner_voice)
     total_weight = sum(weights) or len(weights)
     entry['shot_timing'] = [{'seconds': round(clip['request_seconds'] * w / total_weight, 3)} for w in weights]
     if any(s.get('scene_id') for s in clip['shots']):

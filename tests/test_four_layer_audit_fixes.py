@@ -52,8 +52,8 @@ def test_a_carried_action_is_not_stapled_in_front_of_the_event():
     assert anchored_event(actions, event) == event        # nothing doubled, nothing reordered
 
 
-def test_a_truly_missing_attribution_is_still_spoken_first():
-    assert anchored_event([{"actor": "莱恩", "action": "推门", "target": ""}], "门开了。") == "莱恩推门。门开了。"
+def test_attribution_disagreement_does_not_rewrite_the_event():
+    assert anchored_event([{"actor": "莱恩", "action": "推门", "target": ""}], "门开了。") == "门开了。"
 
 
 # ---- audit #3: one shot is not told face, profile and back at once
@@ -105,7 +105,7 @@ def _script_for_light(shots):
     return {"shots": shots}
 
 
-def test_same_as_light_drops_the_off_frame_reflection():
+def test_same_as_light_in_an_old_draft_is_executed_verbatim():
     script = _script_for_light([
         {"index": 1, "origin_index": 1, "location": "诊所", "characters": ["托尼·斯塔克", "席勒"],
          "visual_prompt": "", "motion_prompt": "托尼穿甲站着", "end_state": "", "turns": [], "actions": [],
@@ -117,8 +117,10 @@ def test_same_as_light_drops_the_off_frame_reflection():
     from novel_manga.story.scene import SceneContext
     resolved = resolve_scene(script, SceneContext(aliases={}, types={}, speaker_facts={}, identity={}, segments=[]))
     solo = resolved.shots[1]
-    assert "反光" not in solo["light"]                      # the armour is off frame here
-    assert "台灯" in solo["light"]                          # the environment light stays
+    # Audit #4's keyword filter left with 同上 itself: a new draft states each stage's own light
+    # (validation sends 同上 back), and an old draft's 同上 is executed as that episode was rendered.
+    assert solo["light"] == "台灯暖光为主光，月光从窗外斜入；机甲装甲的金属反光为次光"
+    assert solo["camera"] == "平视" and not resolved.issues
 
 
 def test_same_as_light_keeps_the_reflection_when_the_wearer_stays():
@@ -132,4 +134,4 @@ def test_same_as_light_keeps_the_reflection_when_the_wearer_stays():
     ])
     from novel_manga.story.scene import SceneContext
     resolved = resolve_scene(script, SceneContext(aliases={}, types={}, speaker_facts={}, identity={}, segments=[]))
-    assert "反光" in resolved.shots[1]["light"]             # the armour is still on camera
+    assert resolved.shots[1]["light"] == "台灯暖光为主光；装甲金属反光为次光" and not resolved.issues

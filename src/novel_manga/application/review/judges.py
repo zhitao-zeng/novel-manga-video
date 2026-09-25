@@ -81,5 +81,12 @@ def instruction_for(evidence: str, event: str = "", passage: str = "") -> str:
 def judge_clip_verify(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
     parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir, verify=True)
     parts.append({"type": "text", "text": review_prompts.verify_prompt(clip, location_time, evidence)})
-    answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=900)
+    answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=1800)
+    counts = review_policy.count_mismatches(answer)
+    if counts and (answer.get('verdict') != 'obvious' or not str(answer.get('instruction') or '').strip()):
+        passage = '\n'.join(evidence.segments.get(str(s), '') for s in clip.get('segment_ids') or [])
+        instruction = instruction_for('；'.join(counts), review_prompts.scripted_event(clip), passage)
+        if not instruction:
+            raise ValueError('count mismatch has no usable correction instruction')
+        answer.update(verdict='obvious', instruction=instruction)
     return review_policy.verify_to_verdict(answer)

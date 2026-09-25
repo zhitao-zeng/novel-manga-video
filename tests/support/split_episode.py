@@ -42,7 +42,18 @@ def split_episode(tmp_path, monkeypatch):
     plan = {"policy": "thin-15s", "limits": {"max_clip_seconds": 15, "max_stages": 3},
             "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d"}}}
     ctx = packing_context.context_for_plan(episode, episode.parent / "story_bible.json", plan)
+    compiler = ClipCompiler(ctx['compiler_options'] or compiler_options())
+    # This fixture represents an already stored, historically split plan.
+    recorded = [part for row in packing_service.prepared_shots(copy.deepcopy(script), episode)
+                for part in compiler.split_long_shot(row)]
     plan["clips"] = [packing_service.clip_entry(c, f"clip_{i:02d}", ctx)
-                     for i, c in enumerate(ClipCompiler(ctx['compiler_options'] or compiler_options()).pack(packing_service.prepared_shots(copy.deepcopy(script), episode)), 1)]
+                     for i, c in enumerate(compiler.pack(recorded), 1)]
     return episode, script, plan
 
+
+
+def explicitly_planned_shots(script):
+    """A separate fixture for new packing: the writer already supplied short shots."""
+    base = script['shots'][0]
+    return {'shots': [{**copy.deepcopy(base), 'index': i, 'origin_index': i, 'turns': [copy.deepcopy(turn)]}
+                      for i, turn in enumerate(base['turns'], 1)]}

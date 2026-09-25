@@ -1,6 +1,8 @@
 """split_long_stages.py: an old plan's clamped clips become the parts the packer now cuts them into, and nothing
 else about the episode changes - the other clips keep their entries and their rendered videos."""
 from __future__ import annotations
+import copy
+import pytest
 from dataclasses import replace
 import novel_manga.application.production.render as production_render
 
@@ -32,7 +34,7 @@ PLAN = {"clips": [
     {"clip_id": "clip_04", "kind": "video", "shot_indexes": [9], "seconds_estimate": 6.0, "request_seconds": 6, "prompt": "last"}]}
 
 
-def test_only_the_clamped_clip_is_replaced_and_the_others_are_renumbered(monkeypatch):
+def test_new_cuts_require_the_writer_and_leave_existing_ids_unchanged(monkeypatch):
     monkeypatch.setattr(tool.packing_context, "MAX_CLIP_SECONDS", 15.0)
     monkeypatch.setattr(tool.packing_context, "MAX_STAGES", 3)
     built = []
@@ -40,12 +42,10 @@ def test_only_the_clamped_clip_is_replaced_and_the_others_are_renumbered(monkeyp
     def build(raw, new_id, old_id):
         built.append((new_id, old_id, [t["text"] for t in raw["shots"][0]["turns"]]))
         return {"clip_id": new_id, "kind": "video", "prompt": f"part of {old_id}"}
-    clips, moved, split = tool.resplit(PLAN, {5: long_stage(["我们走吧。" * 12] * 3)}, build)
-    assert [c["clip_id"] for c in clips] == ["clip_01", "clip_02", "clip_03", "clip_04", "clip_05", "clip_06"]
-    assert split == {"clip_02": ["clip_02", "clip_03", "clip_04"]}
-    assert moved == {"clip_01": "clip_01", "clip_03": "clip_05", "clip_04": "clip_06"}
-    assert clips[0] == PLAN["clips"][0] and clips[4] == {**PLAN["clips"][2], "clip_id": "clip_05"}
-    assert [b[2] for b in built] == [["我们走吧。" * 12]] * 3  # every line once, in order
+    before = copy.deepcopy(PLAN)
+    with pytest.raises(ValueError, match='规划补丁明确拆镜'):
+        tool.resplit(PLAN, {5: long_stage(["我们走吧。" * 12] * 3)}, build)
+    assert PLAN == before and built == []
 
 
 def test_a_plan_without_long_stages_is_left_alone():

@@ -7,7 +7,7 @@ import novel_manga.application.repair.managed as repair
 import novel_manga.application.packing.service as packing
 from novel_manga.application.packing.context import context_for_plan
 from support.managed_episode import fixture_episode
-from support.split_episode import split_episode
+from support.split_episode import split_episode, explicitly_planned_shots
 from novel_manga.util import atomic_write_json
 
 
@@ -36,6 +36,7 @@ def test_packing_reads_body_evidence_once_per_compile_and_never_changes_context(
     context = context_for_plan(directory, directory.parent / 'story_bible.json', saved)
     calls = []
     monkeypatch.setattr(packing, 'bodies_for', lambda *args: calls.append(args) or {})
+    script = explicitly_planned_shots(script)
     before = copy.deepcopy(script)
     expected = packing.compile_plan(script, context)
     assert len(expected[0]['clips']) > 1 and len(calls) == 1

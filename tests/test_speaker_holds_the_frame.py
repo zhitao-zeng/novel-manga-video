@@ -25,7 +25,7 @@ def test_the_speaker_takes_the_foreground_from_the_one_who_merely_moves():
     note = blocking_note(shot(["席勒", "托尼·斯塔克"],
                               [{"actor": "托尼·斯塔克", "target": None}],
                               [speaks("席勒")]))
-    assert "席勒在前景居中" in note
+    assert note == "入镜：席勒、托尼·斯塔克。"
     assert "不开口" not in note                      # the one who moves stays visible; nobody is silenced
     assert "托尼·斯塔克只在后景" not in note
 
@@ -34,7 +34,7 @@ def test_nobody_who_speaks_is_sent_to_the_silent_back_row():
     note = blocking_note(shot(["席勒", "托尼·斯塔克", "佩珀"],
                               [{"actor": "托尼·斯塔克", "target": None}],
                               [speaks("席勒"), speaks("托尼·斯塔克")]))
-    assert "佩珀只在后景侧身或背对镜头，不开口" in note
+    assert note == "入镜：席勒、托尼·斯塔克、佩珀。"
     for speaker in ("席勒", "托尼·斯塔克"):
         assert f"{speaker}只在后景" not in note
 
@@ -44,13 +44,13 @@ def test_a_prop_that_moves_does_not_take_the_frame_from_the_person_speaking():
     # Stark, speaking, was put behind it.
     note = blocking_note(shot(["托尼·斯塔克"], [{"actor": "银白色机甲", "target": None}],
                               [speaks("托尼·斯塔克")], extras=["银白色机甲"]))
-    assert "托尼·斯塔克在前景居中" in note
+    assert note == "入镜：托尼·斯塔克。"
     assert "托尼·斯塔克只在后景" not in note
 
 
 def test_a_silent_stage_still_frames_whoever_acts():
     note = blocking_note(shot(["席勒", "托尼·斯塔克"], [{"actor": "托尼·斯塔克", "target": "席勒"}]))
-    assert "托尼·斯塔克在画面左侧前景，席勒在右侧前景" in note
+    assert note == "入镜：席勒、托尼·斯塔克。"
 
 
 def test_a_listener_keeps_the_card_that_says_whose_back_it_is():
@@ -65,9 +65,9 @@ def test_the_one_acted_on_while_someone_else_speaks_shows_a_profile_not_a_face_o
     note = blocking_note(shot(["席勒", "托尼·斯塔克"],
                               [{"actor": "席勒", "action": "搭肩", "target": "托尼·斯塔克"}],
                               [speaks("席勒")]))
-    assert "席勒在画面左侧前景" in note
-    assert "托尼·斯塔克在右侧前景" in note
-    assert "侧" in note                                   # 侧面相对：听者不与说话人正脸对立
+    assert note == "入镜：席勒、托尼·斯塔克。"
+    assert "右侧前景" not in note
+    assert "侧" not in note                               # visibility does not choose orientation
 
 
 def test_every_listener_keeps_a_card_however_many_there_are():

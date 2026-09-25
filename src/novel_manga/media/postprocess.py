@@ -180,6 +180,8 @@ def title_card_segment(ctx, clip: dict, background: Path | None) -> dict:
 
 def inner_voice_audio(ctx, clip: dict, wav: Path) -> Path:
     """A faint short reflection distinguishes private thought without changing the speaker's pitch."""
+    if clip.get('audio_delivery') == 'postmix':
+        return wav  # already mixed; do not apply an echo to the whole environment
     spoken = [r for r in clip.get('dialogue_bindings', [])
               if r.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'}]
     if not spoken or not all(r.get('inner_monologue') for r in spoken):
@@ -219,11 +221,11 @@ def story_segments(ctx, results: list[dict]) -> list[dict]:
         if record is None:
             continue
         selected = record["selected"]
-        clip_video = Path(selected["video"])
+        clip_video = Path(selected.get('postmix_video') or selected["video"])
         wav = inner_voice_audio(ctx, clip, clip_video.parent / "native.wav")
         segment, duration = ctx.renderer.mux_visual_group(clip_video, wav, ctx.work / "segments" / f"{record['clip_id']}.mp4")
         segments.extend(chat_segments(ctx, record["clip_id"], clip_video))
-        segments.append({"unit_id": record["clip_id"], "role": "dialogue", "segment": str(segment), "duration": duration, "audio_source": "native_dialogue", "subtitle_events": subtitles.subtitle_events(ctx, record["clip_id"], selected)})
+        segments.append({"unit_id": record["clip_id"], "role": "dialogue", "segment": str(segment), "duration": duration, "audio_source": selected.get("audio_source", "native_dialogue"), "subtitle_events": subtitles.subtitle_events(ctx, record["clip_id"], selected)})
     return segments
 
 class BatchRenderer(Renderer):

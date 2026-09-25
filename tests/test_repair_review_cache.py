@@ -28,7 +28,8 @@ def test_new_joint_recheck_can_add_a_real_error_to_an_old_pass(tmp_path):
     review_store.reconcile(d, evidence(current), {})
     updated, _ = review_store.reconcile(d, evidence(current, verdict='obvious', mode='joint'), {})
     assert updated['clips']['clip_01']['joint_checked']
-    assert updated['clips']['clip_01']['story_ok'] is False
+    assert updated['clips']['clip_01']['story_ok'] is None
+    assert updated['clips']['clip_01']['severity'] == 'fail'
     assert 'clip_01' in updated['feedback']
 
 

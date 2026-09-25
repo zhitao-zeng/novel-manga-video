@@ -82,7 +82,7 @@ def test_h3_added_speech_needs_prompt_repair_instead_of_another_seed():
     for generated in (True, False):
         decision = after_analysis(RetryState(1, 2), failed, generated=generated,
                                   free_retries=True, local_h3=True)
-        assert decision.action == 'stop' and decision.attempt == 1
+        assert decision.action == 'correct_request' and decision.attempt == 2
     missing = after_analysis(RetryState(1, 2), {'passed': False, 'issues': ['missing_dialogue']},
                              generated=True, free_retries=True, local_h3=True)
     assert missing.action == 'continue' and missing.attempt == 2

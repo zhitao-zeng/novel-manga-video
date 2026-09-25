@@ -55,10 +55,10 @@ def test_verify_answer_maps_to_the_review_shape():
     assert review_policy.fix_tier(obvious, review_models_StoryBible(novel_title="t", genre="g", visual_style="v", palette="p", style_fingerprint="f", characters=[], locations=[])) == "must_fix"
     subtle = review_policy.verify_to_verdict({"people": [], "same_person_twice": False, "species_or_gender_wrong": False, "action_by_wrong_person": False, "actor_missing": False,
                                    "lead_face_swapped": False, "ghost_text": True, "verdict": "subtle", "evidence": "发色偏棕"})
-    assert subtle["story_ok"] is True and subtle["identity_ok"] is False and subtle["severity"] == "minor" and subtle["text_or_watermark"] is True
+    assert subtle["story_ok"] is None and subtle["identity_ok"] is False and subtle["severity"] == "minor" and subtle["text_or_watermark"] is True
     fine = review_policy.verify_to_verdict({"people": [], "same_person_twice": False, "species_or_gender_wrong": False, "action_by_wrong_person": False, "actor_missing": False,
                                  "lead_face_swapped": False, "ghost_text": False, "verdict": "fine", "evidence": ""})
-    assert fine["severity"] == "pass" and fine["story_kind"] == "无问题"
+    assert fine["severity"] == "pass" and fine["story_kind"] == "无法判断"
 
 
 def test_review_mode_comes_from_env_or_profile(monkeypatch, tmp_path):

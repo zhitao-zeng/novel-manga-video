@@ -7296,7 +7296,7 @@
       "validation_errors": [
        "response is not one JSON object: JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
       ],
-      "instruction": "上一稿超过输出长度上限被截断。本次压缩篇幅：每个字段只写必要内容，camera 和 light 在机位或光源不变时写\"同上\"，avoid 每段不超过 3 项，台词句子不加长；不得减少区段覆盖。"
+      "instruction": "上一稿超过输出长度上限被截断。本次压缩篇幅：每个字段只写必要内容，camera 和 light 仍用完整短句写清本镜机位和光源，不能写同上；avoid 每段不超过 3 项，台词句子不加长；不得减少区段覆盖。"
      }
     },
     "schema": {

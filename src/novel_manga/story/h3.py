@@ -119,7 +119,7 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             # speech invented in wordless shots was largely these names.  The guide also asks for
             # English everywhere outside <d>.
             face = next((n for n, r in own if view_of(r) == 'expressions'), None)
-            body = next((n for n, r in own if view_of(r) != 'expressions'), numbers[0])
+            body = next((n for n, r in own if view_of(r) not in ('expressions', 'closed')), numbers[0])
             if face is not None and len(numbers) > 1:
                 # Each picture's job, the way the Chinese binding already splits them: the bust stops at the
                 # collar, so asking it for the cut of a costume it does not show leaves the model to invent one.
@@ -131,6 +131,14 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
                 take = (f"Take the face, hair and build from <Picture {face or body}>, not the clothing. "
                         f"This person wears the armor or garment design from <Picture {worn[name]}>. "
                         "The wearer and worn garment are one figure, not two actors.")
+            closed = next((n for n, r in own if view_of(r) == 'closed'), None)
+            if closed is not None and all(view_of(r) == 'closed' for _, r in own):
+                take = (f"Take the visible body proportions, outfit and fully closed helmet from <Picture {closed}>. "
+                        "The helmet's faceplate stays closed throughout the shot.")
+            elif closed is not None:
+                # The closed look of the same card (packing sends closed.jpeg), never a second person.
+                take += (f" <Picture {closed}> shows this same person with the helmet's faceplate closed: "
+                         f"whenever the faceplate is closed, it looks exactly like <Picture {closed}>.")
             defs.append(SUBJECT_DECLARATION.format(subject=subject, pictures=picture_phrase(numbers)) + ' ' + take +
                         f" Exactly one <Subject {subject}> appears in the video; no other person has "
                         f"<Subject {subject}>'s face, hair or clothes.")
@@ -187,6 +195,8 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
     translated shots; their declarative result may also describe the target in the summary. Speakers carry
     stable (Sx) ids next to their subject tag; an off-screen line uses the guide's exact phrase and is followed by
     the statement that the on-screen characters' lips stay closed (the "wrong mouth moves" defect)."""
+    from .voice_delivery import visual_request
+    clip = visual_request(clip)
     defs, subject_of = subject_lines(clip)
     speaker_ids: dict = {}
 
@@ -261,7 +271,8 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
     seconds = clip.get("request_seconds")
     retention = []
     for name, own in character_pictures(clip).items():
-        n, shown = subject_of[name], picture_phrase([p for p, _ in own])
+        # The closed-faceplate picture shows no face: the face and hair are the other pictures'.
+        n, shown = subject_of[name], picture_phrase([p for p, r in own if view_of(r) != 'closed'] or [p for p, _ in own])
         retention.append(f"<Subject {n}>: fully_preserved - the identity, face, hair and clothing of {shown}; one instance in every shot it appears in.")
         if any(name in ref.get('wearers', []) for ref in clip.get('references', [])):
             retention[-1] = f'<Subject {n}>: partially_preserved - identity, face and hair from {shown}; clothing follows the wearable prop binding.'
@@ -269,6 +280,8 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
             retention[-1] = (f'<Subject {n}>: fully_preserved - the identity, face, hair and build of {shown}; '
                              'base garment design is retained when worn, while current clothing state follows the authored shot. '
                              'One instance in every shot it appears in.')
+        if all(view_of(r) == 'closed' for _, r in own):
+            retention[-1] = f'<Subject {n}>: fully_preserved - the visible body, outfit and closed helmet of {shown}; one instance in every shot.'
     # The task prefix names what the references actually are; "audio reference" only when a voice
     # reference is really attached.
     has_audio = any(ref.get("role") == "voice" for ref in (clip.get("references") or []))
@@ -343,6 +356,8 @@ def clean_note(text: str, naming: str) -> str:
 
 
 def final_dialogue_issues(clip: dict) -> list[str]:
+    from .voice_delivery import visual_request
+    clip = visual_request(clip)
     if 'dialogue_bindings' not in clip or not clip.get('prompt_h3'):
         return []
     subjects = subject_map(clip)
@@ -373,6 +388,9 @@ def final_dialogue_issues(clip: dict) -> list[str]:
             for i, (want, got) in enumerate(zip(expected, actual), 1) if want != got]
 
 
+CHINESE_OUTSIDE_DIALOGUE = 'H3 description contains Chinese outside bound dialogue'
+
+
 def request_issues(clip: dict) -> list[str]:
     text = str(clip.get('prompt_h3') or '')
     body = text.split('detailed_description:',1)[-1]
@@ -397,9 +415,19 @@ def request_issues(clip: dict) -> list[str]:
     if people and len(people_declared) > len(people):
         issues.append(f'{len(people_declared)} subjects are declared for {len(people)} characters: '
                       "one person's reference images were declared as separate people")
-    if clip.get('scene_ids') and CJK.search(re.sub(r'<d>.*?</d>', '', text, flags=re.S)):
-        issues.append('authored H3 description contains Chinese outside bound dialogue')
+    if CJK.search(re.sub(r'<d>.*?</d>', '', text, flags=re.S)):
+        # Every clip, not only authored scenes: H3 reads Chinese aloud wherever it stands.  美漫 ch12 clip_20
+        # (2026-09-25) carried the naming table's traits after a subject tag and passed as "ok".
+        issues.append(CHINESE_OUTSIDE_DIALOGUE)
     return issues + final_dialogue_issues(clip)
+
+
+def identity_issues(clip: dict) -> list[str]:
+    """The request problems re-planning a clip can fix.  Chinese left outside the dialogue is fixed by
+    translating again, which every new submission does first; routed to a source re-check it would carry
+    the identity correction below.  (Every translation made before 2026-09-17 names its subjects in
+    Chinese: 30,810 of 30,986 translated clips on 2026-09-25.)"""
+    return [issue for issue in request_issues(clip) if issue != CHINESE_OUTSIDE_DIALOGUE]
 
 
 def source_crowds(clip: dict, bible: dict, passage: str, *, context=None) -> dict:
@@ -435,7 +463,7 @@ def source_crowds(clip: dict, bible: dict, passage: str, *, context=None) -> dic
 
 def correction(clip: dict) -> str:
     """Describe the concrete conflict without prescribing invented identities."""
-    issues = request_issues(clip)
+    issues = identity_issues(clip)
     if not issues:
         return ''
     return ('实际英文请求把同一个人物编号写成了多个人：'+'；'.join(issues)+

@@ -10,14 +10,10 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
     unknown = [str(name) for name in shot.get("characters", []) if pc_cast.canonical(name, ctx=ctx) not in names]
     if unknown:
         errors.append(PlanningIssue(PlanningCode.UNKNOWN_CHARACTERS, f"characters not in StoryBible: {unknown}", stage=position, field='characters'))
-    # in_frame used to be the last word, because a scan for names invented people who were only
-    # spoken of.  It is not: 在美漫当心灵导师的日子's planned chapters name someone the cast omits in
-    # 244 of 1,413 shots' 开始时/结束时 tableau and 91 more in the event line, and every one of them
-    # reaches the renderer without a card - the naming table has no tag, so the translation writes
-    # "Stark" or "a seated figure" and H3 invents a face.  The cap in complete_characters is what
-    # keeps a crowd from becoming six reference images; the warning below is the audit trail for
-    # whoever it adds, and 贾维斯 (an AI with no body) is the name to watch in it.
-    characters, added = pc_cast.complete_characters(characters, shot, everyone, ctx=ctx)
+    # Explicit visibility, including an empty frame, is not an invitation to
+    # re-seat every name mentioned in the picture or an action. The existing
+    # presence review can identify a genuine omission from the source evidence.
+    characters, added = (characters, []) if shot.get('in_frame_given') else pc_cast.complete_characters(characters, shot, everyone, ctx=ctx)
     if added:
         warnings.append(f"{position}: characters 补上镜头描述里出现的 {added}")
     # Names the lines speak of stay candidates: a spoken 佩珀 is a person to put in a LATER shot
@@ -41,22 +37,9 @@ def cast_and_actions(shot, names, everyone, location_map, position, ctx, errors,
     if objects.intersection(normalize_extras(shot.get('extras'))):
         warnings.append(f"{position}: extras 与 props 重复，按物件处理")
     actions = normalize_actions(shot.get('actions'), aliases=ctx.aliases, extras=extras)
-    for action in actions:
-        for who in (action['actor'], action['target']):
-            # An action's named partner is in the picture whatever in_frame says.  in_frame is taken as
-            # authoritative because scanning the prose for names invented ghosts, but this is not a scan:
-            # fields.py asks for "说话的人和这一阶段与他有动作往来的人", so a stage that writes
-            # actions=[(席勒 → 托尼·斯塔克)] and in_frame=[席勒] contradicts its own two fields.  Believing
-            # in_frame there costs 托尼 his card: he is still described in the shot, the naming table has no
-            # tag for him, and the translation writes "Stark" - a person H3 must invent a face for
-            # (ch12 part one, 2026-09-22: ten such names in thirteen shots).
-            if who in names and who not in characters:
-                characters.append(who)
-                warnings.append(f"{position}: actions 里的 {who} 补进 characters")
     motion_text = str(shot.get("motion_prompt") or "").strip()
     if actions and not shot.get('scene_id'):
-        # the event line names who does what to whom before anything else: that sentence is what the
-        # renderer and the reviewer read as 主要事件
+        # Keep the event prose; attribution is evidence, not a second sentence to prepend.
         motion_text = anchored_event(actions, motion_text)
     location = str(shot.get("location", ""))
     if location not in location_map:
@@ -76,6 +59,13 @@ def normalize_turns(shot, characters, names, position, ctx, errors, warnings):
         text = str(turn.get("text", "")).strip()
         emotion = str(turn.get("emotion", "")).strip() or "克制自然"
         if not text:
+            continue
+        if mode in {"visible_dialogue", "offscreen_dialogue"} and (
+                not pc_text.spoken_chars(text) or re.fullmatch(r"[（(][^（()）]*[）)]", text)):
+            # Nothing to say aloud: 「……」 or a bracketed direction such as 「（无对白，动作描述）」, both
+            # written as 席勒's lines to pad a split (ch12 part one, 2026-09-25).  The renderer would
+            # speak the bracket; like an empty line it is no line.
+            warnings.append(f"{position}: 台词 {text[:20]!r} 没有可说出口的字（占位或动作说明），按无对白处理")
             continue
         if mode == "visible_dialogue":
             if speaker in names:
@@ -143,6 +133,17 @@ def normalize_turns(shot, characters, names, position, ctx, errors, warnings):
 
 
 def end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings):
+    for field in ('camera', 'light'):
+        if str(shot.get(field) or '').strip().strip('。；') == '同上':
+            detail = f'{field}不能只写同上；按本阶段的实际画面独立写清机位或当前光源，不延续已经结束的动作效果'
+            if ctx.authored_storyboard:
+                # A patch never changes an authored camera (binding.keep_authored puts the author's
+                # column back), so a rewrite request could not clear it and the sheet would fail on its
+                # own shorthand - the frozen ch12 regression sheet is one.  Reported; the packer
+                # executes the author's 同上 (story/scene.py).
+                warnings.append(f'report only: {position}: {detail}')
+            else:
+                errors.append(PlanningIssue(PlanningCode.VISUAL_CONTENT, detail, stage=position, field=field))
     end_state = str(shot.get("end_state") or "").strip()
     if not end_state:
         end_state = str(shot.get("motion_prompt") or "").strip()[:80]

@@ -1,5 +1,5 @@
-"""A wearable prop anchors its own card; a phase wearing it carries both cards, and a wears
-pointing nowhere changes nothing."""
+"""A wearable prop anchors its own card; a phase card drawn wearing it carries it on that card (the prop
+takes no seat of its own), and a wears pointing nowhere changes nothing."""
 import json
 from pathlib import Path
 
@@ -27,7 +27,8 @@ def test_wearable_prop_lookup():
     assert wearable_prop({"wears": "不存在的甲"}, bible) is None                 # 指向不存在的道具
 
 
-def test_phase_wearing_a_prop_carries_both_cards(tmp_path):
+def test_a_phase_card_drawn_wearing_the_prop_carries_it(tmp_path):
+    """美漫 ch12 (2026-09-25): the suit's own picture beside the wearer's became a second suit."""
     bible = _bible()
     novel = tmp_path / "book"
     cards = novel / "series_assets"
@@ -39,11 +40,12 @@ def test_phase_wearing_a_prop_carries_both_cards(tmp_path):
         "characters": {"托尼": [{"from": 50, "to": None, "asset_id": "character_001-p2",
                                  "wears": "Mark XLII 战甲"}]}}), encoding="utf-8")
 
-    refs, _, _ = build_references(["托尼"], "厂房", bible, {"厂房": "厂房：钢结构"},
-                                  novel_dir=novel, chapter=60)
+    refs, bindings, _ = build_references(["托尼"], "厂房", bible, {"厂房": "厂房：钢结构"},
+                                         novel_dir=novel, chapter=60)
     seats = {(r["role"], r["path"]) for r in refs}
     assert ("character", "series_assets/characters/character_001-p2/turnaround.jpeg") in seats
-    assert ("prop", "series_assets/props/prop_001/turnaround.jpeg") in seats
+    assert not [r for r in refs if r["role"] == "prop"]
+    assert "人物卡上穿的就是Mark XLII 战甲" in bindings[0] and "不采用人物卡的原服装" not in bindings[0]
 
     # 同一章但 phase 没有 wears（换一本无联动书的行为）：只有角色卡
     (cards / "phases.json").write_text(json.dumps({

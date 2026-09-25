@@ -117,11 +117,12 @@ def test_story_repair_addresses_plan_index_and_preserves_source_index(split_epis
         return {"stages": [{"origin_index": 1, "in_frame": ["林凡"], "actions": [], "extras": ["持灯的侍者"], "event": "林凡转身说话"}]}
     monkeypatch.setattr(repair_judges, 'ask_json', answer)
     result = repair.repair_episode(episode.parent, 1, True)
-    assert result["changed"] == ["clip_02"]
+    assert result["changed"] == ["clip_01", "clip_02", "clip_03"]
     assert json.loads((episode / "chapter_script.json").read_text())["shots"][0]["origin_index"] == 9
     actual = json.loads((episode / "clip_plan.json").read_text())["clips"]
     assert actual[1]["spoken_text"] == "乙" * 48
-    assert actual[0] == plan["clips"][0] and actual[2] == plan["clips"][2]
+    assert [c["spoken_text"] for c in actual] == [c["spoken_text"] for c in plan["clips"]]
+    assert all("持灯的侍者" in c["prompt"] for c in actual)
 
 
 @pytest.mark.parametrize('legacy_address', [False, True])

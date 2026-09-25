@@ -31,8 +31,9 @@ def snapshot_block(clip: dict, episode_dir: Path) -> str:
     which names, who is only a voice or only spoken of, how they stand to each other, what the audience must
     not learn yet.  Empty when the novel has no ledger or it has not read this chapter (nothing changes)."""
     novel_dir = Path(episode_dir).parent
-    chapter = str(episode_dir.name).rsplit("_", 1)[-1]
-    if not chapter.isdigit() or not (novel_dir / "entity" / "mentions" / f"ch_{int(chapter):04d}.json").is_file():
+    from novel_manga.episodes import chapter_of
+    chapter = chapter_of(episode_dir.name)
+    if chapter is None or not (novel_dir / "entity" / "mentions" / f"ch_{chapter:04d}.json").is_file():
         return ""
     try:
         from novel_manga.application.identity.ledger_store import Ledger, novel_texts

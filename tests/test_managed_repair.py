@@ -145,8 +145,8 @@ def test_failed_source_preparation_does_not_prevent_another_clip_from_being_prep
     import novel_manga.application.repair.source_recheck as source
     import novel_manga.application.packing.blocked as blocked
     monkeypatch.setattr(blocked,'repair_episode',lambda *a,**k:{'changed':[]})
-    monkeypatch.setattr(diagnose,'clip_context',lambda *a:{})
-    monkeypatch.setattr(diagnose,'diagnose_numbered',lambda *a:{'cause':'script_mismatch'})
+    monkeypatch.setattr(diagnose,'clip_context',lambda *a,**kw:{})
+    monkeypatch.setattr(diagnose,'diagnose_numbered',lambda *a:{'cause':'uncertain'})
     def prepare(directory,targets,**kw):
         cid=targets[0]
         if cid=='a':raise ValueError('source missing')
@@ -206,12 +206,13 @@ def test_one_render_is_recorded_for_every_prepared_clip_and_counted_once(tmp_pat
 
 
 def test_reframe_recut_translates_and_tracks_every_replacement(tmp_path, monkeypatch):
+    monkeypatch.setattr(repair_judges, 'request_consistency', lambda *a: {'consistent': True, 'problems': []})
     import novel_manga.application.rendering.h3 as build_h3_prompts
     import novel_manga.application.repair.diagnosis as diagnose_clip_repair
     import novel_manga.application.packing.blocked as repair_blocked_plan
     d, clips, reviews = fixture_episode(tmp_path)
     monkeypatch.setattr(repair_blocked_plan, 'repair_episode', lambda *a, **k: {'changed': []})
-    monkeypatch.setattr(diagnose_clip_repair, 'clip_context', lambda *a: {})
+    monkeypatch.setattr(diagnose_clip_repair, 'clip_context', lambda *a, **kw: {})
     monkeypatch.setattr(diagnose_clip_repair, 'diagnose_numbered', lambda *a: {'cause': 'generation_mismatch'})
     monkeypatch.setattr(history, 'repeated_errors', lambda *a: ['same_person_twice'])
     updated = {'clips': [dict(clips[0], prompt='first location'),
@@ -229,3 +230,29 @@ def test_reframe_recut_translates_and_tracks_every_replacement(tmp_path, monkeyp
     assert result['changed'] == ['a', 'c'] and not result['blocked']
     assert translated == ['a', 'c']
     assert history.load(d)['trials'][0]['clips'] == ['a', 'c']
+
+
+def test_inconsistent_repair_request_is_not_published_or_charged(tmp_path, monkeypatch):
+    import novel_manga.application.repair.diagnosis as diagnosis
+    import novel_manga.application.packing.blocked as blocked
+    import novel_manga.application.rendering.h3 as h3
+    d, clips, reviews = fixture_episode(tmp_path)
+    original = (d/'clip_plan.json').read_text()
+    monkeypatch.setattr(blocked, 'repair_episode', lambda *a, **kw: {'changed': []})
+    monkeypatch.setattr(diagnosis, 'clip_context', lambda *a, **kw: {})
+    monkeypatch.setattr(diagnosis, 'diagnose_numbered', lambda *a: {'cause': 'request_mismatch'})
+    calls = []
+    def candidate(*a, **kw):
+        calls.append(kw['source_issues'])
+        return {'changed': ['a'], 'proposal': {'script': {'shots': []}, 'plan': {'clips': [dict(clips[0], prompt='changed'),clips[1]]},
+                'notes': {}, 'changes': {}, 'structural_repair': {}}}
+    monkeypatch.setattr(repair, 'repair_episode', candidate)
+    def convert(clip, **kw):
+        from novel_manga.application.profiles import h3_stamp
+        clip.update(prompt_h3='safe words');clip['prompt_h3_of']=h3_stamp(clip,'')
+    monkeypatch.setattr(h3,'convert',convert)
+    monkeypatch.setattr(repair_judges,'request_consistency',lambda *a:{'consistent':False,'problems':['同一人在前景和背景']})
+    result=managed.prepare(d,['a'])
+    assert len(calls)==2 and not result['changed'] and 'a' in result['blocked']
+    assert (d/'clip_plan.json').read_text()==original
+    assert not history.load(d)['trials'] and not managed.generated_counts(history.load(d))

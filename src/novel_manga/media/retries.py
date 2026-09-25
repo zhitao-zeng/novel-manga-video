@@ -53,10 +53,6 @@ def after_analysis(state: RetryState, analysis: dict, *, generated: bool, free_r
                    next_cached: bool | None = None, local_h3: bool = False) -> NextAttempt:
     if analysis['passed']:
         return NextAttempt('stop', state.attempt, state.limit)
-    if local_h3 and 'excess_unplanned_speech' in analysis.get('issues', []):
-        # A second seed repeated the same appended nonsense in ch12. Correct the request
-        # before another H3 generation; do not spend takes replaying this prompt.
-        return NextAttempt('stop', state.attempt, state.limit)
     limit = state.limit
     if not generated and limit < policy.MAX_ATTEMPTS_FREE:
         if not free_retries and next_cached is None:
@@ -64,6 +60,8 @@ def after_analysis(state: RetryState, analysis: dict, *, generated: bool, free_r
         if free_retries or next_cached:
             limit += 1
     attempt = state.attempt + 1
+    if local_h3 and {'excess_unplanned_speech', 'unscripted_speech'}.intersection(analysis.get('issues', [])) and attempt <= limit:
+        return NextAttempt('correct_request', attempt, limit)
     return NextAttempt('continue' if attempt <= limit else 'stop', attempt, limit)
 
 

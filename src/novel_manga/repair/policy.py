@@ -21,6 +21,8 @@ def source_decision(problems, precise, verified_source, instruction):
 
 def diagnosed_decision(diagnosis, repeated=False):
     action = 'retake' if diagnosis.get('cause') == 'generation_mismatch' else 'source'
+    if diagnosis.get('cause') in {'script_mismatch', 'request_mismatch'}:
+        action = 'reframe'
     if action == 'retake' and repeated:
         action = 'reframe'
     return RepairDecision(action, diagnosis)

@@ -98,10 +98,14 @@ def test_bare_this_clip_falls_back_to_the_base_card(tmp_path):
     (novel_dir / "series_assets" / "phases.json").write_text(
         _json.dumps({"policy": POLICY, "characters": phases}), encoding="utf-8")
 
-    # chapter default: the armour phase card + the prop rides
+    # chapter default: the armour phase card, which carries the armour - the prop takes no seat of its own
     refs, _, _ = _pack_with_dir(bible, ["托尼·斯塔克"], novel_dir, chapter=12, on_disk={"prop_001": {"turnaround.jpeg"}})
     assert refs[0]["asset_id"] == "character_001-p2"
-    assert any(r["role"] == "prop" for r in refs)
+    assert not any(r["role"] == "prop" for r in refs)
+    # a second, empty suit in the same clip still gets the seat
+    refs, _, loc = _pack_with_dir(bible, ["托尼·斯塔克"], novel_dir, chapter=12, props=["马克3号"],
+                                  on_disk={"prop_001": {"turnaround.jpeg"}, "prop_002": {"turnaround.jpeg"}})
+    assert [r["name"] for r in refs if r["role"] == "prop"] == ["马克3号"] and "无人穿戴" in loc
 
     # this clip: bare - base card, no prop
     refs, _, loc = _pack_with_dir(bible, ["托尼·斯塔克"], novel_dir, chapter=12,

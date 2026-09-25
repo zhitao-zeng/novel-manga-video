@@ -35,6 +35,9 @@ def review_batch(novel: Path, episodes: list[int], scope: str, state_dir: Path, 
     for n in episodes:
         directory = novel / f"{novel.name}_{n}"
         review, takes = review_store.reconcile(directory, local, flash)
+        if any(row.get("confirmed") for row in review.get("clips", {}).values()):
+            from novel_manga.application.review.episode import review_episode
+            review = review_episode(directory, fresh=False)
         remaining += len(missing_reviews(review, takes, scope))
         from novel_manga.application.repair.history import observe
         from novel_manga.application.repair.delivery import publish_if_ready

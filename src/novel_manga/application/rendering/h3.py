@@ -41,6 +41,16 @@ from novel_manga.application.production.runs import corrections
 from novel_manga.util import atomic_write_json  # noqa: E402
 from novel_manga.story.h3 import request_issues, stages_of, subject_lines, asset_subjects, compose, tag_names, clean_note, CJK, CHARACTER_TRAIT
 
+# The naming block hands the translator each subject's Chinese traits in brackets, "<Subject 2> (倒三角形，
+# 肩宽腰细，姿态张扬)", and it sometimes copies the bracket after the tag.  Outside <d> H3 reads Chinese
+# aloud: 美漫 ch12 clip_20 (2026-09-25) carried 48 such characters, the same on every retry, and the check
+# on Chinese in a translation only runs for authored scenes.
+ECHOED_TRAITS = re.compile(r'(<Subject \d+>)\s*[(（][^()（）]*[\u4e00-\u9fff][^()（）]*[)）]')
+
+
+def strip_echoed_traits(sentence: str) -> str:
+    return ECHOED_TRAITS.sub(r'\1', sentence)
+
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots", "soundscape"],
           "properties": {"shots": {"type": "array", "items": {"type": "string"}},
                          "soundscape": {"type": "string"}}}
@@ -265,9 +275,11 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
         soundscape = str(answer.get('soundscape') or '').strip()
         if CJK.search(soundscape):
             raise ValueError('soundscape must be in English')
-        return [str(s).strip() for s in (answer.get("shots") or [])]
+        return [strip_echoed_traits(str(s).strip()) for s in (answer.get("shots") or [])]
 
-    manners = ([str(r.get('emotion') or '') for r in clip['dialogue_bindings']] if 'dialogue_bindings' in clip
+    from novel_manga.story.voice_delivery import visual_request
+    delivery_clip = visual_request(clip)
+    manners = ([str(r.get('emotion') or '') for r in delivery_clip['dialogue_bindings']] if 'dialogue_bindings' in delivery_clip
                else [turn[3] for _, turns in stages for turn in turns if len(turn) > 3])
     delivery = english_delivery(manners)
     problem = ""

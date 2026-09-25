@@ -57,9 +57,11 @@ def replayed():
     return result
 
 
-def test_the_chain_replays_without_errors(replayed):
-    errors = [issue.message for issue in replayed.errors]
-    assert not errors, errors[:6]
+def test_old_shorthand_is_reported_without_rewriting_the_frozen_sheet(replayed):
+    # A patch never changes the author's camera, so the sheet's 同上 is reported rather than sent back
+    # for a rewrite it could never pass; the packer executes it.
+    assert not replayed.issues
+    assert any(w.startswith('report only') and '同上' in w for w in replayed.warnings)
 
 
 def test_talked_about_names_stay_off_camera(replayed):

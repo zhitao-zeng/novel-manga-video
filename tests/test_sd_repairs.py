@@ -130,10 +130,12 @@ def test_a_stage_too_long_for_one_clip_is_split_between_its_lines(monkeypatch):
     spoken = [turn["text"] for clip in clips for stage in clip["shots"] for turn in stage["turns"]]
     assert spoken == [turn["text"] for turn in shot["turns"]]  # every line, in order, none clamped away
     assert any(d["kind"] == "split_stage" for d in compiler.decisions)
-    # Part 1 ends mid-action (the finale belongs to the last part); part 2 names the action past.
-    assert "后续分段才成立" in clips[0]["shots"][0]["end_state"]
-    assert clips[1]["shots"][0]["visual_prompt"].startswith("承接上一段：林凡边说边踱步")
-    assert "已完成" in clips[1]["shots"][0]["visual_prompt"] or "正在进行中" in clips[1]["shots"][0]["visual_prompt"]
+    # Nothing is written for the parts: each opens on the writer's picture, the parts before the last
+    # hold it and only speak, and the last one plays the stage's event and lands its end.
+    stages = [clip["shots"][0] for clip in clips]
+    assert all(s["visual_prompt"] == "林凡站在大殿中央" for s in stages)
+    assert all(s["motion_prompt"] == "" and s["end_state"] == "" for s in stages[:-1])
+    assert (stages[-1]["motion_prompt"], stages[-1]["end_state"]) == ("林凡边说边踱步", "林凡停下")
 
 
 def test_a_line_longer_than_a_clip_is_cut_at_sentence_ends(monkeypatch):

@@ -1,7 +1,7 @@
 """planning.contracts responsibilities, extracted without changing requests or policy."""
 from __future__ import annotations
 from novel_manga.planning.context import PlannerContext
-from novel_manga.story.fields import actions_field
+from novel_manga.story.fields import sound_effects_field, actions_field
 from novel_manga.story.fields import cast_field
 from novel_manga.story.fields import extras_field
 from novel_manga.story.fields import turn_field
@@ -39,7 +39,7 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "end_state": {"type": "string"},
             "camera": {"type": "string"},
             "light": {"type": "string"},
-            "sfx": {"type": "string"},
+            "sfx": sound_effects_field(),
             "shot_scale": {"type": "string", "enum": pc_constants.SHOT_SCALES},
             "turns": {"type": "array", "minItems": 1, "maxItems": 8, "items": turn},
             # who is actually in the picture of this stage (a subset of clip.characters), and the actions as

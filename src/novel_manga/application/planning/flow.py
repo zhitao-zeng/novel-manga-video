@@ -1,5 +1,6 @@
 """Chapter planning IO and orchestration; business modules receive explicit context."""
 from __future__ import annotations
+from novel_manga.planning.issues import PlanningCode
 from novel_manga.planning.context import PlannerContext
 
 class PlanningInputError(ValueError):
@@ -444,6 +445,16 @@ def run(args, ctx: PlannerContext) -> int:
     result = None
     patch_rounds = 0  # small repair calls used so far on this chapter
     patch_seconds_left = pc_constants.PATCH_TOTAL_SECONDS
+    def validate_draft(draft):
+        checked = pc_validation.validate_and_normalize(draft, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
+        if not args.replay and all(issue.code == PlanningCode.DURATION_BELOW_MINIMUM for issue in checked.issues):
+            from novel_manga.application.planning.presence import grade_presence, issues_for_grades
+            grades = grade_presence(checked.shots, everyone, ctx=ctx,
+                                    roster={c.name: c.appearance for c in full_bible.characters},
+                                    source=episode.source_text)
+            checked.issues.extend(issues_for_grades(checked.shots, grades, everyone))
+        return checked
+
     for attempt in range(1, args.max_redo + 2):
         request_payload = {**payload, **({"repair": repair} if repair else {})}
         atomic_write_json(episode_dir / f"request_attempt_{attempt:02d}.json", request_payload)
@@ -503,7 +514,7 @@ def run(args, ctx: PlannerContext) -> int:
             attempts.append({"attempt": attempt, **meta, "errors": final_errors})
             repair = pc_decisions.invalid_response_feedback(final_errors, meta.get("finish_reason"))
             continue
-        validation = pc_validation.validate_and_normalize(raw, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
+        validation = validate_draft(raw)
         errors, warnings, shots = validation.errors, validation.warnings, validation.shots
         fingerprint = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
         resent = attempts and attempts[-1].get("fingerprint") == fingerprint
@@ -511,6 +522,9 @@ def run(args, ctx: PlannerContext) -> int:
         print(json.dumps({"attempt": attempt, **meta, "error_count": len(errors), "warning_count": len(warnings)}, ensure_ascii=False), flush=True)
         decision = pc_decisions.decide_validation(validation, final_attempt=attempt == args.max_redo + 1,
                     patch_rounds=patch_rounds, patch_seconds_left=patch_seconds_left, allow_floor_waiver=True)
+        # A shortfall waived here stays waived while a presence patch runs - that patch is about who is
+        # in the picture, not the length.  A shortfall a patch creates is still not waived.
+        floor_granted = decision.floor_waived
         if decision.floor_waived:
             errors, warnings = decision.errors, decision.warnings
             attempts[-1]["errors"] = errors
@@ -533,9 +547,11 @@ def run(args, ctx: PlannerContext) -> int:
                 # An authored sheet has nothing to insert - what it leaves uncited is recorded as its
                 # author's choice by the coverage check - and what a patch rewrites on it keeps the
                 # author's columns: the model's answer may correct a quote or a state, never a shot.
-                patched = planner_requests.patch_plan(raw, [] if authored else missing_ids, faulty, segments, names, list(location_map), timeout=patch_timeout, ctx=ctx)
+                patched = planner_requests.patch_plan(raw, [] if authored else missing_ids, faulty, segments, names, list(location_map), timeout=patch_timeout, ctx=ctx,
+                    split_labels=[issue.stage for issue in validation.issues if issue.code == PlanningCode.STAGE_ABOVE_MAXIMUM])
                 if authored:
                     patched = pc_binding.keep_authored(raw, patched)
+                atomic_write_json(episode_dir / f'patch_attempt_{attempt:02d}_{patch_rounds:02d}.json', patched)
             except Exception as error:  # noqa: BLE001 - fall through to the normal redo
                 failure = {**summary, "failed": f"{type(error).__name__}: {str(error)[:120]}", "elapsed_seconds": round(time.monotonic() - patch_started, 1)}
                 attempts[-1].setdefault("patches", []).append(failure)
@@ -543,14 +559,27 @@ def run(args, ctx: PlannerContext) -> int:
                 break
             finally:
                 patch_seconds_left = max(0.0, patch_seconds_left - (time.monotonic() - patch_started))
-            validation = pc_validation.validate_and_normalize(patched, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
+            validation = validate_draft(patched)
             errors, warnings, shots = validation.errors, validation.warnings, validation.shots
             attempts[-1].setdefault("patches", []).append({**summary, "errors_after": len(errors), "errors": errors[:6]})
             print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False), flush=True)
             raw = patched  # the next round, or the full redo, starts from the improved draft
             decision = pc_decisions.decide_validation(validation, final_attempt=attempt == args.max_redo + 1,
-                        patch_rounds=patch_rounds, patch_seconds_left=patch_seconds_left)
+                        patch_rounds=patch_rounds, patch_seconds_left=patch_seconds_left,
+                        allow_floor_waiver=floor_granted)
             patchable = decision.targets
+        # Whatever the loop could not patch - its rounds ran out, a patch call failed, or this kind of
+        # draft takes no patches: a presence disagreement still standing leaves the writer's draft as it
+        # is and goes into the report, instead of a full re-plan or a failed chapter.
+        settled = pc_decisions.decide_validation(validation, final_attempt=attempt == args.max_redo + 1,
+                    patch_rounds=pc_constants.PATCH_ROUNDS, patch_seconds_left=0.0, allow_floor_waiver=floor_granted)
+        if settled.presence_waived or settled.floor_waived:
+            errors, warnings = settled.errors, settled.warnings
+            attempts[-1]["errors"] = errors
+            if settled.floor_waived:
+                attempts[-1]["floor_waived"] = True
+            if settled.presence_waived:
+                attempts[-1]["presence_waived"] = settled.presence_waived
         if not errors and ctx.strict_plan:
             strict = pc_validation.strict_plan_issues(shots, episode.source_text, segments, raw, ctx=ctx)
             strict_decision = pc_decisions.decide_strict(strict, final_attempt=attempt == args.max_redo + 1)
@@ -581,13 +610,21 @@ def run(args, ctx: PlannerContext) -> int:
                         atomic_write_json(evidence_path, verdict)
                 except PlanningInputError:
                     raise
-                except Exception as error:  # noqa: BLE001 - unreviewed script must not advance to H3
-                    final_errors = [f"保留内容审查未完成：{type(error).__name__}: {str(error)[:150]}"]
-                    attempts[-1]["errors"] = final_errors
-                    break
+                except Exception as error:  # noqa: BLE001 - reported like its findings; it gates nothing
+                    retained_issues = []
+                    unreviewed = f"{type(error).__name__}: {str(error)[:150]}"
+                    warnings = [*warnings, f"report only (保留内容审查未完成): {unreviewed}"]
+                    attempts[-1]["retention_unreviewed"] = unreviewed
                 if retained_issues:
-                    errors = [*errors, *(issue.message for issue in retained_issues)]
-                    attempts[-1]["errors"] = errors
+                    # Reported, never a reason to rewrite or to fail.  ch12 part one (2026-09-25): the review
+                    # sent back 14 of 15 drafts, by old code and new, with Flash-Next or 27B writing; a shared
+                    # checklist and shot-level patches did not stop it - every run still used all five drafts,
+                    # one draft grew past the length cap adding what it asked for - and the rendered video's
+                    # defects (a suit apart from its wearer, the visor, lips during an inner voice) were none of
+                    # the kinds it checks.  What it finds is for a person to read, in the report.
+                    reported = [issue.message for issue in retained_issues]
+                    warnings = [*warnings, *('report only (保留内容审查): ' + m for m in reported)]
+                    attempts[-1]["retention_reported"] = reported
         if errors:
             final_errors = errors
             repair = pc_decisions.revision_feedback(errors, raw, resent=bool(resent))
@@ -616,7 +653,6 @@ def run(args, ctx: PlannerContext) -> int:
         (episode_dir / stale).unlink(missing_ok=True)
     skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in (raw.get("skipped_segments") or []) if isinstance(item, dict)}
     report_metrics = pc_metrics.metrics(shots, episode.source_text, segments, skipped)
-    plan = pc_outputs.to_episode_plan(raw, shots, location_map, episode.source_text, episode.source_title, ctx=ctx)
     report = {
         "status": "passed",
         "policy": ctx.policy,
@@ -648,28 +684,7 @@ def run(args, ctx: PlannerContext) -> int:
         if marked:
             from novel_manga.llm import client as model_client
             model_client.log(f"prop marks: {marked}")
-    # 在场分级走判官后置 pass：字段规则分不清「画面里的佩珀」和「被谈到的佩珀」——
-    # 规划器把"席勒提到霍华德和佩珀"写进事件行，规则只能看见名字在场。判官逐镜分级，
-    # 然后双向纠正：talked_about 的降出演员表（留候选记录），on_camera 的补进去；
-    # 可见说话人和动作参与者是结构事实，永远在画，不归判官管。判官挂了就回落规则分级。
-    # replay 是确定性重放（响应已存盘），不再发起任何模型调用。
-    if not args.replay:
-        from novel_manga.application.planning.presence import grade_presence, apply_presence_grades
-        # 判官分级需要知道谁没有身体：档案里的外观描述（无实体/全息/声纹）是判定依据，
-        # 只给名字它无从知道贾维斯不该入画。
-        roster = {c.name: c.appearance for c in full_bible.characters}
-        grades = grade_presence(shots, everyone, ctx=ctx, roster=roster)
-        demoted, promoted = [], []
-        for position, shot in enumerate(shots, start=1):
-            judged = grades.get(position) or {}
-            if not judged:
-                continue
-            added, removed = apply_presence_grades(shot, judged, everyone)
-            promoted.extend(f"镜{position}:{name}" for name in added)
-            demoted.extend(f"镜{position}:{name}" for name in removed)
-        if demoted or promoted:
-            from novel_manga.llm import client as model_client
-            model_client.log(f"presence grades: promoted {promoted[:8]}, demoted to mentioned {demoted[:8]}")
+    plan = pc_outputs.to_episode_plan(raw, shots, location_map, episode.source_text, episode.source_title, ctx=ctx)
     atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped,
         **({'story_method': method.describe(), 'story_blueprint': ctx.story_blueprint} if method else {})})
     atomic_write_json(episode_dir / "chapter_script_report.json", report)

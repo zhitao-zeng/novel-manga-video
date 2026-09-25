@@ -192,8 +192,8 @@ def flatten_clips(raw: dict) -> list[dict]:
                     # A stage may name its own place (诊室 → 公交站 within one clip); the header stays
                     # the default, so every existing stage keeps the location it always had.
                     "location": str(stage.get("location") or clip.get("location", "")),
-                    "characters": list(stage.get("in_frame", []) if stage.get('scene_id') else (stage.get("in_frame") or clip.get("characters") or [])),
-                    "in_frame_given": ('in_frame' in stage) if stage.get('scene_id') else bool(stage.get("in_frame")),
+                    "characters": list(stage.get("in_frame") or []) if 'in_frame' in stage else list(clip.get("characters") or []),
+                    "in_frame_given": 'in_frame' in stage,
                     "actions": [a for a in (stage.get("actions") or []) if isinstance(a, dict)],
                     "extras": [str(e).strip() for e in (stage.get("extras") or []) if str(e).strip()],
                     "segment_id": stage.get("segment_id", ""),
@@ -293,6 +293,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         turns_out, visible = normalize_turns(shot, characters, names, position, ctx, errors, warnings)
         end_state = end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings)
         base = {
+            "label": position,
             "clip_hint": shot.get("clip_hint"),
             "segment_id": segment_id,
             **({"beat_id": shot["beat_id"]} if "beat_id" in shot else {}),
@@ -314,7 +315,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             **{k: shot[k] for k in ('scene_id', 'scene_time', 'scene_transition', 'shot_id',
                'unit_ids', 'turn_ids', 'source_refs', 'duration_seconds', 'timing_adjustment', 'purpose', 'cut',
                'authored_id', 'authored_seconds', 'authored_angle', 'props', 'scene_objects', 'wears') if k in shot},
-            **({'in_frame': characters} if shot.get('scene_id') else {}),
+            **({'in_frame': list(characters)} if shot.get('in_frame_given') else {}),
         }
         if "props" in base:
             # Books with a prop catalogue bind cards by name. Books without one

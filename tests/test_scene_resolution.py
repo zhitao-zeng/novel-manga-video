@@ -25,7 +25,8 @@ def test_resolution_is_nonmutating_and_resolved_result_is_idempotent():
     assert result.shots[0]['turns'][0]['speaker_name'] == '乙'
     assert '木门' not in result.shots[0]['characters']
     assert result.shots[0]['actions'][0] == {'actor': '乙', 'action': '推开', 'target': '木门'}
-    assert result.shots[1]['camera'] == '门外平视'
+    assert result.shots[1]['camera'] == '门外平视' and result.shots[1]['light'] == '日光从左侧照入'
+    assert not result.issues
     assert resolve_scene(result, context) == result
     result.shots[0]['characters'].append('修改副本')
     assert script == before
