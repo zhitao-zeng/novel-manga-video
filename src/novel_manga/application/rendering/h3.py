@@ -186,17 +186,18 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
     the shot - one sentence for two lines - so after that the correction is merged into every shot's text and
     translated as part of it: the count always matches and the instruction still reaches the picture
     (雾月 2026-09-13: 190 episodes looped on the folded answer)."""
-    prompt = clip.get("prompt") or ""
-    note = str(note or "").strip()
+    from novel_manga.application.profiles import h3_correction_parts
+    prompt, existing_note = h3_correction_parts(clip)
+    note = str(note or "").strip() or existing_note
 
     def merge_correction_into_prompt() -> None:
         """The correction stops being a parallel truth (audit #5): once its English is in, the
         Chinese prompt carries it too, and the note is spent - the plan is the one source, the
         cache key moves with it, and no stage of the pipeline keeps quoting an old picture."""
-        if not note or clip.get("prompt_correction_merged"):
+        if not note:
             return
         merge = f"\n【导演修正】{note}"
-        clip.setdefault("prompt_before_correction", prompt)
+        clip["prompt_before_correction"] = prompt
         clip["prompt"] = prompt + merge
         clip["prompt_correction_merged"] = True
 
@@ -371,7 +372,10 @@ def main() -> int:
             for clip in current.get("clips", []):
                 new = made.get(clip.get("clip_id"))
                 if new and new["prompt_h3_of"] == h3_stamp(clip, now.get(clip.get("clip_id"), "")):
-                    clip["prompt_h3"], clip["prompt_h3_of"] = new["prompt_h3"], new["prompt_h3_of"]
+                    for field in ('prompt', 'prompt_before_correction', 'prompt_correction_merged',
+                                  'prompt_h3', 'prompt_h3_of'):
+                        if field in new:
+                            clip[field] = new[field]
             atomic_write_json(path, current)
             plan = current
         return len(made), len(video), len(due) - len(made)

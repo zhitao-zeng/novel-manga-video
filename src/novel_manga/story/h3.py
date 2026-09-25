@@ -200,6 +200,11 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
         (r for r in clip.get('references', []) if r.get('role') == 'voice'), 1)}
     heard_voices = set()
     cuts = clip.get('shot_timing') or []
+    spoken_stages = ([r['stage'] for r in clip['dialogue_bindings']
+                      if r.get('text') and r.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'}]
+                     if 'dialogue_bindings' in clip else
+                     [i for i, (_, turns) in enumerate(stages, 1) if turns])
+    last_spoken_stage = max(spoken_stages, default=0)
     elapsed = 0.0
     for index, ((_, turns), text) in enumerate(zip(stages, english), 1):
         if 'dialogue_bindings' in clip:
@@ -218,7 +223,7 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
             line = re.sub(r'([.!?])\1+', r'\1', line)
             # A packed clause may end in a comma because the source speaker continues in the
             # next request. H3 must finish THIS request's utterance, not improvise its completion.
-            if index == len(stages) and turn_index == len(turns) - 1:
+            if index == last_spoken_stage and turn_index == len(turns) - 1:
                 line = re.sub(r'…+$', '.', line.rstrip())
                 line = re.sub(r'[,;:、]+$', '.', line.rstrip())
                 if line and line[-1] not in '.!?':
@@ -248,9 +253,11 @@ def compose(clip: dict, english: list[str], stages: list, note: str = "", delive
             else:
                 body.append(f"An off-screen voice {sid(who or 'off-screen')} says in an off-screen voiceover <d>[Chinese] {line}</d>{said} "
                             "The on-screen characters' lips remain closed.")
-        if turns and index == len(stages):
-            body.append("The quoted words complete this shot's utterance. The speaker finishes, closes their mouth "
-                        "and holds a silent reaction. Only the setting's physical ambience remains until the cut.")
+        if turns and index == last_spoken_stage:
+            ending = ("The voice finishes. " if offscreen or inner else
+                      "The speaker finishes, closes their mouth and holds a silent reaction. ")
+            body.append("The quoted words complete this shot's utterance. " + ending
+                        + "Only the setting's physical ambience remains until the cut.")
     seconds = clip.get("request_seconds")
     retention = []
     for name, own in character_pictures(clip).items():

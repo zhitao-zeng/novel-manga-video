@@ -261,17 +261,26 @@ def h3_source_digest(prompt: str, note: str = "", crowd_roles: dict | None = Non
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
+def h3_correction_parts(clip: dict) -> tuple[str, str]:
+    """Separate the one owned correction tail from the current source text."""
+    prompt = str(clip.get('prompt') or '')
+    if clip.get('prompt_correction_merged'):
+        source, marker, correction = prompt.rpartition('\n【导演修正】')
+        if marker:
+            return source, correction.strip()
+    return prompt, ''
+
+
 def h3_stamp(clip: dict, note: str = "") -> str:
     """The stamp a current translation carries: the version prefix and the digest of everything
     compose() reads - words, correction, crowd rules, reference seating, bound dialogue.
 
-    A correction already MERGED into the Chinese prompt (clip['prompt_correction_merged'], by
-    convert) is part of the words now: counting it again as a live note would mark the stamp
-    stale forever, so the note is spent once it is in the prompt it corrected.
+    Count an owned correction once. A new supplied correction replaces the old
+    tail and invalidates the translation; the merge flag cannot hide that change.
     """
-    if clip.get("prompt_correction_merged") and str(note or "").strip():
-        note = ""
-    return STAMP_V2_PREFIX + h3_source_digest(clip.get("prompt") or "", note,
+    prompt, existing_note = h3_correction_parts(clip)
+    note = str(note or '').strip() or existing_note
+    return STAMP_V2_PREFIX + h3_source_digest(prompt, note,
                                               clip.get('crowd_roles'), h3_compile_inputs(clip))
 
 

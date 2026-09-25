@@ -537,23 +537,21 @@ class ClipCompiler:
                                   for name, item in (shot.get("wears") or {}).items() if name in cast)
             if wears_note:
                 wears_note = "穿戴状态：" + wears_note
-            # Who faces the camera and who does not, without contradicting the blocking: characters
-            # are the shot's own visible cast (侧脸或正面 by the blocking note), the listeners stay
-            # back-to-camera or off frame.  The old line said 只有characters正脸入镜 while the
-            # same name sat in listeners too - one shot, three contradictory framings (audit #3);
-            # a listener outside the characters list still needs saying (she is in the clip's cast).
+            # Membership/listening does not choose a camera angle. Keep the
+            # authored picture rather than adding a conflicting generic pose.
             cast_names = shot.get("characters") or []
             listeners = [name for name in (shot.get("listeners") or [])]
             facing = [name for name in cast_names if name not in listeners]
             listen_note = ""
             if listeners:
                 if facing:
-                    listen_note = f"入镜人物：{'、'.join(facing)}；{'、'.join(listeners)}只露背影或在画外，不入近景、嘴不动。"
+                    listen_note = f"入镜人物：{'、'.join(facing)}；听者{'、'.join(listeners)}的站位、朝向与可见范围按本阶段画面描述，不添加未写出的动作或台词。"
                 else:
-                    listen_note = f"本阶段{'、'.join(listeners)}只露背影或在画外，不入近景、嘴不动。"
+                    listen_note = f"听者{'、'.join(listeners)}的站位、朝向与可见范围按本阶段画面描述，不添加未写出的动作或台词。"
+            blocking = ('' if listeners or 'in_frame' in shot else blocking_note(shot))
             lines.append(
                 f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{self.compact(shot['motion_prompt'])}。"
-                f"{('入镜：' + ('、'.join(shot.get('in_frame', shot['characters'])) or '无具名人物') + '。') if shot.get('scene_id') else blocking_note(shot)}{extras_note}{props_note}{local_objects}{wears_note}{listen_note}"
+                f"{('入镜：' + ('、'.join(shot.get('in_frame', shot['characters'])) or '无具名人物') + '。') if shot.get('scene_id') or 'in_frame' in shot else blocking}{extras_note}{props_note}{local_objects}{wears_note}{listen_note}"
                 f"{self.screen_clause(shot)}声音：{self._sound_clause(shot)}。结束时：{self.compact(shot['end_state'])}。"
             )
         scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))

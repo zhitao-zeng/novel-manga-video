@@ -78,7 +78,8 @@ def test_a_listener_in_the_cast_is_not_also_named_as_facing():
     prompt = ClipCompiler(_options()).compile_prompt(clip, bible, ["托尼·斯塔克", "席勒"], [], "诊所")
     assert "只有托尼·斯塔克、席勒正脸入镜" not in prompt     # the contradictory line is gone
     assert "入镜人物：托尼·斯塔克" in prompt                # the facing list names who faces
-    assert "席勒只露背影或在画外" in prompt
+    assert "听者席勒的站位、朝向与可见范围按本阶段画面描述" in prompt
+    assert "席勒只露背影或在画外" not in prompt
 
 
 def test_the_clip_roster_is_not_a_per_frame_headcount():

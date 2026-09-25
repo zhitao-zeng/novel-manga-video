@@ -82,7 +82,7 @@ def test_one_visible_speaker_keeps_only_the_speaker_in_frame():
     plan = pc_outputs.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章", ctx=planner_ctx)
     assert plan.shots[0].listeners == ["塞西娅"]
     clip = {"request_seconds": 15, "shots": [{**shots[0], "visual_prompt": "莱恩说话", "motion_prompt": "莱恩说话", "end_state": "塞西娅沉默"}]}
-    assert "入镜人物：莱恩·格雷；塞西娅只露背影或在画外，不入近景、嘴不动" in ClipCompiler(compiler_options()).compile_prompt(clip, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
+    assert "入镜人物：莱恩·格雷；听者塞西娅的站位、朝向与可见范围按本阶段画面描述" in ClipCompiler(compiler_options()).compile_prompt(clip, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
     stage["actions"] = [{"actor": "莱恩·格雷", "action": "握住手腕", "target": "塞西娅"}]
     validation = pc_validation.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     _, _, shots2 = validation.errors, validation.warnings, validation.shots
