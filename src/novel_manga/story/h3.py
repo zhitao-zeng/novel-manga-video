@@ -12,6 +12,11 @@ DECLARED_SUBJECT = re.compile(re.escape(SUBJECT_DECLARATION)
                              .replace(re.escape('{pictures}'), r'[^.]+'))
 
 CHARACTER_TRAIT = re.compile(r"([^\s，。；<>]{1,12})的辨识特征[:：]\s*([^。\n]{1,80})")
+# A naming line may carry a note for the translator after its tag - "席勒 = <Subject 2> (修长直立，姿态放松)" - and
+# that note belongs in the table, once.  Copied after every name it replaced (14 more times in one 美漫 ch12 clip),
+# it was translated each time: "upright", "relaxed posture", "broad shoulders" came back 38 times in 61 clips, and
+# 5 times with the note left in the table only (2026-09-26).
+TAG_NOTE = re.compile(r"^(<Subject \d+>)\s*[(（].*[)）]$")
 
 
 STAGE = re.compile(r"【阶段[^】]*】(.*?)(?=【阶段|画面呈现|$)", re.S)
@@ -314,6 +319,7 @@ def tag_names(text: str, naming: str) -> str:
         if " = " not in line:
             continue
         name, tag = (part.strip() for part in line.split(" = ", 1))
+        tag = TAG_NOTE.sub(r"\1", tag)
         if name:
             names[name] = tag
             short = name.split("·")[0]
