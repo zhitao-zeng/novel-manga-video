@@ -76,3 +76,18 @@ def test_targeted_check_receives_named_current_character_references(tmp_path, mo
     assert seen['parts'][1]['file']==str(tmp_path/'doctor.jpg')
     assert '穿甲人' in seen['parts'][2]['text'] and '不是无人空甲' in seen['parts'][2]['text']
     assert answer['result']=='resolved'
+
+
+def test_a_finding_is_not_rejudged_on_the_take_it_was_confirmed_on(tmp_path, monkeypatch):
+    """ch12-1 clip_19/20 (2026-09-26): re-judging the confirmed frames cleared two human-confirmed findings."""
+    d,clips,rows=fixture_episode(tmp_path)
+    claim={**{k:rows['a'][k] for k in ['video','take']},'issue':'悬空机械臂','instruction':'没有分离的装甲部件'}
+    previous=import_confirmed_findings(d,{'a':claim})
+    fresh=copy.deepcopy(previous);fresh['feedback']={}
+    fresh['clips']['a'].update(severity='pass',verify={'verdict':'fine'})
+    monkeypatch.setattr(confirmed,'judge_finding',lambda *a,**k:(_ for _ in ()).throw(AssertionError('re-judged')))
+    enforced=confirmed.enforce(d,fresh,previous,verify=True)
+    assert enforced['feedback']['a']=='没有分离的装甲部件' and enforced['clips']['a']['severity']=='fail'
+    # a check an earlier run wrote on that same take does not clear it either
+    previous['clips']['a']['confirmed']['check']={'result':'resolved','video':rows['a']['video'],'take':rows['a']['take']}
+    assert 'a' in confirmed.enforce(d,copy.deepcopy(fresh),previous,verify=True)['feedback']

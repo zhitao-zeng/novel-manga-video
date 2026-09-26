@@ -84,7 +84,13 @@ def enforce(directory, report, previous, *, verify=False):
         if not claim or not row or not row.get('video') or not row.get('take'):
             continue
         video, take = row['video'], row['take']; check = claim.get('check') or {}
-        checked = check.get('video') == video and check.get('take') == take
+        if claim.get('video') == video and claim.get('take') == take:
+            # Confirmed on this very take: not re-judged on it, and no check written on it clears it.  A model
+            # reading the same frames cleared two human-confirmed findings (ch12-1 clip_19/20, 2026-09-26).
+            claim.pop('check', None)
+            checked = True
+        else:
+            checked = check.get('video') == video and check.get('take') == take
         if verify and not checked:
             try:
                 answer = judge_finding(plan[cid], video, claim, directory / 'work/confirmed_review' / cid, directory.parent)
