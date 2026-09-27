@@ -42,7 +42,7 @@ def test_descriptive_source_names_are_scene_local_and_ambiguous_roles_are_not_bo
 
 def test_literal_quote_cannot_assign_latter_speech_to_the_first_person(monkeypatch):
     quote='莱恩将视线投向神明，后者拍拍手：“不错的故事。”'
-    row={'stage':1,'turn':1,'speaker':'莱恩','source_quote':quote,'source_speaker_phrase':'后者','relation':'verbatim','adapted_text':'不错的故事。'}
+    row={'stage':1,'turn':1,'speaker':'莱恩','source_quote':quote,'source_paragraphs':[1],'source_speaker_phrase':'后者','relation':'verbatim','adapted_text':'不错的故事。'}
     shots=[{'origin_index':1,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'莱恩','text':'不错的故事。'}]}]
     identities=[{'name':'莱恩','source_names':['莱恩']},{'name':'神明','source_names':['神明','后者']}]
     monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})

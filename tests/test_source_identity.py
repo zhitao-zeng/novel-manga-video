@@ -77,9 +77,9 @@ def test_name_normalization_does_not_hide_spoken_director_instructions(tmp_path)
 def test_disputed_speaker_needs_a_source_quote_containing_the_line(monkeypatch):
     shots=[{'origin_index':1, 'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'甲','text':'快走。'}]}]
     passage='乙喊道：“快走。”'
-    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':passage}]})
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_paragraphs':[1]}]})
     assert repair_judges.speaker_contract(passage,shots,['甲','乙'],[])=={(1,1):'乙'}
-    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙喊道： “快走。”'}]})
+    monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_paragraphs':[1,2]}]})
     assert repair_judges.speaker_contract('乙喊道：\n“快走。”',shots,['甲','乙'],[])=={(1,1):'乙'}
     monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[{'stage':1,'turn':1,'speaker':'乙','source_quote':'乙是说话者。'}]})
     assert repair_judges.speaker_contract(passage,shots,['甲','乙'],[])=={}
@@ -101,7 +101,7 @@ def test_disputed_speaker_cannot_choose_a_name_without_source_grounding(monkeypa
     passage='路易斯小姐喊道：“快走。”'
     def answer(content,schema,**kw):
         assert schema['properties']['speakers']['items']['properties']['speaker']['enum']==['薇奥拉']
-        return {'speakers':[{'stage':1,'turn':1,'speaker':'艾蕾娅','source_quote':passage}]}
+        return {'speakers':[{'stage':1,'turn':1,'speaker':'艾蕾娅','source_paragraphs':[1]}]}
     monkeypatch.setattr(repair_judges,'ask_json',answer)
     assert repair_judges.speaker_contract(passage,shots,['薇奥拉','艾蕾娅'],[
         {'name':'薇奥拉','source_names':['路易斯小姐']},{'name':'艾蕾娅','source_names':[]}])=={}
@@ -121,7 +121,7 @@ def test_named_source_speaker_cannot_be_replaced_by_a_different_available_charac
     source='星垣扭过头：“我承认我找不到了。”赤岚叹气。'
     shots=[{'origin_index':6,'turns':[{'delivery_mode':'offscreen_dialogue','speaker_name':'赤岚','text':'我承认我找不到了。'}]}]
     row={'stage':6,'turn':1,'speaker':'赤岚','source_speaker_phrase':'星垣',
-         'source_quote':source,'relation':'verbatim','adapted_text':'我承认我找不到了。'}
+         'source_quote':source,'source_paragraphs':[1],'relation':'verbatim','adapted_text':'我承认我找不到了。'}
     monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
     assert repair_judges.speaker_contract(source,shots,['赤岚'],[{'name':'赤岚','source_names':['赤岚']}],[row])=={}
 
@@ -137,8 +137,25 @@ def test_split_sentence_can_use_a_program_located_continuous_source_quote(monkey
     source='澜歌微微摇头。\n“睡觉便是我们的锻炼方式！\n看来，你还不知道。”'
     shots=[{'origin_index':23,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'澜歌','text':'睡觉便是我们的锻炼方式！看来，'}]}]
     rows=iter([{'speakers':[]},{'speakers':[{'stage':23,'turn':1,'speaker':'澜歌',
-                'source_speaker_phrase':'澜歌','relation':'verbatim','source_quote':''}]}])
+                'source_speaker_phrase':'澜歌','relation':'verbatim','source_paragraphs':[1,2,3]}]}])
     monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:next(rows))
     evidence=[]
     assert repair_judges.speaker_contract(source,shots,['澜歌'],[{'name':'澜歌','source_names':['澜歌']}],evidence_out=evidence)=={(23,1):'澜歌'}
     assert evidence[0]['source_quote']==source
+
+
+def test_thought_attribution_selects_paragraphs_instead_of_rewriting_the_quote(monkeypatch):
+    source = '甲知道乙很在意钱。\n哦，甲想起来，乙也很在意自己的聪明才智。'
+    shots = [{'origin_index': 10, 'turns': [{'speaker_name': '甲', 'delivery_mode': 'offscreen_dialogue',
+              'inner_monologue': True, 'text': '哦，我想起来了，他也很在意自己的聪明才智。'}]}]
+    def ask(parts, schema, **kwargs):
+        item = schema['properties']['speakers']['items']
+        assert 'source_paragraphs' in item['required'] and 'source_quote' not in item['properties']
+        assert '"inner_monologue": true' in parts[0]['text']
+        return {'speakers': [{'stage': 10, 'turn': 1, 'speaker': '甲', 'source_paragraphs': [2],
+                              'source_speaker_phrase': '甲', 'relation': 'paraphrased'}]}
+    monkeypatch.setattr(repair_judges, 'ask_json', ask)
+    evidence = []
+    assert repair_judges.speaker_contract(source, shots, ['甲', '乙'], [{'name': '甲', 'source_names': ['甲']}],
+        evidence_out=evidence, identity_context={'policy': 'test'}) == {(10, 1): '甲'}
+    assert evidence[0]['source_quote'] == source.splitlines()[1]
