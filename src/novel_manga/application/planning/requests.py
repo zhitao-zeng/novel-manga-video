@@ -141,9 +141,10 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     if faulty:
         parts.append(f"另有 {len(faulty)} 个阶段没过硬门检查，逐个重写整个阶段（label 原样填回，segment_id 不变），只修错误指出的问题，其余内容尽量保持。")
     if split_labels:
-        parts.append(f"超长镜头{sorted(split_labels)}需要明确拆镜：stage写第一镜，continuations写后续完整镜头。"
+        parts.append(f"镜头{sorted(split_labels)}需要明确拆镜：stage写第一镜，continuations写后续完整镜头。"
                      f"每镜按实际对白估算不得超过{ctx.max_clip_seconds:g}秒，逐镜独立写起点、事件、末态、机位和光源。"
                      "后镜衔接已发生的结果，不重复进入、推门或飞离；保留说话人、全部必要对白和事实顺序。"
+                     "心声与现场对白必须分镜，心声镜只保留同一位角色的心声；不得靠删除inner_monologue改成普通画外音。"
                      "其他问题阶段不得增加continuations。")
     from novel_manga.story.fields import field_instructions
     parts.append(field_instructions('planning'))
@@ -181,6 +182,11 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
         extra = item.get('continuations') or []
         if extra and label not in split_labels:
             raise ValueError('patch split a stage that was not requested for splitting')
+        original = raw['clips'][slot[0]]['stages'][slot[1]]
+        if label in split_labels and any(t.get('inner_monologue') for t in original.get('turns') or []):
+            from novel_manga.story.voice_delivery import speech_sequence
+            if speech_sequence([original]) != speech_sequence([item['stage'], *extra]):
+                raise ValueError('voice split changed authored words, speaker, delivery or inner_monologue')
         replacements[slot] = [item['stage'], *extra]
     insertions = {}
     counts = {str(c['clip_id']): len(c.get('stages') or []) for c in raw['clips']}

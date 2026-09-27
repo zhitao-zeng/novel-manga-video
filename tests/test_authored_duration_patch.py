@@ -48,3 +48,17 @@ def test_model_supplied_split_does_not_shift_other_replacements_or_insertions(mo
                         ['甲'], ['屋内'], ctx=ctx, split_labels=['c1 stage 1'])
     assert result['clips'][0]['stages'] == [first, last, stages[1], inserted, fixed_third]
     assert raw == before
+
+
+def test_voice_patch_cannot_erase_thought_marker_to_avoid_splitting(monkeypatch):
+    from novel_manga.llm import client
+    turn = {'speaker_name': '甲', 'delivery_mode': 'offscreen_dialogue', 'text': '我知道了。', 'inner_monologue': True}
+    stage = {'segment_id': 's1', 'event': '甲思考', 'turns': [turn]}
+    raw = {'clips': [{'clip_id': 'c1', 'location': '屋内', 'characters': ['甲'], 'stages': [stage]}]}
+    def ask(*args, **kwargs):
+        changed = {**stage, 'turns': [{**turn, 'inner_monologue': False}]}
+        return {'insertions': [], 'replacements': [{'label': 'c1 stage 1', 'stage': changed}]}
+    monkeypatch.setattr(client, 'ask_json', ask)
+    with pytest.raises(ValueError, match='inner_monologue'):
+        patch_plan(raw, [], {'c1 stage 1': ['心声拆镜']}, [{'segment_id': 's1', 'text': '原文'}],
+                   ['甲'], ['屋内'], ctx=PlannerContext(), split_labels=['c1 stage 1'])

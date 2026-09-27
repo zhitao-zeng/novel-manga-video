@@ -42,6 +42,7 @@ class PlannerContext:
     # Set when --bind-storyboard binds a sheet a person wrote: its cuts and its length are
     # the author's, and compressing them is the one thing binding exists to avoid.
     authored_storyboard: bool = False
+    postmix: bool = False
     # Whether the video service will refuse a picture on content grounds.  The paid platforms do,
     # so a plan is checked for what they refuse before any money is spent on it.  The local H3 does
     # not: sent a knife coming down and blood spreading into standing water, it drew exactly that

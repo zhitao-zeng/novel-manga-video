@@ -352,6 +352,11 @@ def run(args, ctx: PlannerContext) -> int:
         if sheet is None:
             raise PlanningInputError("请用 --bind-sheet 选择分镜工作表：" + "、".join(s.name for s in sheets))
         authored = authored_payload(sheet)
+        if profile.get('inner_voice_delivery') == 'postmix' and not args.dry_run:
+            from novel_manga.application.planning.voice_splits import split_authored
+            authored, splits = split_authored(authored, episode.source_text, max_seconds=ctx.max_clip_seconds)
+            if splits:
+                atomic_write_json(episode_dir / 'authored_voice_splits.json', splits)
     if authored:
         # A bound sheet has already chosen its people and places; the slice exists to keep the menu
         # short for a model that is still choosing.  Withholding an authored sheet's own location
@@ -381,6 +386,7 @@ def run(args, ctx: PlannerContext) -> int:
     # A bound sheet is not re-planned: the model answers one object per authored shot with only the
     # fields the import left empty, and never sees a schema that would let it rewrite the cuts.
     ctx.authored_storyboard = bool(authored)
+    ctx.postmix = profile.get('inner_voice_delivery') == 'postmix'
     schema = (pc_binding.bind_schema(authored, names, list(location_map), segment_ids, ctx=ctx, prop_names=prop_names) if authored
               else pc_contracts.build_schema(names, list(location_map), segment_ids, ctx=ctx, prop_names=prop_names))
     from novel_manga.application.identity.context import prompt_context
@@ -548,7 +554,8 @@ def run(args, ctx: PlannerContext) -> int:
                 # author's choice by the coverage check - and what a patch rewrites on it keeps the
                 # author's columns: the model's answer may correct a quote or a state, never a shot.
                 patched = planner_requests.patch_plan(raw, [] if authored else missing_ids, faulty, segments, names, list(location_map), timeout=patch_timeout, ctx=ctx,
-                    split_labels=[issue.stage for issue in validation.issues if issue.code == PlanningCode.STAGE_ABOVE_MAXIMUM])
+                    split_labels=[issue.stage for issue in validation.issues if issue.code in
+                                  {PlanningCode.STAGE_ABOVE_MAXIMUM, PlanningCode.MIXED_THOUGHT}])
                 if authored:
                     patched = pc_binding.keep_authored(raw, patched)
                 atomic_write_json(episode_dir / f'patch_attempt_{attempt:02d}_{patch_rounds:02d}.json', patched)

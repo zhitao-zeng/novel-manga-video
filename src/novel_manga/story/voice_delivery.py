@@ -3,6 +3,21 @@ from __future__ import annotations
 import copy
 
 
+def speech_sequence(stages):
+    """Ordered authored words and delivery, allowing only adjacent same-owner text to be split/joined."""
+    result = []
+    for stage in stages:
+        for turn in stage.get('turns') or []:
+            if turn.get('delivery_mode') not in {'visible_dialogue', 'offscreen_dialogue'} or not turn.get('text'):
+                continue
+            key = (turn.get('speaker_name'), turn['delivery_mode'], bool(turn.get('inner_monologue')))
+            if result and result[-1][0] == key:
+                result[-1] = (key, result[-1][1] + turn['text'])
+            else:
+                result.append((key, turn['text']))
+    return result
+
+
 def postmixed(clip: dict) -> bool:
     return clip.get('audio_delivery') == 'postmix'
 

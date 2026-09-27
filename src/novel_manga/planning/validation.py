@@ -291,6 +291,12 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
         characters, extras, actions, motion_text, location = cast_and_actions(
             shot, names, everyone, location_map, position, ctx, errors, warnings, prop_names=known_props)
         turns_out, visible = normalize_turns(shot, characters, names, position, ctx, errors, warnings)
+        speech = [t for t in turns_out if t.get('text') and t.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'}]
+        if ctx.postmix and any(t.get('inner_monologue') for t in speech) and (
+                not all(t.get('inner_monologue') for t in speech) or len({t['speaker_name'] for t in speech}) > 1):
+            errors.append(PlanningIssue(PlanningCode.MIXED_THOUGHT,
+                '本镜混有心声和其他发声；请明确拆成连续镜头，每镜只含一位角色的心声或现场对白，'
+                '保留全部台词、归属、事件顺序和画面交接，不得删除inner_monologue标记绕过。', stage=position, field='turns'))
         end_state = end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings)
         base = {
             "label": position,

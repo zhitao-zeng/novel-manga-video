@@ -22,6 +22,7 @@ class PlanningCode(Enum):
     DURATION_BELOW_MINIMUM = ('duration_below_minimum', 'chapter')
     DURATION_ABOVE_MAXIMUM = ('duration_above_maximum', 'chapter')
     STAGE_ABOVE_MAXIMUM = ('stage_above_maximum', 'stage')
+    MIXED_THOUGHT = ('mixed_thought', 'stage')
     PRESENCE_DISAGREEMENT = ('presence_disagreement', 'stage')
     SKIPPED_SEGMENTS = ('skipped_segments', 'chapter')
     MISSING_CHAT = ('missing_chat', 'chapter')
