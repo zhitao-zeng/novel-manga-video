@@ -170,10 +170,13 @@ def collect_clip_evidence(clip: dict, video: Path, bible: StoryBible, work_dir: 
     offscreen = list(dict.fromkeys(str(row.get("speaker_name") or "") for row in clip.get("lines", []) if row.get("delivery_mode") == "offscreen_dialogue" and row.get("speaker_name")))
     cards = []
     for name in cast[:((3 if len(cast) <= 3 else 2) if verify else review_contracts.MAX_IMAGES - 3)]:
-        path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and (str(ref["path"]) if verify else ref["path"]).endswith("turnaround.jpeg")), None)
+        refs = sorted((ref for ref in clip.get('references', []) if ref.get('name') == name
+                       and ref.get('role') in {None, 'character'} and ref.get('path')),
+                      key=lambda ref: not str(ref['path']).endswith('turnaround.jpeg'))
+        path = next((Path(ref['path']) for ref in refs if (bible_root(work_dir) / ref['path']).is_file()), None)
         # The plan may predate the character's phases: the judge sees the phase's card when it is drawn, so an
         # adult dragon is not marked down against the hatchling card (星海 洛恩, 254 clips on 2026-09-13).
-        path = thin_phases.phase_card(bible_root(work_dir), phases, name, chapter) or path
+        path = path or thin_phases.phase_card(bible_root(work_dir), phases, name, chapter)
         if path is not None and (bible_root(work_dir) / path).is_file():  # a card being rebuilt is simply not shown
             cards.append((name, path))
     # Clips with on-screen chat get more frames: stray text tends to flash briefly.

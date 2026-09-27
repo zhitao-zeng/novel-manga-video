@@ -41,6 +41,16 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
     # NOVEL_REVIEW_FRESH=1 judges every clip again (a card or prompt change the policy string does not carry).
     earlier = (previous.get("clips") or {}) if previous.get("policy") == review_contracts.POLICY else {}
     resume = not fresh if fresh is not None else os.environ.get("NOVEL_REVIEW_FRESH", "").strip() != "1"
+    def checkpoint():
+        # A long review may outlive its terminal. Save each completed take so a restart reuses it;
+        # preserve confirmed findings while the final targeted checks have not run yet.
+        from novel_manga.application.review.confirmed import enforce
+        pending = {cid: row for cid, row in earlier.items() if cid not in report['clips']}
+        partial = {**report, 'clips': {**pending, **report['clips']},
+                   'feedback': {**{cid: note for cid, note in previous.get('feedback', {}).items() if cid in pending},
+                                **report['feedback']}}
+        saved = enforce(episode_dir, partial, previous) if video_name == 'clip.mp4' else partial
+        atomic_write_json(review_path, saved)
     for clip in plan["clips"]:
         if clip["kind"] != "video":
             continue
@@ -70,6 +80,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
         except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
             model_client.log(f"episode {episode_dir.name} {clip_id}: review error {type(error).__name__}: {str(error)[:120]}")
             report["clips"][clip_id] = {"video": str(video), "take": take, "severity": "review_error", "error": f"{type(error).__name__}: {str(error)[:300]}"}
+            checkpoint()
             continue
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
         if verdict.get("severity") == "fail":
@@ -90,6 +101,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
             if tier == "must_fix":
                 report["feedback"][clip_id] = review_policy.compose_feedback(verdict, clip, card_manifest)
         model_client.log(f"episode {episode_dir.name} {clip_id}: {verdict.get('severity')} people={verdict.get('visible_people')} identity={verdict.get('identity_ok')} loc={verdict.get('location_ok')}/{verdict.get('time_of_day_ok')} text={verdict.get('text_or_watermark')} defects={verdict.get('visual_defects')}" + (f" | {verdict.get('identity_issue') or verdict.get('defect_issue')}" if verdict.get("severity") != "pass" else ""))
+        checkpoint()
     # A visually correct clip can still have unsolicited speech. Keep that
     # independently measured failure in the automatic repair work, even when
     # the video judge passed or failed to return a verdict.

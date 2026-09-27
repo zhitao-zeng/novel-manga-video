@@ -90,6 +90,8 @@ def test_the_watch_list_never_reaches_the_retake(monkeypatch, tmp_path):
 
 def test_the_check_runs_only_when_switched_on(monkeypatch, tmp_path):
     calls = []
+    from novel_manga.application.review import adjudication
+    monkeypatch.setattr(adjudication, 'review', lambda clip, video, bible, work, verdict: verdict)
     monkeypatch.setattr(judges, "judge_clip_verify", lambda *a: dict(PASSED))
     monkeypatch.setattr(judges.review_evidence, "review_mode", lambda work_dir: "verify")
     monkeypatch.setattr(cast_video, "check",

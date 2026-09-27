@@ -92,3 +92,14 @@ def test_only_whole_clip_closed_state_uses_a_single_closed_card(tmp_path):
     assert visor.closed_for(directory,{'shots':[shots[0]]},throughout=True)==set()
     assert visor.closed_for(directory,{'shots':[shots[2]]},throughout=True)=={'托尼'}
     assert visor.closed_for(directory,{'shots':[shots[0],shots[2]]},throughout=True)==set()
+
+
+def test_review_reads_current_actual_stage_states_and_split_position(tmp_path):
+    directory, shots = episode(tmp_path)
+    visor.fill(directory, ask=lambda q: {'stages': [{'index': 1, 'state': 'closing'}, {'index': 3, 'state': 'closed'}]})
+    assert visor.recorded_clip_states(directory, {'shot_parts': [{'index': 1, 'part': [1, 2]}]}) == {'托尼': {'1': 'open'}}
+    assert visor.recorded_clip_states(directory, {'shot_parts': [{'index': 1, 'part': [2, 2]}]}) == {'托尼': {'1': 'closing'}}
+    assert visor.recorded_clip_states(directory, {'shot_indexes': [3]}) == {'托尼': {'3': 'closed'}}
+    shots[2]['motion_prompt'] = '托尼掀开面罩'
+    (directory / 'chapter_script.json').write_text(json.dumps({'shots': shots}))
+    assert visor.recorded_clip_states(directory, {'shot_indexes': [3]}) == {}

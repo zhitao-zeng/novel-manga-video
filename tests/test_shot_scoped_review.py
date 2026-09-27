@@ -11,7 +11,7 @@ from novel_manga.review.prompts import shot_contract
     ({'same_entity': False}, False),
     ({}, True),
     ({'kind': 'costume', 'same_color_family': True}, True),
-    ({'kind': 'state'}, True),
+    ({'kind': 'state'}, False),
 ])
 def test_only_visible_matching_evidence_can_request_a_retake(changes, wrong):
     # Same-color illumination, cropped helmets and an empty suit compared to its wearer all occurred in ch12.
@@ -29,10 +29,10 @@ def test_the_actual_ending_state_is_not_cut_off_and_guides_the_correction(monkey
         text = parts[0]['text']
         assert 'The silver visor closes at the end.' in text and '腿部特写' in text
         return {'checks': [{'name': '穿甲者', 'kind': 'state', 'same_entity': True, 'visibility': 'visible',
-                            'same_color_family': True, 'instruction': '结尾合上银白面甲。'}]}
+                            'same_color_family': True, 'state_stage': 1, 'expected_state': 'closing', 'instruction': '结尾合上银白面甲。'}]}
     monkeypatch.setattr(cast_video, 'ask', ask)
     draw = {'穿甲者': '银色盔甲，参考卡的面罩打开'}
-    checks = cast_video.compare(draw, [], seen, clip)
+    checks = cast_video.compare(draw, [], seen, clip, {'穿甲者': {'1': 'closing'}})
     assert cast_video.instruction(clip, {'looks': checks}, draw) == '结尾合上银白面甲。'
     assert '腿部特写' in shot_contract(clip)
 
@@ -42,3 +42,11 @@ def test_closed_only_card_is_available_for_review(tmp_path):
     clip = {'cast': ['穿甲者'], 'references': [{'role': 'character', 'name': '穿甲者',
             'view': 'closed', 'path': 'closed.jpeg'}]}
     assert cast_video.cast_cards(clip, tmp_path) == {'穿甲者': card}
+
+
+def test_state_complaint_cannot_override_the_recorded_closed_state():
+    row = {'name': '穿甲者', 'kind': 'state', 'visibility': 'visible', 'same_entity': True,
+           'state_stage': 8, 'expected_state': 'open'}
+    assert not cast_video.look_result(row, states={'穿甲者': {'8': 'closed'}})['state_wrong']
+    row['expected_state'] = 'closed'
+    assert cast_video.look_result(row, states={'穿甲者': {'8': 'closed'}})['state_wrong']

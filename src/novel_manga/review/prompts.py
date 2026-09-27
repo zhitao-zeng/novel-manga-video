@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import json
 from .evidence import ClipEvidence
 from . import contracts as review_contracts
 from novel_manga.models.bible import Character
@@ -20,7 +21,9 @@ def shot_contract(clip: dict) -> str:
               "不能由脸不在构图内推断缺头或人物缺席。明确能看到本该连接的断口才可判结构缺失。"
               "无人空甲、雕像和装备与穿戴者分开匹配；空甲的面罩状态不能算到人物身上。"
               "剧情允许的独立空甲不能仅凭同款外形判成人物克隆；要有第二张人脸或其他人在其中的可见证据。"
-              "同色系明暗变化（如深灰与黑）和光照差异不算换装；看不清或描述没提到不等于缺失。\n")
+              "同色系明暗变化（如深灰与黑）和光照差异不算换装；看不清或描述没提到不等于缺失。\n"
+            + ('\n已确认的逐镜面罩状态：' + json.dumps(clip['review_visor_states'], ensure_ascii=False)
+               if clip.get('review_visor_states') else ''))
 
 
 def scripted_event(clip: dict) -> str:

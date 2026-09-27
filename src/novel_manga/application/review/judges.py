@@ -35,6 +35,8 @@ def judge_location_card(location: str, expected_time: str, view: Path, *, locati
 
 
 def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
+    from novel_manga.application.packing.visor import recorded_clip_states
+    clip = {**clip, 'review_visor_states': recorded_clip_states(work_dir.parents[2], clip)}
     if review_evidence.review_mode(work_dir) == "verify":
         verdict = judge_clip_verify(clip, video, bible, location_time, hypothesis, work_dir)
     else:
@@ -43,7 +45,11 @@ def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, locatio
         verdict = model_client.ask_json(parts, review_contracts.CLIP_SCHEMA, name="clip_review", max_tokens=600)
     # Frames miss what sits at the edge of the picture or turns up between them: when switched on, the whole take is
     # watched beside the cast's cards as well (cast_video.py).
-    return cast_video.review(clip, video, work_dir, verdict) if cast_video.enabled() else verdict
+    if cast_video.enabled():
+        from novel_manga.application.review import adjudication
+        verdict = cast_video.review(clip, video, work_dir, verdict)
+        verdict = adjudication.review(clip, video, bible, work_dir, verdict)
+    return verdict
 
 
 def script_check(clip: dict, verdict: dict, segments: dict[str, str]) -> dict | None:

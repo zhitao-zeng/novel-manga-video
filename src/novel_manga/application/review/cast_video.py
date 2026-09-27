@@ -34,7 +34,7 @@ from novel_manga.review.prompts import shot_contract
 from novel_manga.util import atomic_write_json
 
 FOUND = ("extra_person", "extra_object", "face_artifact")
-POLICY = "cast-video-v2-shot-state"
+POLICY = "cast-video-v3-observation-first"
 SCHEMA = model_client.obj({"people": {"type": "array", "items": {"type": "string"}},
                            **{key: {"type": "boolean"} for key in FOUND}, "note": {"type": "string"}})
 QUESTION = ("这是一段动画视频片段。按剧本，画面里应该出现的人只有：{cast}。{extras}\n{looks}\n"
@@ -47,30 +47,40 @@ QUESTION = ("这是一段动画视频片段。按剧本，画面里应该出现�
             "note：一句话说明你看到的问题，没有就写“无”。")
 DESCRIBE = model_client.obj({"people": {"type": "array", "items": model_client.obj({"who": {"type": "string"},
                                                                                   "wears": {"type": "string"}})}})
-DESCRIBE_QUESTION = ("逐个描述这段视频里出现的每一个人（包括边缘的、背影、远处的）：who 写你认为他是谁或什么样的人；"
+DESCRIBE_QUESTION = ("逐个描述这段视频里出现的每一个人或人形物件（包括边缘的、背影、远处的）：who 只写画面位置和可见特征，不猜姓名；"
                      "wears 写发型发色、有没有眼镜和胡子、身上看得见的每件衣服和它的颜色（有没有外套、马甲、领带、帽子）；"
                      "穿盔甲的，写出盔甲、头盔、面甲各是什么颜色（金色就写金色），面甲开着还是合着。只写看到的，不要猜，不要美化。")
 COMPARE = model_client.obj({"checks": {"type": "array", "items": model_client.obj({
-    "name": {"type": "string"}, "observed": {"type": "string"}, "expected": {"type": "string"},
-    "kind": {"type": "string", "enum": ["none", "costume", "color", "state"]},
+    "name": {"type": "string"}, "entity_kind": {'type': 'string', 'enum': ['character', 'object']},
+    "observed": {"type": "string"}, "expected": {"type": "string"},
+    "difference": {"type": "string", "maxLength": 150},
     "visibility": {"type": "string", "enum": ["visible", "uncertain", "outside_frame"]},
     "same_entity": {"type": "boolean"}, "same_color_family": {"type": "boolean"},
-    "difference": {"type": "string"}, "instruction": {"type": "string"}})}})
+    "state_stage": {"type": "integer"},
+    "expected_state": {"type": "string", "enum": ["open", "closed", "opening", "closing", "unknown"]},
+    "kind": {"type": "string", "enum": ["none", "costume", "color", "state"]},
+    "instruction": {"type": "string"}})}})
 COMPARE_QUESTION = ("下面是一段视频里每个人的外观描述（看视频的人写的），以及剧本角色在参考卡上的样子。\n"
                     "参考卡：\n{cards}\n{watch}\n视频里的描述：\n{seen}\n\n"
-                    "先匹配同一个实体，不能把独立空甲或背景装置的描述算到穿甲人物身上。same_entity 表示能确定是同一个实体。"
+                    "先匹配同一个实体，不能把独立空甲或背景装置的描述算到穿甲人物身上。角色填entity_kind=character；"
+                    "独立物件另列一项，entity_kind=object，name用本镜物件名。same_entity表示观察和这项name指同一个实体，"
+                    "不是判断它是否属于演员名单。独立空甲不是托尼，但可依据本镜明确要求的同款装备配色检查其颜色，"
+                    "不能因为不是人物就漏掉物件的明确配色错误；未指定物件外观则不猜。"
                     "每项先摘录 observed（实际看见）与 expected（本镜明确要求）；visibility 表示该部位清晰可见、看不清或在画外。"
                     "kind 只能选：none=无问题或证据不足；costume=可见的衣物增加或减少；color=明显跨色系变化；"
                     "state=违反本镜明确状态。颜色差异禁止填costume。same_color_family 记录是否只是同色系明暗差异。"
                     "深灰与黑、米白与白、浅棕与米色、银灰与银白及照明导致的明暗都属于同色系，kind=none。"
                     "卡上姿势、开合不作为默认要求，阶段档案也不能覆盖逐镜计划；镜头没要求的状态不判错。"
                     "计划允许人物穿甲加独立空甲时，只要没有第二个人体证据，就不能把空甲当人物的第二个身体。"
-                    "没有提到或构图裁掉的部位不能判缺失。difference 写具体差异，无问题写无；instruction 只写本镜应画出的正向状态，"
+                    "没有提到或构图裁掉的部位不能判缺失。difference 最多两句话，先核实是否真有差异，不展开自我辩论；无问题写无。"
+                    "先写观察和依据，最后kind必须与difference一致。面罩状态只依据提供的逐镜状态记录，state_stage填写记录编号，"
+                    "expected_state原样填写对应state；未提供有效状态时填0/unknown，不能仅凭角色卡提出状态错误。"
+                    "instruction 只写本镜应画出的正向状态，"
                     "保留本镜开合过程、画外和构图，不复述错误，不要求露出镜头外的脸。\n{shot}")
 CARD_LOOK = model_client.obj({"look": {"type": "string"}})
 CARD_LOOK_QUESTION = ("这是{name}的角色参考卡。用一句中文写出卡上人物的发型发色、有没有眼镜和胡子，以及衣着和配色："
                       "看得见的每件衣物或盔甲、各自的颜色，有没有外套、领带、帽子；穿盔甲的写明盔甲、头盔和面甲的颜色，"
-                      "面甲开着还是合着。不写背景、姿势、五官和身材。")
+                      "只记录图中可见的稳定外观。不要写面甲开合、动作、表情、站坐、背景或机位；这些由每一镜的计划决定。")
 
 
 def enabled() -> bool:
@@ -171,23 +181,27 @@ def ask(parts: list[dict], schema: dict, name: str) -> dict:
     return model_client.ask_json(parts, schema, name=name, max_tokens=1500, timeout=300, settings=judge)
 
 
-def compare(draw: dict[str, str], items: list[str], seen: list[dict], clip: dict | None = None) -> list[dict]:
+def compare(draw: dict[str, str], items: list[str], seen: list[dict], clip: dict | None = None,
+            states: dict | None = None) -> list[dict]:
     """The description held against the cards, in text alone - nothing to see, so nothing to agree with."""
     if not draw or not seen:
         return []
     text = COMPARE_QUESTION.format(cards="\n".join(f"{name}：{look}" for name, look in draw.items()),
                                    watch=("这本书里 H3 常出的错：\n" + "\n".join(items)) if items else "",
-                                   seen="\n".join(f"{p.get('who')}：{p.get('wears')}" for p in seen), shot=shot_contract(clip or {}))
+                                   seen="\n".join(f"{p.get('who')}：{p.get('wears')}" for p in seen),
+                                   shot=shot_contract(clip or {}) + '\n已确认逐镜面罩状态：' + json.dumps(states or {}, ensure_ascii=False))
     rows = ask([{"type": "text", "text": text}], COMPARE, "clip_look_compare").get("checks") or []
-    return [look_result(row) for row in rows]
+    return [look_result(row, states=states) for row in rows]
 
 
-def look_result(row: dict) -> dict:
+def look_result(row: dict, *, states: dict | None = None) -> dict:
     """Only an observed difference on the matching entity may become a retake; no color word dictionary."""
     eligible = row.get('same_entity') is True and row.get('visibility') == 'visible'
+    expected = ((states or {}).get(row.get('name')) or {}).get(str(row.get('state_stage')))
+    state_backed = expected in {'open', 'closed', 'opening', 'closing'} and row.get('expected_state') == expected
     return {**row, 'costume_wrong': eligible and row.get('kind') == 'costume',
             'color_wrong': eligible and row.get('kind') == 'color' and row.get('same_color_family') is False,
-            'state_wrong': eligible and row.get('kind') == 'state'}
+            'state_wrong': eligible and row.get('kind') == 'state' and state_backed}
 
 
 def check(clip: dict, video: Path, work_dir: Path) -> tuple[dict, dict[str, str]]:
@@ -197,7 +211,10 @@ def check(clip: dict, video: Path, work_dir: Path) -> tuple[dict, dict[str, str]
     answer = ask([take, {"type": "text", "text": question(clip, draw, review_evidence.review_world_context(novel_dir))}],
                  SCHEMA, "clip_cast_video")
     seen = list(ask([take, {"type": "text", "text": DESCRIBE_QUESTION}], DESCRIBE, "clip_describe").get("people") or [])
-    return {**answer, "policy": POLICY, "seen": seen, "looks": compare(draw, watched(clip, novel_dir), seen, clip)}, draw
+    from novel_manga.application.packing.visor import recorded_clip_states
+    states = recorded_clip_states(work_dir.parents[2], clip)
+    return {**answer, "policy": POLICY, "seen": seen,
+            "looks": compare(draw, watched(clip, novel_dir), seen, clip, states)}, draw
 
 
 def instruction(clip: dict, answer: dict, draw: dict[str, str]) -> str:
@@ -207,7 +224,7 @@ def instruction(clip: dict, answer: dict, draw: dict[str, str]) -> str:
         parts.append(f"画面里只有{'、'.join(cast) or '镜头描述写到的人'}，每人只出现一次，不出现其他人物"
                      + ("，也不出现镜头描述之外的盔甲、战衣或道具复制品" if answer.get("extra_object") else ""))
     parts.extend(c.get('instruction') or f"{c['name']}的发型和衣着与参考图完全一致：{draw[c['name']]}"
-                 for c in wrong_looks(answer) if c.get("name") in draw)
+                 for c in wrong_looks(answer) if c.get('instruction') or c.get("name") in draw)
     if answer.get("face_artifact"):
         parts.append("人物面部干净自然，没有液体、变形或发光")
     return "；".join(parts)

@@ -140,3 +140,30 @@ def closed_for(episode_dir: Path, clip: dict, *, script=None, states=None, throu
         if throughout and observed and all(state == 'closed' for state in observed):
             out.add(name)
     return out
+
+
+def recorded_clip_states(episode_dir: Path, clip: dict) -> dict[str, dict[str, str]]:
+    """Review consumes the same current-stage answers as packing; an old or missing answer is unknown."""
+    try:
+        data = json.loads((episode_dir / FILE).read_text())
+        script = json.loads((episode_dir / 'chapter_script.json').read_text())
+    except (OSError, ValueError):
+        return {}
+    if data.get('policy') != POLICY:
+        return {}
+    source = {int(s.get('index', i)): s for i, s in enumerate(script.get('shots') or [], 1)}
+    parts = clip.get('shot_parts') or [{'index': i, 'part': [1, 1]} for i in clip.get('shot_indexes') or []]
+    result = {}
+    for name, stages in data.get('wearers', {}).items():
+        for part in parts:
+            index = int(part['index']); shot = source.get(index); entry = stages.get(str(index)) or {}
+            if not shot or name not in shot.get('in_frame', shot.get('characters') or []):
+                continue
+            if entry.get('picture') != picture_key(shot):
+                continue
+            state = entry.get('state', 'unknown'); number, total = part.get('part') or [1, 1]
+            if state == 'closing' and number < total:
+                state = 'open'  # the packer's nonfinal pieces have not performed the closing event
+            if state in STATES and state != 'unknown':
+                result.setdefault(name, {})[str(index)] = state
+    return result

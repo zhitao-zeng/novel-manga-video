@@ -26,6 +26,12 @@ def whole_take_decision(precise, repeated=False):
     ch12 came back "uncertain" (2026-09-26), and uncertain meant a source recheck that rewrote casts rather than
     drawing again."""
     found = precise.get('cast_video') or {}
+    if found.get('adjudicated'):
+        if not (precise.get('adjudication') or {}).get('confirmed'):
+            return None
+        return RepairDecision('reframe' if repeated else 'retake',
+                              {'cause': 'generation_mismatch', 'reason': 'visible error confirmed against this shot',
+                               'evidence': str(precise['adjudication'].get('checks') or [])})
     wrong = any(found.get(k) for k in ('extra_person', 'extra_object', 'face_artifact')) or any(
         check.get('costume_wrong') or check.get('color_wrong') or check.get('state_wrong') for check in found.get('looks') or [])
     if not wrong:
