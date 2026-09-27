@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import re
-from novel_manga.story.actions import normalize_actions, normalize_extras, action_text, action_participants, anchored_event
+from novel_manga.story.actions import normalize_actions, normalize_extras, anchored_event
 from novel_manga.story.fields import field_instructions
 from .proposal import RepairProposal
 
@@ -22,7 +22,7 @@ def repair_prompt(passage: str, shots: list[dict], snapshot: dict, issue: str, n
                 "检查现有画面、动作句和英文请求是否互相矛盾；把错误动作主体和错误性别描述从新画面句里移除。"
                 "用明确的单主体动作或前后景位置减少多人混淆；需要在场的人仍须有正确人物绑定。"
                 "保持原有阶段索引、全部对白和剧情，不删必要角色或事件，不重复先前已失败的改法。"
-                "end_state 也必须与新画面、动作一致。speakers 按本阶段 turn_index（从1开始）修正说话者；"
+                "end_state 与 sfx 必须同步新动作；动作被取消时，用空sfx清掉旧动作音效，不保留暗示旧动作的声音。speakers 按本阶段 turn_index（从1开始）修正说话者；"
                 "台词文字、先后顺序及画内/画外方式保持不变，只改确实安错的说话者。"
                 "画面和事件字段只用中文角色名，不写@图片编号或Subject编号，这些由打包器重新分配。"
                 "修复建议是线索，以原文和账本为准；不能根据判官猜测改人物身份。" if reframe else "")
@@ -44,7 +44,6 @@ def repair_prompt(passage: str, shots: list[dict], snapshot: dict, issue: str, n
 
 def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = False) -> None:
     fix = dict(fix)
-    old_action_line = action_text(shot.get('actions', []))
     for key in ('event', 'visual_prompt', 'end_state'):
         if fix.get(key):
             fix[key] = re.sub(r'@图片\d+|<(?:Subject|Picture)\s*\d+>', '', str(fix[key])).replace('（）','').replace('()','')
@@ -61,25 +60,9 @@ def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = Fals
     for speaker in speakers:
         if speaker not in in_frame:
             in_frame.append(speaker)
-    for a in actions:
-        for who in (a["actor"], a["target"]):
-            if 'in_frame' not in fix and who and who in names and who not in in_frame:
-                in_frame.append(who)
-    # Preserve the repair model's explicit participants. Listener framing below
-    # may hide their faces, but must not erase their identity/reference binding.
-    shot["in_frame"] = list(in_frame)
-    listeners: list[str] = []
-    if len(set(speakers)) == 1 and in_frame:
-        speaker = speakers[0]
-        acting = action_participants(actions)
-        keep = [c for c in in_frame if c == speaker or c in acting]
-        if keep:
-            listeners = [c for c in in_frame if c not in keep]
-            in_frame = keep
-    line = action_text(actions)
+    shot['in_frame'] = list(in_frame)
+    listeners = [name for name in in_frame if name not in speakers] if speakers else []
     event = str(fix.get("event") or shot.get("motion_prompt") or "").strip()
-    if old_action_line and event.startswith(old_action_line + '。'):
-        event = event[len(old_action_line) + 1:]
     shot["characters"] = in_frame
     shot["motion_prompt"] = anchored_event(actions, event) or shot.get("motion_prompt", "")
     shot["actions"] = actions
@@ -94,6 +77,8 @@ def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = Fals
         shot["props"] = [str(p).strip() for p in fix["props"] if str(p).strip()]
     if "wears" in fix:
         shot["wears"] = {str(k).strip(): (str(v).strip() if v else None) for k, v in fix["wears"].items()}
+    if "sfx" in fix:
+        shot["sfx"] = str(fix["sfx"]).strip()
     if "light" in fix:
         shot["light"] = str(fix["light"]).strip()[:60]
     if reframe:

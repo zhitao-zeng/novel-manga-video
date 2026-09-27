@@ -6,7 +6,7 @@ from pathlib import Path
 from novel_manga.models.bible import StoryBible
 from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from ..util import atomic_write_json
-from .common import sha256_text, log
+from .common import sha256_file, sha256_text, log
 from .asset_style import AssetStyle, card_suffix as _card_suffix
 from .asset_specs import character_spec, location_spec, prop_spec
 from .asset_prompts import character_prompt, expression_prompt as make_expression_prompt, location_prompt, prop_prompt
@@ -14,6 +14,7 @@ from .asset_images import ensure_image
 from .asset_policy import (ModerationRejected, moderation_error, refusal_text, seedream_prompt,
                            SCRUB_WORDS, SAFE_SUFFIX)
 from .asset_records import merge_manifest
+from .card_check import people_in_card, record_people_check
 
 def load_location_time(novel_dir) -> dict:
     """The book's curated time and main light per location, or nothing if it was never filled."""
@@ -51,22 +52,53 @@ class FramedAssetFactory:
         frame = self.style.frame_text
         return prompt.replace('9:16', frame.split('屏')[-1]).replace('竖屏', frame[:2]) if frame != '竖屏9:16' else prompt
 
-    def ensure_card(self, prompt: str, output: Path, *, reference=None, aspect_ratio=None):
+    def ensure_card(self, prompt: str, output: Path, *, reference=None, additional_references=(), aspect_ratio=None, seed=None):
         """_ensure_image, and on a content-moderation refusal one retry with a
         toned-down prompt, then one attempt at the fallback model."""
         try:
-            return ensure_image(self.settings, self.provider, prompt, output, reference=reference, aspect_ratio=aspect_ratio)
+            return ensure_image(self.settings, self.provider, prompt, output, reference=reference,
+                                additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed)
         except RuntimeError as error:
             if not moderation_error(error):
                 raise
             safe = SCRUB_WORDS.sub("", prompt) + SAFE_SUFFIX
             log(f"assets: {output.parent.name}/{output.name} refused by content moderation; retrying with a toned-down prompt")
             try:
-                return ensure_image(self.settings, self.provider, safe, output, reference=reference, aspect_ratio=aspect_ratio)
+                return ensure_image(self.settings, self.provider, safe, output, reference=reference,
+                                    additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed)
             except RuntimeError as again:
                 if moderation_error(again):
                     return self._fallback_card(prompt, output, aspect_ratio, again)
                 raise
+
+    # Seeds for a location card drawn again because the judge found people in it.
+    EMPTY_RETRY_SEEDS = (1009, 2027)
+
+    def _keep_empty(self, prompt: str, output: Path, image, **card):
+        """A location card is a room nobody stands in: H3 casts whoever it finds in a set.  A card the
+        local model drew in this run is counted by the judge; with people in it, it is set aside and
+        drawn again at another seed, twice at most.  The count stays beside the card, where the
+        pre-render check reads it, so a card still holding people stops the clips that use it."""
+        for attempt, seed in enumerate((None, *self.EMPTY_RETRY_SEEDS)):
+            if seed is not None:
+                rejected = output.with_name(f"{output.stem}.people-rejected-{attempt}{output.suffix}")
+                meta = output.with_suffix(output.suffix + ".request.json")
+                output.replace(rejected)
+                if meta.is_file():
+                    meta.replace(rejected.with_suffix(rejected.suffix + ".request.json"))
+                image = self.ensure_card(prompt, output, seed=seed, **card)
+            try:
+                verdict = people_in_card(output)
+            except Exception as error:  # a check, not a dependency: say it was not made and go on
+                log(f"assets: {output.parent.name}/{output.name} not checked for people: {error}")
+                record_people_check(output, {"error": str(error)[:300]})
+                return image
+            record_people_check(output, verdict)
+            if not verdict.get("people_in_scene"):
+                return image
+            log(f"assets: {output.parent.name}/{output.name} has {verdict['people_in_scene']} people in it: "
+                f"{verdict.get('where', '')}")
+        return image
 
     def _fallback_card(self, prompt: str, output: Path, aspect_ratio, refusal: Exception):
         """A second refusal on the same card means the prompt is not the problem.
@@ -159,8 +191,14 @@ class FramedAssetFactory:
             spec = location_spec(asset_id, location, bible, prompt)
             invariants, state, scope = spec['identity_invariants'], spec['state_variables'], spec['reference_scope']
             atomic_write_json(directory / "spec.json", spec)
-            image = self.ensure_card(prompt, directory / "establishing.jpeg", reference=style_master,
-                                     aspect_ratio="16:9" if "16:9" in self.style.frame_text else "9:16")
+            card = directory / "establishing.jpeg"
+            ratio = "16:9" if "16:9" in self.style.frame_text else "9:16"
+            before = sha256_file(card) if card.is_file() else None
+            image = self.ensure_card(prompt, card, reference=style_master, aspect_ratio=ratio)
+            # Counted only when the local model drew it just now: a card reused from an earlier run was
+            # already looked at, and the hosted model's empty rooms have come back empty.
+            if getattr(self.settings, "local_image_base_url", None) and sha256_file(card) != before:
+                image = self._keep_empty(prompt, card, image, reference=style_master, aspect_ratio=ratio)
             locations[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="location", name=location, identity_invariants=invariants, state_variables=state, reference_scope=scope,
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(image.path.relative_to(root.parent)),

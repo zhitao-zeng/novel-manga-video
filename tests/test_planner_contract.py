@@ -46,23 +46,11 @@ def test_in_frame_and_actions_lead_the_event_line():
     assert not [e for e in errors if "seg_1" not in e], errors
     shot = shots[0]
     assert shot["characters"] == ["薇奥拉公主", "莱恩·格雷"]          # nothing here names 塞西娅
-    # Once a stage's own text names her, she joins - even though "塞西娅还在楼上" says she is not in
-    # this frame.  That is the ghost the in_frame guard was closed to stop, and on 2026-09-22 the user
-    # reopened it against the other side of the ledger: 244 of 在美漫当心灵导师的日子's 1,413 shots name
-    # someone their cast omits, and every one of those reached H3 without a card, as "Stark" or
-    # "a seated figure", for it to invent a face for.  A wrong extra face costs one shot; a missing
-    # card costs the character their identity in every shot they appear in.  The add is capped at six
-    # and every one of them is named in a warning, which is how a bad one gets found.
     raw["clips"][0]["stages"][0]["event"] = "薇奥拉吻莱恩，莱恩避开说塞西娅还在楼上"
     validation = pc_validation.validate_and_normalize(raw, segments, b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
-    _, warnings2, shots2 = validation.errors, validation.warnings, validation.shots
-    assert any("塞西娅" in w and "补上" in w for w in warnings2)
-    # The two layers then compose: the scan puts her in the shot, and framing - one visible speaker -
-    # turns her into a listener rather than a second face competing for the frame.  She keeps her
-    # reference card either way, which is the whole point: her back is her back, not a stranger's.
-    assert shots2[0]["characters"] == ["薇奥拉公主", "莱恩·格雷"]
-    assert shots2[0]["listeners"] == ["塞西娅"]
-    assert shot["motion_prompt"].startswith("薇奥拉公主环住脖子踮脚吻住莱恩·格雷；莱恩·格雷向后仰头避开。")
+    assert validation.shots[0]['in_frame'] == ['薇奥拉公主', '莱恩·格雷']
+    assert '塞西娅' not in validation.shots[0]['characters']
+    assert shot['motion_prompt'] == '薇奥拉吻莱恩，莱恩避开'
     assert shot["actions"] == [{"actor": "薇奥拉公主", "action": "环住脖子踮脚吻住", "target": "莱恩·格雷"}, {"actor": "莱恩·格雷", "action": "向后仰头避开", "target": ""}]
 
 
@@ -78,15 +66,20 @@ def test_one_visible_speaker_keeps_only_the_speaker_in_frame():
     b = bible()
     validation = pc_validation.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     _, warnings, shots = validation.errors, validation.warnings, validation.shots
-    assert shots[0]["characters"] == ["莱恩·格雷"] and shots[0]["listeners"] == ["塞西娅"] and any("转为听者" in w for w in warnings)
+    assert shots[0]["characters"] == ["莱恩·格雷", "塞西娅"] and shots[0]["listeners"] == ["塞西娅"]
+    assert shots[0]['in_frame'] == stage['in_frame']
     plan = pc_outputs.to_episode_plan(raw, shots, {"夜莺广场": b.locations[0]}, TEXT, "第一章", ctx=planner_ctx)
     assert plan.shots[0].listeners == ["塞西娅"]
     clip = {"request_seconds": 15, "shots": [{**shots[0], "visual_prompt": "莱恩说话", "motion_prompt": "莱恩说话", "end_state": "塞西娅沉默"}]}
-    assert "入镜人物：莱恩·格雷；听者塞西娅的站位、朝向与可见范围按本阶段画面描述" in ClipCompiler(compiler_options()).compile_prompt(clip, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
+    prompt = ClipCompiler(compiler_options()).compile_prompt(clip, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
+    # one list of who is in the picture, the listener in it - not a second, shorter one beside it
+    assert "入镜：莱恩·格雷、塞西娅。" in prompt
+    assert "听者塞西娅的站位、朝向与可见范围按本阶段画面描述" in prompt
+    assert "入镜人物" not in prompt
     stage["actions"] = [{"actor": "莱恩·格雷", "action": "握住手腕", "target": "塞西娅"}]
     validation = pc_validation.validate_and_normalize(raw, [{"segment_id": "seg_1", "text": TEXT}], b, {"夜莺广场": b.locations[0]}, TEXT, ctx=planner_ctx)
     _, _, shots2 = validation.errors, validation.warnings, validation.shots
-    assert shots2[0]["characters"] == ["莱恩·格雷", "塞西娅"] and shots2[0]["listeners"] == []
+    assert shots2[0]["characters"] == ["莱恩·格雷", "塞西娅"] and shots2[0]["listeners"] == ["塞西娅"]
 
 
 def test_uncarded_extras_are_kept_by_description_and_reach_the_prompt():
@@ -172,11 +165,12 @@ def test_every_stage_with_two_or_more_people_says_where_they_stand():
             "camera": "桌边", "light": "灯", "sfx": "无", "characters": ["薇奥拉公主", "莱恩·格雷", "塞西娅"],
             "actions": [{"actor": "薇奥拉公主", "action": "吻住", "target": "莱恩·格雷"}], "turns": [], "listeners": [], "extras": []}
     prompt = ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [shot]}, b, ['薇奥拉公主', '莱恩·格雷', '塞西娅'], [], '夜莺广场：河边的小广场')
-    assert "构图：薇奥拉公主在画面左侧前景，莱恩·格雷在右侧前景，两人侧面相对、各占一侧；塞西娅只在后景侧身或背对镜头，不开口、不做主要动作。" in prompt
+    assert "入镜：薇奥拉公主、莱恩·格雷、塞西娅。" in prompt
+    assert "两人侧面相对" not in prompt
     solo = {**shot, "characters": ["莱恩·格雷"], "actions": []}
     assert "构图：莱恩" not in ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [solo]}, b, ['莱恩·格雷'], [], '夜莺广场：河边的小广场')
     alone_among = {**shot, "characters": ["莱恩·格雷", "塞西娅"], "actions": [{"actor": "莱恩·格雷", "action": "推开门", "target": ""}]}
-    assert "构图：莱恩·格雷在前景居中；塞西娅只在后景侧身或背对镜头" in ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [alone_among]}, b, ['莱恩·格雷', '塞西娅'], [], '夜莺广场：河边的小广场')
+    assert "入镜：莱恩·格雷、塞西娅。" in ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [alone_among]}, b, ['莱恩·格雷', '塞西娅'], [], '夜莺广场：河边的小广场')
     reached = {**shot, "actions": [{"actor": "薇奥拉公主", "action": "吻住", "target": "莱恩·格雷"}, {"actor": "莱恩·格雷", "action": "推开", "target": "塞西娅"}]}
     later = ClipCompiler(compiler_options()).compile_prompt({'request_seconds': 10, 'shots': [reached]}, b, ['薇奥拉公主', '莱恩·格雷', '塞西娅'], [], '夜莺广场：河边的小广场')
-    assert "构图：薇奥拉公主在画面左侧前景，莱恩·格雷在右侧前景，两人侧面相对、各占一侧。" in later and "塞西娅只在后景" not in later
+    assert "入镜：薇奥拉公主、莱恩·格雷、塞西娅。" in later and "塞西娅只在后景" not in later

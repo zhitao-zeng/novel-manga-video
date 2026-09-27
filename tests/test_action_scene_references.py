@@ -43,7 +43,8 @@ def test_scene_action_survives_normalization_and_packing(monkeypatch, actor, tar
     clip = ClipCompiler(compiler_options()).pack(copy.deepcopy(shots))[0]
     clip['request_seconds'] = int(clip['seconds'])
     prompt = ClipCompiler(compiler_options()).compile_prompt(clip, bible, ['沈行舟'], [], '溪边')
-    assert actor + verb + target in prompt
+    assert stage['event'] in prompt
+    assert shots[0]['motion_prompt'] == stage['event']
     if target == '灰色野山羊':
         assert '沈行舟挥铲砍沈行舟' not in prompt
 
@@ -53,21 +54,22 @@ def test_repair_removes_old_generated_prefix_and_keeps_extra_target():
             'actions': [{'actor': '沈行舟', 'action': '挥铲砍', 'target': '沈行舟'}],
             'motion_prompt': '沈行舟挥铲砍沈行舟。沈行舟本能地挥铲砍向山羊。'}
     repair_execution.apply_stage(shot, {'in_frame': ['沈行舟'], 'extras': ['灰色野山羊'],
-                             'actions': [{'actor': '沈行舟', 'action': '挥铲砍', 'target': '灰色野山羊'}]}, ['沈行舟'])
+                             'actions': [{'actor': '沈行舟', 'action': '挥铲砍', 'target': '灰色野山羊'}],
+                             'event': '沈行舟挥铲砍向灰色野山羊。'}, ['沈行舟'])
     assert shot['actions'][0]['target'] == '灰色野山羊'
     assert shot['characters'] == ['沈行舟']
     assert '沈行舟挥铲砍沈行舟' not in shot['motion_prompt']
-    assert '沈行舟挥铲砍灰色野山羊' in shot['motion_prompt']
+    assert shot['motion_prompt'] == '沈行舟挥铲砍向灰色野山羊。'
 
 
 def test_extra_actor_does_not_turn_into_a_named_bystander_in_blocking():
     shot = {'characters': ['甲', '乙'], 'extras': ['灰色野山羊'],
             'actions': [{'actor': '灰色野山羊', 'action': '扑向', 'target': '甲'}]}
     text = framing.blocking_note(shot)
-    assert '灰色野山羊在画面左侧前景，甲在右侧前景' in text
-    assert '乙只在后景' in text
+    assert text == '入镜：甲、乙。'
+    assert '后景' not in text
     shot['actions'][0]['actor'] = ''
-    assert framing.blocking_note(shot) == ''
+    assert framing.blocking_note(shot) == text
 
 
 def test_extra_only_scene_does_not_keep_an_old_named_character():

@@ -25,6 +25,7 @@ class RevisionDecision:
     targets: tuple[list[str], dict[str, list[str]]] | None = None
     floor_waived: bool = False
     strict_waived: list[str] | None = None
+    presence_waived: list[str] | None = None
 
     @property
     def errors(self):
@@ -34,15 +35,27 @@ class RevisionDecision:
 def decide_validation(result: ValidationResult, *, final_attempt: bool, patch_rounds: int,
                       patch_seconds_left: float, allow_floor_waiver: bool = False) -> RevisionDecision:
     issues, warnings = list(result.issues), list(result.warnings)
-    floor_waived = bool(allow_floor_waiver and final_attempt and issues
-                       and all(i.code == PlanningCode.DURATION_BELOW_MINIMUM for i in issues))
+    # A presence disagreement is the judge's reading of the source set against the writer's.  It goes
+    # back to the writer as a patch; once no patch is left the writer's draft stands and the
+    # disagreement is reported.  It never sends a whole draft to be re-planned and never fails a
+    # chapter by itself: the judge is a model as well, and "decide again from the source" invites the
+    # writer to keep its answer.
+    presence = [i for i in issues if i.code == PlanningCode.PRESENCE_DISAGREEMENT]
+    rest = [i for i in issues if i.code != PlanningCode.PRESENCE_DISAGREEMENT]
+    floor_waived = bool(allow_floor_waiver and final_attempt and rest
+                       and all(i.code == PlanningCode.DURATION_BELOW_MINIMUM for i in rest))
     if floor_waived:
-        warnings.extend('report only: ' + i.message for i in issues)
-        issues = []
+        warnings.extend('report only: ' + i.message for i in rest)
+        issues = presence
     targets = patch_targets(issues)
     can_patch = targets is not None and patch_rounds < constants.PATCH_ROUNDS and patch_seconds_left > 0
+    presence_waived = None
+    if presence and len(issues) == len(presence) and not can_patch:
+        presence_waived = [i.message for i in presence]
+        warnings.extend('report only (在场分歧，保留编剧的决定): ' + message for message in presence_waived)
+        issues = []
     return RevisionDecision('accept' if not issues else 'patch' if can_patch else 'rewrite', issues, warnings,
-                            targets if can_patch else None, floor_waived)
+                            targets if can_patch else None, floor_waived, presence_waived=presence_waived)
 
 
 def decide_strict(issues: list[PlanningIssue], *, final_attempt: bool) -> RevisionDecision:
@@ -56,8 +69,8 @@ def decide_strict(issues: list[PlanningIssue], *, final_attempt: bool) -> Revisi
 def invalid_response_feedback(errors: list[str], finish_reason: str | None) -> dict:
     repair = {'validation_errors': errors}
     if finish_reason == 'length':
-        repair['instruction'] = ('上一稿超过输出长度上限被截断。本次压缩篇幅：每个字段只写必要内容，camera 和 light 在机位或光源不变时写'
-                                 '"同上"，avoid 每段不超过 3 项，台词句子不加长；不得减少区段覆盖。')
+        repair['instruction'] = ('上一稿超过输出长度上限被截断。本次压缩篇幅：每个字段只写必要内容，camera 和 light '
+                                 '仍用完整短句写清本镜机位和光源，不能写同上；avoid 每段不超过 3 项，台词句子不加长；不得减少区段覆盖。')
     return repair
 
 

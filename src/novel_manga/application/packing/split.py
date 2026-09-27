@@ -49,29 +49,11 @@ def is_target(clip: dict, margin: float) -> bool:
 
 
 def resplit(plan: dict, shots_by_index: dict, build_entry, margin: float = MARGIN_SECONDS, *, settings=None) -> tuple[list[dict], dict, dict]:
-    """The plan's clips with every target replaced by its parts, numbered again in order.
-
-    Returns (clips, {old id: new id} for the clips kept as they were, {old id: [part ids]} for the split ones);
-    build_entry(raw clip, new id, old id) makes a part's plan entry."""
-    clips: list[dict] = []
-    moved: dict[str, str] = {}
-    split: dict[str, list[str]] = {}
-    for clip in plan["clips"]:
-        parts = []
-        if is_target(clip, margin) and clip["shot_indexes"][0] in shots_by_index:
-            parts = ClipCompiler(settings or compiler_options()).split_long_shot(copy.deepcopy(shots_by_index[clip['shot_indexes'][0]]))
-        if len(parts) > 1:
-            split[clip["clip_id"]] = []
-            for part in parts:
-                new_id = f"clip_{len(clips) + 1:02d}"
-                raw = {"kind": "video", "location": part["location"], "shots": [part], "seconds": round(ClipCompiler(settings or compiler_options()).shot_seconds(part), 2)}
-                clips.append(build_entry(raw, new_id, clip["clip_id"]))
-                split[clip["clip_id"]].append(new_id)
-        else:
-            new_id = f"clip_{len(clips) + 1:02d}"
-            moved[clip["clip_id"]] = new_id
-            clips.append({**clip, "clip_id": new_id})
-    return clips, moved, split
+    """Do not create new shots from prose; historical range recovery is separate."""
+    for clip in plan['clips']:
+        if is_target(clip, margin) and clip['shot_indexes'][0] in shots_by_index:
+            raise ValueError(f"{clip['clip_id']}: 需要规划补丁明确拆镜；不再由分段工具续写动作和状态")
+    return copy.deepcopy(plan['clips']), {c['clip_id']: c['clip_id'] for c in plan['clips']}, {}
 
 
 def repoint_records(clip_dir: Path) -> None:

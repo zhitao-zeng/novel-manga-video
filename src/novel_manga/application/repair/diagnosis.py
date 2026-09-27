@@ -1,4 +1,4 @@
-"""Experimental source-vs-script diagnosis. Does not change production routing."""
+"""Source, request and generation diagnosis consumed by the managed repair route."""
 from __future__ import annotations
 
 import json
@@ -34,8 +34,8 @@ RULES = """你判断一段动画视频该修分镜还是只重拍，不负责重
 """
 
 
-def clip_context(novel: Path, episode: int, cid: str) -> dict:
-    directory = novel / f"{novel.name}_{episode}"
+def clip_context(novel: Path, episode: int, cid: str, *, episode_dir: Path | None = None) -> dict:
+    directory = Path(episode_dir) if episode_dir is not None else novel / f"{novel.name}_{episode}"
     plan = read(directory / "clip_plan.json", {})
     clip = next(c for c in plan["clips"] if c["clip_id"] == cid)
     script = read(directory / "chapter_script.json", {})
@@ -45,11 +45,15 @@ def clip_context(novel: Path, episode: int, cid: str) -> dict:
     passage = "\n".join(s["text"] for s in segments if s.get("segment_id") in clip.get("segment_ids", []))
     verdict = read(directory / "episode_review.json", {}).get("clips", {}).get(cid) or {}
     aliases = read(novel / "bible_aliases.json", {})
-    subjects = [{"subject": int(s), "name": n, "picture": int(p)} for s,n,p in
-                re.findall(r"<Subject (\d+)> is the character ([^,\n]+), shown in <Picture (\d+)>", clip.get("prompt_h3", ""))]
+    from novel_manga.story.h3 import subject_map, character_pictures, asset_subjects
+    pictures = character_pictures(clip)
+    subjects = [{'subject': number, 'name': name, 'pictures': [n for n, _ in pictures[name]]}
+                for name, number in subject_map(clip).items()]
+    subjects += [{'subject': number, 'name': ref.get('name'), 'pictures': [picture], 'role': ref.get('role')}
+                 for number, picture, ref in asset_subjects(clip)]
     return {"episode": episode, "clip_id": cid, "passage": passage, "stages": stages,
             "prompt": clip.get("prompt", ""), "prompt_h3": clip.get("prompt_h3", ""),
-            "ledger": snapshot_block(clip, directory), "issue": verdict.get("story_issue") or verdict.get("identity_issue"),
+            "ledger": snapshot_block(clip, directory), "issue": verdict.get("story_issue") or verdict.get("identity_issue") or verdict.get("defect_issue") or (verdict.get("verify") or {}).get("evidence"),
             "instruction": verdict.get("feedback", ""), "subjects": subjects,
             "references": clip.get("references", []),'crowd_roles':clip.get('crowd_roles',{}),
             "aliases": {a:n for a,n in aliases.items() if a in passage or a in clip.get('prompt','')}}
@@ -89,7 +93,7 @@ def numbered_evidence(context: dict) -> tuple[dict, dict]:
     source = {f"S{i}": text for i, text in enumerate(re.findall(r"[^。！？\n]+[。！？]?", context["passage"]), 1) if text.strip()}
     script = {}
     for i, stage in enumerate(context["stages"], 1):
-        for key in ["visual_prompt", "motion_prompt", "start_state", "end_state", "characters", "actions", "turns", "avoid"]:
+        for key in ["visual_prompt", "motion_prompt", "start_state", "end_state", "camera", "shot_scale", "in_frame", "characters", "actions", "turns", "avoid"]:
             value = stage.get(key)
             if value:
                 script[f"D{i}_{key}"] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)

@@ -1,7 +1,7 @@
 """Original repair schema, including optional reframing fields."""
 from __future__ import annotations
 
-from novel_manga.story.fields import cast_field, actions_field, extras_field
+from novel_manga.story.fields import cast_field, actions_field, extras_field, sound_effects_field
 
 def schema_for(names: list[str], indexes: list[int], *, reframe=False, bible=None) -> dict:
     schema = {"type": "object", "additionalProperties": False, "required": ["stages"], "properties": {"stages": {
@@ -24,6 +24,7 @@ def schema_for(names: list[str], indexes: list[int], *, reframe=False, bible=Non
                                                                       "wears": {"type": "object",
                                                                                 "additionalProperties": {"type": ["string", "null"]}},
                                                                       "light": {"type": "string", "maxLength": 60},
+                                                                      "sfx": sound_effects_field(),
                                                                       "event": {"type": "string"}}}}}}
 
 

@@ -26,6 +26,7 @@ def ensure_image(
     reference: Path | None = None,
     additional_references: tuple[Path, ...] = (),
     aspect_ratio: str | None = None,
+    seed: int | None = None,
 ) -> ImageResult:
     identity = {
         "prompt_sha256": sha256_text(prompt),
@@ -61,6 +62,8 @@ def ensure_image(
         **({"local_image_model": LOCAL_IMAGE_MODEL,
             "local_image_size": "x".join(str(n) for n in NATIVE_SIZE[aspect_ratio or "9:16"])}
            if settings.local_image_base_url else {}),
+        # Only a card drawn again on purpose names a seed, so every existing card keeps its hash.
+        **({"seed": seed} if seed is not None else {}),
     }
     identity_hash = sha256_text(json.dumps(identity, sort_keys=True))
     meta = output.with_suffix(output.suffix + ".request.json")
@@ -99,6 +102,8 @@ def ensure_image(
         )
         return ImageResult(path=output)
     options = {"aspect_ratio": aspect_ratio} if aspect_ratio else {}
+    if seed is not None:
+        options["seed"] = seed
     if additional_references:
         result = provider.create_image(
             prompt,

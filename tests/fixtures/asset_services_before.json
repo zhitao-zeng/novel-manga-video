@@ -7,7 +7,7 @@
         "reference": null
       },
       {
-        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，中景地面留出一片开阔的空地，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
         "output": "series_assets/locations/location_001/establishing.jpeg",
         "reference": null
       }
@@ -87,7 +87,7 @@
           "spec_path": "series_assets/locations/location_001/spec.json",
           "primary_image": "series_assets/locations/location_001/establishing.jpeg",
           "secondary_image": null,
-          "prompt_sha256": "3c3ee5be5845f1d55434cce328cb87cca80859abafcb853469934837a589149f"
+          "prompt_sha256": "be38e6318891da22119cb059f90492e74278238d218f71d0d3fefba47f191ca0"
         }
       ],
       "props": [],
@@ -154,14 +154,14 @@
         "request_sha256": "440fb6f29cbd96b31c269522ad394fcb7f33f5880c91561f8a5c9243153c6ac1"
       },
       "series_assets/locations/location_001/establishing.jpeg.request.json": {
-        "prompt_sha256": "3c3ee5be5845f1d55434cce328cb87cca80859abafcb853469934837a589149f",
+        "prompt_sha256": "be38e6318891da22119cb059f90492e74278238d218f71d0d3fefba47f191ca0",
         "reference_sha256": null,
         "additional_reference_sha256s": [],
         "provider": "mock",
         "image_model": "gpt-image-2",
         "image_transport": "mock",
         "image_command_sha256": null,
-        "request_sha256": "77b518f59d841417590829e150a07333c388ff085e0ac3c9805ad14d502cb0ef"
+        "request_sha256": "8261ea0845178a477f7543dbeb4456a3700f5c6a7247e2c3409be8accea249bd"
       },
       "series_assets/locations/location_001/spec.json": {
         "asset_id": "location_001",
@@ -192,7 +192,7 @@
             "text"
           ]
         },
-        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，中景地面留出一片开阔的空地，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
       },
       "series_assets/manifest.json": {
         "schema_version": 1,
@@ -268,7 +268,7 @@
             "spec_path": "series_assets/locations/location_001/spec.json",
             "primary_image": "series_assets/locations/location_001/establishing.jpeg",
             "secondary_image": null,
-            "prompt_sha256": "3c3ee5be5845f1d55434cce328cb87cca80859abafcb853469934837a589149f"
+            "prompt_sha256": "be38e6318891da22119cb059f90492e74278238d218f71d0d3fefba47f191ca0"
           }
         ],
         "voice_assignments": {
@@ -286,7 +286,7 @@
         "reference": null
       },
       {
-        "prompt": "3D国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
+        "prompt": "3D国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，中景地面留出一片开阔的空地，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
         "output": "series_assets/locations/location_001/establishing.jpeg",
         "reference": null
       }
@@ -366,7 +366,7 @@
           "spec_path": "series_assets/locations/location_001/spec.json",
           "primary_image": "series_assets/locations/location_001/establishing.jpeg",
           "secondary_image": null,
-          "prompt_sha256": "cba0e6576a170a73cf309bf010be40cd428943c0a4ca356ecf846796243ad295"
+          "prompt_sha256": "72088615503c7edd07909c9f800826a3ee129fbbfba52e2aee0692acf4207eb5"
         }
       ],
       "props": [],
@@ -433,14 +433,14 @@
         "request_sha256": "8f203641d16378bd2816d485bb8936fbba2c9268dc109bbe49e8649f61de85a8"
       },
       "series_assets/locations/location_001/establishing.jpeg.request.json": {
-        "prompt_sha256": "cba0e6576a170a73cf309bf010be40cd428943c0a4ca356ecf846796243ad295",
+        "prompt_sha256": "72088615503c7edd07909c9f800826a3ee129fbbfba52e2aee0692acf4207eb5",
         "reference_sha256": null,
         "additional_reference_sha256s": [],
         "provider": "mock",
         "image_model": "gpt-image-2",
         "image_transport": "mock",
         "image_command_sha256": null,
-        "request_sha256": "b0ef42519a71e81f642af66dc692fa46e674ae841830daffda7d14f24f2b73b3"
+        "request_sha256": "ad26b8327a2041c7d40f9fa641156c9fd7b546fe77c60e6565a6643befa63a34"
       },
       "series_assets/locations/location_001/spec.json": {
         "asset_id": "location_001",
@@ -471,7 +471,7 @@
             "text"
           ]
         },
-        "prompt": "3D国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
+        "prompt": "3D国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，中景地面留出一片开阔的空地，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。高精度半写实3D国漫CG人物资产，国产仙侠游戏过场动画质感，东方审美面孔、自然人体比例、细腻发丝、自然皮肤明暗，PBR丝绸、皮革、石材与金属材质，电影柔光和真实景深；不要二维插画、墨线赛璐璐、真人照片、Q版或欧美卡通；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
       },
       "series_assets/manifest.json": {
         "schema_version": 1,
@@ -547,7 +547,7 @@
             "spec_path": "series_assets/locations/location_001/spec.json",
             "primary_image": "series_assets/locations/location_001/establishing.jpeg",
             "secondary_image": null,
-            "prompt_sha256": "cba0e6576a170a73cf309bf010be40cd428943c0a4ca356ecf846796243ad295"
+            "prompt_sha256": "72088615503c7edd07909c9f800826a3ee129fbbfba52e2aee0692acf4207eb5"
           }
         ],
         "voice_assignments": {
@@ -570,7 +570,7 @@
         "reference": "series_assets/characters/character_001/turnaround.jpeg"
       },
       {
-        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，中景地面留出一片开阔的空地，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景",
         "output": "series_assets/locations/location_001/establishing.jpeg",
         "reference": null
       }
@@ -650,7 +650,7 @@
           "spec_path": "series_assets/locations/location_001/spec.json",
           "primary_image": "series_assets/locations/location_001/establishing.jpeg",
           "secondary_image": null,
-          "prompt_sha256": "fde65a5f8451ec81002fba67e22f3873a83a6b3a68c01133f10cb52faa850702"
+          "prompt_sha256": "57f23abca381341b51fc0cc740e0ff1ebf360def1a6b040af34fd17ea60a6f1a"
         }
       ],
       "props": [],
@@ -727,14 +727,14 @@
         "request_sha256": "440fb6f29cbd96b31c269522ad394fcb7f33f5880c91561f8a5c9243153c6ac1"
       },
       "series_assets/locations/location_001/establishing.jpeg.request.json": {
-        "prompt_sha256": "fde65a5f8451ec81002fba67e22f3873a83a6b3a68c01133f10cb52faa850702",
+        "prompt_sha256": "57f23abca381341b51fc0cc740e0ff1ebf360def1a6b040af34fd17ea60a6f1a",
         "reference_sha256": null,
         "additional_reference_sha256s": [],
         "provider": "mock",
         "image_model": "gpt-image-2",
         "image_transport": "mock",
         "image_command_sha256": null,
-        "request_sha256": "5e379d42a0ad146174bce7d0fce8c9fd2d1ca75e39a92f92f1958bc5d7421f37"
+        "request_sha256": "d67863cf33f476eb0ab421eabfc113d19a29342bcd9430294a3a82e98f473881"
       },
       "series_assets/locations/location_001/spec.json": {
         "asset_id": "location_001",
@@ -765,7 +765,7 @@
             "text"
           ]
         },
-        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
+        "prompt": "二维国漫。系列风格指纹 fixed。蓝。场景资产：厅堂。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。严格空场，横屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，中景地面留出一片开阔的空地，避免把核心道具放在字幕安全区。不得出现人物、人体剪影、海报人物、照片人物或镜中人。二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，明快平涂和两级赛璐璐阴影，概括但稳定的五官、发型和服装形状；表情动作清楚易读，保持自然人体比例但不做幼儿Q版；不要真人照片、半写实皮肤、2.5D厚涂、三维游戏CG或PBR塑料高光；不要文字、Logo或水印。。画面中绝对不出现任何人物、人影、人形剪影或车内乘客，只有空无一人的场景"
       },
       "series_assets/manifest.json": {
         "schema_version": 1,
@@ -841,7 +841,7 @@
             "spec_path": "series_assets/locations/location_001/spec.json",
             "primary_image": "series_assets/locations/location_001/establishing.jpeg",
             "secondary_image": null,
-            "prompt_sha256": "fde65a5f8451ec81002fba67e22f3873a83a6b3a68c01133f10cb52faa850702"
+            "prompt_sha256": "57f23abca381341b51fc0cc740e0ff1ebf360def1a6b040af34fd17ea60a6f1a"
           }
         ],
         "voice_assignments": {

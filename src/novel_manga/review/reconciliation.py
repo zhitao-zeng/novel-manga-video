@@ -30,7 +30,7 @@ def verdict_from_record(record: dict) -> dict:
     answer["people"] = [p if isinstance(p, dict) else {"who": p} for p in people]
     verdict = review_policy.verify_to_verdict(answer)
     verdict["verify"]["people"] = people
-    verdict["tier"] = "must_fix" if verdict["story_ok"] is False else "optional"
+    verdict["tier"] = "must_fix" if verdict["severity"] == "fail" else "optional"
     if record.get("mode") in {"confirm", 'source_confirm'}:
         verdict["flash_checked"] = True
     if record.get('mode') == 'source_confirm':

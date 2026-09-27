@@ -57,7 +57,8 @@ def add_observations(history: dict, review: dict, takes: dict) -> bool:
                        "verdict": verify.get("verdict"), "evidence": verify.get("evidence", row.get("story_issue", "")),
                        "instruction": verify.get("instruction", row.get("feedback", "")),
                        "errors": [key for key in ERROR_FIELDS if verify.get(key)],
-                       **({"repair_advice": verify["repair_advice"]} if verify.get("repair_advice") else {})}
+                       **({"repair_advice": verify["repair_advice"]} if verify.get("repair_advice") else {}),
+                       **({"confirmed_issue": row["confirmed"]["issue"]} if row.get("confirmed") and row.get("tier") == "must_fix" else {})}
         rows = history.setdefault("observations", {}).setdefault(cid, [])
         old = next((r for r in rows if r["video"] == observation["video"] and r["take"] == observation["take"]), None)
         if old == observation:
@@ -68,6 +69,27 @@ def add_observations(history: dict, review: dict, takes: dict) -> bool:
             rows.append(observation)
         changed = True
     return changed
+
+
+def adopt_reviewed_run(directory: Path, report: dict | None = None) -> dict:
+    """Carry completed standalone reviewed renders into the existing repair budget once."""
+    state = load(directory)
+    if 'prior_generation_counts' in state:
+        return state['prior_generation_counts']['clips']
+    report = report if report is not None else read(directory / 'thin_media_report.json', {})
+    review = report.get('quality_review') or {}
+    first = review.get('first_pass_generated')
+    if first is None:
+        return {}
+    counts = {cid: int(n) for cid, n in first.items() if int(n) > 0}
+    if review.get('automatic_corrections'):
+        for row in report.get('clips', []):
+            n = sum(bool(t.get('generated_this_run')) for t in row.get('attempts', []))
+            if n:
+                counts[row['clip_id']] = counts.get(row['clip_id'], 0) + n
+    state['prior_generation_counts'] = {'source': 'completed reviewed render', 'clips': counts}
+    save(directory, state)
+    return counts
 
 
 def begin_trial(directory: Path, clip_ids: set[str], method: str, *, after_plan: dict | None = None,
@@ -122,7 +144,10 @@ def repeated_errors(directory: Path, cid: str) -> list[str]:
     rows = (load(directory).get("observations") or {}).get(cid, [])[-2:]
     if len(rows) != 2 or any(r.get("verdict") != "obvious" and not r.get("errors") for r in rows):
         return []
-    return sorted(set(rows[0].get("errors", [])) & set(rows[1].get("errors", [])))
+    errors = sorted(set(rows[0].get("errors", [])) & set(rows[1].get("errors", [])))
+    if rows[0].get("confirmed_issue") and rows[0]["confirmed_issue"] == rows[1].get("confirmed_issue"):
+        errors.append("confirmed_picture")
+    return errors
 
 
 def record_render(directory: Path, report: dict):
@@ -160,7 +185,7 @@ def record_render(directory: Path, report: dict):
         save(directory,history)
 
 
-def refresh_prepared_plan(directory: Path, before_plan: dict, after_plan: dict, notes: dict):
+def refresh_prepared_plan(directory: Path, before_plan: dict, after_plan: dict, notes: dict, *, after_notes: dict | None = None):
     """A deterministic reference cleanup still belongs to the pending repair."""
     from novel_manga.application.profiles import plan_fingerprint
     if not (directory/HISTORY_DIR/'history.json').is_file():
@@ -170,7 +195,10 @@ def refresh_prepared_plan(directory: Path, before_plan: dict, after_plan: dict, 
     for trial in history['trials']:
         if (trial.get('managed') and not trial.get('renders') and trial.get('expected_plan')==before
                 and trial.get('expected_notes')==notes):
-            trial['expected_plan']=after;changed=True
+            trial['expected_plan']=after
+            if after_notes is not None:
+                trial['expected_notes']=copy.deepcopy(after_notes)
+            changed=True
     if changed:
         save(directory,history)
 

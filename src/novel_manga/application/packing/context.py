@@ -48,7 +48,7 @@ DEFAULT_ANON_VOICE = {
 ANON_VOICE = dict(DEFAULT_ANON_VOICE)
 
 
-PACKER_VERSION = "thin-packer-2026-09-12+split-keeps-cast"
+PACKER_VERSION = "thin-packer-2026-09-25+authored-stages"
 
 
 PACK_MODE = "execution"

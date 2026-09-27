@@ -60,3 +60,20 @@ def test_strict_waiver_and_decisions_do_not_modify_the_validation_result():
     original = copy.deepcopy(result)
     decide_validation(result, final_attempt=True, patch_rounds=0, patch_seconds_left=180, allow_floor_waiver=True)
     assert result == original
+
+
+
+def test_presence_disagreement_is_patched_then_reported_never_re_planned():
+    presence = Issue(Code.PRESENCE_DISAGREEMENT, '在场复核与本镜名单不一致', stage='clip_1 stage 2', field='in_frame')
+    first = decide([presence])
+    assert first.action == 'patch' and first.targets == ([], {'clip_1 stage 2': ['在场复核与本镜名单不一致']})
+    spent = decide([presence], rounds=3)
+    assert spent.action == 'accept' and spent.presence_waived == [presence.message]
+    assert any('在场分歧' in warning for warning in spent.warnings)
+    other = Issue(Code.VISIBLE_SPEAKER, 'fix speaker', stage='clip_1 stage 1')
+    assert decide([presence, other], rounds=3).action == 'rewrite'            # a real error still re-plans
+    short = Issue(Code.DURATION_BELOW_MINIMUM, 'The episode is too short')
+    last = decide([short, presence], final=True, waive=True)
+    assert last.floor_waived and last.action == 'patch'                       # the writer still gets its patch
+    assert decide([short, presence], final=True, rounds=3, waive=True).action == 'accept'
+    assert decide([short, presence], rounds=3, waive=True).action == 'rewrite'  # short, and not the last attempt

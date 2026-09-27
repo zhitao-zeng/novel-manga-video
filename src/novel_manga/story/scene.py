@@ -126,40 +126,29 @@ def resolve_scene(script: dict | ResolvedScene, context: SceneContext) -> Resolv
             props = [item for item in carried.values() if item]
             if props:
                 shot['props'] = list(dict.fromkeys([*(shot.get('props') or []), *props]))
-    # "同上" is only meaningful inside one prompt.  Resolve it (and blanks)
-    # from the last concrete value in reading order so that the first stage of
-    # every clip states its light and camera explicitly.
+    # Camera and light describe this shot, unlike an explicitly persistent
+    # wardrobe binding. Do not infer whether an earlier flash or engine is still on.
+    #
+    # "同上" is the exception, and executing it is not an inference.  Until 2026-09-25 the planner was
+    # TOLD to write it for an unchanged light or camera, and the drafts it wrote are the ones still
+    # being repaired and repacked - 雾月 24,182 of 36,178 stages, 诸天 49,475 of 70,604.  Validation now
+    # sends a new draft's 同上 back to its writer, so one that reaches this point belongs to an old or
+    # an authored draft and says "as the stage before".  It is executed the way those episodes were
+    # rendered: the last stated value in reading order, starting over at a new scene.  No keyword
+    # decides which part of an inherited light still holds.  A 同上 with nothing stated before it
+    # carries nothing and is dropped, not printed as 光源：同上.
     last: dict[str, str] = {}
     last_scene = None
-    # An object's reflection belongs to the object being on camera: a stage that shoots 席勒
-    # alone inherits the CLINIC's lamp and moonlight from 同上, not the 机甲反光 of the stage
-    # before it - the armour is off frame here, and its reflection dragged a solo shot into
-    # describing light off something nobody can see (four-layer audit #4).
-    reflection = re.compile(r"(机甲|装甲|战甲|盔甲|反光|金属光泽)")
     for shot in shots:
         if shot.get('scene_id') and shot['scene_id'] != last_scene:
             last.clear()
         last_scene = shot.get('scene_id')
-        for field in ("camera", "light"):
-            value = re.sub(r"\s+", "", shot.get(field, "") or "").strip("；。")
-            if value and value != "同上":
+        for field in ('camera', 'light'):
+            value = re.sub(r'\s+', '', str(shot.get(field) or '')).strip('；。')
+            if value == '同上':
+                shot[field] = last.get(field, '')
+            elif value:
                 last[field] = value
-            elif last.get(field):
-                inherited = last[field]
-                if field == "light" and reflection.search(inherited):
-                    visible = set(shot.get("characters") or []) | set(shot.get("listeners") or []) | set(shot.get("in_frame") or [])
-                    worn_here = {item for item in (shot.get("wears") or {}).values() if item}
-                    # keep the reflection only when the reflective thing is on camera this stage:
-                    # somebody wears it, or its object/prop rides along, or an action names it
-                    on_camera = bool(worn_here) or bool(shot.get("props") or shot.get("scene_objects")) \
-                        or any(reflection.search(str(a.get("target") or "") + str(a.get("action") or ""))
-                               for a in shot.get("actions") or [])
-                    if not on_camera:
-                        kept = [part for part in re.split(r"[，,；;]", inherited)
-                                if not reflection.search(part)]
-                        inherited = "；".join(part for part in kept if part.strip()) or None
-                if inherited:
-                    shot[field] = inherited
     for index, shot in enumerate(shots, start=1):
         shot.setdefault("index", index)
     return result

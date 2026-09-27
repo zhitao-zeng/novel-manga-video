@@ -24,9 +24,9 @@ class RepairChapter:
     identities: dict
 
 
-def prepare_context(novel_dir, index, script, segments, *, identity=False, identities=None):
+def prepare_context(novel_dir, index, script, segments, *, identity=False, identities=None, episode_dir=None):
     planner_ctx = PlannerContext.from_env()
-    episode_dir = novel_dir / f"{novel_dir.name}_{index}"
+    episode_dir = Path(episode_dir) if episode_dir is not None else novel_dir / f"{novel_dir.name}_{index}"
     identities = identities or {}
     identity_data = load_chapter(episode_dir)
     bible = identity_data.catalog.bible

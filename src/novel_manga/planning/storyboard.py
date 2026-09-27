@@ -26,7 +26,10 @@ SHOT_ID = re.compile(r"[A-Za-z0-9._-]{1,8}")
 SPOKEN_LINE = re.compile(r"^(.+?)（([^）]*)）：“(.*)”$")
 SOUND_PREFIX = "声音："
 # The five the brief allows, and what each means downstream.  内心独白 is heard in the character's own
-# voice with the mouth closed, which is the offscreen delivery, not a separate mode.
+# voice with the mouth closed, which is the offscreen delivery, not a separate mode - but the turn also
+# says it is a thought (inner_monologue): a book that post-mixes thoughts finds them by that flag and
+# nothing else.  Without it the agent's ch12 sheet sent all fourteen of its thoughts to H3 as voiceovers
+# over a face on screen, and H3 does not keep those lips shut.
 DELIVERY_LABELS = {"说": "visible_dialogue", "画外音": "offscreen_dialogue",
                    "内心独白": "offscreen_dialogue", "唱": "singing", "聊天消息": "chat_message"}
 # Other spellings of those five that an author has actually written, each seen in a real sheet.  The
@@ -78,7 +81,8 @@ def authored_sound(cell: str) -> AuthoredSound:
         turns.append({"written_speaker": match.group(1).strip(),
                       "delivery_mode": DELIVERY_LABELS[manner[0]],
                       "emotion": "、".join(p for p in manner[1:] if p),
-                      "text": match.group(3).strip()})
+                      "text": match.group(3).strip(),
+                      **({"inner_monologue": True} if manner[0] == "内心独白" else {})})
     return AuthoredSound(tuple(turns), "，".join(sounds), tuple(problems))
 
 HEADERS = {

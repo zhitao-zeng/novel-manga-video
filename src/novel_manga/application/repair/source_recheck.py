@@ -20,10 +20,14 @@ from novel_manga.application.repair.history import accepted_clip_material, begin
 
 
 class SourceVerifier(CurrentVerifier):
-    def __init__(self, *args, proposed_plan: dict, current_videos: dict, **kwargs):
+    def __init__(self, *args, proposed_plan: dict, current_videos: dict, episode_dir: Path | None = None, **kwargs):
+        self.directory = episode_dir
         self.proposed_plan = proposed_plan
         self.current_videos = current_videos
         super().__init__(*args, repair_advice=False, **kwargs)
+
+    def episode_dir(self, n):
+        return self.directory if self.directory is not None else super().episode_dir(n)
 
     def load(self, path: Path):
         if Path(path).name == 'clip_plan.json':
@@ -112,7 +116,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     if not source_issues:
         return {'changed': [], 'accepted': [], 'why':'no current source targets'}
     atomic_write_json(directory / 'source_speaker_contract.json',list(merged.values()))
-    result = repair_episode(novel,episode,False,reframe=True,source_issues=source_issues,return_proposal=True)
+    result = repair_episode(novel,episode,False,reframe=True,source_issues=source_issues,return_proposal=True,episode_dir=directory)
     candidate = RepairProposal.from_result(result)
     proposal = candidate.payload if candidate.available else None
     if not proposal:
@@ -160,7 +164,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     selected = {c['clip_id']:c.get('selected') or {} for c in media.get('clips', [])}
     actual = current_takes(directory,before,read(directory/'episode_review.json',{}))
     verifier = SourceVerifier(novel,state/'source_recheck'/'records.jsonl','source_recheck',1,
-                              proposed_plan=plan,current_videos=actual,max_tokens=2200)
+                              proposed_plan=plan,current_videos=actual,max_tokens=2200,episode_dir=directory)
     acceptances = read(directory / 'source_acceptances.json', {})
     records, accepted = [], []
     for cid in checked:

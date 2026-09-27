@@ -189,16 +189,12 @@ def test_the_later_parts_of_a_split_stage_carry_on_instead_of_repeating_its_acti
             "motion_prompt": "林凡推门走出去", "end_state": "林凡站在门外台阶上",
             "turns": [{"delivery_mode": "visible_dialogue", "speaker_name": "林凡", "text": "我们走吧。" * 12}] * 3}
     parts = ClipCompiler(compiler_options()).split_long_shot(shot)
-    assert len(parts) == 3 and parts[0]["motion_prompt"] == "林凡推门走出去" and parts[0]["visual_prompt"] == "林凡站在屋内门边"
-    for part in parts[1:]:
-        assert "推门" not in part["motion_prompt"]
-        # The action named as past or in progress; the finale pending - never painted early.
-        assert ("已完成" in part["visual_prompt"] or "正在进行中" in part["visual_prompt"])
-    # Part 1 ends mid-action; middle parts pause; only the last part lands the stage's tableau.
-    assert "后续分段才成立" in parts[0]["end_state"]
-    assert "后续剧情动作留给下一片段" in parts[1]["end_state"]
-    assert "台词已说完" in parts[1]["end_state"]
-    assert parts[-1]["end_state"] == "林凡站在门外台阶上"
+    assert len(parts) == 3
+    # The door is pushed once, in the last part, which lands the stage's tableau; the parts before it
+    # open on the writer's picture, only speak and have no end of their own.  Nothing is written for any part.
+    assert [p["motion_prompt"] for p in parts] == ["", "", "林凡推门走出去"]
+    assert all(p["visual_prompt"] == "林凡站在屋内门边" for p in parts)
+    assert [p["end_state"] for p in parts] == ["", "", "林凡站在门外台阶上"]
 
 
 # ---------------------------------------------------------------- 29: a forced H3 rebuild that fails

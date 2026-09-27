@@ -90,7 +90,7 @@ def test_a_visible_speaker_is_structural_and_never_graded():
             "turns": [speaks("薇奥拉公主", "……")],
             "actions": [{"actor": "薇奥拉公主", "action": "环住", "target": "莱恩·格雷"}]}
     keep = presence.structural_on_camera(shot)
-    assert "薇奥拉公主" in keep and "莱恩·格雷" in keep
+    assert "薇奥拉公主" in keep and "莱恩·格雷" not in keep
 
 
 def test_a_judge_outage_returns_no_grades(monkeypatch):

@@ -32,7 +32,7 @@ def test_audit_only_import_backs_up_review_and_leaves_video_untouched(tmp_path):
     local={reconciliation.evidence_key(1,'c',str(video),take):row}
     assert audit_flow.sync_episode(novel,state,1,local,{})
     assert json.loads((state/'before_reviews/1.json').read_text())==old
-    assert json.loads((directory/'episode_review.json').read_text())['clips']['c']['story_ok']
+    assert json.loads((directory/'episode_review.json').read_text())['clips']['c']['story_ok'] is None
     assert video.read_bytes()==b'original video'
     assert audit_flow.sync_episode(novel,state,1,local,{})
     assert json.loads((state/'before_reviews/1.json').read_text())==old

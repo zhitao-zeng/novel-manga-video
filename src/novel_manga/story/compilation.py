@@ -89,6 +89,25 @@ def text_chunks(text: str, limit: int) -> list[str]:
             chunks.append(unit)
     return chunks
 
+def line_parts(turns: list[dict], *, max_seconds: float, seconds_of) -> list[list[dict]]:
+    """`turns` dealt out in order into parts whose `seconds_of` fits `max_seconds`; a line too long for any part
+    is first cut at sentence ends.  Shared by the packer and planning validation, so what validation lets
+    through as cuttable is exactly what the packer cuts."""
+    limit = max(8, int((max_seconds - 2.0) * 4))  # one line alone: 1 s for the stage + 1 s + chars / 4
+    pieces = [{**turn, "text": piece} if piece != turn["text"] else turn
+              for turn in turns
+              for piece in (text_chunks(turn["text"], limit)
+                            if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"} and spoken_chars(turn["text"]) > limit
+                            else [turn["text"]])]
+    parts: list[list[dict]] = []
+    for turn in pieces:
+        if parts and seconds_of(parts[-1] + [turn]) <= max_seconds:
+            parts[-1].append(turn)
+        else:
+            parts.append([turn])
+    return parts
+
+
 def lint_stage(shot: dict, *, camera_policy: str = "fixed") -> list[str]:
     """Restraint test: the stage must still stand once adjectives are removed."""
     issues = []
@@ -220,73 +239,38 @@ class ClipCompiler:
     text_chunks = staticmethod(text_chunks)
 
     def split_long_shot(self, shot: dict) -> list[dict]:
-        """A stage too long for one clip, as consecutive stages that each fit one.
+        """A stage too long for one clip, as consecutive parts that each fit one - cut between its lines only.
 
-        The packer cuts only between stages, so a stage longer than the cap used to become a clip of its own whose
-        request was simply clamped: 星海 484's 71-second stage went out as a 15-second request and 45 % of its lines
-        were never spoken.  Its turns are dealt out in order into parts that fit - a line too long for any clip is
-        first cut at sentence ends - and every part keeps the stage's picture, the later ones carrying on from it."""
+        星海 484's 71-second stage once went out as one 15-second request and 45 % of its lines were never
+        spoken, so a long stage is cut.  The cut is all the packer does: the lines are dealt out in order
+        (line_parts) and nothing is written for the new parts.  Every part opens on the picture the writer
+        wrote for the stage.  The stage's event and its end belong to the last part: the parts before it
+        speak their lines and hold the opening picture.  The outcome lands once, at the end - 托尼说完后
+        飞出窗户 must not leave the room empty while his lines are still playing, and a door that opens in
+        part 1 contradicts 这门怎么推都推不动 in part 2.  The parts used to carry invented prose instead
+        (承接上一段：……的动作正在进行中，沿用当前站位), which dropped the picture the writer wrote: ch12's
+        visor went from open to half to closed across clip05-07 (2026-09-25).  Recorded shot_parts are
+        recovered through this same cut, so the dialogue ranges a plan recorded do not move.
+        """
         shot = copy.deepcopy(shot)
         if self.is_title_card(shot) or self.shot_seconds(shot) <= self.options.max_clip_seconds:
             return [shot]
-        limit = max(8, int((self.options.max_clip_seconds - 2.0) * 4))  # one line alone: 1 s for the stage + 1 s + chars / 4
-        turns = [{**turn, "text": piece} if piece != turn["text"] else turn
-                 for turn in shot["turns"]
-                 for piece in (self.text_chunks(turn["text"], limit)
-                               if turn["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"} and self.spoken_chars(turn["text"]) > limit
-                               else [turn["text"]])]
-        parts: list[list[dict]] = []
-        for turn in turns:
-            if parts and self.shot_seconds({**shot, "turns": parts[-1] + [turn]}) <= self.options.max_clip_seconds:
-                parts[-1].append(turn)
-            else:
-                parts.append([turn])
+        parts = line_parts(shot["turns"], max_seconds=self.options.max_clip_seconds,
+                           seconds_of=lambda turns: self.shot_seconds({**shot, "turns": turns}))
         if len(parts) == 1:
             return [shot]  # one silent action longer than a clip: nothing to cut at
         self.decisions.append({"kind": "split_stage", "stage": shot.get("origin_index"), "seconds": round(self.shot_seconds(shot), 2),
                           "parts": len(parts), "cap": self.options.max_clip_seconds})
         pieces = []
-        picture = "".join(str(shot.get(key, "")) for key in ("visual_prompt", "motion_prompt", "end_state"))
-        on_screen = [name for name in shot.get("characters", []) if name in picture]
-        total = len(parts)
         for number, part in enumerate(parts, 1):
-            piece = {**shot, "turns": part, "split_part": [number, total]}
-            action = self.compact(str(shot.get("motion_prompt") or ""))
-            end = self.compact(shot.get("end_state", ""))
-            if number == 1:
-                # Part 1 plays the stage's action as it opens.  Its own end_state must not claim
-                # the stage's RESULT: the action may complete within these seconds, but the
-                # tableau it lands on belongs to the stage's last part.  説话说到一半的第一段
-                # ends mid-action, not on the outcome.
-                piece["end_state"] = (f"{action}正在发生或刚完成动作本身，最终结果（{end}）在后续分段才成立"
-                                      if end else "动作进行中，本阶段最终结果在后续分段才成立")
-            else:
-                # The later parts carry on from part 1 and finish the lines.  Copying the action
-                # into every part had a character push the same door open three times.  The finale
-                # is NOT stated here as done - it lands in the last part's end_state - so the
-                # wording names the action as past only when this really is the last part.
-                if number == total:
-                    text = f"承接上一段：{action}已完成，人物保持该姿态；本分段收尾并呈现最终结果"
-                else:
-                    text = f"承接上一段：{action}的动作正在进行中，沿用当前站位，本分段继续台词和反应，不重复该动作"
-                    if end:
-                        text += f"，最终结果（{end}）尚未发生"
-                # Who was in the picture stays in it.  clip_cast keeps a silent character of a crowded stage only when
-                # the stage text names them, and with the stage's own text gone they dropped to the background, card and all
-                # (星海 706: 金曜 and 伊芙 at the table in part 1, gone from parts 2 and 3).  Named only where clip_cast would
-                # drop them - more than two listed - so every other part keeps its wording, and its rendered takes.
-                speakers = [t["speaker_name"] for t in part if t.get("delivery_mode") == "visible_dialogue" and t.get("speaker_name")]
-                listed = list(dict.fromkeys([*shot.get("characters", []), *speakers]))
-                kept = [name for name in on_screen if name not in text and name not in speakers]
-                if len(listed) > 2 and kept:
-                    text += "；" + "、".join(kept) + "仍在画面中"
-                piece["visual_prompt"] = text
-                piece["motion_prompt"] = ("完成上一段动作的收尾，呈现阶段结束时的最终状态，不重复已完成的部分"
-                                          if number == total
-                                          else "沿用上一段的站位与动作状态，表情和视线随本段明确给出的台词变化；说完本段台词后闭嘴，不自行延长发言，不重复上一段动作")
-            if 1 < number < total:
-                # A middle part neither lands the result nor replays the opening: it pauses.
-                piece["end_state"] = "本段台词已说完，人物闭嘴、保持原站位，以表情回应；后续剧情动作留给下一片段，本片段不提前执行"
+            piece = {**shot, "turns": part, "split_part": [number, len(parts)]}
+            if number < len(parts):
+                # An earlier part stops mid-stage: no event and no end of its own.  Its opening repeated as its
+                # end held that moment for the whole part - 席勒张嘴准备说话 through fourteen seconds of 托尼's
+                # speech (ch12 clip_12, 2026-09-25).
+                piece["motion_prompt"] = ""
+                piece["actions"] = []
+                piece["end_state"] = ""
             pieces.append(piece)
         return pieces
 
@@ -304,9 +288,10 @@ class ClipCompiler:
                 continue
             seconds = self.shot_seconds(shot)
             if seconds > self.options.max_clip_seconds:
-                # Only a single action longer than a whole clip is left like this (split_long_shot cuts at turns).
-                self.decisions.append({"kind": "single_stage_over_cap", "stage": shot.get("origin_index"),
-                                  "seconds": round(seconds, 2), "cap": self.options.max_clip_seconds})
+                # Only a length no line can cut reaches here - a planned duration, or a silent action
+                # longer than a clip - and planning validation sends those back to the writer.
+                raise ValueError(f"镜头 {shot.get('label') or shot.get('origin_index')} 估算 {seconds:g} 秒超过 "
+                                 f"{self.options.max_clip_seconds:g} 秒，在台词之间切不到上限以内；需要规划补丁明确拆镜")
             if current is not None:
                 last = current["shots"][-1]
                 checks = self._cut_checks(current, last, shot, seconds)
@@ -474,10 +459,13 @@ class ClipCompiler:
         frame = frame or self.options.frame
         shots = clip["shots"]
         cast_text = "、".join(cast) if cast else "无具名人物"
-        start = self.compact(shots[0]["motion_prompt"], 30)
+        # a part cut from a long stage before its event has none; its opening picture is where it starts
+        start = self.compact(shots[0]["motion_prompt"] or shots[0].get("visual_prompt", ""), 30)
         end = self.compact(shots[-1]["end_state"], 30)
+        # A clip that ends on an earlier part of a cut stage has no end of its own to arrive at.
+        span = f"从“{start}”到“{end}”" if end else f"“{start}”"
         lines = [
-            f"【生成目标】生成一段{frame['text']}的中国国漫短剧片段，约{clip['request_seconds']}秒。核心主体是{cast_text}，主要事件是从“{start}”到“{end}”。"
+            f"【生成目标】生成一段{frame['text']}的中国国漫短剧片段，约{clip['request_seconds']}秒。核心主体是{cast_text}，主要事件是{span}。"
         ]
         if bindings:
             lines.append("【人物】" + "。".join(bindings) + "。")
@@ -514,7 +502,7 @@ class ClipCompiler:
             elif shot.get('scene_id'):
                 head = f"剪辑切至{shot['shot_scale']}。本镜起点：{self.compact(shot['visual_prompt'])}"
             else:
-                head = f"切至{shot['shot_scale']}。承接上一阶段：{self.compact(shots[index - 1]['end_state'])}。画面：{self.compact(shot['visual_prompt'])}"
+                head = f"切至{shot['shot_scale']}。本镜起点：{self.compact(shot['visual_prompt'])}"
             # An authored sheet is a cut somebody made and has no story-time column; the local scene
             # method writes one.  Only say the time when there is one, rather than require every
             # directed path to invent a field so the sentence can be printed.
@@ -524,9 +512,6 @@ class ClipCompiler:
                 value = self.compact(shot.get(field, ""))
                 if not value:
                     return ""
-                previous = self.compact(shots[index - 1].get(field, "")) if index else ""
-                if value in {"同上", previous} and index:
-                    return f"{label}同上。"
                 return f"{label}：{value}。"
             witness = carried("camera", "机位")
             source_light = carried("light", "光源")
@@ -542,17 +527,26 @@ class ClipCompiler:
             cast_names = shot.get("characters") or []
             listeners = [name for name in (shot.get("listeners") or [])]
             facing = [name for name in cast_names if name not in listeners]
+            # A stage that carries in_frame already says who is in the picture (入镜：… below), and a
+            # visible listener is in that list.  Naming the speaker again as 入镜人物 printed a second,
+            # shorter list beside it - 入镜：莱恩·格雷、塞西娅 and 入镜人物：莱恩·格雷 in one stage.  Only
+            # an older draft without in_frame, whose listeners left the cast, needs the list here.
+            listed_elsewhere = bool(shot.get('scene_id') or 'in_frame' in shot)
             listen_note = ""
             if listeners:
-                if facing:
+                if facing and not listed_elsewhere:
                     listen_note = f"入镜人物：{'、'.join(facing)}；听者{'、'.join(listeners)}的站位、朝向与可见范围按本阶段画面描述，不添加未写出的动作或台词。"
                 else:
                     listen_note = f"听者{'、'.join(listeners)}的站位、朝向与可见范围按本阶段画面描述，不添加未写出的动作或台词。"
             blocking = ('' if listeners or 'in_frame' in shot else blocking_note(shot))
+            # A part cut from a long stage, after its event, has no event of its own: say nothing
+            # rather than 主要事件：。
+            stage_event = self.compact(shot['motion_prompt'])
             lines.append(
-                f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}主要事件：{self.compact(shot['motion_prompt'])}。"
+                f"【阶段{label}·{shot['shot_scale']}】{head}。{witness}{source_light}{('主要事件：' + stage_event + '。') if stage_event else ''}"
                 f"{('入镜：' + ('、'.join(shot.get('in_frame', shot['characters'])) or '无具名人物') + '。') if shot.get('scene_id') or 'in_frame' in shot else blocking}{extras_note}{props_note}{local_objects}{wears_note}{listen_note}"
-                f"{self.screen_clause(shot)}声音：{self._sound_clause(shot)}。结束时：{self.compact(shot['end_state'])}。"
+                f"{self.screen_clause(shot)}声音：{self._sound_clause(shot)}。"
+                + (f"结束时：{self.compact(shot['end_state'])}。" if self.compact(shot['end_state']) else "")
             )
         scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))
         ambience = list(dict.fromkeys(shot["sfx"] for shot in shots if shot.get("sfx")))

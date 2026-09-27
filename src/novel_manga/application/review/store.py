@@ -49,7 +49,7 @@ def current_takes(directory: Path, plan: dict, review: dict) -> dict:
         if clip.get("kind") != "video":
             continue
         cid = clip["clip_id"]
-        video = selected.get(cid, {}).get("video") or (review.get("clips", {}).get(cid) or {}).get("video")
+        video = selected.get(cid, {}).get("postmix_video") or selected.get(cid, {}).get("video") or (review.get("clips", {}).get(cid) or {}).get("video")
         if not video:
             continue
         path = Path(video)
@@ -66,6 +66,9 @@ def read_reconciled(directory: Path, local: dict, flash: dict) -> tuple[dict, di
     previous = read(directory / "episode_review.json", {})
     takes = current_takes(directory, plan, previous)
     result = reconciliation.reconcile_review(directory, plan, previous, takes, local, flash)
+    if any(row.get("confirmed") for row in previous.get("clips", {}).values()):
+        from novel_manga.application.review.confirmed import enforce
+        result = enforce(directory, result, previous)
     return previous, result, takes
 
 
@@ -97,3 +100,21 @@ def sync_audit_review(directory: Path, state_dir: Path, episode: int, local: dic
     if updated != previous:
         atomic_write_json(original, updated)
     return True
+
+
+def import_confirmed_findings(directory: Path, findings: dict):
+    """The caller supplies inspected evidence and the exact take it belongs to, never guessed failures."""
+    path = directory / 'episode_review.json'; report = read(path, {})
+    from novel_manga.application.review.confirmed import apply_claim
+    takes = current_takes(directory, read(directory / 'clip_plan.json', {}), report)
+    for cid, finding in findings.items():
+        current = takes.get(cid)
+        if not current or finding['video'] != current['video'] or finding['take'] != current['take']:
+            raise ValueError(f'{cid}: finding is not for the current selected video')
+        old = report.setdefault('clips', {}).get(cid, {})
+        claim = {**finding, 'check': {'video': current['video'], 'take': current['take'],
+                                    'result': 'unresolved', 'source': 'confirmed frame evidence'}}
+        report['clips'][cid] = {**apply_claim(old, claim, current['video'], current['take']), **current}
+        report.setdefault('feedback', {})[cid] = claim['instruction']
+    atomic_write_json(path, report)
+    return report

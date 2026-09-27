@@ -50,6 +50,12 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
     """Rebuild only the named clips from their recorded shot indexes; every other clip keeps its entry (and request)."""
     with REBUILD_LOCK:
         ctx = packing_context.context_for_plan(episode_dir, bible_path, plan)
+        ctx['source_script'] = script
+        if (episode_dir / 'visor_states.json').is_file():
+            from novel_manga.application.packing.visor import fill
+            ctx['visor_states'] = fill(episode_dir, script=script, write=False)
+            if repack_report is not None:
+                repack_report['_visor_states'] = ctx['visor_states']
         from novel_manga.story.h3 import source_crowds
         bible_data=ctx['bible'].model_dump()
         source_segments={str(s.get('segment_id')):s.get('text','') for s in ctx['identity_data'].segments}
@@ -83,7 +89,15 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 continue
             clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,
                     "seconds": round(sum(ClipCompiler(ctx.get('compiler_options') or compiler_options()).shot_seconds(p) for p in pieces), 2)}
-            after = packing_service.clip_entry(clip, before["clip_id"], ctx)
+            override = {**(before.get('override') or {}), **ctx['overrides'].get(before['clip_id'], {})}
+            after = packing_service.clip_entry(clip, before["clip_id"], ctx, override)
+            def seat(ref):
+                return tuple(ref.get(k) for k in ('role', 'name', 'asset_id', 'view'))
+            old_refs = {seat(r): r for r in before.get('references', [])}
+            for ref in after.get('references', []):
+                old = old_refs.get(seat(ref))
+                if old and Path(old.get('path', '')).is_absolute() and not override.get('reference_paths', {}).get(ref.get('name')):
+                    ref['path'] = old['path']
             crowds=source_crowds(after,bible_data,'\n'.join(source_segments.get(str(s),'') for s in after.get('segment_ids',[])), context=ctx["identity_data"].context)
             if crowds:
                 after['crowd_roles']=crowds
@@ -104,8 +118,8 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
         return {**plan, "clips": merged}, changed
 
 
-def _proposal_data(novel_dir: Path, index: int, *, save_evidence=False, use_history: bool = True, reframe: bool = False, identity: bool = False, source_issues: dict | None = None, require_structure: bool = False) -> dict:
-    episode_dir = novel_dir / f"{novel_dir.name}_{index}"
+def _proposal_data(novel_dir: Path, index: int, *, save_evidence=False, use_history: bool = True, reframe: bool = False, identity: bool = False, source_issues: dict | None = None, require_structure: bool = False, episode_dir: Path | None = None) -> dict:
+    episode_dir = Path(episode_dir) if episode_dir is not None else novel_dir / f"{novel_dir.name}_{index}"
     review = read(episode_dir / "episode_review.json", {})
     failing = source_issues if source_issues is not None else failing_clips(review)
     plan = read(episode_dir / "clip_plan.json", None)
@@ -123,7 +137,7 @@ def _proposal_data(novel_dir: Path, index: int, *, save_evidence=False, use_hist
     if not failing or not plan or not script:
         return {"episode": index, "clips": 0, "why": "nothing to repair" if not failing else "no plan/script"}
     chapter = prepare_context(novel_dir, index, script, segments, identity=identity,
-                              identities=identities if identity else None)
+                              identities=identities if identity else None, episode_dir=episode_dir)
     repaired, notes, changes, appearance_checks = [], [], {}, {}
     for clip in plan.get("clips") or []:
         cid = clip.get("clip_id")
@@ -143,7 +157,10 @@ def _proposal_data(novel_dir: Path, index: int, *, save_evidence=False, use_hist
         return {'episode': index, 'clips': 0, 'why': 'identity preparation incomplete: ' + '; '.join(notes)[:160]}
     try:
         structural = {}
-        new_plan, changed = rebuild_clips(episode_dir, novel_dir / "story_bible.json", script, plan, set(repaired), repack_report=structural)
+        edited_stages = {i for c in plan['clips'] if c['clip_id'] in repaired for i in c.get('shot_indexes', [])}
+        affected = {c['clip_id'] for c in plan['clips'] if edited_stages.intersection(c.get('shot_indexes', []))}
+        new_plan, changed = rebuild_clips(episode_dir, novel_dir / "story_bible.json", script, plan, affected, repack_report=structural)
+        visor_states = structural.pop('_visor_states', None)
     except Exception as error:  # noqa: BLE001 - one episode's rebuild must not take the batch down
         return {"episode": index, "clips": 0, "failing": len(failing), "why": f"rebuild failed: {type(error).__name__}: {str(error)[:100]}"}
     if identity and set(failing) - set(changed):
@@ -154,6 +171,8 @@ def _proposal_data(novel_dir: Path, index: int, *, save_evidence=False, use_hist
               'appearance_checks': appearance_checks}
     result['proposal'] = {'script':script,'plan':new_plan,'notes':new_notes,'changes':changes,
                               'structural_repair': structural}
+    if visor_states is not None:
+        result['proposal']['visor_states'] = visor_states
     return result
 
 
@@ -162,12 +181,12 @@ def propose_episode(novel_dir: Path, index: int, **kwargs) -> RepairProposal:
 
 
 def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history=True, reframe=False,
-                   identity=False, source_issues=None, return_proposal=False, require_structure=False) -> dict:
+                   identity=False, source_issues=None, return_proposal=False, require_structure=False, episode_dir=None) -> dict:
     candidate = propose_episode(novel_dir, index, save_evidence=apply,
                                 use_history=use_history, reframe=reframe,
-                                identity=identity, source_issues=source_issues, require_structure=require_structure)
+                                identity=identity, source_issues=source_issues, require_structure=require_structure, episode_dir=episode_dir)
     if apply and candidate.changed:
         from novel_manga.application.repair.publication import publish_rewrite
-        publish_rewrite(novel_dir / f'{novel_dir.name}_{index}', candidate,
+        publish_rewrite(Path(episode_dir) if episode_dir is not None else novel_dir / f'{novel_dir.name}_{index}', candidate,
                         use_history=use_history, identity=identity, reframe=reframe)
     return candidate.as_result(return_proposal)

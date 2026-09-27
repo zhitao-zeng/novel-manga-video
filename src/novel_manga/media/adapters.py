@@ -19,11 +19,15 @@ class FramedPhanRouter(PhanRouterMediaProvider):
         self.local_image = (LocalQwenImageProvider(settings, settings.local_image_base_url)
                             if settings.local_image_base_url else None)
 
-    def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None):
-        target = self.local_image or super()
-        return target.create_image(prompt, output, reference=reference,
-                                   additional_references=additional_references,
-                                   aspect_ratio=aspect_ratio)
+    def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None, seed=None):
+        # Only the local service takes a seed; the hosted model samples afresh on every request.
+        if self.local_image:
+            return self.local_image.create_image(prompt, output, reference=reference,
+                                                 additional_references=additional_references,
+                                                 aspect_ratio=aspect_ratio, seed=seed)
+        return super().create_image(prompt, output, reference=reference,
+                                    additional_references=additional_references,
+                                    aspect_ratio=aspect_ratio)
 
     def create_video(self, prompt, image, output, duration, additional_images=(), reference_audios=()):
         # A name the platform's text filter refuses (e.g. one shared with a

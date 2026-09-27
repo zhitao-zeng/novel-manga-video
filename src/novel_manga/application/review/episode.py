@@ -12,9 +12,10 @@ import novel_manga.review.storage as review_storage
 from novel_manga.util import atomic_write_json
 import novel_manga.application.review.evidence as review_evidence
 import novel_manga.application.review.judges as review_judges
+from novel_manga.application.review import cast_video
 
 
-def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
+def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bool | None = None) -> dict:
     novel_dir = episode_dir.parent
     rules = review_evidence.load_review_rules(novel_dir)
     bible = review_models_StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
@@ -39,13 +40,23 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
     # 雾月 2026-09-14: each repair round re-judged all 633 clips of a 60-episode batch for ~40 changed takes.
     # NOVEL_REVIEW_FRESH=1 judges every clip again (a card or prompt change the policy string does not carry).
     earlier = (previous.get("clips") or {}) if previous.get("policy") == review_contracts.POLICY else {}
-    resume = os.environ.get("NOVEL_REVIEW_FRESH", "").strip() != "1"
+    resume = not fresh if fresh is not None else os.environ.get("NOVEL_REVIEW_FRESH", "").strip() != "1"
+    def checkpoint():
+        # A long review may outlive its terminal. Save each completed take so a restart reuses it;
+        # preserve confirmed findings while the final targeted checks have not run yet.
+        from novel_manga.application.review.confirmed import enforce
+        pending = {cid: row for cid, row in earlier.items() if cid not in report['clips']}
+        partial = {**report, 'clips': {**pending, **report['clips']},
+                   'feedback': {**{cid: note for cid, note in previous.get('feedback', {}).items() if cid in pending},
+                                **report['feedback']}}
+        saved = enforce(episode_dir, partial, previous) if video_name == 'clip.mp4' else partial
+        atomic_write_json(review_path, saved)
     for clip in plan["clips"]:
         if clip["kind"] != "video":
             continue
         clip_id = clip["clip_id"]
         if video_name == "clip.mp4" and selected.get(clip_id, {}).get("video"):
-            video = Path(selected[clip_id]["video"])
+            video = Path(selected[clip_id].get('postmix_video') or selected[clip_id]["video"])
             hypothesis = selected[clip_id].get("hypothesis", "")
         else:
             attempts = sorted((episode_dir / "work" / "clips" / clip_id).glob("attempt_*"))
@@ -60,18 +71,22 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
             # The very same file, not just the same path: split_long_stages renames clip directories, so after a
             # split the path names another clip's take - with its old mtime - and that clip's verdict landed on it.
             if (old and old.get("severity") != "review_error" and old.get("video") == str(video)
-                    and take and old.get("take") == take):
+                    and take and old.get("take") == take
+                    and (not cast_video.enabled() or
+                         ((old.get('verify') or {}).get('cast_video') or {}).get('policy') == cast_video.POLICY)):
                 verdict = {key: value for key, value in old.items() if key not in ("video", "take")}
             else:
                 verdict = review_judges.judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)
         except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
             model_client.log(f"episode {episode_dir.name} {clip_id}: review error {type(error).__name__}: {str(error)[:120]}")
             report["clips"][clip_id] = {"video": str(video), "take": take, "severity": "review_error", "error": f"{type(error).__name__}: {str(error)[:300]}"}
+            checkpoint()
             continue
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
         if verdict.get("severity") == "fail":
             tier = review_policy.fix_tier(verdict, bible, rules)
             if (tier == "must_fix" and "scripted" not in verdict
+                    and not review_policy.count_mismatches(verdict.get("verify") or {})
                     and not (verdict.get("story_ok") is False and verdict.get("story_kind") in review_contracts.STORY_FATAL)):
                 check = review_judges.script_check(clip, verdict, segments)
                 if check is not None:
@@ -86,6 +101,22 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4") -> dict:
             if tier == "must_fix":
                 report["feedback"][clip_id] = review_policy.compose_feedback(verdict, clip, card_manifest)
         model_client.log(f"episode {episode_dir.name} {clip_id}: {verdict.get('severity')} people={verdict.get('visible_people')} identity={verdict.get('identity_ok')} loc={verdict.get('location_ok')}/{verdict.get('time_of_day_ok')} text={verdict.get('text_or_watermark')} defects={verdict.get('visual_defects')}" + (f" | {verdict.get('identity_issue') or verdict.get('defect_issue')}" if verdict.get("severity") != "pass" else ""))
+        checkpoint()
+    # A visually correct clip can still have unsolicited speech. Keep that
+    # independently measured failure in the automatic repair work, even when
+    # the video judge passed or failed to return a verdict.
+    from novel_manga.media.speech_repair import correction, merge_note
+    for clip in plan['clips']:
+        cid = clip.get('clip_id')
+        note = correction(clip, selected.get(cid) or {})
+        if note and cid in report['clips']:
+            report['clips'][cid]['speech_gate'] = {'passed': False, 'issues': list((selected.get(cid) or {}).get('issues') or [])}
+            report['clips'][cid]['tier'] = 'must_fix'
+            report['feedback'][cid] = merge_note(report['feedback'].get(cid, ''), note)
+            report['flags'].append(f'{cid}: 语音门发现额外台词，需修正请求后重拍')
+    if video_name == "clip.mp4":
+        from novel_manga.application.review.confirmed import enforce
+        report = enforce(episode_dir, report, previous, verify=True)
     # Rounds in a row that left clips unjudged: the conductor queues such a review again, a few times.
     errors = sum(1 for c in report["clips"].values() if c.get("severity") == "review_error")
     report["error_rounds"] = int(previous.get("error_rounds", 0)) + 1 if errors else 0

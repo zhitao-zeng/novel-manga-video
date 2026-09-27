@@ -90,7 +90,7 @@ def packed_episode(tmp_path: Path):
             "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d"}}}
     ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
     plan["clips"] = [packing_service.clip_entry(c, f"clip_{i:02d}", ctx)
-                     for i, c in enumerate(ClipCompiler(ctx['compiler_options'] or compiler_options()).pack(packing_service.prepared_shots(copy.deepcopy(old), episode)), 1)]
+                     for i, c in enumerate(ClipCompiler(ctx['compiler_options'] or compiler_options()).pack([part for row in packing_service.prepared_shots(copy.deepcopy(old), episode) for part in ClipCompiler(ctx['compiler_options'] or compiler_options()).split_long_shot(row)]), 1)]
     return novel, episode, old, new, plan
 
 

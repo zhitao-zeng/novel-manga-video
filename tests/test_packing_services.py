@@ -13,13 +13,14 @@ from novel_manga.util import atomic_write_json
 from novel_manga.application.packing.context import context_for_plan, load_context
 from novel_manga.application.packing.service import compile_plan
 from novel_manga.application.profiles import plan_fingerprint
-from support.split_episode import split_episode
+from support.split_episode import split_episode, explicitly_planned_shots
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_packing_inputs_and_cut_explanations_are_isolated_across_parallel_contexts(tmp_path, monkeypatch):
     directory, script, saved = split_episode.__wrapped__(tmp_path, monkeypatch)
+    script = explicitly_planned_shots(script)
     atomic_write_json(directory / 'segments.json', [{'segment_id': 'seg_1', 'text': '林凡说话。'}])
     a = context_for_plan(directory, directory.parent / 'story_bible.json', saved)
     b = copy.deepcopy(a)
@@ -44,6 +45,7 @@ def test_packing_inputs_and_cut_explanations_are_isolated_across_parallel_contex
 
 def test_command_publishes_same_plan_and_invalidates_only_stale_render_report(tmp_path, monkeypatch):
     directory, script, _ = split_episode.__wrapped__(tmp_path, monkeypatch)
+    script = explicitly_planned_shots(script)
     bible = directory.parent / 'story_bible.json'
     atomic_write_json(directory / 'chapter_script.json', script)
     atomic_write_json(directory / 'segments.json', [{'segment_id': 'seg_1', 'text': '林凡说话。'}])

@@ -145,7 +145,7 @@ def test_cause_advice_is_preserved_without_overriding_the_visual_verdict():
     result = review_policy.verify_to_verdict({"verdict": "obvious", "same_person_twice": True, "people": [],
                                         "evidence": "two leads", "instruction": "one lead",
                                         "repair_advice": {"layer": "generation", "evidence": "request says one", "next_change": "close shot"}})
-    assert result["story_ok"] is False
+    assert result["story_ok"] is None and result["severity"] == "fail"
     assert result["verify"]["repair_advice"]["layer"] == "generation"
     assert result["verify"]["instruction"] == "one lead"
 

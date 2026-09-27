@@ -47,7 +47,7 @@ def prop_assets_on_disk(novel_dir) -> dict[str, set[str]]:
     return out
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None, props: list[str] | None = None, props_index: dict | None = None, props_on_disk: set[str] | None = None, worn_overrides: dict[str, str | None] | None = None) -> tuple[list[dict], list[str], str]:
+def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None, props: list[str] | None = None, props_index: dict | None = None, props_on_disk: set[str] | None = None, worn_overrides: dict[str, str | None] | None = None, faceplate_closed: set[str] | frozenset = frozenset(), faceplate_closed_only: set[str] | frozenset = frozenset()) -> tuple[list[dict], list[str], str]:
     settings = settings or compiler_options()
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
@@ -87,6 +87,8 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         phase = phase_for(phases, name, chapter)
         shot_wearing[name] = str(phase.get("wears")) if phase and phase.get("wears") else ""
     worn_props = [p for p in shot_wearing.values() if p]
+    card_wears: dict[str, str] = {}   # name -> the wearable his referenced card was drawn wearing
+    closed_tags: dict[str, int] = {}  # name -> the picture of that card with the faceplate shut
     for name in cast:
         phase = phase_for(phases, name, chapter)
         # The wearer shed the wearable for this whole clip: the phase card that was drawn wearing
@@ -104,10 +106,16 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
             if host[0] in by_name:
                 look = phased(by_name[host[0]], phase_for(phases, host[0], chapter))
             body_note = f"（此时在{host[0]}的身体里，外形完全是{host[0]}的样子）"
+        elif phase and phase.get("wears") and str(phase["wears"]) == shot_wearing.get(name):
+            card_wears[name] = shot_wearing[name]
         changed = tuple(f for f in ("hair", "appearance", "silhouette", "palette") if phase and phase.get(f))
         count += 1
         first = count
-        references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/turnaround.jpeg",
+        closed_only = name in card_wears and name in faceplate_closed_only and novel_dir is not None and (
+            novel_dir / 'series_assets' / 'characters' / asset / 'closed.jpeg').is_file()
+        image_name = 'closed.jpeg' if closed_only else 'turnaround.jpeg'
+        references.append({"tag": f"@图片{first}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/{image_name}",
+                           **({"view": "closed"} if closed_only else {}),
                            **({"phase": str(phase.get("label", ""))} if phase else {})})
         sheet = novel_dir is not None and (novel_dir / "series_assets" / "characters" / asset / "expressions.jpeg").is_file()
         lead_sheet = settings.two_views in ("leads", "all") and settings.two_view_cast_limit > 0 and sheet and name in leads
@@ -115,7 +123,7 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
         # did, which is what the old "phase is None" clause assumed), and a plan that promises a missing file
         # fails the pre-render check for the whole episode.  Without a novel_dir to look at, keep the old rule.
         wants_sheet = sheet if novel_dir is not None else phase is None
-        if (two_views and wants_sheet) or lead_sheet:
+        if not closed_only and ((two_views and wants_sheet) or lead_sheet):
             count += 1
             second = count
             references.append({"tag": f"@图片{second}", "role": "character", "name": name, "asset_id": asset, "path": f"series_assets/characters/{asset}/expressions.jpeg"})
@@ -139,10 +147,26 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
                 f"<{name}>{body_note}只对应@图片{first}，只采用五官、发型、体型和服装，不采用图片背景、姿势和构图；"
                 "不得把该角色的长相用在其他人身上"
                 + (f"。{name}的辨识特征：{anchor}" if anchor else ""))
+        if closed_only:
+            bindings[-1] = bindings[-1].replace('五官、发型、体型和服装', '图中可见的体型、服装和闭合头盔') + '。全段保持参考图的闭合面罩状态。'
+        # Only where the faceplate is shut (packing/visor.py): sent to every clip, H3 shut it on its own.
+        if not closed_only and name in card_wears and name in faceplate_closed and novel_dir is not None and (
+                novel_dir / "series_assets" / "characters" / asset / "closed.jpeg").is_file():
+            count += 1
+            closed_tags[name] = count
+            references.append({"tag": f"@图片{count}", "role": "character", "name": name, "asset_id": asset,
+                               "path": f"series_assets/characters/{asset}/closed.jpeg", "view": "closed"})
     for index, text in enumerate(bindings):
         for name, item in shot_wearing.items():
             if item and text.startswith(f'<{name}>'):
-                bindings[index] = text.replace('体型和服装', '体型') + f'。当前穿着{item}，不采用人物卡的原服装。'
+                if card_wears.get(name) == item:
+                    # The card was drawn wearing it: its costume IS the armour, which "不采用人物卡的原服装"
+                    # told the model to drop.
+                    bindings[index] = text + f'。人物卡上穿的就是{item}。' + (
+                        f'@图片{closed_tags[name]}也是{name}：面罩合上时的样子，面罩合上的镜头照这张。'
+                        if name in closed_tags else '')
+                else:
+                    bindings[index] = text.replace('体型和服装', '体型') + f'。当前穿着{item}，不采用人物卡的原服装。'
     full = location_map[location_short]
     location_asset = f"location_{location_index[location_short]:03d}"
     count += 1
@@ -158,7 +182,12 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     prop_order = {p.name: i for i, p in enumerate(getattr(bible, "props", None) or [], start=1)}
     # The worn wearable rides first: it is part of the wearer's appearance - a seat given to a
     # stage prop instead leaves the armour to be invented while its card sits on disk.
-    seat_candidates = list(dict.fromkeys([*worn_props, *(props or [])]))
+    # A wearable every wearer here already shows on his own card takes no seat: its card alone is an empty
+    # suit.  美漫 ch12 clip_11 (2026-09-25) drew the suit twice; its request carried the suit as a picture of
+    # its own and the English made it "<Subject 4> slowly descends" beside the man wearing it.  An empty copy
+    # a shot calls for (clip_15: a second suit flies in) is drawn from the words and the wearer's card.
+    on_cards = {p for p in worn_props if all(card_wears.get(n) == p for n in cast if shot_wearing.get(n) == p)}
+    seat_candidates = [p for p in dict.fromkeys([*worn_props, *(props or [])]) if p not in on_cards]
     # Who wears what, for the binding: a wearer and his armour are ONE person's one stance, not
     # two actors facing each other; an uncrewed suit is a moving prop nobody stands opposite.
     wearers = {prop: [n for n in cast if shot_wearing.get(n) == prop] for prop in seat_candidates}

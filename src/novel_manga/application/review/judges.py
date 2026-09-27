@@ -9,6 +9,7 @@ import novel_manga.review.contracts as review_contracts
 import novel_manga.review.prompts as review_prompts
 import novel_manga.review.policy as review_policy
 import novel_manga.application.review.evidence as review_evidence
+import novel_manga.application.review.cast_video as cast_video
 
 
 def judge_character_cards(character: Character, views: list[Path]) -> dict:
@@ -34,11 +35,21 @@ def judge_location_card(location: str, expected_time: str, view: Path, *, locati
 
 
 def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
+    from novel_manga.application.packing.visor import recorded_clip_states
+    clip = {**clip, 'review_visor_states': recorded_clip_states(work_dir.parents[2], clip)}
     if review_evidence.review_mode(work_dir) == "verify":
-        return judge_clip_verify(clip, video, bible, location_time, hypothesis, work_dir)
-    parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir)
-    parts.append({"type": "text", "text": review_prompts.classic_prompt(clip, location_time, hypothesis, evidence)})
-    return model_client.ask_json(parts, review_contracts.CLIP_SCHEMA, name="clip_review", max_tokens=600)
+        verdict = judge_clip_verify(clip, video, bible, location_time, hypothesis, work_dir)
+    else:
+        parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir)
+        parts.append({"type": "text", "text": review_prompts.classic_prompt(clip, location_time, hypothesis, evidence)})
+        verdict = model_client.ask_json(parts, review_contracts.CLIP_SCHEMA, name="clip_review", max_tokens=600)
+    # Frames miss what sits at the edge of the picture or turns up between them: when switched on, the whole take is
+    # watched beside the cast's cards as well (cast_video.py).
+    if cast_video.enabled():
+        from novel_manga.application.review import adjudication
+        verdict = cast_video.review(clip, video, work_dir, verdict)
+        verdict = adjudication.review(clip, video, bible, work_dir, verdict)
+    return verdict
 
 
 def script_check(clip: dict, verdict: dict, segments: dict[str, str]) -> dict | None:
@@ -81,5 +92,12 @@ def instruction_for(evidence: str, event: str = "", passage: str = "") -> str:
 def judge_clip_verify(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
     parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir, verify=True)
     parts.append({"type": "text", "text": review_prompts.verify_prompt(clip, location_time, evidence)})
-    answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=900)
+    answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=1800)
+    counts = review_policy.count_mismatches(answer)
+    if counts and (answer.get('verdict') != 'obvious' or not str(answer.get('instruction') or '').strip()):
+        passage = '\n'.join(evidence.segments.get(str(s), '') for s in clip.get('segment_ids') or [])
+        instruction = instruction_for('；'.join(counts), review_prompts.scripted_event(clip), passage)
+        if not instruction:
+            raise ValueError('count mismatch has no usable correction instruction')
+        answer.update(verdict='obvious', instruction=instruction)
     return review_policy.verify_to_verdict(answer)

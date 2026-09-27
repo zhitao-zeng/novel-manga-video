@@ -92,7 +92,7 @@ def generate_outline(client: httpx.Client, endpoints: list[str], headers: dict, 
     raise IncompleteOutlineError(attempts)
 
 
-def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], segments: list[dict], names: list[str], locations: list[str], *, timeout: float = pc_constants.PATCH_TIMEOUT_SECONDS, ctx: PlannerContext) -> dict:
+def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], segments: list[dict], names: list[str], locations: list[str], *, timeout: float = pc_constants.PATCH_TIMEOUT_SECONDS, ctx: PlannerContext, split_labels=()) -> dict:
     """Repair a plan with one small call instead of a 150-650 s re-plan.
 
     The model sees the clip outline, the forgotten segments' text and the
@@ -130,12 +130,24 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
                 "properties": {"label": {"type": "string", "enum": list(faulty) or ["-"]}, "stage": stage_of(segment_ids)}}},
         },
     }
+    split_labels = set(split_labels) & set(faulty)
+    if split_labels:
+        schema['properties']['replacements']['items']['properties']['continuations'] = {
+            'type': 'array', 'maxItems': 6, 'items': stage_of(segment_ids)}
     parts = ["下面是一集短剧的分镜大纲。只输出需要修改的部分，不要改动其他阶段。"]
     if missing_ids:
         parts.append(f"原文里有 {len(missing_ids)} 个区段还没有任何阶段引用（{'、'.join(missing_ids)}）。为每个遗漏区段补写恰好一个阶段，插进最合适的 clip"
                      "（after_stage 是插在该 clip 第几个阶段之后，0 表示放在最前）；新阶段的 segment_id 必须是该遗漏区段。")
     if faulty:
         parts.append(f"另有 {len(faulty)} 个阶段没过硬门检查，逐个重写整个阶段（label 原样填回，segment_id 不变），只修错误指出的问题，其余内容尽量保持。")
+    if split_labels:
+        parts.append(f"镜头{sorted(split_labels)}需要明确拆镜：stage写第一镜，continuations写后续完整镜头。"
+                     f"每镜按实际对白估算不得超过{ctx.max_clip_seconds:g}秒，逐镜独立写起点、事件、末态、机位和光源。"
+                     "后镜衔接已发生的结果，不重复进入、推门或飞离；保留说话人、全部必要对白和事实顺序。"
+                     "心声与现场对白必须分镜，心声镜只保留同一位角色的心声；不得靠删除inner_monologue改成普通画外音。"
+                     "其他问题阶段不得增加continuations。")
+    from novel_manga.story.fields import field_instructions
+    parts.append(field_instructions('planning'))
     # The picture rule is the same one validation applies, in the same words; the paid platforms
     # refuse blood and the local models do not, and a fix written for one book's stele used to be
     # sent to every book here.
@@ -158,19 +170,40 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     for sid in dict.fromkeys(shown):
         if sid in texts:
             parts.append(f"区段 {sid} 原文：\n{texts[sid][:1800]}")
-    budget = min(6000, 800 + 900 * (len(missing_ids) + len(faulty)))
+    budget = min(10000, 800 + 900 * (len(missing_ids) + len(faulty)) + 1600 * len(split_labels))
     verdict = ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget, timeout=timeout, retry_truncated=False)
     patched = json.loads(json.dumps(raw, ensure_ascii=False))
-    for item in verdict.get("replacements", []):  # replacements first: insertions shift stage numbers
-        slot = slots.get(str(item.get("label")))
-        if slot and isinstance(item.get("stage"), dict):
-            patched["clips"][slot[0]]["stages"][slot[1]] = item["stage"]
-    by_id = {str(c.get("clip_id")): c for c in patched.get("clips", [])}
-    for item in verdict.get("insertions", []):
-        clip = by_id.get(str(item.get("clip_id"))) or patched["clips"][-1]
-        stages = clip.setdefault("stages", [])
-        position = max(0, min(int(item.get("after_stage", len(stages))), len(stages)))
-        stages.insert(position, item["stage"])
+    replacements = {}
+    for item in verdict.get('replacements', []):
+        label = str(item.get('label'))
+        slot = slots.get(label)
+        if not slot or not isinstance(item.get('stage'), dict):
+            raise ValueError('patch returned an unknown or incomplete replacement')
+        extra = item.get('continuations') or []
+        if extra and label not in split_labels:
+            raise ValueError('patch split a stage that was not requested for splitting')
+        original = raw['clips'][slot[0]]['stages'][slot[1]]
+        if label in split_labels and any(t.get('inner_monologue') for t in original.get('turns') or []):
+            from novel_manga.story.voice_delivery import speech_sequence
+            if speech_sequence([original]) != speech_sequence([item['stage'], *extra]):
+                raise ValueError('voice split changed authored words, speaker, delivery or inner_monologue')
+        replacements[slot] = [item['stage'], *extra]
+    insertions = {}
+    counts = {str(c['clip_id']): len(c.get('stages') or []) for c in raw['clips']}
+    for item in verdict.get('insertions', []):
+        clip_id, position = str(item['clip_id']), int(item['after_stage'])
+        if clip_id not in counts or not 0 <= position <= counts[clip_id]:
+            raise ValueError('patch insertion is outside the original stage range')
+        insertions.setdefault((clip_id, position), []).append(item['stage'])
+    # Every label and insertion position refers to the ORIGINAL draft. Expanding
+    # an early stage must not shift a later replacement or insertion onto another one.
+    for ci, clip in enumerate(patched['clips']):
+        original = clip.get('stages') or []
+        stages = list(insertions.get((str(clip['clip_id']), 0), []))
+        for si, stage in enumerate(original):
+            stages.extend(replacements.get((ci, si), [stage]))
+            stages.extend(insertions.get((str(clip['clip_id']), si + 1), []))
+        clip['stages'] = stages
     return patched
 
 

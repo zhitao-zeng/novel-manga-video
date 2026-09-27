@@ -24,6 +24,8 @@ def main() -> int:
     parser.add_argument("--prescreen", action="store_true", help="ask the local Qwen for content-filter risk and soften risky prompts before the first submission")
     parser.add_argument("--no-moderation-repair", dest="moderation_repair", action="store_false", default=True, help="do not bisect and rewrite a prompt the text filter keeps refusing")
     parser.add_argument("--max-attempts", type=int, default=2)
+    parser.add_argument("--repair", action="store_true", help="repair an existing episode through source, framing and retake decisions with its existing history")
+    parser.add_argument("--review", action="store_true", help="review the generated episode and correct failed clips within this run's take budget")
     parser.add_argument("--cache-only", action="store_true", help="rebuild the episode from clips already rendered; never generate, and write nothing when a clip is missing")
     parser.add_argument("--retake-failed", action="store_true", help="give clips whose cached takes all failed the speech gate fresh takes this run (always so on a local-H3 lane; on a paid one every take is paid for)")
     parser.add_argument("--dry-run", action="store_true")
@@ -55,10 +57,16 @@ def main() -> int:
         sheet = cards_sheet(novel_dir, novel_dir / "series_assets" / "cards_sheet.jpg", asset_ids=asset_ids)
         print(json.dumps({"assets": "ready", "cards_sheet": str(sheet) if sheet else None}, ensure_ascii=False), flush=True)
         return 0
-    report = runner.run()
+    if args.review or args.repair:
+        from novel_manga.application.rendering.reviewed import run
+        report = run(runner, repair_existing=args.repair)
+    else:
+        report = runner.run()
     clip_rows = [{"clip_id": r["clip_id"], "attempts": len(r["attempts"]), "error": r.get("error"), **({"cer": r["selected"]["cer"], "peak_db": r["selected"]["max_volume_db"], "duration": r["selected"]["duration"]} if r.get("selected") else {})} for r in report["clips"]]
     assembly = {k: v for k, v in (report.get("assembly") or {}).items() if k != "media_qc"} or None
     print(json.dumps({"status": report["status"], "elapsed_seconds": report["elapsed_seconds"], "failed_clips": report["failed_clips"], "gate_failed_clips": report["gate_failed_clips"], "assembly": assembly, "clips": clip_rows}, ensure_ascii=False, indent=2), flush=True)
     if report["failed_clips"]:
         return 3
+    if (args.review or args.repair) and not report['quality_review']['passed']:
+        return 2
     return 0 if report["assembly"]["thin_passed"] and not report["gate_failed_clips"] else 2

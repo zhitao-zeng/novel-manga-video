@@ -171,7 +171,7 @@ def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
         if not issues:
             return {'changed': [], 'skip_render': True}
         result = repair_episode(directory.parent, ep_names.chapter_of(directory.name), False,
-                                use_history=False, reframe=True, source_issues=issues, return_proposal=True)
+                                use_history=False, reframe=True, source_issues=issues, return_proposal=True, episode_dir=directory)
         proposal = result.get('proposal')
         if not proposal or set(issues) - set(result.get('changed', [])):
             raise ValueError('entity repair incomplete: ' + result.get('why', 'no complete proposal'))
@@ -244,7 +244,7 @@ def prepare(directory: Path, kind: str, *, extra_takes: int = 0) -> dict:
         return {'changed': sorted(ids)}
     from novel_manga.application.repair.flow import repair_episode
     source_issues = read(directory / 'source_binding_issues.json') if kind == 'binding' else None
-    result = repair_episode(directory.parent, ep_names.chapter_of(directory.name), True, reframe=True, identity=kind == 'identity', source_issues=source_issues)
+    result = repair_episode(directory.parent, ep_names.chapter_of(directory.name), True, reframe=True, identity=kind == 'identity', source_issues=source_issues, episode_dir=directory)
     if kind in {'identity','residual'} and result.get('why') == 'nothing to repair':
         return {**result, 'already_correct': True, **({'structural_repair':structural} if structural else {})}
     if not result.get('changed'):

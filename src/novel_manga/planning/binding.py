@@ -166,7 +166,10 @@ def merge(authored: dict, answer: dict, *, character_names=()) -> dict:
             if written not in speaker_of:
                 raise ValueError(f"binding did not say who {written!r} is (authored shot {shot_id})")
             turns.append({"speaker_name": speaker_of[written], "delivery_mode": turn["delivery_mode"],
-                          "text": turn["text"], "emotion": turn["emotion"], "chat_target": ""})
+                          "text": turn["text"], "emotion": turn["emotion"], "chat_target": "",
+                          **({"inner_monologue": True} if turn.get("inner_monologue") else {})})
+        # Mixed delivery remains explicit. The writer patch separates it for postmix; the binder
+        # cannot erase a thought just because rendering that shot needs another cut.
         # the author's own scene name, not a name a model chose for it
         location = str(shot.get("场景") or "").strip()
         stage = {

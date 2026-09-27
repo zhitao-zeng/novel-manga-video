@@ -32,6 +32,8 @@ def fix_tier(verdict: dict, bible: review_models_StoryBible, rules: ReviewRules 
     broken body, a lead with the wrong face, or a speaking character who is not
     there; a side character's shirt colour or a garbled phone screen they do not."""
     rules = rules or ReviewRules()
+    if count_mismatches(verdict.get('verify') or {}):
+        return 'must_fix'  # ranges already account for the scripted empty suit/cropping
     if verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL:
         return "must_fix"  # the picture tells the wrong story, however clean it is
     if verdict.get("scripted"):
@@ -47,7 +49,9 @@ def fix_tier(verdict: dict, bible: review_models_StoryBible, rules: ReviewRules 
         return "must_fix"
     if MISSING.search(issue) and any(name in issue for name in (c.name for c in bible.characters)):
         return "must_fix"
-    if not verdict.get("identity_ok", True) or not verdict.get("location_ok", True) or not verdict.get("time_of_day_ok", True):
+    if verdict.get('verify') and verdict.get('severity') == 'fail':
+        return 'must_fix'
+    if any(verdict.get(field) is False for field in ('identity_ok', 'location_ok', 'time_of_day_ok')):
         return "optional"
     return "ignore"  # phone text, on-screen text, people count only
 
@@ -92,28 +96,47 @@ def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | N
     return joined or str(verdict.get("feedback") or "").strip()
 
 
+def count_mismatches(answer: dict) -> list[str]:
+    failures = []
+    for row in answer.get('count_checks') or []:
+        lower, upper, actual = row['expected_min'], row['expected_max'], row['observed']
+        if lower > upper:
+            raise ValueError('count review returned an inverted expected range')
+        if not lower <= actual <= upper:
+            failures.append(f"图{row['frames']}：{row['entity']}应有{lower}–{upper}，实际{actual}；{row['reason']}")
+    return failures
+
+
 def verify_to_verdict(answer: dict) -> dict:
     """The verifier's answer in the shape the review file, fix_tier and the board already read."""
     flags = {k: bool(answer.get(k)) for k in ("same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing", "lead_face_swapped")}
-    obvious = answer.get("verdict") == "obvious" or any(flags.values())
+    counts = count_mismatches(answer)
+    obvious = answer.get("verdict") == "obvious" or any(flags.values()) or bool(counts)
     subtle = answer.get("verdict") == "subtle" and not obvious
-    evidence = str(answer.get("evidence") or "")[:300]
-    people = answer.get("people") or []
+    evidence = ('；'.join(counts) if counts else str(answer.get("evidence") or ""))[:300]
+    entities = answer.get("people") or []
+    people = [p for p in entities if not isinstance(p, dict) or p.get("entity_kind") != "object"] if isinstance(entities, list) else entities
+    objects = [p for p in entities if isinstance(p, dict) and p.get("entity_kind") == "object"] if isinstance(entities, list) else []
+    story_kind = ('动作落在错误的人物身上' if flags['action_by_wrong_person'] else
+                  '原文中有动作的人物缺席' if flags['actor_missing'] else '无法判断')
+    story_error = flags['action_by_wrong_person'] or flags['actor_missing']
     return {
         "visible_people": len(people) if isinstance(people, list) else 0,
         "identity_ok": not (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle),
         "identity_issue": evidence if (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle) else "",
-        "location_ok": True, "time_of_day_ok": True, "location_issue": "",
+        "location_ok": None, "time_of_day_ok": None, "location_issue": "",
         "text_or_watermark": bool(answer.get("ghost_text")),
-        "chat_text_ok": True, "chat_text_issue": "",
-        "visual_defects": False, "defect_issue": "",
-        "story_ok": not obvious,
-        "story_kind": "无问题" if not obvious else ("原文中有动作的人物缺席" if flags["actor_missing"] and not flags["action_by_wrong_person"] else "动作落在错误的人物身上"),
-        "story_issue": evidence if obvious else "",
+        "chat_text_ok": None, "chat_text_issue": "",
+        "visual_defects": None, "defect_issue": evidence if obvious and not any(flags.values()) else "",
+        "story_ok": False if story_error else None,
+        "story_kind": story_kind,
+        "story_issue": evidence if story_error else "",
         "severity": "fail" if obvious else ("minor" if subtle else "pass"),
         "feedback": (str(answer.get("instruction") or "").strip() or ("按原文修正剧情：" + evidence)) if obvious else "",
-        "verify": {"verdict": answer.get("verdict"), **flags, "ghost_text": bool(answer.get("ghost_text")),
+        "verify": {**({"objects": objects} if objects else {}), "verdict": 'obvious' if obvious else answer.get("verdict"), **flags, "ghost_text": bool(answer.get("ghost_text")),
+                   **({'count_checks': answer['count_checks']} if 'count_checks' in answer else {}),
                    "evidence": evidence, "instruction": str(answer.get("instruction") or ""),
                    **({"repair_advice": answer["repair_advice"]} if answer.get("repair_advice") else {}),
-                   "people": [f"{p.get('who')}({p.get('gender')}{'/动物' if p.get('is_animal') else ''}) {p.get('doing')} [{p.get('frames')}]" for p in people][:8] if isinstance(people, list) else []},
+                   "people": [f"{p.get('who')}({p.get('gender')}{'/动物' if p.get('is_animal') else ''}) {p.get('doing')} [{p.get('frames')}]"
+                              if isinstance(p, dict) else str(p) for p in people][:8] if isinstance(people, list) else []},
     }

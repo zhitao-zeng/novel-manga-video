@@ -58,6 +58,30 @@ def worn_reference(phase: dict, bible: StoryBible, root: Path):
     return prop, root / "props" / prop_asset / "turnaround.jpeg"
 
 
+def worn_inputs(name: str, prop, worn_card: Path, base_card: Path) -> tuple[str, str, list[Path]]:
+    """(lead, wear note, references) for a phase card that wears a prop.
+
+    Picture 1 is the wearer's base card, for the face; picture 2 the prop's card, for the armour.
+    美漫 ch12 (2026-09-25): drawn from the prop card alone, 托尼's face came from the text and was
+    another man's - lighter, fuller hair, younger, none of the card's hatching; with his base card
+    as picture 1 it is his.  The pictures are named up front, or the base card's suit comes along.
+    Without a base card on disk the card is drawn from the prop card alone, as before."""
+    if not (base_card.is_file() and worn_card.is_file()):
+        return "", (f"角色穿戴{prop.name}：{prop.appearance}；"
+                    "以参考图中该物品的外观、材质与结构为准。"), [worn_card] if worn_card.is_file() else []
+    lead = (f"图1是{name}本人的角色卡，只用来确定脸：五官、脸型、发型和肤色，不采用图1的服装；"
+            f"图2是{prop.name}的设定图，只用来确定它的外观、材质与结构。画图1里的同一个人穿着图2的{prop.name}。")
+    return lead, f"角色穿戴{prop.name}：{prop.appearance}；以图2中该物品的外观、材质与结构为准。", [base_card, worn_card]
+
+
+def closed_view_prompt(name: str, prop: str, closed: str) -> str:
+    """closed.jpeg: the same figure as the phase card with the faceplate shut, its look taken from the prop's card.
+    `closed` is the phase's own words for it ("和机身一样是银白色，眼部发光")."""
+    return (f"图1是{name}穿着{prop}的角色卡；图2是{prop}的设定图，它的头盔面罩是合上的。"
+            f"保持图1的人物、整套{prop}、站姿、构图、纯色背景和画风完全不变，只把头盔面罩完全合上："
+            f"面罩的形状和颜色照图2的头盔，{closed}，看不到脸和头发。不要文字、Logo或水印。")
+
+
 STYLE_MASTER_GUARD = (
     "【系列母版继承】参考图只锁定线稿粗细、二维平涂、赛璐璐阴影、色彩亮度、"
     "光影方向和整体动画制作规格；不得照抄参考图人物身份、脸型、发型、服装、姿势、"
@@ -128,16 +152,20 @@ def main() -> int:
             if worn_prop is not None and not worn_card.is_file() and not args.dry_run:
                 # The wearable's own card comes first - the phase card is drawn from it.
                 factory.build_selected(root, bible, set(), set(), prop_ids={worn_card.parent.name})
-            wear_note = (f"角色穿戴{worn_prop.name}：{worn_prop.appearance}；"
-                         "以参考图中该物品的外观、材质与结构为准。") if worn_prop is not None else ""
-            prompt = character_prompt(
+            lead, wear_note, references = ("", "", [])
+            if worn_prop is not None:
+                lead, wear_note, references = worn_inputs(name, worn_prop, worn_card,
+                                                           root / "characters" / base_id / "turnaround.jpeg")
+            # The style master's guard forbids copying the reference's face and costume: it is said only
+            # when the style master is the picture sent, never over the wearer's face or the armour.
+            prompt = lead + character_prompt(
                 bible, look.name, look.appearance, look.base_costume or look.wardrobe,
                 visual_archetype=look.visual_archetype, face_anchors=look.face_anchors, silhouette=look.silhouette,
                 hair=look.hair, palette=look.palette, motion_signature=look.motion_signature,
                 family=asset_style.render_family, direction=asset_style.render_direction,
                 fingerprint=asset_style.prompt_fingerprint, tidy=asset_style.tidy_prompts,
                 brief=asset_style.card_brief,
-            ) + wear_note + guard
+            ) + wear_note + ("" if references else guard)
             prompt += style_card_suffix(asset_style, bible) or (
                 CARD_STYLE_SUFFIX_3D if wants_3d_card(asset_style, bible) else "")
             directory.mkdir(parents=True, exist_ok=True)
@@ -162,8 +190,8 @@ def main() -> int:
                         old.rename(directory / f"turnaround.superseded-{stamp}.jpeg{suffix}")
             started = time.monotonic()
             try:
-                factory.ensure_card(prompt, output,
-                                    reference=worn_card if worn_card is not None and worn_card.is_file() else style_master)
+                factory.ensure_card(prompt, output, reference=references[0] if references else style_master,
+                                    additional_references=tuple(references[1:]))
                 status = "built"
             except ModerationRejected as error:
                 status = f"moderation: {str(error)[:120]}"
@@ -172,6 +200,39 @@ def main() -> int:
                 status = f"error: {type(error).__name__}: {str(error)[:120]}"
                 failures += 1
             print(json.dumps({"name": name, "asset_id": asset_id, "phase": phase.get("label", ""), "status": status,
+                              "seconds": round(time.monotonic() - started, 1)}, ensure_ascii=False), flush=True)
+    # A worn phase with a "closed" look also gets closed.jpeg, the second picture packing sends for it.  美漫 ch12
+    # (2026-09-25): with only the open-faceplate card, every closed faceplate was H3's own - gold in 4 clips of 20.
+    for name, phase_list in phases.items():
+        if (only and name not in only) or name not in index:
+            continue
+        for phase in phase_list:
+            if not phase.get("closed") or not phase.get("wears"):
+                continue
+            worn_prop, worn_card = worn_reference(phase, bible, root)
+            directory = root / "characters" / str(phase.get("asset_id") or "")
+            primary, closed = directory / "turnaround.jpeg", directory / "closed.jpeg"
+            if worn_prop is None or not primary.is_file() or not worn_card.is_file() or (closed.is_file() and not args.force):
+                continue
+            prompt = closed_view_prompt(name, worn_prop.name, str(phase["closed"]))
+            if args.dry_run:
+                print(json.dumps({"name": name, "asset_id": directory.name, "status": "dry-run closed",
+                                  "prompt_head": prompt[:160]}, ensure_ascii=False), flush=True)
+                continue
+            if closed.is_file():
+                stamp = time.strftime("%m%d-%H%M")
+                for suffix in ("", ".request.json", ".task.json"):
+                    old = directory / f"closed.jpeg{suffix}"
+                    if old.is_file():
+                        old.rename(directory / f"closed.superseded-{stamp}.jpeg{suffix}")
+            started = time.monotonic()
+            try:
+                factory.ensure_card(prompt, closed, reference=primary, additional_references=(worn_card,))
+                status = "closed built"
+            except Exception as error:  # noqa: BLE001 - the open card still stands without it
+                status = f"closed error: {type(error).__name__}: {str(error)[:120]}"
+                failures += 1
+            print(json.dumps({"name": name, "asset_id": directory.name, "status": status,
                               "seconds": round(time.monotonic() - started, 1)}, ensure_ascii=False), flush=True)
     if args.expressions and not args.dry_run:
         # The second view build_selected() draws for a base card: the renderer references it for leads.

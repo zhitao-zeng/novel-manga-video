@@ -123,19 +123,33 @@ SCRIPT_CHECK_RULES = (
 
 VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
                  "required": ["people", "same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing",
-                              "lead_face_swapped", "ghost_text", "verdict", "evidence", "instruction"],
+                              "lead_face_swapped", "ghost_text", "count_checks", "verdict", "evidence", "instruction"],
                  "properties": {
-                     "people": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["who", "gender", "is_animal", "doing", "frames"],
-                                                           "properties": {"who": {"type": "string"}, "gender": {"type": "string", "enum": ["男", "女", "不明"]},
+                     "people": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["who", "entity_kind", "gender", "is_animal", "doing", "frames"],
+                                                           "properties": {"who": {"type": "string"}, "entity_kind": {"type": "string", "enum": ["character", "object"]}, "gender": {"type": "string", "enum": ["男", "女", "不明"]},
                                                                           "is_animal": {"type": "boolean"}, "doing": {"type": "string"}, "frames": {"type": "string"}}}},
                      "same_person_twice": {"type": "boolean"}, "species_or_gender_wrong": {"type": "boolean"}, "action_by_wrong_person": {"type": "boolean"},
                      "actor_missing": {"type": "boolean"}, "lead_face_swapped": {"type": "boolean"}, "ghost_text": {"type": "boolean"},
+                     "count_checks": {"type": "array", "minItems": 1, "maxItems": 24, "items": {
+                         "type": "object", "additionalProperties": False,
+                         "required": ["count_kind", "entity", "frames", "expected_min", "expected_max", "observed", "reason"],
+                         "properties": {"count_kind": {"type": "string", "enum": ["characters", "worn_equipment", "independent_objects"]}, "entity": {"type": "string"}, "frames": {"type": "string"},
+                                        "expected_min": {"type": "integer", "minimum": 0},
+                                        "expected_max": {"type": "integer", "minimum": 0},
+                                        "observed": {"type": "integer", "minimum": 0},
+                                        "reason": {"type": "string", "maxLength": 180}}}},
                      "verdict": {"type": "string", "enum": ["obvious", "subtle", "fine"]}, "evidence": {"type": "string"},
                      "instruction": {"type": "string"}}}
 
 
 VERIFY_QUESTIONS = (
-    "\n先逐个描述视频帧里看到的每个人（people：who 是谁或长相，gender，is_animal，doing 在做什么，frames 出现在哪几帧），再回答：\n"
+    "\n先逐个描述视频帧里看到的角色及人形物件（people：who 是谁或长相，entity_kind 为 character 或 object，gender，is_animal，doing 在做什么，frames 出现在哪几帧）。有身份和行为的角色填character；无人空甲、雕像、人体模型等物件填object，不能因为它们长得像人就填character，再回答：\n"
+    "count_checks：必须数实际视频帧，不数参考卡。按镜头阶段分三类：count_kind=characters只数entity_kind=character的角色；worn_equipment数剧情指定的穿戴装备，entity填写具体装备名，不混入普通衬衫、马甲；independent_objects数独立无人甲、车辆等关键物件，entity填写具体物件名。"
+    "每项写entity、视频帧号frames、按原文和本镜构图允许的expected_min/expected_max、实际observed数量，以及依据reason。"
+    "人物穿甲是一个人和一件穿戴物，不是两个演员；无人空甲不是人。穿甲者露出正常人脸是允许的，不要求透过装甲看见人体。"
+    "一人穿甲加一套独立空甲，在召来空甲之后可以成立；召来之前不得提前出现。不要仅因两套甲设计相同就判克隆。"
+    "切近景、画外人物和遮挡可能减少可见人数，应根据本镜构图给合理范围，不强迫全剧演员每帧到齐。"
+    "同一画面里多出身体、空甲或车辆，要分别计数，不能只核对具名角色。至少给出一项count_kind=characters的数量检查。例如同框两个人，其中一人穿甲，旁边另有一套无人空甲：角色2、穿戴装甲1、独立空甲1，人物总数不能填3。同一件装备的穿戴状态和独立状态分行，不能混为一类。\n"
     "same_person_twice：同一帧里是否有两个或更多长得一样（同脸同装）的人；\n"
     "species_or_gender_wrong：人被画成动物、动物被画成人或别的动物、动物直立拟人化，或原文里的女人由男人演（反之）、成人画成小孩；\n"
     "action_by_wrong_person：原文里甲做的动作或说的话，画面里由乙做或对错的对象做（例如原文甲向乙递东西，画面却由丙递出）；\n"
