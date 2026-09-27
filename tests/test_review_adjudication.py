@@ -24,7 +24,9 @@ def test_dismissed_crop_and_empty_suit_claims_do_not_survive_in_routing():
 def test_confirmed_error_routes_to_retake_and_uses_corrected_instruction():
     answer = {'checks': [{'id': 0, 'evidence': '同框确有两个甲', 'result': 'confirmed',
                           'instruction': '甲只出现一次。'}]}
-    v = apply(candidate(), answer, ['疑似克隆'])
+    original = candidate()
+    original['verify']['actor_missing'] = False
+    v = apply(original, answer, ['疑似克隆'])
     assert v['severity'] == 'fail' and v['feedback'] == '甲只出现一次。'
     assert whole_take_decision(v['verify']).action == 'retake'
     assert fix_tier(v, SimpleNamespace(characters=[])) == 'must_fix'
@@ -40,3 +42,11 @@ def test_missing_answers_cannot_clear_a_failure():
     import pytest
     with pytest.raises(ValueError):
         apply(candidate(), {'checks': []}, ['疑点'])
+
+
+def test_confirming_an_attribution_concern_does_not_guess_its_cause():
+    answer = {'checks': [{'id': 0, 'evidence': '甲的动作确实交给了乙', 'result': 'confirmed',
+                          'instruction': '甲完成交接。'}]}
+    v = apply(candidate(), answer, ['动作归属疑点'])
+    assert v['severity'] == 'fail'
+    assert whole_take_decision(v['verify']) is None  # current script/request/frames go to the existing diagnosis
