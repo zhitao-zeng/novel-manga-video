@@ -45,7 +45,7 @@ def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = N
     from novel_manga.application.identity.dialogue import POLICY as BINDING_POLICY
     return {'binding_policy': BINDING_POLICY, 'identity_reading': source_identity, 'stages':[s for i,s in enumerate(script.get('shots',[]),1)
                       if s.get('index',i) in clip.get('shot_indexes',[])],
-            'segments':inputs.identity.segments,
+            'segments':inputs.identity.segments, 'segment_ids': clip.get('segment_ids') or [],
             'cast':clip.get('cast',[]),'references':clip.get('references',[]),'crowd_roles':clip.get('crowd_roles',{}),
             'characters':[c for c in bible.get('characters',[]) if c['name'] in names],'assets':assets,
             'speaker_facts':[r for r in inputs.speaker_facts if r.get('stage') in clip.get('shot_indexes',[])]}

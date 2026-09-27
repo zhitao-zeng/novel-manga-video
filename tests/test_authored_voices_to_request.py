@@ -128,6 +128,7 @@ def test_a_voice_off_stays_off_screen_and_is_not_mixed_in_later(traced):
 def test_no_request_contradicts_itself(traced):
     _, plan = traced
     assert {c["clip_id"]: request_issues(c) for c in plan["clips"] if request_issues(c)} == {}
+    assert {sid for c in plan['clips'] for sid in c['segment_ids']} == {'seg_1', 'seg_2', 'seg_3'}
 
 
 def test_mixed_authored_shot_reaches_separate_native_and_postmixed_requests(tmp_path, monkeypatch):

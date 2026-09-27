@@ -56,7 +56,8 @@ def source_appearance_check(passage: str, shots: list[dict], context: dict) -> d
 
 def speaker_contract(passage: str, shots: list[dict], names: list[str], identities: list[dict], fixed: list[dict] = (), evidence_out: list | None = None, *, identity_context=None) -> dict[tuple[int, int], str]:
     """Resolve disputed attribution from the source before writing the picture."""
-    turns = [{'stage': s['origin_index'], 'turn': i, 'text': t['text'], 'current_speaker': t.get('speaker_name')}
+    turns = [{'stage': s['origin_index'], 'turn': i, 'text': t['text'], 'current_speaker': t.get('speaker_name'),
+              'delivery_mode': t.get('delivery_mode'), 'inner_monologue': bool(t.get('inner_monologue'))}
              for s in shots for i,t in enumerate(s.get('turns', []), 1)
              if t.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'} and t.get('text')]
     if not turns:
@@ -128,6 +129,8 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
               'source_quote 必须逐字摘录支撑该发言及归属的原文，包含必要的前后叙述；不能把改编台词伪装成原文引用。'
               'relation 标明 verbatim原句、condensed压缩合并、paraphrased改写、uncertain不能对应；不能对应的不要强行指定人物。'
               'narrated 仅用于原文明写的在场行动、想法或事实被改编成简短对白，不能增加原文没有的承诺、身份、事实。'
+              'inner_monologue=true表示角色心声，不是现场开口；原文的心理叙述或本人已知的判断可以等义改编为第一人称心声，'
+              '此时使用narrated，依据前后文核对想法归属与知识边界，不要求找到引号内原话或说话动作。'
               'shared_dialogue 用于原文明确多人共同询问/回答，改编由其中一人代表发言。'
               'shared_dialogue 只能保留下方 adaptation_speaker；narrated 若需修正人物，source_speaker_phrase 必须摘录原文明写的事件主体，不能选旁观者。'
               '引用必须支持此人在场并参与该事；这两类不代表原文逐字归属。'

@@ -142,11 +142,11 @@ def closed_for(episode_dir: Path, clip: dict, *, script=None, states=None, throu
     return out
 
 
-def recorded_clip_states(episode_dir: Path, clip: dict) -> dict[str, dict[str, str]]:
+def recorded_clip_states(episode_dir: Path, clip: dict, *, script=None, states=None) -> dict[str, dict[str, str]]:
     """Review consumes the same current-stage answers as packing; an old or missing answer is unknown."""
     try:
-        data = json.loads((episode_dir / FILE).read_text())
-        script = json.loads((episode_dir / 'chapter_script.json').read_text())
+        data = states if states is not None else json.loads((episode_dir / FILE).read_text())
+        script = script if script is not None else json.loads((episode_dir / 'chapter_script.json').read_text())
     except (OSError, ValueError):
         return {}
     if data.get('policy') != POLICY:

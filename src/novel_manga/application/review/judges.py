@@ -34,9 +34,10 @@ def judge_location_card(location: str, expected_time: str, view: Path, *, locati
     return model_client.ask_json(parts, review_contracts.LOCATION_CARD_SCHEMA, name="location_card")
 
 
-def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
+def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path,
+               *, cached_cast: dict | None = None, source_script=None, visor_states=None) -> dict:
     from novel_manga.application.packing.visor import recorded_clip_states
-    clip = {**clip, 'review_visor_states': recorded_clip_states(work_dir.parents[2], clip)}
+    clip = {**clip, 'review_visor_states': recorded_clip_states(work_dir.parents[2], clip, script=source_script, states=visor_states)}
     if review_evidence.review_mode(work_dir) == "verify":
         verdict = judge_clip_verify(clip, video, bible, location_time, hypothesis, work_dir)
     else:
@@ -47,7 +48,13 @@ def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, locatio
     # watched beside the cast's cards as well (cast_video.py).
     if cast_video.enabled():
         from novel_manga.application.review import adjudication
-        verdict = cast_video.review(clip, video, work_dir, verdict)
+        if cached_cast is not None:
+            # The take, actual cards and shot request did not change: reuse video observations,
+            # while the source-aware frame judgment and candidate adjudication run with the restored passage.
+            raw = {k: v for k, v in cached_cast.items() if k != 'adjudicated'}
+            verdict = cast_video.merge(verdict, raw, clip, cast_video.looks(clip, work_dir.parents[3], work_dir.parents[2]))
+        else:
+            verdict = cast_video.review(clip, video, work_dir, verdict)
         verdict = adjudication.review(clip, video, bible, work_dir, verdict)
     return verdict
 

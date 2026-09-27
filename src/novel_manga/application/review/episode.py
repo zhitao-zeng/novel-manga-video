@@ -22,6 +22,13 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
     grammar_path = novel_dir / "visual_grammar.json"
     location_time = json.loads(grammar_path.read_text(encoding="utf-8")).get("location_time", {}) if grammar_path.is_file() else {}
     plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
+    from novel_manga.story.sources import restore_plan_sources
+    script_path = episode_dir / 'chapter_script.json'
+    if script_path.is_file():
+        plan, restored = restore_plan_sources(plan, json.loads(script_path.read_text(encoding='utf-8')))
+        if restored:
+            atomic_write_json(episode_dir / 'clip_plan.json', plan)
+            model_client.log(f'{episode_dir.name}: restored source addresses for {len(restored)} clips; video requests unchanged')
     manifest_path = novel_dir / "series_assets" / "manifest.json"
     card_manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     report_path = episode_dir / "thin_media_report.json"
@@ -70,19 +77,25 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
         try:
             # The very same file, not just the same path: split_long_stages renames clip directories, so after a
             # split the path names another clip's take - with its old mtime - and that clip's verdict landed on it.
-            if (old and old.get("severity") != "review_error" and old.get("video") == str(video)
+            same_take = (old and old.get("severity") != "review_error" and old.get("video") == str(video)
                     and take and old.get("take") == take
                     and (not cast_video.enabled() or
-                         ((old.get('verify') or {}).get('cast_video') or {}).get('policy') == cast_video.POLICY)):
+                         ((old.get('verify') or {}).get('cast_video') or {}).get('policy') == cast_video.POLICY))
+            source_changed = bool(old and (clip.get('source_trace_repaired') or 'source_segment_ids' in old)
+                                  and old.get('source_segment_ids') != (clip.get('segment_ids') or []))
+            if same_take and not source_changed:
                 verdict = {key: value for key, value in old.items() if key not in ("video", "take")}
             else:
-                verdict = review_judges.judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)
+                cached = ((old.get('verify') or {}).get('cast_video') if same_take and source_changed else None)
+                options = {'cached_cast': cached} if cached and cast_video.enabled() else {}
+                verdict = review_judges.judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id, **options)
         except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
             model_client.log(f"episode {episode_dir.name} {clip_id}: review error {type(error).__name__}: {str(error)[:120]}")
             report["clips"][clip_id] = {"video": str(video), "take": take, "severity": "review_error", "error": f"{type(error).__name__}: {str(error)[:300]}"}
             checkpoint()
             continue
-        report["clips"][clip_id] = {"video": str(video), "take": take, **verdict}
+        report["clips"][clip_id] = {"video": str(video), "take": take, **verdict,
+                                     'source_segment_ids': list(clip.get('segment_ids') or [])}
         if verdict.get("severity") == "fail":
             tier = review_policy.fix_tier(verdict, bible, rules)
             if (tier == "must_fix" and "scripted" not in verdict
