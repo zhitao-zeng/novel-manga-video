@@ -101,3 +101,29 @@ def test_compose_follows_the_official_six_sections():
     assert "An off-screen voice (S3) says in an off-screen voiceover" in text
     order = [text.index(k) for k in ("subject_definitions:", "summary:", "retention_analysis:", "detailed_description:", "overall_soundscape:", "non_diegetic_music:")]
     assert order == sorted(order)
+
+
+def test_traits_stay_in_the_naming_table_and_a_name_becomes_its_bare_tag(monkeypatch):
+    """The translator reads each subject's traits once, in the table.  After every mention they were translated as
+    the shot's own direction: 席勒's 修长直立 became "upright" wherever he appeared (美漫 ch12, 2026-09-26)."""
+    from novel_manga.application.rendering import h3
+    calls = []
+    def answer(parts, schema, **kwargs):
+        calls.append(parts[0]['text'])
+        return {'shots': ['<Subject 1> sits behind the desk and looks up.']}
+    monkeypatch.setattr(h3, 'ask_json', answer)
+    clip = {'clip_id': 'c', 'request_seconds': 15,
+            'prompt': '【人物】\n席勒的辨识特征：修长直立，姿态放松。\n【阶段1】席勒坐在桌后，席勒抬眼。画面呈现',
+            'references': [{'role': 'character', 'name': '席勒'}]}
+    assert h3.convert(clip)
+    assert '席勒 = <Subject 1> (修长直立，姿态放松)' in calls[0]
+    assert calls[0].count('修长直立') == 1
+    assert '<Subject 1>坐在桌后，<Subject 1>抬眼' in calls[0]
+
+
+def test_a_note_keeps_its_sentence_when_the_table_carries_traits():
+    """clean_note drops a sentence that still has Chinese in it, so a name replaced by its tag and its traits
+    took the whole correction with it."""
+    naming = "琥珀·高德 = <Subject 2> (橘色虎斑猫)\n"
+    assert tag_names("保持琥珀的形象不变", naming) == "保持<Subject 2>的形象不变"
+    assert clean_note("Keep 琥珀·高德 as a cat.", naming) == "Keep <Subject 2> as a cat."

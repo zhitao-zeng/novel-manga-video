@@ -10,7 +10,7 @@ import copy
 from pathlib import Path
 import time
 
-from novel_manga.repair.policy import source_decision, diagnosed_decision
+from novel_manga.repair.policy import source_decision, diagnosed_decision, whole_take_decision
 from novel_manga.repair.proposal import RepairProposal
 from novel_manga.repair.execution import retake_proposal
 from novel_manga.application.repair.publication import publish_candidate, publish_retake
@@ -140,6 +140,8 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
         problem = identity_issues(clip)
         try:
             decision = source_decision(problem, precise, verified_source, correction(clip) if problem else '')
+            if decision is None:
+                decision = whole_take_decision(precise, history.repeated_errors(directory, cid))
             if decision is None:
                 diagnosis = diagnose_numbered(clip_context(directory.parent,ep_names.chapter_of(directory.name),cid, episode_dir=directory))
                 repeated = diagnosis.get('cause') == 'generation_mismatch' and history.repeated_errors(directory,cid)

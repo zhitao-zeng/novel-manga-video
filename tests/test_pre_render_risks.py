@@ -77,3 +77,28 @@ def test_a_voice_reference_with_the_same_name_does_not_hide_the_card(tmp_path):
                               {'role': 'voice', 'name': '席勒'}])
     block, report = readiness.render_risks(voiced, tmp_path)
     assert block and '心声' in ' '.join(report)
+
+
+def speaking(sentence, speaker=1):
+    return {'clip_id': 'clip_47', 'kind': 'video', 'request_seconds': 10, 'prompt': '', 'references': [],
+            'prompt_h3': ('subject_definitions:\n<Subject 1> is the person shown in <Picture 1>.\n'
+                          'detailed_description:\n[Shot 1] Planned duration: 10 seconds. ' + sentence +
+                          f' <Subject {speaker}> (S1) says <d>[Chinese] 你好。</d>\noverall_soundscape:\nRoom tone.')}
+
+
+def at_the_back(sentence, speaker=1, tmp_path=None):
+    return any('后景/背对' in r for r in readiness.render_risks(speaking(sentence, speaker), tmp_path)[1])
+
+
+def test_a_speaker_placed_at_the_back_is_reported(tmp_path):
+    assert at_the_back('<Subject 1> stands in the background near the door.', 1, tmp_path)
+    assert at_the_back('<Subject 1> sits with their back to the camera.', 1, tmp_path)
+    assert at_the_back('<Subject 1> looks at <Subject 2>, who is positioned in the background.', 2, tmp_path)
+
+
+def test_place_words_about_someone_or_something_else_are_not_the_speakers(tmp_path):
+    """Agent ch12 clips 47 and 50 (2026-09-26): Schiller spoke from the foreground both times."""
+    assert not at_the_back('<Subject 1> stands in the foreground, looking directly at <Subject 2>, '
+                           'who is positioned in the background wearing the Mark 2 armor.', 1, tmp_path)
+    assert not at_the_back('A fixed, eye-level close-up frames <Subject 1> standing in the foreground, illuminated '
+                           'by cold blue light spilling from a sliding metal door in the background.', 1, tmp_path)

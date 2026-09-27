@@ -12,6 +12,7 @@ import novel_manga.review.storage as review_storage
 from novel_manga.util import atomic_write_json
 import novel_manga.application.review.evidence as review_evidence
 import novel_manga.application.review.judges as review_judges
+from novel_manga.application.review import cast_video
 
 
 def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bool | None = None) -> dict:
@@ -60,7 +61,9 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
             # The very same file, not just the same path: split_long_stages renames clip directories, so after a
             # split the path names another clip's take - with its old mtime - and that clip's verdict landed on it.
             if (old and old.get("severity") != "review_error" and old.get("video") == str(video)
-                    and take and old.get("take") == take):
+                    and take and old.get("take") == take
+                    and (not cast_video.enabled() or
+                         ((old.get('verify') or {}).get('cast_video') or {}).get('policy') == cast_video.POLICY)):
                 verdict = {key: value for key, value in old.items() if key not in ("video", "take")}
             else:
                 verdict = review_judges.judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id)

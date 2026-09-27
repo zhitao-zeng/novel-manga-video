@@ -148,7 +148,10 @@ def location_prompt(bible: StoryBible, location: str, *, family: str = "", direc
         + _end(bible.palette, tidy)
         + f"场景资产：{location}。固定建筑结构、空间布局、关键物品、天气、时间和光线方向。"
         "严格空场，竖屏建立镜头与对话主角度可复用背景板；前景、中景、背景层次明确，"
-        "预留一至两名人物站立、走动和视线交流的表演空间，避免把核心道具放在字幕安全区。"
+        # The room the actors will need, said as floor rather than as people.  "预留一至两名人物站立、
+        # 走动…的表演空间" drew them: at three seeds the local card model put 3, 3 and 2 strangers into
+        # one lab with that sentence and none without it (agent ch12, 2026-09-26).
+        "中景地面留出一片开阔的空地，避免把核心道具放在字幕安全区。"
         "不得出现人物、人体剪影、海报人物、照片人物或镜中人。"
         f"{rendering_direction(bible, family=family, direction=direction)}；不要文字、Logo或水印。"
     )

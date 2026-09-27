@@ -1,4 +1,4 @@
-"""Frozen review requests captured before extraction (e6e8093, 2026-09-16).
+"""Review requests frozen at extraction, with explicit shot-context additions on 2026-09-27.
 
 Only model calls and frame extraction are replaced. Real card encoding, evidence
 loading, prompt construction and reply handling run through the production code.
@@ -99,6 +99,14 @@ def test_failed_clip_does_not_discard_completed_verdicts(tmp_path, monkeypatch):
     assert second['clips']['2'] == first['clips']['2']
     called.clear()
     assert episode_review.review_episode(directory) == second and called == []
+    from novel_manga.application.review import cast_video
+    monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO', '1')
+    monkeypatch.setattr(judges, 'judge_clip', lambda clip, *args: called.append(clip['clip_id']) or
+                        {'severity': 'pass', 'verify': {'cast_video': {'policy': cast_video.POLICY}}})
+    calibrated = episode_review.review_episode(directory)
+    assert called == ['0', '1', '2']  # Old policy cannot stand in for the newly enabled check.
+    called.clear()
+    assert episode_review.review_episode(directory) == calibrated and called == []
 
 
 def test_shared_review_code_and_callers_follow_dependency_direction():

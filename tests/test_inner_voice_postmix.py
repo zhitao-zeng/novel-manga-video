@@ -57,3 +57,40 @@ def test_mix_preserves_video_duration_and_uses_separate_audio(tmp_path, monkeypa
     assert audio_levels(output)[1] > -30
     saved = output.stat().st_mtime_ns
     assert inner_voice.mix(SimpleNamespace(), {}, raw).stat().st_mtime_ns == saved
+
+
+def test_an_offscreen_thinker_has_a_recording_card_without_entering_the_picture(tmp_path, monkeypatch):
+    """The voice and picture requests have independent reference sets."""
+    episode, script, plan = split_episode.__wrapped__(tmp_path, monkeypatch)
+    shot = script['shots'][0]
+    shot.update(characters=[], in_frame=[], camera='正面中景', motion_prompt='窗外的雨越下越大')
+    shot['turns'] = [{'speaker_name': '林凡', 'text': '我终于想明白了。',
+                      'delivery_mode': 'offscreen_dialogue', 'inner_monologue': True}]
+    (episode / 'segments.json').write_text(json.dumps([{'segment_id': 'seg_1', 'text': '林凡想明白了。'}]))
+    ctx = context_for_plan(episode, episode.parent / 'story_bible.json', plan)
+    ctx['profile']['inner_voice_delivery'] = 'postmix'
+    result, _ = compile_plan(script, ctx)
+    clip = result['clips'][0]
+    assert not any(r.get('role') == 'character' for r in clip['references'])
+    assert clip['audio_delivery'] == 'postmix'
+    assert '我终于想明白了' not in clip['prompt']
+    assert clip['inner_voice']['character_references'][0]['name'] == '林凡'
+    clip['inner_voice']['voice_references'] = [{'role': 'voice', 'name': '林凡', 'path': 'voice.wav'}]
+    recording = inner_voice.voice_clip(clip)
+    assert recording['cast'] == ['林凡']
+    assert recording['references'][0]['name'] == '林凡'
+    assert not any(r.get('role') == 'character' for r in visual_request(clip)['references'])
+
+
+def test_mixed_thought_and_speech_stops_without_erasing_the_thought(tmp_path, monkeypatch):
+    episode, script, plan = split_episode.__wrapped__(tmp_path, monkeypatch)
+    shot = script['shots'][0]
+    shot['turns'] = [{'speaker_name': '林凡', 'text': '先看看。', 'delivery_mode': 'visible_dialogue'},
+                     {'speaker_name': '林凡', 'text': '我想明白了。', 'delivery_mode': 'offscreen_dialogue',
+                      'inner_monologue': True}]
+    (episode / 'segments.json').write_text(json.dumps([{'segment_id': 'seg_1', 'text': '林凡想明白了。'}]))
+    ctx = context_for_plan(episode, episode.parent / 'story_bible.json', plan)
+    ctx['profile']['inner_voice_delivery'] = 'postmix'
+    with pytest.raises(ValueError, match='后期心声需要单独片段'):
+        compile_plan(script, ctx)
+    assert shot['turns'][1]['inner_monologue']

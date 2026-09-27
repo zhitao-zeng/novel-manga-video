@@ -49,6 +49,7 @@ class LocalQwenImageProvider:
         reference: Path | None = None,
         additional_references: tuple[Path, ...] = (),
         *, aspect_ratio: str | None = None,
+        seed: int | None = None,
     ) -> ImageResult:
         width, height = NATIVE_SIZE[aspect_ratio or "9:16"]
         references = [
@@ -67,6 +68,9 @@ class LocalQwenImageProvider:
             "references": [
                 base64.b64encode(path.read_bytes()).decode("ascii") for path in references
             ],
+            # With no seed the service draws at its own fixed default, so the same prompt always
+            # returns the same picture: a card drawn again on purpose has to name another seed.
+            **({"seed": seed} if seed is not None else {}),
         }
         try:
             response = self.client.post(f"{self.base_url}/generate", json=payload)

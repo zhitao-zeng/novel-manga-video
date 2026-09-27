@@ -102,6 +102,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
     spoken = [t for s in clip['shots'] for t in s.get('turns', [])
               if t.get('text') and t.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'}]
     postmix = ctx.get('profile', {}).get('inner_voice_delivery') == 'postmix' and any(t.get('inner_monologue') for t in spoken)
+    thinker = next((t['speaker_name'] for t in spoken if t.get('inner_monologue')), '')
     prompt_clip = clip
     inner_voice = None
     if postmix:
@@ -109,6 +110,16 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
             raise ValueError('后期心声需要单独片段和明确的一位说话者，请在规划中分开')
         inner_voice = {'speaker': spoken[0]['speaker_name'], 'text': ''.join(t['text'] for t in spoken),
                        'voice_references': [r for r in references if r.get('role') == 'voice']}
+        recording_cards = [r for r in references if r.get('role') == 'character' and r.get('name') == thinker]
+        if not recording_cards:
+            # A voice recording has its own references; it must not put an offscreen thinker into
+            # the picture, nor downgrade the thought into native speech (agent ch12 shot 9).
+            recording_refs, _, _ = build_references(
+                [thinker], clip['location'], bible, ctx['location_map'], speakers=(thinker,),
+                novel_dir=ctx['episode_dir'].parent, chapter=chapter_of(ctx['episode_dir']),
+                settings=options, identity_data=ctx.get('identity_data'), body_refs=ctx.get('body_refs'))
+            recording_cards = [r for r in recording_refs if r.get('role') == 'character']
+        inner_voice['character_references'] = recording_cards
         if override.get('inner_voice_audio'):
             inner_voice['source_audio'] = str(override['inner_voice_audio'])
         references = [r for r in references if r.get('role') != 'voice']

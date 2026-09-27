@@ -14,6 +14,7 @@ from pathlib import Path
 
 from novel_manga.util import atomic_write_json
 from novel_manga.application.identity.phases import load_phases
+from novel_manga.media.card_check import people_found
 
 REPORT = "render_readiness.json"
 POLICY = "clip-readiness-v1"
@@ -208,7 +209,7 @@ _FLIGHT = re.compile(r"飞|落地|降落|悬停|起飞|召唤|冲出|冲入|点�
 _FIRE = re.compile(r"喷口|喷气|火光|火焰|喷射")
 _SECOND = re.compile(r"(另一|第二|又一)(台|套|具|件)")
 _TRANSIENT = re.compile(r"张嘴|张口|准备说话|正要|正欲|抬手|伸手|转身|起身|迈步")
-_BACK = re.compile(r"(back to the camera|from behind|in the background|seen from the back|rear view)", re.I)
+_BACK = re.compile(r"(back to the camera|from behind(?!\s+(?:a|an|the|his|her|their|its|some)\b)|in the background|seen from the back|rear view)", re.I)
 
 
 def _stages(clip: dict) -> list[str]:
@@ -245,6 +246,12 @@ def render_risks(clip: dict, novel_dir: Path, accepted: dict | None = None) -> t
             bare = [i for i, stage in enumerate(stages, 1) if f"穿着{prop}" in stage and not _VISOR.search(stage)]
             if bare:
                 report.append(f"risk: 阶段{bare}穿着{prop}却没写面罩状态（成片里面罩开合乱跳）")
+    for ref in clip.get("references") or []:
+        path = str(ref.get("path") or "")
+        found = people_found(novel_dir / path) if ref.get("role") == "location" and path else 0
+        if found and path not in (accepted.get("card_people") or []):
+            block.append(f"risk: 场景卡 {path} 里有{found}个人（H3 会把他们演成角色）；"
+                         f"重画这张卡，或在 {ACCEPTED} 的 card_people 里接受这个风险")
     inner = [line for line in clip.get("lines") or [] if line.get("inner_monologue")
              and (refs.get(line.get("speaker_name")) or {}).get("role") == "character"
              and f"看不到{line.get('speaker_name')}的嘴" not in str(clip.get("prompt") or "")]
@@ -271,7 +278,11 @@ def render_risks(clip: dict, novel_dir: Path, accepted: dict | None = None) -> t
         body = english.split("detailed_description:", 1)[-1].split("overall_soundscape:", 1)[0]
         for shot in re.split(r"(?=\[Shot \d+\])", body):
             for n in set(re.findall(r"<Subject (\d+)> \(S\d+\) says(?! in an off-screen)", shot)):
-                if re.search(rf"<Subject {n}>[^.]*?{_BACK.pattern}", shot, re.I):
+                # The place words have to be about the speaker: a few words after its tag, in the same
+                # clause.  Anywhere later in the sentence also caught "looking at <Subject 2>, who is in
+                # the background" and "a door in the background" (agent ch12 clips 47 and 50).
+                if re.search(rf"<Subject {n}>(?:,\s*who)?(?:'s\s+\w+)?\s+(?:[\w-]+\s+){{0,4}}?{_BACK.pattern}",
+                             shot, re.I):
                     report.append(f"risk: {shot[:8]} Subject {n} 开口，却被写在后景/背对")
         outside = _CN.findall(re.sub(r"<d>.*?</d>", "", english, flags=re.S))
         if outside:

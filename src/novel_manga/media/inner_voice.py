@@ -22,14 +22,15 @@ def _read(path):
 
 def voice_clip(clip):
     info = clip['inner_voice']; speaker = info['speaker']
-    character = [r for r in clip.get('references', []) if r.get('role') == 'character' and r.get('name') == speaker]
+    character = info.get('character_references') or [r for r in clip.get('references', [])
+                                                    if r.get('role') == 'character' and r.get('name') == speaker]
     voices = list(info.get('voice_references') or [])
     if not character or not voices:
         raise RuntimeError('后期心声缺少说话人的角色卡或音色参考')
     rows = [{**row, 'stage': 1, 'delivery_mode': 'visible_dialogue', 'inner_monologue': False}
             for row in clip.get('dialogue_bindings', []) if row.get('text')]
     return {**clip, 'audio_delivery': 'native', 'references': [character[0], *voices],
-            'dialogue_bindings': rows, 'shot_timing': [{'seconds': clip['request_seconds']}],
+            'cast': [speaker], 'dialogue_bindings': rows, 'shot_timing': [{'seconds': clip['request_seconds']}],
             'spoken_text': info['text']}
 
 

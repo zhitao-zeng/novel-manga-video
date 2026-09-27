@@ -44,7 +44,7 @@ def binding_answer(**extra):
 def test_the_dialogue_cell_parses_into_speaker_manner_and_words():
     parsed = authored_sound(SOUND)
     assert parsed.turns == ({"written_speaker": "梁舟", "delivery_mode": "offscreen_dialogue",
-                             "emotion": "压低声音", "text": "我不能走。"},)
+                             "emotion": "压低声音", "text": "我不能走。", "inner_monologue": True},)
     assert parsed.sfx == "风声"
     assert parsed.problems == ()
 
@@ -90,7 +90,8 @@ def test_the_binder_cannot_move_the_scene_or_rewrite_the_line():
     assert merged["clips"][0]["location"] == "书房"
     assert stage["sfx"] == "风声"
     assert stage["turns"] == [{"speaker_name": "梁舟", "delivery_mode": "offscreen_dialogue",
-                               "text": "我不能走。", "emotion": "压低声音", "chat_target": ""}]
+                               "text": "我不能走。", "emotion": "压低声音", "chat_target": "",
+                               "inner_monologue": True}]
 
 
 def test_a_speaker_the_binding_never_named_stops_the_chapter():
@@ -236,3 +237,31 @@ def test_the_ordinary_planner_is_still_held_to_covering_every_segment():
 def test_an_omission_already_on_record_is_not_recorded_twice():
     raw, errors, _ = coverage({"seg_7"}, authored=True, skipped=["seg_8"])
     assert errors == [] and [row["segment_id"] for row in raw["skipped_segments"]] == ["seg_8"]
+
+
+# --- a thought stays a thought --------------------------------------------------------------------
+
+def test_only_an_inner_monologue_is_marked_as_a_thought():
+    """内心独白 and 画外音 share a delivery; only the flag tells a post-mixed thought from a voice off."""
+    thought, off, said = (authored_sound(f"梁舟（{label}）：“我不能走。”").turns[0]
+                          for label in ("内心独白", "画外音", "说"))
+    assert thought["delivery_mode"] == off["delivery_mode"] == "offscreen_dialogue"
+    assert thought["inner_monologue"] is True
+    assert "inner_monologue" not in off and "inner_monologue" not in said
+
+
+def test_a_shot_that_is_only_a_thought_reaches_the_flat_shot_as_one():
+    merged = merge({"shots": [shot(sound=SOUND)]}, binding_answer(), character_names=["梁舟"])
+    assert flatten_clips(merged)[0]["turns"][0]["inner_monologue"] is True
+
+
+def test_a_thought_sharing_its_cell_with_a_line_keeps_its_meaning():
+    """A mixed shot needs an explicit writer split; the binder must not silently turn a thought into native speech."""
+    sound = "周衡（说）：“你这地方真够破的。”\n梁舟（内心独白）：“他还是老样子。”"
+    answer = binding_answer(speaker_names=[{"written": "周衡", "name": "周衡"},
+                                           {"written": "梁舟", "name": "梁舟"}])
+    merged = merge({"shots": [shot(sound=sound)]}, answer, character_names=["梁舟", "周衡"])
+    turns = merged["clips"][0]["stages"][0]["turns"]
+    assert [t["delivery_mode"] for t in turns] == ["visible_dialogue", "offscreen_dialogue"]
+    assert not turns[0].get('inner_monologue')
+    assert turns[1]['inner_monologue'] is True

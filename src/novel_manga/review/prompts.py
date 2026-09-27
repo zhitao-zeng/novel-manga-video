@@ -10,6 +10,19 @@ from novel_manga.models.bible import Character
 EVENT_LINE = re.compile(r"主要事件是(.+?)。\n")
 
 
+def shot_contract(clip: dict) -> str:
+    """The actual shot, including its crop and state changes, rather than the cast card's default pose."""
+    return ("\n本镜中文拍摄计划：\n" + str(clip.get("prompt") or "（未提供）")
+            + "\n本镜实际英文请求（人物编号与引用关系也在其中）：\n" + str(clip.get("prompt_h3") or "（未提供）")
+            + "\n判定边界：角色卡提供身份、服装材质和配色，不规定每一镜的姿势、站位、面罩开合或可见部位。"
+              "这些状态按本镜计划及其动作先后判断；开合过程不能要求全程保持卡上的状态。"
+              "局部特写、背影、遮挡、画外人物不要求露脸；只看见穿甲者的躯干或腿仍算该人物，"
+              "不能由脸不在构图内推断缺头或人物缺席。明确能看到本该连接的断口才可判结构缺失。"
+              "无人空甲、雕像和装备与穿戴者分开匹配；空甲的面罩状态不能算到人物身上。"
+              "剧情允许的独立空甲不能仅凭同款外形判成人物克隆；要有第二张人脸或其他人在其中的可见证据。"
+              "同色系明暗变化（如深灰与黑）和光照差异不算换装；看不清或描述没提到不等于缺失。\n")
+
+
 def scripted_event(clip: dict) -> str:
     """The planner's one-line summary of what the clip shows, read back out of its request prompt."""
     match = EVENT_LINE.search(str(clip.get("prompt") or ""))
@@ -55,6 +68,7 @@ def classic_prompt(clip: dict, location_time: dict, hypothesis: str, evidence: C
         + "".join(f"\n- {describe(by_name[n])}" for n in cast)
         + (f"\n允许出现在远处背景、不入近景不说话的角色：{'、'.join(background)}（他们出现在背景里是正常的，不算多出）" if background else "")
         + story_block(clip, evidence.segments)
+        + shot_contract(clip)
         + evidence.snapshot
         + f"\n预期台词：{lines or '无'}\n语音识别出的台词：{hypothesis or '无'}\n"
         + (f"手机屏幕上应显示的群消息（这些文字允许出现）：{chats}\n" if chats else "")
@@ -88,6 +102,7 @@ def verify_prompt(clip: dict, location_time: dict, evidence: ClipEvidence) -> st
             + "".join(f"\n- {describe(by_name[n])}" for n in cast)
             + (f"\n允许在远处背景出现的角色：{'、'.join(background)}" if background else "")
             + story_block(clip, evidence.segments)
+            + shot_contract(clip)
             + evidence.snapshot
             + evidence.source_contract
             + f"\n预期台词：{lines or '无'}\n" + evidence.world
