@@ -29,6 +29,16 @@ def whole_take_decision(precise, repeated=False):
     if found.get('adjudicated'):
         if not (precise.get('adjudication') or {}).get('confirmed'):
             return None
+        # A visual confirmation does not establish whether a wrong actor/action came from the
+        # script or the generator. Keep those cases on the existing diagnosis path; otherwise
+        # moving frame flags into candidate would turn every attribution problem into a retake.
+        if any((precise.get('candidate') or {}).get(k) for k in ATTRIBUTION_ERRORS):
+            return None
+        kinds = set(precise.get('error_kinds') or [])
+        if kinds & set(ATTRIBUTION_ERRORS):
+            return None
+        if (found.get('extra_person') or found.get('extra_object')) and 'same_person_twice' not in kinds:
+            return None  # an unnamed background person/object needs source/request diagnosis, not an assumed retake
         return RepairDecision('reframe' if repeated else 'retake',
                               {'cause': 'generation_mismatch', 'reason': 'visible error confirmed against this shot',
                                'evidence': str(precise['adjudication'].get('checks') or [])})

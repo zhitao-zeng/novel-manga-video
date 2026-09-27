@@ -54,9 +54,9 @@ def add_observations(history: dict, review: dict, takes: dict) -> bool:
             continue
         verify = row["verify"]
         observation = {"video": current["video"], "take": current["take"], "policy": review.get("policy"),
-                       "verdict": verify.get("verdict"), "evidence": verify.get("evidence", row.get("story_issue", "")),
+                       "verdict": verify.get("verdict"), "evidence": verify.get("evidence") or row.get("story_issue") or row.get('identity_issue') or row.get('defect_issue', ''),
                        "instruction": verify.get("instruction", row.get("feedback", "")),
-                       "errors": [key for key in ERROR_FIELDS if verify.get(key)],
+                       "errors": sorted(set([key for key in ERROR_FIELDS if verify.get(key)] + list(verify.get('error_kinds') or []))),
                        **({"repair_advice": verify["repair_advice"]} if verify.get("repair_advice") else {}),
                        **({"confirmed_issue": row["confirmed"]["issue"]} if row.get("confirmed") and row.get("tier") == "must_fix" else {})}
         rows = history.setdefault("observations", {}).setdefault(cid, [])

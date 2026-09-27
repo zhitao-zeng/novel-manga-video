@@ -23,11 +23,30 @@ def test_dismissed_crop_and_empty_suit_claims_do_not_survive_in_routing():
 
 def test_confirmed_error_routes_to_retake_and_uses_corrected_instruction():
     answer = {'checks': [{'id': 0, 'evidence': '同框确有两个甲', 'result': 'confirmed',
+                          'kinds': ['same_person_twice'],
                           'instruction': '甲只出现一次。'}]}
-    v = apply(candidate(), answer, ['疑似克隆'])
+    original = candidate()
+    original['verify']['actor_missing'] = False
+    v = apply(original, answer, ['疑似克隆'])
     assert v['severity'] == 'fail' and v['feedback'] == '甲只出现一次。'
     assert whole_take_decision(v['verify']).action == 'retake'
     assert fix_tier(v, SimpleNamespace(characters=[])) == 'must_fix'
+    assert v['verify']['evidence'] == '同框确有两个甲'
+    assert v['verify']['error_kinds'] == ['same_person_twice']
+
+
+def test_confirmed_categories_and_evidence_reach_retry_history(tmp_path):
+    from novel_manga.application.repair import history
+    take = {'video': 'v.mp4', 'take': [1, 2, 3]}
+    verdict = {**take, 'verify': {'verdict': 'obvious', 'evidence': '确有多余空甲',
+                                  'error_kinds': ['extra_object'], 'instruction': '只保留计划内的装甲。'}}
+    record = {'observations': {}}
+    history.add_observations(record, {'clips': {'c': verdict}}, {'c': take})
+    second = {**take, 'video': 'v2.mp4'}
+    history.add_observations(record, {'clips': {'c': {**verdict, **second}}}, {'c': second})
+    history.save(tmp_path, record)
+    assert history.repeated_errors(tmp_path, 'c') == ['extra_object']
+    assert record['observations']['c'][0]['evidence'] == '确有多余空甲'
 
 
 def test_uncertain_evidence_does_not_approve_or_dispatch_a_retake():
@@ -40,3 +59,11 @@ def test_missing_answers_cannot_clear_a_failure():
     import pytest
     with pytest.raises(ValueError):
         apply(candidate(), {'checks': []}, ['疑点'])
+
+
+def test_confirming_an_attribution_concern_does_not_guess_its_cause():
+    answer = {'checks': [{'id': 0, 'evidence': '甲的动作确实交给了乙', 'result': 'confirmed',
+                          'instruction': '甲完成交接。'}]}
+    v = apply(candidate(), answer, ['动作归属疑点'])
+    assert v['severity'] == 'fail'
+    assert whole_take_decision(v['verify']) is None  # current script/request/frames go to the existing diagnosis
