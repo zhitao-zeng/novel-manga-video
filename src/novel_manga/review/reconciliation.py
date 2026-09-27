@@ -28,8 +28,9 @@ def verdict_from_record(record: dict) -> dict:
     answer = dict(record)
     people = answer.get("people") or []
     answer["people"] = [p if isinstance(p, dict) else {"who": p} for p in people]
-    verdict = review_policy.verify_to_verdict(answer)
-    verdict["verify"]["people"] = people
+    verdict = copy.deepcopy(record['picture_review']) if record.get('picture_review') else review_policy.verify_to_verdict(answer)
+    if not record.get('picture_review'):
+        verdict["verify"]["people"] = people
     verdict["tier"] = "must_fix" if verdict["severity"] == "fail" else "optional"
     if record.get("mode") in {"confirm", 'source_confirm'}:
         verdict["flash_checked"] = True

@@ -212,7 +212,7 @@ def check(clip: dict, video: Path, work_dir: Path) -> tuple[dict, dict[str, str]
                  SCHEMA, "clip_cast_video")
     seen = list(ask([take, {"type": "text", "text": DESCRIBE_QUESTION}], DESCRIBE, "clip_describe").get("people") or [])
     from novel_manga.application.packing.visor import recorded_clip_states
-    states = recorded_clip_states(work_dir.parents[2], clip)
+    states = clip.get('review_visor_states') if 'review_visor_states' in clip else recorded_clip_states(work_dir.parents[2], clip)
     return {**answer, "policy": POLICY, "seen": seen,
             "looks": compare(draw, watched(clip, novel_dir), seen, clip, states)}, draw
 

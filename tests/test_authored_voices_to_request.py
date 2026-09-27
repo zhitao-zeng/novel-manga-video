@@ -128,3 +128,29 @@ def test_a_voice_off_stays_off_screen_and_is_not_mixed_in_later(traced):
 def test_no_request_contradicts_itself(traced):
     _, plan = traced
     assert {c["clip_id"]: request_issues(c) for c in plan["clips"] if request_issues(c)} == {}
+    assert {sid for c in plan['clips'] for sid in c['segment_ids']} == {'seg_1', 'seg_2', 'seg_3'}
+
+
+def test_mixed_authored_shot_reaches_separate_native_and_postmixed_requests(tmp_path, monkeypatch):
+    import sys
+    import copy
+    from novel_manga.application.planning.voice_splits import split_authored, PICTURE_FIELDS
+    mixed = row('A1', f'梁舟（说）：“{SAID}”\n梁舟（内心独白）：“{THOUGHT}”', 18)
+    def direct(prompt, schema):
+        if 'problems' in schema['properties']:
+            return {'problems': []}
+        return {'shots': [{**{k: mixed[k] for k in PICTURE_FIELDS}, '预算秒': seconds,
+                           '画面内容 / 动作': picture, '音效': '水声'} for seconds, picture in [
+                             (8, '梁舟取出背包并开口说话。'),
+                             (10, '背包已在岸上，梁舟低头思考，嘴唇自然闭合。')]]}
+    directed, _ = split_authored({'shots': [mixed, SHEETS[2]]}, '\n'.join(s['text'] for s in SEGMENTS), ask=direct)
+    binding = copy.deepcopy(BINDING)
+    binding['bindings'][1]['镜号'] = 'A1.v2'
+    monkeypatch.setattr(sys.modules[__name__], 'SHEETS', directed['shots'])
+    monkeypatch.setattr(sys.modules[__name__], 'BINDING', binding)
+    _, plan = traced.__wrapped__(tmp_path, monkeypatch)
+    native, thought = clip_saying(plan, SAID), clip_saying(plan, THOUGHT)
+    assert native['clip_id'] != thought['clip_id']
+    assert spoken(native['prompt_h3'], '拿回来了')
+    assert thought['audio_delivery'] == 'postmix'
+    assert thought['inner_voice']['text'] == THOUGHT and '<d>' not in thought['prompt_h3']

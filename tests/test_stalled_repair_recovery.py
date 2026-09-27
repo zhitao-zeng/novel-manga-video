@@ -58,10 +58,14 @@ def test_adjacent_prose_keeps_the_speaker_across_a_segment_boundary():
     assert segments['d'] not in passage
 
 
-@pytest.mark.parametrize('changed_words',[False,True,'recut'])
+@pytest.mark.parametrize('changed_words',[False,True,'recut','picture_fail'])
 def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_path,monkeypatch,changed_words):
     d,clips,reviews = fixture_episode(tmp_path)
     (d.parent/'repair_manager').mkdir()
+    from novel_manga.models.bible import StoryBible
+    from novel_manga.application.review import judges as picture_judges
+    bible = StoryBible(novel_title='book', genre='g', visual_style='v', palette='p', style_fingerprint='f', characters=[], locations=[])
+    (d.parent/'story_bible.json').write_text(bible.model_dump_json())
     for clip in clips:
         clip['lines']=[{'speaker_name':'甲','delivery_mode':'visible_dialogue','text':'你好。'}]
     (d/'clip_plan.json').write_text(json.dumps({'clips':clips}))
@@ -84,9 +88,14 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
         'proposal':{'plan':plan,'script':{'shots':[]},'notes':{},'changes':{},'structural_repair':structural}})
     monkeypatch.setattr(h3,'convert',lambda *a,**k:False)
     monkeypatch.setattr(thin_profile,'h3_prompt_outdated',lambda *a:False)
-    monkeypatch.setattr(review_policy,'verify_to_verdict',lambda *a:{'story_ok':True})
+    # Keep the real converter: mocking it to story_ok=True hid the real fine -> story_ok=None contract.
+    monkeypatch.setattr(picture_judges, 'judge_clip', lambda *a, **k: {
+        'severity': 'fail' if changed_words == 'picture_fail' else 'pass',
+        'identity_issue': 'extra armour' if changed_words == 'picture_fail' else '',
+        'feedback': 'one suit only' if changed_words == 'picture_fail' else '',
+        'verify': {'verdict': 'obvious' if changed_words == 'picture_fail' else 'fine'}})
     take=source.current_takes(d,{'clips':clips},{'clips':reviews})['a']
-    monkeypatch.setattr(source,'SourceVerifier',lambda *a,**k:SimpleNamespace(verify=lambda *a:{**take,'verdict':'fine'}))
+    monkeypatch.setattr(source,'SourceVerifier',lambda *a,**k:SimpleNamespace(verify=lambda *a:{**take,'ep':1,'clip':'a','mode':'source_confirm','verdict':'fine'}))
     if changed_words is True:
         with pytest.raises(ValueError,match='dialogue wording'):
             source.prepare_source_recheck(d,['a'])
@@ -96,7 +105,12 @@ def test_source_review_accepts_noop_picture_but_rejects_changed_dialogue(tmp_pat
         assert result['needs_render'] == ['a', 'c'] and not result['accepted']
     else:
         result = source.prepare_source_recheck(d,['a'])
-        assert result['accepted']==['a'] and result['needs_render']==[]
+        if changed_words == 'picture_fail':
+            assert result['accepted'] == [] and result['needs_render'] == ['a']
+            assert json.loads((d/'episode_review.json').read_text())['clips']['a']['severity'] == 'fail'
+        else:
+            assert result['accepted']==['a'] and result['needs_render']==[]
+            assert 'a' not in json.loads((d/'episode_review.json').read_text())['feedback']
 
 
 def test_named_silent_lead_does_not_become_a_crowd_reference():

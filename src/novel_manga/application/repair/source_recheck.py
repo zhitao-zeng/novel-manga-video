@@ -15,6 +15,7 @@ from novel_manga.util import atomic_write_json
 from novel_manga.runtime_backends import normalize_text
 from novel_manga.application.review.verify import CurrentVerifier
 from novel_manga.application.review.store import current_takes
+from novel_manga.review.policy import verify_to_verdict
 from novel_manga.util import read_json as read
 from novel_manga.application.repair.history import accepted_clip_material, begin_trial
 
@@ -39,12 +40,27 @@ class SourceVerifier(CurrentVerifier):
         return Path(current['video']) if current else None
 
     def prompt_for(self, clip, ep_dir, chapter, claim):
+        from novel_manga.application.review.evidence import segment_texts
+        segments = segment_texts(ep_dir)
+        if not any(segments.get(s) for s in clip.get('segment_ids') or []):
+            raise ValueError('source recheck requires valid source addresses')
         cards, text = super().prompt_for(clip, ep_dir, chapter, '')
         text += ('\n本次按原文重新核验当前视频。上面的台词说话者已核验，台词可以是原文的压缩或改写，'
                  '也可以是在场人物对原文明写事实的简短口头表达；后者不等于原著逐字发言。'
                  '原文是事实依据；旧剧本或旧生成请求若与原文相反，不得要求画面遵从旧错误。'
                  '只看当前画面是否违背原文事实，正常的镜头角度、措辞压缩不算错误。')
         return cards, text
+
+
+def source_passed(source_answer):
+    return (source_answer.get('verdict') in {'fine', 'subtle'}
+            and verify_to_verdict(source_answer)['severity'] in {'pass', 'minor'})
+
+
+def reuse_allowed(source_answer, picture, speech_passed):
+    # story_ok=None records an unchecked dimension, not failure. A source-confirm fine result
+    # and the shared full picture review must both pass; source-only approval never erases a visual defect.
+    return (source_passed(source_answer) and picture.get('severity') in {'pass', 'minor'} and speech_passed)
 
 
 def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *, instructions: dict | None = None) -> dict:
@@ -59,7 +75,6 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     from novel_manga.application.profiles import h3_prompt_outdated
     from novel_manga.application.preparation.readiness import plan_issues
     from novel_manga.media.common import reference_digests
-    from novel_manga.review.policy import verify_to_verdict
     from novel_manga.story.h3 import request_issues,source_crowds
 
     novel = directory.parent
@@ -176,11 +191,29 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
             raise ValueError(f'{cid}: source recheck failed or video changed: {record.get("error", "changed take")}')
         record['source_confirmed_at'] = time.strftime('%F %T')
         record['source_attribution'] = resolved.get(cid, [])
-        records.append(record)
         print(f'{cid}: existing video source verdict={record.get("verdict")}',flush=True)
         answer = {**record,'people':[p if isinstance(p,dict) else {'who':p} for p in record.get('people',[])]}
         from novel_manga.application.profiles import speech_gate_result
-        if verify_to_verdict(answer)['story_ok'] and speech_gate_result(novel,selected.get(cid,{}),directory).get('passed'):
+        picture = {}
+        if source_passed(answer):
+            from novel_manga.application.review.judges import judge_clip
+            from novel_manga.application.review.confirmed import enforce
+            from novel_manga.models.bible import StoryBible
+            picture = judge_clip(clips[cid], Path(now['video']), StoryBible.model_validate(bible), {},
+                                 selected.get(cid, {}).get('hypothesis', ''), directory/'work/source_picture_review'/cid,
+                                 source_script=proposal['script'], visor_states=proposal.get('visor_states'))
+            current_review = read(directory/'episode_review.json', {})
+            scoped = enforce(directory, {'clips': {cid: {**picture, **now}}, 'feedback': {}}, current_review)
+            picture = scoped['clips'][cid]
+            if picture.get('severity') == 'review_error':
+                raise ValueError(f'{cid}: source verified but picture review incomplete')
+            picture['source_segment_ids'] = list(clips[cid].get('segment_ids') or [])
+            record.update(picture_review=picture, source_only_verdict=record.get('verdict'),
+                          verdict={'pass': 'fine', 'minor': 'subtle'}.get(picture['severity'], 'obvious'),
+                          evidence=picture.get('identity_issue') or picture.get('defect_issue') or picture.get('story_issue') or '',
+                          instruction=picture.get('feedback') or '')
+        records.append(record)
+        if reuse_allowed(answer, picture, speech_gate_result(novel,selected.get(cid,{}),directory).get('passed')):
             references = tuple(novel / r['path'] for r in clips[cid].get('references',[]) if r.get('role') != 'voice')
             if not all(p.is_file() for p in references):
                 raise ValueError(f'{cid}: reference asset missing during source acceptance')
@@ -194,4 +227,12 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
     report={'changed':checked,'accepted':accepted,'needs_render':[cid for cid in checked if cid not in accepted],
             'source_attribution':resolved,'reviews':records}
     publish_source_review(directory, candidate, checked, acceptances, records, report)
+    # The next cached review must consume the complete new result, not the old failed verdict
+    # on the same take that sent it here. Reuse the existing evidence reconciliation and claim protection.
+    from novel_manga.review.reconciliation import merge_evidence
+    from novel_manga.application.review.store import reconcile
+    local = {}
+    for record in records:
+        merge_evidence(local, record)
+    reconcile(directory, local, {})
     return report

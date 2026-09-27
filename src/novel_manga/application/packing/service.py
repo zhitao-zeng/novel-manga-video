@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from novel_manga.story.compilation import ClipCompiler, plan_totals, lint_stage, chat_turns
 from novel_manga.story.dialogue import merged_turns
+from novel_manga.story.sources import segment_ids
 from novel_manga.application.packing.context import compiler_options, POLICY, PACKER_VERSION
 from novel_manga.application.packing.assets import build_references, bodies_for
 from novel_manga.application.packing.visor import closed_for
@@ -142,7 +143,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "kind": "video",
         "location": clip["location"],
         "shot_indexes": shot_indexes,
-        "segment_ids": list(dict.fromkeys(shot["segment_id"] for shot in clip["shots"])),
+        "segment_ids": segment_ids(clip['shots']),
         "shot_parts": [{"index": shot["index"], "part": list(shot.get("split_part") or (1, 1))} for shot in clip["shots"]],
         "stage_count": len(clip["shots"]),
         "seconds_estimate": clip["seconds"],
@@ -178,7 +179,6 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
                      shot_ids=[s['shot_id'] for s in clip['shots']],
                      shot_timing=[{'seconds': s['duration_seconds'], 'cut': s.get('cut', '')} for s in clip['shots']],
                      scene_time=clip['shots'][0].get('scene_time', ''))
-        entry['segment_ids'] = list(dict.fromkeys(r['segment_id'] for s in clip['shots'] for r in s.get('source_refs', [])))
     from novel_manga.story.h3 import source_crowds
     data = ctx.get('identity_data')
     data = data if data is not None else load_chapter(ctx['episode_dir'])
