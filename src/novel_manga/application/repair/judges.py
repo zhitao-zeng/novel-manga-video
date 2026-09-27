@@ -76,6 +76,8 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
         phrase = str(row.get('source_speaker_phrase') or '').strip()
         if not phrase:
             return identity_context is None  # historical direct-call records
+        if normalize_text(phrase) not in normalize_text(str(row.get('source_quote') or '')):
+            return False
         matches = [(len(normalize_text(form)), candidate['name']) for candidate in identities
                    for form in [candidate['name'], *candidate.get('source_names', [])]
                    if normalize_text(form) and normalize_text(form) in normalize_text(phrase)]
@@ -112,10 +114,9 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
     paragraphs = [p for p in passage.splitlines() if p.strip()]
     schema = {'type':'object','additionalProperties':False,'required':['speakers'],'properties':{'speakers':{
         'type':'array','items':{'type':'object','additionalProperties':False,
-        'required':['stage','turn','source_quote','source_speaker_phrase','relation','speaker'], 'properties':{
+        'required':['stage','turn','source_paragraphs','source_speaker_phrase','relation','speaker'], 'properties':{
             'stage':{'type':'integer'},'turn':{'type':'integer'},
-            'source_quote':{'type':'string','maxLength':700},
-            'source_paragraphs':{'type':'array','items':{'type':'integer','minimum':1,'maximum':max(1,len(paragraphs))}},
+            'source_paragraphs':{'type':'array','minItems':1,'items':{'type':'integer','minimum':1,'maximum':max(1,len(paragraphs))}},
             'source_speaker_phrase':{'type':'string','maxLength':80},
             'relation':{'type':'string','enum':['verbatim','condensed','paraphrased','narrated','shared_dialogue','uncertain']},
             'speaker':{'type':'string','enum':grounded}}}}}}
@@ -124,9 +125,9 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
               '剧本台词可以删减、合并原句或换一种说法，不要求它逐字出现在原文中。'
               '先找到与改编台词语义对应的原始发言，再根据原文前后叙述确定说话人。'
               '先根据上下文解析指代，不能选引用里最先出现的名字。'
-              '按顺序填写：先摘录 source_quote，再从引用中填写实际说话人的 source_speaker_phrase（原文称谓或指代），'
+              '按顺序填写：先选择 source_paragraphs，再从所选原文中填写实际说话人的 source_speaker_phrase（原文称谓或指代），'
               '最后才把这个说话人对应到候选资料的 speaker。'
-              'source_quote 必须逐字摘录支撑该发言及归属的原文，包含必要的前后叙述；不能把改编台词伪装成原文引用。'
+              'source_paragraphs选择支撑该发言及归属的原文段落编号，包含必要的前后叙述；由程序原样引用，不要抄写或重写原文。'
               'relation 标明 verbatim原句、condensed压缩合并、paraphrased改写、uncertain不能对应；不能对应的不要强行指定人物。'
               'narrated 仅用于原文明写的在场行动、想法或事实被改编成简短对白，不能增加原文没有的承诺、身份、事实。'
               'inner_monologue=true表示角色心声，不是现场开口；原文的心理叙述或本人已知的判断可以等义改编为第一人称心声，'
@@ -135,8 +136,7 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
               'shared_dialogue 只能保留下方 adaptation_speaker；narrated 若需修正人物，source_speaker_phrase 必须摘录原文明写的事件主体，不能选旁观者。'
               '引用必须支持此人在场并参与该事；这两类不代表原文逐字归属。'
               '不要用 paraphrased 给没有原始发言的旁白强行指定说话人。'
-              '引用必须是连续原文，不能自己插入省略号；原文中的省略号原样保留。'
-              '优先填写 source_paragraphs：支撑台词及归属的原文段落编号，例如 [2,3]；此时 source_quote 留空，由程序直接摘录原文，避免抄错字或省略。'
+              '选择最小充分的连续段落编号，例如 [2,3]，程序从首段到末段直接摘录，不拼接远处句子。'
               '只能选具有本段原文称谓的候选；无法确定时不输出，不借用旁观者的名字。'
               '不要写分镜或描述画面，只输出JSON。\n候选资料：' + json.dumps(identities,ensure_ascii=False)
               + '\n原文（方括号是段落编号，不是原文内容）：' + '\n'.join(f'[{i}] {p}' for i,p in enumerate(paragraphs,1)) + '\n待核台词：' + json.dumps([
@@ -149,7 +149,7 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
         indexes = row.get('source_paragraphs')
         if indexes and all(type(i) is int and 1 <= i <= len(paragraphs) for i in indexes):
             return {**row,'source_quote':'\n'.join(paragraphs[min(indexes)-1:max(indexes)])}
-        return row
+        return {**row, 'source_quote': ''}
     def valid(row):
         key=(row.get('stage'),row.get('turn'));turn=by_key.get(key);quote=str(row.get('source_quote') or '')
         return (turn and normalize_text(quote) and normalize_text(quote) in normalize_text(passage)
@@ -182,15 +182,13 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
         retry = ask_json([{'type':'text','text':prompt+'\n只补正以下未通过核验的阶段/轮次：'+json.dumps(sorted(missing))
                           +'。上次回答：'+json.dumps([r for r in rows if (r.get('stage'),r.get('turn')) in missing],ensure_ascii=False)
                           +'。source_speaker_phrase中的具名人物必须与speaker是同一个人；候选里没有原文说话者时保留uncertain，不能换成另一名在场人物。'
-                          +'。重新逐字复制连续原文，不添加省略号，不拼接远处的句子。若发言跨多个段落，就引用整段。'
+                          +'。必须填写真实的source_paragraphs编号，程序读取连续原文，不要自己抄写。若发言跨多个段落，选择完整范围。'
                           '若原文确实无法支持改编台词，保留 uncertain，不用猜测。'
-                          +'\n以下台词片段已在原文唯一定位，source_quote必须留空，程序使用给定连续原文。'
+                          +'\n以下台词片段已在原文唯一定位，可据此定位原文段落编号。'
                           '仍需依据叙述独立确定speaker和source_speaker_phrase，不能沿用旧归属：'
                           +json.dumps([{'stage':k[0],'turn':k[1],'source_quote':v} for k,v in literal.items()],ensure_ascii=False)}],
                          schema,name='speaker_binding_evidence_correction',max_tokens=min(5000,900+650*len(missing)), settings=judge_settings())
-        corrected = [{**r, 'source_quote':literal[(r.get('stage'),r.get('turn'))]}
-                     if (r.get('stage'),r.get('turn')) in literal and not str(r.get('source_quote') or '').strip()
-                     else quoted(r) for r in retry.get('speakers', [])]
+        corrected = [quoted(r) for r in retry.get('speakers', [])]
         rows = [r for r in rows if (r.get('stage'),r.get('turn')) not in missing] + corrected
     for row in rows:
         key=(row.get('stage'),row.get('turn'));turn=by_key.get(key);quote=str(row.get('source_quote') or '')

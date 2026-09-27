@@ -26,7 +26,7 @@ def apply(verdict, answer, concerns):
     confirmed = [r for r in checks if r['result'] == 'confirmed']
     kinds = sorted({kind for r in confirmed for kind in r.get('kinds', [])})
     detail = '；'.join(r['evidence'] for r in confirmed)
-    instruction = '；'.join(r['instruction'] for r in confirmed)
+    instruction = '；'.join(dict.fromkeys(r['instruction'] for r in confirmed))
     out = copy.deepcopy(verdict)
     # Retain the original evidence, but none of its dismissed flags can still trigger a retake.
     old = out.get('verify') or {}
@@ -64,5 +64,8 @@ def review(clip, video, bible, work_dir, verdict):
               '不复述旧错误；dismissed时为空。不增设原文/镜头没有要求的条件，不写推测或自我辩论。\n'
             + json.dumps([{'id': i, 'candidate': c} for i, c in enumerate(concerns)], ensure_ascii=False))
     parts.append({'type': 'text', 'text': text})
-    answer = cast_video.ask(parts, SCHEMA, 'clip_visual_adjudication')
+    schema = copy.deepcopy(SCHEMA)
+    schema['properties']['checks'].update(minItems=len(concerns), maxItems=len(concerns))
+    schema['properties']['checks']['items']['properties']['id']['enum'] = list(range(len(concerns)))
+    answer = cast_video.ask(parts, schema, 'clip_visual_adjudication')
     return apply(verdict, answer, concerns)

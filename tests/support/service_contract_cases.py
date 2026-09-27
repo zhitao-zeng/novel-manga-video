@@ -53,7 +53,7 @@ def service_contracts():
      def ask(parts,schema,**kwargs):
       kwargs.pop('settings',None)
       calls.append({'parts':parts,'schema':schema,'options':kwargs})
-      return {'speakers':[{'stage':1,'turn':1,'source_quote':passage,'source_speaker_phrase':'甲','relation':'verbatim','speaker':'甲'}]}
+      return {'speakers':[{'stage':1,'turn':1,'source_paragraphs':[1],'source_speaker_phrase':'甲','relation':'verbatim','speaker':'甲'}]}
      with patch.object(judges,'ask_json',ask):
       value=repair_judges.speaker_contract(passage,shots,['甲','乙'],identities,evidence_out=evidence,identity_context={'policy':'test'})
       repeat=repair_judges.speaker_contract(passage,shots,['甲','乙'],identities,fixed=evidence,identity_context={'policy':'test'})

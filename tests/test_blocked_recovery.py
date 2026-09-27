@@ -58,7 +58,7 @@ def test_adapted_dialogue_uses_real_source_evidence_without_exact_line_match(mon
     source='贝纳妮丝说：“今晚。伯爵宴请了王子，私人的宴请不合规矩，所以举办成了宴会。”'
     line='今晚伯爵宴请王子，举办宴会。'
     shots=[{'origin_index':3,'turns':[{'delivery_mode':'visible_dialogue','speaker_name':'秘女','text':line}]}]
-    answer={'speakers':[{'stage':3,'turn':1,'speaker':'贝纳妮丝','source_quote':source,'relation':'condensed'}]}
+    answer={'speakers':[{'stage':3,'turn':1,'speaker':'贝纳妮丝','source_paragraphs':[1],'relation':'condensed'}]}
     monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:answer)
     evidence=[]
     assert repair_judges.speaker_contract(source,shots,['贝纳妮丝','秘女'],[{'name':'贝纳妮丝','source_names':['贝纳妮丝']}],evidence_out=evidence)=={(3,1):'贝纳妮丝'}

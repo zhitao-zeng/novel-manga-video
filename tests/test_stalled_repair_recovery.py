@@ -28,14 +28,14 @@ def test_duration_conflict_never_cycles_as_a_seed_retry(tmp_path):
     assert len(m.state['jobs']) == 1
 
 
-def test_ellipsis_quote_gets_one_corrected_literal_quote(monkeypatch):
-    passage = '甲说：“今晚先回家，明天再来。”'
+def test_wrong_source_paragraph_gets_one_bounded_correction(monkeypatch):
+    passage = '甲说：“今晚先回家，明天再来。”\n乙站在门外。'
     shots = [{'origin_index':1,'turns':[{'delivery_mode':'visible_dialogue','text':'明天再来。','speaker_name':'甲'}]}]
-    row = dict(stage=1,turn=1,speaker='甲',relation='condensed',source_quote='甲说：“……明天再来。”')
+    row = dict(stage=1,turn=1,speaker='甲',relation='verbatim',source_paragraphs=[2])
     calls = []
     def ask(*a, **k):
         calls.append(k['name'])
-        return {'speakers': [{**row,'source_quote':passage} if len(calls)>1 else row]}
+        return {'speakers': [{**row,'source_paragraphs':[1]} if len(calls)>1 else row]}
     monkeypatch.setattr(repair_judges,'ask_json',ask)
     assert repair_judges.speaker_contract(passage,shots,['甲'],[]) == {(1,1):'甲'}
     assert len(calls) == 2
@@ -44,7 +44,7 @@ def test_ellipsis_quote_gets_one_corrected_literal_quote(monkeypatch):
 def test_narrative_adaptation_cannot_invent_a_new_speaker(monkeypatch):
     passage = '甲和乙都在门边，大家准备出发。'
     shots = [{'origin_index':1,'turns':[{'delivery_mode':'visible_dialogue','text':'出发了。','speaker_name':'甲'}]}]
-    row = dict(stage=1,turn=1,speaker='乙',relation='narrated',source_quote=passage)
+    row = dict(stage=1,turn=1,speaker='乙',relation='narrated',source_paragraphs=[1])
     monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
     assert not repair_judges.speaker_contract(passage,shots,['甲','乙'],[])
     row['speaker'] = '甲'
@@ -134,7 +134,7 @@ def test_source_paragraph_ids_preserve_the_actual_original_typo(monkeypatch):
 def test_narrated_line_can_follow_an_explicitly_named_source_actor(monkeypatch):
     passage='梅根确定了墙壁上没有侦查陷阱。'
     shots=[{'origin_index':1,'turns':[{'speaker_name':'女术士','delivery_mode':'visible_dialogue','text':'没有陷阱。'}]}]
-    row={'stage':1,'turn':1,'speaker':'梅根','relation':'narrated','source_quote':passage,'source_speaker_phrase':'梅根'}
+    row={'stage':1,'turn':1,'speaker':'梅根','relation':'narrated','source_paragraphs':[1],'source_speaker_phrase':'梅根'}
     monkeypatch.setattr(repair_judges,'ask_json',lambda *a,**k:{'speakers':[row]})
     assert repair_judges.speaker_contract(passage,shots,['梅根','女术士'],[{'name':'梅根','source_names':['梅根']}])=={(1,1):'梅根'}
 
