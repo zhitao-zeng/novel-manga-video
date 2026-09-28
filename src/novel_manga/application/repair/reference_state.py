@@ -11,7 +11,7 @@ from novel_manga.util import read_json
 
 def propose(directory, clip, checked):
     references = [r for r in clip.get('references', []) if r.get('role') != 'voice']
-    concerns = [row for row in checked.get('findings', []) if row.get('conflict')
+    concerns = [row for row in checked.get('findings', []) if row.get('relation') == 'contradiction'
                 and row.get('aspect') in {'identity', 'visibility', 'state'}
                 and row not in checked.get('out_of_scope', [])]
     if not concerns:

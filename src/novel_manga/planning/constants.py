@@ -120,7 +120,7 @@ CAST_RECENT_CHAPTERS = 3  # a character on screen this recently stays offered ev
 
 
 
-PATCH_ROUNDS = 3  # small repair calls per chapter before a full re-plan is the only option left
+PATCH_ROUNDS = 3  # local repair rounds; their batches share the existing total time allowance
 
 
 PATCH_TIMEOUT_SECONDS = 120.0

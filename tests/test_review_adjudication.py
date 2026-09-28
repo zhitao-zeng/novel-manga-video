@@ -153,3 +153,121 @@ def test_old_classification_is_refreshed_once_without_rewatching_unchanged_take(
     result = episode.review_episode(directory)
     assert result['clips']['c']['verify']['error_kinds'] == ['appearance']
     assert episode.review_episode(directory) == result and calls == [1]
+
+
+def old_input_rejection():
+    from novel_manga.application.review import cast_video
+    original = {'severity': 'fail', 'identity_issue': '参考为马甲，画面疑似西装外套',
+                'verify': {'cast_video': {'policy': cast_video.POLICY}}, 'scripted': False}
+    dismissed = apply(original, {'checks': [{'id': 0, 'result': 'dismissed',
+                    'evidence': '画面符合宽泛的深色服装请求', 'instruction': ''}]}, ['疑似新增外套和领带'])
+    dismissed.update(severity='fail', identity_ok=False)
+    dismissed['verify'].update(request_conflict=True,
+                              request_check={'policy': 'request-reference-v4-current-input-only',
+                                             'consistent': False, 'problems': ['便装未写马甲']})
+    return dismissed
+
+
+def test_retiring_old_input_block_without_frame_evidence_cannot_approve(tmp_path, monkeypatch):
+    import pytest
+    from novel_manga.application.review import adjudication
+    from novel_manga.application.preparation import request_check
+    monkeypatch.setattr(request_check, 'current_request', lambda *a: {'consistent': True, 'problems': []})
+    clip = {'prompt_h3': 'casual clothes', 'references': [{'role': 'character'}]}
+    with pytest.raises(ValueError, match='requires current frame adjudication'):
+        adjudication.check_inputs(clip, tmp_path / 'book/ep/work/review/c', old_input_rejection())
+
+
+def test_retiring_old_input_block_keeps_an_already_confirmed_visual_error(tmp_path, monkeypatch):
+    from novel_manga.application.review import adjudication
+    from novel_manga.application.preparation import request_check
+    original = apply(old_input_rejection(), {'checks': [{'id': 0, 'result': 'confirmed',
+                     'evidence': '实际帧中新增外套和领带', 'instruction': '保留白衬衫和灰马甲',
+                     'error_facts': {k: k == 'appearance' for k in ERROR_FACTS}}]}, ['衣着错误'])
+    original['verify'].update(request_conflict=True,
+        request_check={'policy': 'old', 'consistent': False, 'problems': ['旧输入门']})
+    monkeypatch.setattr(request_check, 'current_request', lambda *a: {'consistent': True, 'problems': []})
+    monkeypatch.setattr(adjudication, '_review_frames', lambda *a: (_ for _ in ()).throw(AssertionError('already confirmed')))
+    clip = {'prompt_h3': 'casual clothes', 'references': [{'role': 'character'}]}
+    final = adjudication.check_inputs(clip, tmp_path / 'book/ep/work/review/c', original)
+    assert final['severity'] == 'fail' and final['verify']['error_kinds'] == ['appearance']
+    assert final['verify']['request_conflict'] is False
+
+
+def _episode_with_old_input_rejection(tmp_path):
+    import json
+    from novel_manga.models.bible import StoryBible
+    from novel_manga.review import contracts, storage
+    book = tmp_path / 'book'; directory = book / 'book_1'; directory.mkdir(parents=True)
+    (book / 'story_bible.json').write_text(StoryBible(novel_title='测试', genre='g', visual_style='v', palette='p',
+        style_fingerprint='f', characters=[], locations=[]).model_dump_json())
+    video = directory / 'v.mp4'; video.write_bytes(b'unchanged video')
+    clip = {'clip_id': 'c', 'kind': 'video', 'prompt_h3': 'casual clothes', 'references': [{'role': 'character'}]}
+    (directory / 'clip_plan.json').write_text(json.dumps({'clips': [clip]}))
+    (directory / 'thin_media_report.json').write_text(json.dumps({'clips': [{'clip_id': 'c', 'selected': {'video': str(video)}}]}))
+    verdict = {'video': str(video), 'take': storage.take_identity(video), **old_input_rejection()}
+    (directory / 'episode_review.json').write_text(json.dumps({'policy': contracts.POLICY, 'clips': {'c': verdict}}))
+    return directory
+
+
+def test_released_input_block_rechecks_current_frames_and_then_reuses_same_take(tmp_path, monkeypatch):
+    import copy
+    import pytest
+    from novel_manga.application.review import episode, adjudication, cast_video, judges
+    from novel_manga.application.preparation import request_check
+    directory = _episode_with_old_input_rejection(tmp_path)
+    calls = []
+    monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO', '1')
+    monkeypatch.setattr(request_check, 'current_request', lambda *a: {'policy': request_check.POLICY,
+                                                                 'consistent': True, 'problems': []})
+    def collect(clip, video, bible, work, **kwargs):
+        calls.append('frames')
+        assert video.is_file() and kwargs['verify'] and 'review_visor_states' in clip
+        return [{'type': 'image_url', 'image_url': {'url': 'test-current-frame'}}], SimpleNamespace(legend=['图1角色卡，图2当前帧'], segments={})
+    monkeypatch.setattr(adjudication.evidence, 'collect_clip_evidence', collect)
+    def ask(parts, schema, name):
+        calls.append('judge')
+        assert parts[0]['image_url']['url'] == 'test-current-frame'
+        assert '泛称，不是增加外套、领带' in parts[-1]['text']
+        return {'checks': [{'id': 0, 'result': 'confirmed', 'evidence': '当前帧有外套和领带，卡面只有马甲',
+                           'instruction': '保留白衬衫和灰马甲',
+                           'error_facts': {k: k == 'appearance' for k in ERROR_FACTS}}]}
+    monkeypatch.setattr(cast_video, 'ask', ask)
+    monkeypatch.setattr(judges, 'judge_clip', lambda *a, **k: pytest.fail('do not rerun unrelated review'))
+    first = episode.review_episode(directory)
+    assert first['clips']['c']['severity'] == 'fail'
+    assert first['clips']['c']['verify']['error_kinds'] == ['appearance']
+    assert first['clips']['c']['verify']['request_conflict'] is False
+    before = copy.deepcopy(first)
+    assert episode.review_episode(directory) == before and calls == ['frames', 'judge']
+
+
+def test_false_visual_candidate_can_pass_only_after_frame_dismissal(tmp_path, monkeypatch):
+    from novel_manga.application.review import episode, adjudication, cast_video
+    from novel_manga.application.preparation import request_check
+    directory = _episode_with_old_input_rejection(tmp_path)
+    calls = []
+    monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO', '1')
+    monkeypatch.setattr(request_check, 'current_request', lambda *a: {'policy': request_check.POLICY,
+                                                                 'consistent': True, 'problems': []})
+    monkeypatch.setattr(adjudication.evidence, 'collect_clip_evidence', lambda *a, **k:
+        ([{'type': 'image_url', 'image_url': {'url': 'actual-frame'}}], SimpleNamespace(legend=['当前帧'], segments={})))
+    monkeypatch.setattr(cast_video, 'ask', lambda *a: calls.append(1) or
+        {'checks': [{'id': 0, 'result': 'dismissed', 'evidence': '当前帧仍为白衬衫灰马甲，无外套和领带', 'instruction': ''}]})
+    first = episode.review_episode(directory)
+    assert first['clips']['c']['severity'] == 'pass' and not first['feedback']
+    assert episode.review_episode(directory) == first and calls == [1]
+
+
+def test_frame_recheck_error_remains_unreviewed_instead_of_pass(tmp_path, monkeypatch):
+    from novel_manga.application.review import episode, adjudication, cast_video
+    from novel_manga.application.preparation import request_check
+    directory = _episode_with_old_input_rejection(tmp_path)
+    monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO', '1')
+    monkeypatch.setattr(request_check, 'current_request', lambda *a: {'policy': request_check.POLICY,
+                                                                 'consistent': True, 'problems': []})
+    monkeypatch.setattr(adjudication, '_review_frames', lambda *a:
+                        (_ for _ in ()).throw(TimeoutError('frame judge unavailable')))
+    final = episode.review_episode(directory)
+    assert final['clips']['c']['severity'] == 'review_error'
+    assert final['error_rounds'] == 1 and 'frame judge unavailable' in final['clips']['c']['error']

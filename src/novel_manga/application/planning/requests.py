@@ -92,14 +92,7 @@ def generate_outline(client: httpx.Client, endpoints: list[str], headers: dict, 
     raise IncompleteOutlineError(attempts)
 
 
-def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], segments: list[dict], names: list[str], locations: list[str], *, timeout: float = pc_constants.PATCH_TIMEOUT_SECONDS, ctx: PlannerContext, split_labels=()) -> dict:
-    """Repair a plan with one small call instead of a 150-650 s re-plan.
-
-    The model sees the clip outline, the forgotten segments' text and the
-    rejected stages with their errors and source text; it returns only the
-    stages to insert and the replacements for the rejected ones.  The result
-    is a deep copy; the caller validates it like any draft.
-    """
+def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeout, ctx, split_labels):
     from novel_manga.llm.client import ask_json
     segment_ids = [s["segment_id"] for s in segments]
     texts = {s["segment_id"]: s["text"] for s in segments}
@@ -171,7 +164,13 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
         if sid in texts:
             parts.append(f"区段 {sid} 原文：\n{texts[sid][:1800]}")
     budget = min(10000, 800 + 900 * (len(missing_ids) + len(faulty)) + 1600 * len(split_labels))
-    verdict = ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget, timeout=timeout, retry_truncated=False)
+    return ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget, timeout=timeout, retry_truncated=False)
+
+
+def _apply_patch(raw, verdict, split_labels):
+    """All reply addresses refer to this original draft, including across batches."""
+    slots = pc_validation.stage_slots(raw)
+    split_labels = set(split_labels)
     patched = json.loads(json.dumps(raw, ensure_ascii=False))
     replacements = {}
     for item in verdict.get('replacements', []):
@@ -205,6 +204,67 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
             stages.extend(insertions.get((str(clip['clip_id']), si + 1), []))
         clip['stages'] = stages
     return patched
+
+
+def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], segments: list[dict], names: list[str], locations: list[str], *, timeout: float = pc_constants.PATCH_TIMEOUT_SECONDS, ctx: PlannerContext, split_labels=()) -> dict:
+    """Make one local proposal; the caller validates the copied draft before adopting it."""
+    reply = _patch_reply(raw, missing_ids, faulty, segments, names, locations,
+                         timeout=timeout, ctx=ctx, split_labels=split_labels)
+    return _apply_patch(raw, reply, split_labels)
+
+
+def patch_batches(raw, missing_ids, faulty, segments, names, locations, *, timeout, total_timeout,
+                  ctx, split_labels=()):
+    """Yield completed small proposals inside the existing shared time allowance.
+
+    Replies always address the original draft. Merging them there avoids shifting
+    a later repair onto another shot when an earlier repair adds continuations.
+    The flow writes each completed proposal using its existing patch checkpoint.
+    """
+    split_labels = set(split_labels) & set(faulty)
+    tasks = [('insertion', sid, 1) for sid in missing_ids]
+    tasks += [('replacement', label, 3 if label in split_labels else 1) for label in faulty]
+    batches, batch, weight = [], [], 0
+    for task in tasks:
+        if batch and weight + task[2] > 4:
+            batches.append(batch)
+            batch, weight = [], 0
+        batch.append(task)
+        weight += task[2]
+    if batch:
+        batches.append(batch)
+    # Small repairs keep their current request and call behaviour.
+    if len(batches) <= 1:
+        yield {'draft': patch_plan(raw, missing_ids, faulty, segments, names, locations,
+                                  timeout=min(timeout, total_timeout), ctx=ctx, split_labels=split_labels)}
+        return
+    deadline = time.monotonic() + total_timeout
+    combined = {'insertions': [], 'replacements': []}
+    for number, batch in enumerate(batches, 1):
+        missing = [value for kind, value, _ in batch if kind == 'insertion']
+        errors = {value: faulty[value] for kind, value, _ in batch if kind == 'replacement'}
+        row = {'batch': number, 'segments': missing, 'stages': list(errors)}
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            yield {**row, 'failed': 'TimeoutError: shared patch time budget exhausted'}
+            break
+        started = time.monotonic()
+        try:
+            reply = _patch_reply(raw, missing, errors, segments, names, locations,
+                                 timeout=min(timeout, remaining), ctx=ctx,
+                                 split_labels=split_labels & set(errors))
+            labels = [item.get('label') for item in reply.get('replacements', [])]
+            inserted = [item.get('stage', {}).get('segment_id') for item in reply.get('insertions', [])]
+            if sorted(labels) != sorted(errors) or sorted(inserted) != sorted(missing):
+                raise ValueError('patch did not return exactly its requested stages and segments')
+            candidate = {key: [*combined[key], *reply.get(key, [])] for key in combined}
+            patched = _apply_patch(raw, candidate, split_labels)
+        except Exception as error:  # noqa: BLE001 - other batches retain their own proposals
+            yield {**row, 'failed': f'{type(error).__name__}: {str(error)[:120]}',
+                   'elapsed_seconds': round(time.monotonic() - started, 1)}
+            continue
+        combined = candidate
+        yield {**row, 'draft': patched, 'elapsed_seconds': round(time.monotonic() - started, 1)}
 
 
 def qwen_default() -> str:

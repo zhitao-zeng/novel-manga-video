@@ -7,7 +7,7 @@ from novel_manga.application.configuration import h3_translation_endpoint
 from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import read_json, atomic_write_json
 
-POLICY = 'request-reference-v4-current-input-only'
+POLICY = 'request-reference-v5-explicit-contradictions'
 STABLE_ASPECTS = {'identity', 'appearance', 'wearing', 'object'}
 SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'maxLength': 240}},
               'findings': {'type': 'array', 'items': obj({
@@ -16,7 +16,8 @@ SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'max
                              'action', 'state', 'visibility', 'space', 'sound', 'lighting', 'style', 'camera']},
                   'picture': {'type': 'integer', 'minimum': 0},
                   'lines': {'type': 'array', 'minItems': 1, 'items': {'type': 'integer', 'minimum': 1}},
-                  'subject_specific': {'type': 'boolean'}, 'conflict': {'type': 'boolean'},
+                  'subject_specific': {'type': 'boolean'},
+                  'relation': {'type': 'string', 'enum': ['contradiction', 'underspecified', 'compatible']},
                   'reason': {'type': 'string', 'maxLength': 240}})}})
 
 
@@ -25,7 +26,9 @@ def interpret(answer, lines, picture_count):
         raise ValueError('request check did not return scoped findings')
     problems, ignored = [], []
     for finding in answer['findings']:
-        if not finding['conflict']:
+        if finding.get('relation') not in {'contradiction', 'underspecified', 'compatible'}:
+            raise ValueError('request check did not classify the relation between current facts')
+        if finding['relation'] != 'contradiction':
             continue
         # A reference card supplies stable identity/design, not a pose or camera. Generic style
         # and shot-size preferences are not a reason to rewrite an authored scene in this gate.
@@ -64,21 +67,29 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
     lines += [('英文', s) for s in english.splitlines() if s.strip() and not (style and style in s)]
     prompt = ('核对实际即将发给视频模型的请求与参考图，不评价尚未生成的视频，不改台词。'
               '先在observations逐图记录可见的衣物款式、主色、配饰、物件类型，再比较本镜文字。'
-              '角色的稳定外观以实际角色参考为准；没有明确换装情节却让白衬衫加马甲的人穿深色便装或西装领带，属于输入冲突。'
+              '角色的稳定外观以实际角色参考为准；本镜具体衣物、主色、配饰要求与图中事实明确不兼容且没有换装情节时，才是输入冲突。'
               '有明确穿戴关系和对应装备参考时可覆盖基础衣物；明确的穿脱、面罩开合按本镜事件执行，'
               '不能把参考卡上的坐站、机位、面罩默认状态强加给视频；头部被裁切不算缺脸。'
               '场景参考可有空间，不能因为人物参考卡背景有椅子就要求每镜坐着。'
               '核对同一个人是否同时在过肩前景和背景、画外与画内是否冲突、起止状态与动作是否矛盾、'
               '穿戴物是否被额外当成一个身体、取消动作后是否还留有对应动作声。'
               '同款机甲既被穿戴又作为剧情明确要求的独立空甲是合法的，按本镜人数和物件用途判断。'
-              '只报告清楚的矛盾或未落实的纠正，不把同色系明暗、风格化纹理或看不清当成不同服装。'
+              '逐项区分relation：contradiction是两项当前事实不能同时成立；underspecified是泛称、缺少细节、看不清或仅存在可能忽略参考的风险；'
+              'compatible是两项事实可以同时成立。只让明确矛盾阻挡，不把缺少细节当成相反要求。'
+              '便装/casual clothes没有列出白衬衫、马甲不表示脱掉或替换它们，若其他行要求保留参考服装应结合全文理解。'
+              '本镜明确给出的具体服装款式或主色不能被通用的“保留参考服装”句抵消；先比较该具体要求与图片事实，'
+              '不要因为图中有部分深色衣物，就把整套深色服装或深色西装外套都当成已满足。'
+              '明确要求西装外套、领带而参考无该服饰，或明确要求的主体衣物主色与参考不兼容，才可报告衣着矛盾；'
+              '不能仅因未提及马甲或衬衫，把深色便装判错，必须指出具体不兼容的颜色或款式。'
+              '同色系明暗、风格化纹理不当成不同服装。'
               '每条findings必须明确依据：basis=reference是参考图与文字，basis=request是请求文字内部。'
               'aspect区分身份/衣着/穿戴/物件与动作、姿态、可见性、空间、声音、光线、风格、景别。'
               '先确定subject_specific：句子是否真的要求这个主体这样穿/这样做；通用风格词不是给每个主体改材质，'
               '例如plain fabric surfaces只形容织物，不表示把金属机甲改成布衣。'
               '参考卡手插兜与剧本摸下巴不是矛盾；卡面站立与本镜坐姿也不是矛盾。'
               '泛称国漫/动画与具体美漫画风、特写占满画面与通用景别建议不属于本检查的阻塞项。'
-              'picture填相关图号，纯文字冲突填0；lines选择下列真实请求行编号，reason简述该主体的具体冲突，'
+              'picture填相关图号，纯文字冲突填0；lines选择下列真实请求行编号，reason写明双方实际事实及其关系，'
+              'contradiction的理由须指出不能同时成立的具体属性，不能只说未提及、描述不完整或可能忽略，'
               '不要抄长段落或编造原句。没有矛盾则findings为空。\n'
               '图例：' + json.dumps(legend, ensure_ascii=False)
               + '\n只根据本次图片与下列当前请求行判断，不推测旧版本内容。\n请求行：\n'
@@ -106,7 +117,8 @@ def cached_consistency(novel_dir, work, clip, request):
     # check needs no additional model call; old failures must be re-evaluated under the new scope.
     old_inputs, old_answer = saved.get('inputs', {}), saved.get('answer', {})
     if (answer is None and old_inputs.get('policy') in {'request-reference-v1', 'request-reference-v2-scoped-evidence',
-                                                     'request-reference-v3-scoped-evidence'}
+                                                     'request-reference-v3-scoped-evidence',
+                                                     'request-reference-v4-current-input-only'}
             and {**old_inputs, 'policy': POLICY} == inputs
             and old_answer.get('consistent') is True and not old_answer.get('problems')):
         answer = {**old_answer, 'policy': POLICY, 'reused_from': old_inputs['policy']}

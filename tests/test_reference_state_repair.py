@@ -28,7 +28,7 @@ def test_wrong_closed_view_can_be_reselected_without_changing_the_scene(tmp_path
     monkeypatch.setattr(reference_state, 'h3_prompt_outdated', lambda *a: False)
     monkeypatch.setattr(reference_state, 'request_issues', lambda *a: [])
     monkeypatch.setattr(reference_state, 'request_consistency', lambda *a: {'consistent': True, 'problems': []})
-    checked = {'findings': [{'aspect': 'visibility', 'picture': 1, 'conflict': True}], 'problems': ['闭合图与露脸表演冲突']}
+    checked = {'findings': [{'aspect': 'visibility', 'picture': 1, 'relation': 'contradiction'}], 'problems': ['闭合图与露脸表演冲突']}
     proposal = reference_state.propose(d, clip, checked)
     assert proposal.script == script and proposal.visor_states == corrected and proposal.changed == ['c']
     assert {p.name: p.read_bytes() for p in d.glob('*.json')} == before
@@ -37,4 +37,11 @@ def test_wrong_closed_view_can_be_reselected_without_changing_the_scene(tmp_path
 def test_sound_conflict_does_not_reopen_faceplate_state(tmp_path, monkeypatch):
     monkeypatch.setattr(reference_state, 'fill', lambda *a, **k: (_ for _ in ()).throw(AssertionError('unrelated state')))
     clip = {'references': [{'role': 'character', 'name': '托尼', 'view': 'closed'}]}
-    assert reference_state.propose(tmp_path, clip, {'findings': [{'aspect': 'sound', 'picture': 1, 'conflict': True}]}) is None
+    assert reference_state.propose(tmp_path, clip, {'findings': [{'aspect': 'sound', 'picture': 1, 'relation': 'contradiction'}]}) is None
+
+
+def test_missing_visibility_detail_does_not_change_faceplate_selection(tmp_path, monkeypatch):
+    monkeypatch.setattr(reference_state, 'fill', lambda *a, **k: (_ for _ in ()).throw(AssertionError('no explicit conflict')))
+    clip = {'references': [{'role': 'character', 'name': '托尼', 'view': 'closed'}]}
+    checked = {'findings': [{'aspect': 'visibility', 'picture': 1, 'relation': 'underspecified'}]}
+    assert reference_state.propose(tmp_path, clip, checked) is None

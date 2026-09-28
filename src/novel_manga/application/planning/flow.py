@@ -449,7 +449,7 @@ def run(args, ctx: PlannerContext) -> int:
     repair: dict | None = None
     final_errors: list[str] = []
     result = None
-    patch_rounds = 0  # small repair calls used so far on this chapter
+    patch_rounds = 0  # local repair rounds, sharing the same time budget across batches
     patch_seconds_left = pc_constants.PATCH_TOTAL_SECONDS
     posture_states = None
     def validate_draft(draft):
@@ -545,31 +545,47 @@ def run(args, ctx: PlannerContext) -> int:
         # stage here would silently diverge from its accepted scene/turn owner.
         patchable = None if ctx.story_blueprint.get('version') == 'scene-screenplay-v2' else decision.targets
         while patchable:
-            # Nearly every redo trigger in the trial was local - a forgotten
-            # segment, a blood word in one start_state, a paraphrased quote, a
-            # missing speaker.  Fix those stages with one small call and re-check
-            # instead of a 150-650 s re-plan that tends to break something else.
+            # Repair local problems in bounded batches, then re-check the draft.
             patch_rounds += 1
             missing_ids, faulty = patchable
             patch_timeout = min(pc_constants.PATCH_TIMEOUT_SECONDS, patch_seconds_left)
             summary = {"round": patch_rounds, "segments": missing_ids, "stages": list(faulty), "timeout_seconds": round(patch_timeout, 1)}
             print(json.dumps({"attempt": attempt, "patch": summary, "status": "patching"}, ensure_ascii=False), flush=True)
             patch_started = time.monotonic()
+            patched, batches = None, []
             try:
                 # An authored sheet has nothing to insert - what it leaves uncited is recorded as its
                 # author's choice by the coverage check - and what a patch rewrites on it keeps the
                 # author's columns: the model's answer may correct a quote or a state, never a shot.
-                patched = planner_requests.patch_plan(raw, [] if authored else missing_ids, faulty, segments, names, list(location_map), timeout=patch_timeout, ctx=ctx,
-                    split_labels=[issue.stage for issue in validation.issues if issue.code in
-                                  {PlanningCode.STAGE_ABOVE_MAXIMUM, PlanningCode.MIXED_THOUGHT}])
-                if authored:
-                    patched = pc_binding.keep_authored(raw, patched)
-                atomic_write_json(episode_dir / f'patch_attempt_{attempt:02d}_{patch_rounds:02d}.json', patched)
+                for batch in planner_requests.patch_batches(raw, [] if authored else missing_ids, faulty,
+                        segments, names, list(location_map), timeout=patch_timeout,
+                        total_timeout=patch_seconds_left, ctx=ctx,
+                        split_labels=[issue.stage for issue in validation.issues if issue.code in
+                                      {PlanningCode.STAGE_ABOVE_MAXIMUM, PlanningCode.MIXED_THOUGHT}]):
+                    details = {key: value for key, value in batch.items() if key != 'draft'}
+                    if details:
+                        batches.append(details)
+                        print(json.dumps({"attempt": attempt, "patch": {**summary, **details}}, ensure_ascii=False), flush=True)
+                    if batch.get('failed'):
+                        continue
+                    candidate = batch['draft']
+                    if authored:
+                        candidate = pc_binding.keep_authored(raw, candidate)
+                    # The current complete proposal survives a later batch failure.
+                    atomic_write_json(episode_dir / f'patch_attempt_{attempt:02d}_{patch_rounds:02d}.json', candidate)
+                    patched = candidate
+                if batches:
+                    summary['batches'] = batches
+                if patched is None:
+                    raise ValueError('no patch batch completed')
             except Exception as error:  # noqa: BLE001 - fall through to the normal redo
+                if batches:
+                    summary['batches'] = batches
                 failure = {**summary, "failed": f"{type(error).__name__}: {str(error)[:120]}", "elapsed_seconds": round(time.monotonic() - patch_started, 1)}
                 attempts[-1].setdefault("patches", []).append(failure)
                 print(json.dumps({"attempt": attempt, "patch": failure}, ensure_ascii=False), flush=True)
-                break
+                if patched is None:
+                    break
             finally:
                 patch_seconds_left = max(0.0, patch_seconds_left - (time.monotonic() - patch_started))
             validation = validate_draft(patched)

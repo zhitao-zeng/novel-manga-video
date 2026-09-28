@@ -70,16 +70,31 @@ def outdated(verdict):
     return bool(record.get('confirmed') and record.get('policy') != POLICY)
 
 
-def check_inputs(clip, work_dir, verdict):
+def check_inputs(clip, work_dir, verdict, *, video=None, bible=None):
     """A frame judgment cannot waive a conflicting request/card pair by treating the bad request as truth."""
     if not clip.get('prompt_h3') or not any(r.get('role') != 'voice' for r in clip.get('references', [])):
         return verdict
     from novel_manga.application.preparation.request_check import current_request
     checked = current_request(work_dir.parents[2], clip)
-    record = (verdict.get('verify') or {}).get('adjudication') or {}
+    previous = verdict.get('verify') or {}
+    record = previous.get('adjudication') or {}
+    old_check = previous.get('request_check') or {}
+    checks = record.get('checks') or []
+    released = (previous.get('request_conflict') is True
+                and (old_check.get('consistent') is False or bool(old_check.get('problems')))
+                and checked.get('consistent') is True and not checked.get('problems'))
+    # An old frame reviewer may have excused visible wrong clothes because they matched the
+    # disputed request. Narrowing the input gate cannot turn that dismissal into acceptance.
+    # Recheck only those previously dismissed candidates, on this same take, with real frames.
+    if released and any(row.get('result') == 'dismissed' for row in checks) and not any(
+            row.get('result') == 'confirmed' for row in checks):
+        if video is None or bible is None:
+            raise ValueError('retiring an input blocker requires current frame adjudication')
+        out = _review_frames(clip, video, bible, work_dir, verdict, record['concerns'])
+    else:
+        out = apply(verdict, record, record['concerns']) if checks else copy.deepcopy(verdict)
     # Reconstruct the visual decision before applying the current input scope. This retires an
     # old false input blocker without clearing a confirmed visual defect on the same take.
-    out = apply(verdict, record, record['concerns']) if record.get('checks') else copy.deepcopy(verdict)
     out['verify']['request_check'] = checked
     if checked.get('consistent') is not True or checked.get('problems'):
         detail = '；'.join(checked.get('problems') or ['拍摄请求与实际参考图不一致'])
@@ -98,6 +113,12 @@ def review(clip, video, bible, work_dir, verdict):
                                  ('identity_issue', 'story_issue', 'defect_issue') if verdict.get(k)))
     if not concerns:
         concerns = [str(verdict.get('feedback') or '候选判断为失败，核对是否有可见错误')]
+    return check_inputs(clip, work_dir, _review_frames(clip, video, bible, work_dir, verdict, concerns),
+                        video=video, bible=bible)
+
+
+def _review_frames(clip, video, bible, work_dir, verdict, concerns):
+    """Resolve these visual candidates with frames; input classification is a separate caller step."""
     parts, facts = evidence.collect_clip_evidence(clip, video, bible, work_dir, verify=True)
     text = ('先按图例观察当前视频帧和角色参考，逐帧描述，不根据姓名猜人。图例：' + '；'.join(facts.legend)
             + story_block(clip, facts.segments) + shot_contract(clip)
@@ -111,6 +132,9 @@ def review(clip, video, bible, work_dir, verdict):
               '同一人物只是穿错衣服，只标appearance，不能标same_person_twice或lead_face_swapped。'
               '分身必须在同一帧证明两个属于同一个人的独立身体；参考卡的多视图不属于视频里的人数。'
               '这里只判断可见画面；请求与参考是否矛盾由独立的输入检查判断，不能把纯文字疑点冒充已看见的视觉错误。'
+              '稳定衣物款式和配饰以实际参考图为基准；本镜写便装、正装或深色服装等泛称，不是增加外套、领带或替换参考服装的许可。'
+              '若帧中确有参考没有的外套、领带，必须核对原文或分镜是否明确有穿脱、换装事件或对应阶段服装，'
+              '有这种明确依据则按剧情，没有则按实际帧记录appearance；不能仅因画面符合宽泛请求就撤销可见的衣着差异。'
               '有明确穿脱、面罩变化则按剧情，不能要求状态永远等同卡面。'
               '不复述旧错误；dismissed时为空。不增设原文/镜头没有要求的条件，不写推测或自我辩论。\n'
             + '错误事实定义：' + json.dumps(ERROR_FACTS, ensure_ascii=False) + '\n'
@@ -120,4 +144,4 @@ def review(clip, video, bible, work_dir, verdict):
     schema['properties']['checks'].update(minItems=len(concerns), maxItems=len(concerns))
     schema['properties']['checks']['items']['properties']['id']['enum'] = list(range(len(concerns)))
     answer = cast_video.ask(parts, schema, 'clip_visual_adjudication')
-    return check_inputs(clip, work_dir, apply(verdict, answer, concerns))
+    return apply(verdict, answer, concerns)
