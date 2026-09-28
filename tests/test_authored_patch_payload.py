@@ -201,3 +201,32 @@ def test_authored_split_still_returns_full_stages_and_keeps_model_cuts(monkeypat
     assert '作者只读上下文' not in captured['parts'][0]['text']
     assert result['clips'][0]['stages'] == [first, second]
     assert raw == before
+
+
+def test_authored_binding_repair_receives_actual_adjacent_states_without_guessing(monkeypatch):
+    raw = draft(3)
+    raw['clips'][0]['stages'][0]['start_state'] = '席勒站在桌边。'
+    raw['clips'][0]['stages'][0]['end_state'] = '席勒仍站在桌边。'
+    raw['clips'][0]['stages'][1]['start_state'] = '席勒坐在转椅上。'
+    raw['clips'][0]['stages'][2]['event'] = '席勒抬手指向报告。'
+    before = copy.deepcopy(raw)
+
+    def ask(parts, schema, **kwargs):
+        prompt = parts[0]['text']
+        assert '同步纠正绑定actions中错误的姿态注记' in prompt
+        assert '前镜已经站着时，本镜不能再从椅子上站起' in prompt
+        context = json.loads(prompt.split('相邻镜头只读衔接', 1)[1].split('：', 1)[1].split('\n\n', 1)[0])
+        assert context['前镜']['label'] == 'c1 stage 1'
+        assert context['前镜']['end_state'] == '席勒仍站在桌边。'
+        assert context['后镜']['label'] == 'c1 stage 3'
+        assert context['后镜']['event'] == '席勒抬手指向报告。'
+        return {'insertions': [], 'replacements': [{'label': 'c1 stage 2',
+                 'stage': {'start_state': '席勒站在桌边。', 'end_state': '席勒保持站姿。'}}]}
+
+    monkeypatch.setattr('novel_manga.llm.client.ask_json', ask)
+    result = requests.patch_plan(raw, [], {'c1 stage 2': ['前镜站，本镜坐，无姿态交接']},
+        SEGMENTS, NAMES, ['诊室'], ctx=PlannerContext(authored_storyboard=True))
+    assert result['clips'][0]['stages'][1]['start_state'] == '席勒站在桌边。'
+    assert result['clips'][0]['stages'][0] == before['clips'][0]['stages'][0]
+    assert result['clips'][0]['stages'][2] == before['clips'][0]['stages'][2]
+    assert raw == before

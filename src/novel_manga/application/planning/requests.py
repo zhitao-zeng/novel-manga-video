@@ -106,6 +106,7 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
                                    for p in [*(stage.get('props') or []), *(stage.get('wears') or {}).values()] if p))
     split_labels = set(split_labels) & set(faulty)
     binding_labels = set(faulty) if ctx.authored_storyboard and not split_labels else set()
+    neighbouring_slots = list(slots.values())
 
     def stage_of(ids, *, binding_only=False):
         stage = pc_contracts.build_schema(names, locations, ids, ctx=ctx, prop_names=prop_names)["properties"]["clips"]["items"]["properties"]["stages"]["items"]
@@ -147,7 +148,9 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
         parts.append(f"另有 {len(faulty)} 个阶段没过硬门检查（label 原样填回，segment_id 不变）。"
                      "未要求拆镜的阶段只修Schema中的绑定字段；作者只读上下文由调用方原样保留，不要回抄进stage。"
                      "缺失的可选字段保持原值；明确清除时返回空数组或null。"
-                     "wears仅填写人物名到穿戴物的关系，作者字段、镜号、时长和叙事目的都不是穿戴者。")
+                     "wears仅填写人物名到穿戴物的关系，作者字段、镜号、时长和叙事目的都不是穿戴者。"
+                     "姿态纠正须结合相邻镜头的实际起止状态；同步纠正绑定actions中错误的姿态注记，保留动作主体和对象。"
+                     "不要为迁就错误的坐站状态，另编作者未写的坐下、起身或重新进入；前镜已经站着时，本镜不能再从椅子上站起。")
     if split_labels:
         parts.append(f"镜头{sorted(split_labels)}需要明确拆镜：stage写第一镜，continuations写后续完整镜头。"
                      f"每镜按实际对白估算不得超过{ctx.max_clip_seconds:g}秒，逐镜独立写起点、事件、末态、机位和光源。"
@@ -183,6 +186,20 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
                         and key in {'event', 'shot_scale', 'camera', 'duration_seconds', 'purpose', 'sfx', 'turns'}}
             parts.append(heading + f"\n可修改绑定内容：{json.dumps(current, ensure_ascii=False)}"
                          + f"\n作者只读上下文（仅供核对，调用方原样保留，不输出）：{json.dumps(readonly, ensure_ascii=False)}")
+            position = neighbouring_slots.index((clip_index, stage_index))
+            neighbours = {}
+            for title, index in (('前镜', position - 1), ('后镜', position + 1)):
+                if 0 <= index < len(neighbouring_slots):
+                    ci, si = neighbouring_slots[index]
+                    neighbour_clip = raw['clips'][ci]
+                    neighbour = neighbour_clip['stages'][si]
+                    neighbours[title] = {
+                        'label': next(name for name, slot in slots.items() if slot == (ci, si)),
+                        'location': neighbour.get('location') or neighbour_clip.get('location'),
+                        **{key: neighbour[key] for key in ('scene_id', 'scene_time', 'start_state',
+                           'event', 'end_state', 'in_frame', 'actions') if key in neighbour}}
+            parts.append('相邻镜头只读衔接（场景/时间与人物承接以这些实际字段及原文为据，不输出）：'
+                         + json.dumps(neighbours, ensure_ascii=False))
         else:
             parts.append(heading + f"\n当前内容：{json.dumps(stage, ensure_ascii=False)}")
         shown.append(str(stage.get("segment_id")))
