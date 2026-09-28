@@ -1,0 +1,96 @@
+<link rel="stylesheet" href="/static/architecture.css?v={{VERSION}}">
+<section id="architecture" class="arch-page">
+  <div class="arch-heading">
+    <div><div class="arch-eyebrow">PIPELINE / ARCHITECTURE</div><h2>从小说到成片，一张图看清</h2><p>独立选择每一步，自动流程负责把它们串起来。</p></div>
+    <a class="arch-status-link" href="/">查看实时运行 →</a>
+  </div>
+  <nav class="arch-sections" aria-label="架构页面章节"><a href="#arch-overview">产线总览</a><a href="#arch-internals">内部步骤与分支</a><a href="#arch-artifacts">产物交接</a><a href="#arch-gates">检查与回退</a><a href="#arch-code">代码职责</a></nav>
+  <div class="arch-toolbar" role="group" aria-label="查看执行范围">
+    <button type="button" data-mode="all" aria-pressed="true">整条产线</button>
+    <button type="button" data-mode="plan" aria-pressed="false">只规划</button>
+    <button type="button" data-mode="generate" aria-pressed="false">只生成</button>
+    <button type="button" data-mode="review" aria-pressed="false">只审查</button>
+    <button type="button" data-mode="repair" aria-pressed="false">自动修复</button>
+    <button type="button" data-mode="cache" aria-pressed="false">只用缓存合成</button>
+  </div>
+  <p id="arch-mode-description" class="arch-mode-description" aria-live="polite"></p>
+  <div id="arch-overview" class="arch-layout">
+    <section class="arch-map card" aria-label="产线流程图">
+      <div class="arch-map-header"><span>流程与交接</span><span class="arch-legend">实线：主流程　虚线：按问题返回修复</span></div>
+      <div class="arch-scroll"><div class="arch-canvas">
+        <svg class="arch-edges" viewBox="0 0 900 550" aria-hidden="true">
+          <defs><marker id="arch-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker></defs>
+          <path data-edge="source plan" d="M210 90 H250"/>
+          <path data-edge="plan pack" d="M430 90 H470"/>
+          <path data-edge="pack assets" d="M650 90 H690"/>
+          <path data-edge="assets generate" d="M780 140 V230"/>
+          <path data-edge="generate assemble" d="M690 280 H650"/>
+          <path data-edge="assemble review" d="M470 280 H430"/>
+          <path data-edge="review deliver" d="M250 280 H210"/>
+          <path class="arch-loop" data-edge="review repair" d="M340 330 V410"/>
+          <path class="arch-loop" data-edge="repair generate" d="M430 460 H780 V330"/>
+          <text x="795" y="188">素材准备好</text>
+          <text x="230" y="263" text-anchor="middle">通过</text>
+          <text x="354" y="374">仍有问题</text>
+          <text x="576" y="450" text-anchor="middle">通过原有检查后更新必要片段，再复审</text>
+        </svg>
+        <div id="arch-nodes"></div>
+        <div class="arch-map-note">示意的是步骤关系，不是当前任务进度。修复也可以保留旧片，或因阻塞结束。</div>
+      </div></div>
+    </section>
+    <aside id="arch-detail" class="arch-detail card" aria-live="polite" aria-label="环节详情"></aside>
+  </div>
+  <section id="arch-internals" class="arch-internals card">
+    <div class="arch-section-heading"><div><div class="arch-eyebrow">INSIDE THE PIPELINE</div><h3>展开模块内部，看清每一步</h3></div><button id="arch-expand-all" type="button" aria-pressed="false">展开全部内部流程</button></div>
+    <p class="arch-help">切换模块可看内部步骤、模型调用、文件交接和失败去向。标注“按需 / 按模式”的步骤不代表每次都会执行。</p>
+    <div id="arch-deep-tabs" class="arch-toolbar" role="group" aria-label="选择内部流程"></div>
+    <div id="arch-deep-content" aria-live="polite"></div>
+  </section>
+  <section id="arch-artifacts" class="card">
+    <div class="arch-section-heading"><h3>产物怎么交给下一步</h3><span>沿用现有文件，没有另一套数据库</span></div>
+    <div class="arch-table-scroll"><table class="arch-table"><thead><tr><th>产物 / 记录</th><th>谁写入</th><th>谁消费</th><th>它能说明什么</th></tr></thead><tbody>
+      <tr><td><code>story_bible.json</code></td><td>初始化 / 身份资料流程</td><td>规划、资产、编译、审查</td><td>登记身份和资产依据；不保证本章所有人物都已正确绑定。</td></tr>
+      <tr><td><code>segments.json</code></td><td>章节输入流程</td><td>规划、编译、审查、源证据复核</td><td>本集原文及引用定位。</td></tr>
+      <tr><td><code>chapter_script.json</code></td><td>规划 / 已采用的修复候选</td><td>编译、准备、审查</td><td>结构化剧本；不是最终发送的模型请求。</td></tr>
+      <tr><td><code>clip_plan.json</code></td><td>打包、请求准备 / 修复写回</td><td>生成、缓存匹配、审查</td><td>片段、原文映射、参考绑定和当前请求。</td></tr>
+      <tr><td><code>series_assets/manifest.json</code></td><td>资产流程</td><td>参考选择、生成、审查</td><td>已有素材记录；实际使用以本次请求为准。</td></tr>
+      <tr><td><code>work/clips/…/attempt_*</code></td><td>供应商与片段生成 / 分析</td><td>缓存、合成、审查</td><td>真实尝试的素材及记录；以报告的 selected 确认采用哪条。</td></tr>
+      <tr><td><code>thin_media_report.json</code></td><td>渲染编排；审查更新验收摘要</td><td>审查、修复、批量与看板</td><td>片段结果、技术状态、合成结果与 quality_review。</td></tr>
+      <tr><td><code>episode_review.json</code><br><code>review_feedback.json</code></td><td>审查 / 修复反馈流程</td><td>候选选择、修复、请求准备</td><td>审查证据及处理意见；反馈存在不等于修复已经完成。</td></tr>
+      <tr><td><code>repair_history/history.json</code></td><td>修复与生成历史流程</td><td>候选选择、预算、恢复与统计</td><td>实际生成、尝试与复核历史；缓存复用不算新生成。</td></tr>
+      <tr><td><code>episode_execution.json</code></td><td>共用审修执行</td><td>单集 / 批量结果展示</td><td>本轮通过、剩余问题、待审、异常、预算与阻塞。</td></tr>
+      <tr><td><code>delivery.json</code></td><td>交付判定</td><td>交付看板</td><td>小说交付汇总；不是仅按视频文件数量统计。</td></tr>
+    </tbody></table></div>
+  </section>
+  <section id="arch-gates" class="card">
+    <div class="arch-section-heading"><h3>哪些检查发生在哪里，没过会怎样</h3><span>“review”并不是只有一种检查</span></div>
+    <div class="arch-table-scroll"><table class="arch-table"><thead><tr><th>检查</th><th>检查对象</th><th>执行方式</th><th>失败去向</th></tr></thead><tbody>
+      <tr><td>剧本结构 / 原文</td><td>尚未生成视频的分镜</td><td>程序约束，相关语义检查用模型</td><td>规划补丁、原有重试或记录阻塞；不直接重拍。</td></tr>
+      <tr><td>在场 / 姿态连续性</td><td>原文、人物资料、本镜和相邻镜头</td><td>模型判断 + 现有归类策略</td><td>进入允许的规划修订或记录问题；不凭程序猜站位。</td></tr>
+      <tr><td>最终请求一致性</td><td>中文、英文与实际参考图</td><td>视觉模型，程序解释和复用结果</td><td>明确冲突先处理输入；细节不足不直接当作冲突。</td></tr>
+      <tr><td>语音检查</td><td>视频实际音轨与预期台词</td><td>ASR + 现有语音规则</td><td>按通道、小说策略、预算修正或重试；不是内容审查的替代。</td></tr>
+      <tr><td>成片技术质检</td><td>视频、音轨、字幕、封面片尾</td><td>媒体工具与程序</td><td>记录技术不通过；小说级豁免决定部分指标是否阻断。</td></tr>
+      <tr><td>片段内容审查</td><td>实际画面、原文和当前计划</td><td>视觉判官 + 分级 / 终裁路径</td><td>只审查则保存反馈；自动审修则按原因路由。</td></tr>
+      <tr><td>修复候选检查</td><td>候选剧本 / 请求与原版本</td><td>原有程序及模型检查</td><td>无有效修改或未通过时不发布该候选，不把准备算成生成。</td></tr>
+      <tr><td>整集叙事质量</td><td>整集连起来的因果、节奏、接缝与观感</td><td>需另行完整验收</td><td>不能从当前逐片段 review 全通过推断整集讲得清楚。</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="arch-foundation card">
+    <div class="arch-section-heading"><h3>同一套底座，服务各条流程</h3><span>批量与单集自动审修共用执行器</span></div>
+    <div class="arch-foundation-grid">
+      <div><b>统一管理</b><p>production · prepare · repair</p><small>负责派单、暂停与续跑；各步骤仍可单独执行。</small></div>
+      <div><b>共享业务规则</b><p>人物归属 · 动作 · 对白 · 请求表达</p><small>规划、编译和修复消费共同规则，不各写一套。</small></div>
+      <div><b>共享记录与资源</b><p>缓存 · 生成次数 · 修复历史 · 并发池</p><small>复用素材不计新生成，切换入口不会重置预算。</small></div>
+      <div><b>独立状态看板</b><p>读取结果 · 汇总进度 · 展示阻塞</p><small>架构页不派发任务；运行状态请看实时页。</small></div>
+    </div>
+  </section>
+  <details id="arch-code" class="arch-code card"><summary>展开代码职责与依赖方向</summary><div class="arch-code-layers">
+    <div><b>入口</b><code>scripts / dashboard</code><span>命令参数、操作选择、页面展示</span></div><span class="arch-layer-arrow">↓</span>
+    <div><b>流程编排</b><code>application</code><span>模型调用、文件读写、调度、写回</span></div><span class="arch-layer-arrow">↓</span>
+    <div><b>业务与共享规则</b><code>story / planning / repair / media</code><span>字段、编译、决策、缓存与后期</span></div>
+  </div><p>模型连接由 <code>llm / providers</code> 提供。共享规则不反向调用命令入口，分析和质检不自行派发生成任务。</p></details>
+  <p class="arch-footnote">架构说明 · 依据当前工作树维护 · 2026-09-28 · 不表示这些流程正在运行</p>
+  <noscript>此流程图需要启用 JavaScript。页面仅展示架构，不执行生产操作。</noscript>
+</section>
+<script src="/static/architecture-details.js?v={{VERSION}}"></script>
+<script src="/static/architecture.js?v={{VERSION}}"></script>

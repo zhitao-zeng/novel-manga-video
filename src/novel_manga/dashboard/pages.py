@@ -5,17 +5,18 @@ from html import escape
 
 ASSETS = {'style.css': 'text/css; charset=utf-8', 'pipeline.css': 'text/css; charset=utf-8',
           'workbench.css': 'text/css; charset=utf-8',
+          'architecture.css': 'text/css; charset=utf-8',
           **{name + '.js': 'text/javascript; charset=utf-8'
              for name in ('common', 'pipeline', 'tooltips', 'status', 'board', 'workbench',
-                          'compare', 'recent', 'health', 'bible')}}
+                          'compare', 'recent', 'health', 'bible', 'architecture', 'architecture-details')}}
 
-VIEWS = {'status': '实时', 'board': '看板',
+VIEWS = {'status': '实时', 'board': '看板', 'architecture': '架构',
          'workbench': '工作台', 'novel': '工作台', 'episode': '工作台', 'assets': '工作台',
          'health': '工作台', 'bible': '工作台',
          'compare': '对比', 'recent': '动态', 'experiments': '实验'}
 
 NAV_ITEMS = [('实时', '/'), ('看板', '/board'), ('工作台', '/workbench'),
-             ('对比', '/compare'), ('动态', '/recent'), ('实验', '/experiments')]
+             ('对比', '/compare'), ('动态', '/recent'), ('实验', '/experiments'), ('架构', '/architecture')]
 
 
 def static_resource(name):

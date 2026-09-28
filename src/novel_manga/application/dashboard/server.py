@@ -72,6 +72,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/board":
             body = render_page('board', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
+        elif path == "/architecture":
+            body = render_page('architecture', config.UI_VERSION).encode("utf-8")
+            content_type = "text/html; charset=utf-8"
         elif path == "/workbench":
             body = render_page('workbench', config.UI_VERSION).encode("utf-8")
             content_type = "text/html; charset=utf-8"
