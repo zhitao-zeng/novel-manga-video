@@ -2,7 +2,22 @@
 
 整理于 2026-09-28。这里登记历史和独立方案，不作为生产入口；不是待自动合并的工作列表。
 
-## 继续保留的独立实验
+## 当前状态（第二轮整理后）
+
+本地仅保留 `main` 和仍在维护的 `exp/agent-skill-writing` 两个分支，登记工作树同样为两个。其余六个分支名已改为下面的本地归档标签。标签保留完整已提交历史；离线 A100 的未提交草稿仍单独保存在本机原目录和恢复记录中，不在标签内。远端旧分支未删除，归档标签尚未推送。
+
+| 原分支 | 本地归档标签 |
+|---|---|
+| `codex/api-version` | `archive/20260928/codex/api-version` |
+| `codex/comic-hybrid-probe` | `archive/20260928/codex/comic-hybrid-probe` |
+| `codex/offline-a100` | `archive/20260928/codex/offline-a100` |
+| `codex/scene-master-skill-eval` | `archive/20260928/codex/scene-master-skill-eval` |
+| `exp/doupo-samples` | `archive/20260928/exp/doupo-samples` |
+| `wip/uncommitted-0919` | `archive/20260928/wip/uncommitted-0919` |
+
+漫画与离线目录也已原路径封存、退出 Git 工作树登记，含 `ARCHIVED_WORKTREE.md`。第二轮恢复清单在 `.codex/retired-worktrees/20260928/remaining-archives.json`；各自的补丁与未跟踪文件清单仍按分支名分目录保存。离线全部 18 个跟踪文件的修改、78 个未跟踪文件以及忽略产物原样保留。
+
+## 实验内容及来源（表中分支名为历史名称）
 
 | 实验 | 分支 / 基线 | 本地位置 | 状态与用途 |
 |---|---|---|---|
@@ -13,7 +28,7 @@
 | 早期 VLM 导演与整集账本 | `codex/api-version` / `fffe900`；`codex/scene-master-skill-eval` / `09aca6b` | Git 分支，无独立工作树 | 二者的独立最终代码差异相同；仅保留历史，不计作两套待接入功能 |
 | 9 月 19 日未提交快照 | `wip/uncommitted-0919` / `19a2f65` | Git 分支，无独立工作树 | 53 个文件均在主线当前或历史有原样版本，仅作备份 |
 
-以上分支、实验文件和 3 份历史 stash 均未删除。离线工作树的未提交内容没有被本次自动提交或上传；原作者继续拥有这些草稿。
+以上实验内容和 3 份历史 stash 均保留；除六技能分支外，历史分支名由上表归档标签替代。离线草稿没有自动提交或上传。
 
 ## 已退休的 7 个工作树
 
@@ -35,7 +50,7 @@
 
 恢复时从项目仓库以记录的完整基线提交创建一个新的 `codex/` 工作树；需要恢复草稿时按顺序应用 staged 和 unstaged 补丁，复制清单中的未跟踪文件。也可只用 HEAD-to-worktree 补丁恢复最终内容；两种补丁方式二选一，不能重复应用。产物可继续从原封存位置读取，不应复制大体积模型和视频进 Git。
 
-## 整理后的边界
+## 第一轮整理记录（当前状态以上方第二轮为准）
 
 - 本地分支 15 → 8；已登记工作树 11 → 4（主线 + 三条独立实验）。
 - 远端旧分支没有删除；本次只推送主线成果和索引。
