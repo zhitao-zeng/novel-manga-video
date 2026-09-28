@@ -1,6 +1,7 @@
 import json
 from types import SimpleNamespace
 from novel_manga.application.rendering import reviewed
+from novel_manga.application.review import execution as review_execution
 
 
 def test_existing_repair_uses_full_preparation_and_preserves_budget(tmp_path,monkeypatch):
@@ -20,7 +21,7 @@ def test_existing_repair_uses_full_preparation_and_preserves_budget(tmp_path,mon
     def review(*args,**kwargs):
         reviews.append(kwargs)
         return {'clips':{'a':{'severity':'pass'},'b':{'severity':'pass'}},'feedback':{'a':'wrong'} if len(reviews)==1 else {}}
-    monkeypatch.setattr(reviewed,'review_episode',review)
+    monkeypatch.setattr(review_execution,'review_episode',review)
     def render():
         assert ctx._managed_remaining=={'a':1,'b':2}
         seen.append('render');return report
@@ -32,7 +33,7 @@ def test_existing_repair_uses_full_preparation_and_preserves_budget(tmp_path,mon
 def test_cache_miss_does_not_write_or_review(tmp_path,monkeypatch):
     ctx=SimpleNamespace(episode_dir=tmp_path,cache_only=True)
     def forbidden(*a,**kw):raise AssertionError('not allowed')
-    monkeypatch.setattr(reviewed,'review_episode',forbidden)
+    monkeypatch.setattr(review_execution,'review_episode',forbidden)
     out=reviewed.run(SimpleNamespace(context=ctx,run=lambda:{'status':'cache_miss'}))
     assert not out['quality_review']['passed'] and not list(tmp_path.iterdir())
 

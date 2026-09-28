@@ -75,6 +75,7 @@ def test_moderation_replan_passes_only_episode_overrides(tmp_path, monkeypatch, 
     import novel_manga.application.profiles as thin_profile
     paid_episode(tmp_path)
     batch=batch_stub(tmp_path,monkeypatch,['clips_failed','clips_failed','clips_failed','done'],replan=initial_replan)
+    batch.args.stage = 'all'
     batch.fast=False;batch.profile={};batch.notes={'1':'user note','*':'shared note'}
     original=copy.deepcopy(batch.notes);seen=[]
     monkeypatch.setattr(batch,'moderation_blocked',lambda _:True)

@@ -45,6 +45,17 @@ uv run pytest
 
 底层执行器继续使用原锁、任务记录、缓存、并发池和重试预算。生产管理入口不会另建任务队列，也不会因启动而清空历史。
 
+## 独立执行与自动审修
+
+规划、生成、审查仍可分别执行。批量 `thin_batch.py --stage render` 只生成，不触发整章重规划或内容审查；加 `--unattended` 才进入自动审查与修复。
+
+- `thin_batch.py --review-only` 只审已有视频，自动跳过规划、建卡、生成与修复；与 `--unattended` 同时指定时，以只审查为准。
+- `thin_review.py episode --episode-dir <目录>` 同样只审查，并更新当前成片的验收结果。
+- 批量 `--unattended` 与单集 `render_clips_thin.py --review` 共用执行器；当前计划对应的已有成片通过 `--repair` 进入原修复流程。批量层不再额外叠加一轮重拍。
+- `--cache-only` 不生成或修复素材；与自动审查组合时，可审已有素材，缺缓存时不会为补齐素材发起生成。
+
+以上参数需配合各入口原有的小说、章节或分集参数。显式自动审修适用于 fast 和 quality；技术合成完成不代表内容验收通过，最终看 `quality_review.passed`。修复预算、历史与缓存沿用原记录。
+
 ## 看板
 
 ```bash

@@ -7,7 +7,8 @@ import sys
 from pathlib import Path
 from novel_manga.application.review.bible import grow_bible, review_bible, summarize_volume
 from novel_manga.application.review.cards import review_cards
-from novel_manga.application.review.episode import review_episode
+from novel_manga.application.review.execution import review_only
+from novel_manga.util import read_json
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -37,6 +38,9 @@ def main() -> int:
         report = review_cards(args.novel_dir.resolve(), args.include_backups)
         print(json.dumps({"flags": report["flags"]}, ensure_ascii=False, indent=1))
     else:
-        report = review_episode(args.episode_dir.resolve(), args.video_name)
-        print(json.dumps({"flags": report["flags"], "feedback": report["feedback"]}, ensure_ascii=False, indent=1))
+        report = review_only(args.episode_dir.resolve(), video_name=args.video_name)
+        summary = {"flags": report["flags"], "feedback": report["feedback"]}
+        if args.video_name == 'clip.mp4':
+            summary['quality_review'] = read_json(args.episode_dir.resolve() / 'episode_execution.json', {})
+        print(json.dumps(summary, ensure_ascii=False, indent=1))
     return 0

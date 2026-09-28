@@ -116,3 +116,13 @@ flowchart TD
 当前 EpisodePlan 字段引用的 drama 类型，以及历史视频诊断工具使用的 runtime 类型继续保留。已完成的旧 shell 接管逻辑只在实验回放中保留；正式管理器退休 preview/--adopt-legacy，历史任务读取不变。
 
 回归入口见 [测试说明](../tests/README.md)。本轮范围和证据见 [完整计划](full-refactor-plan-20260917.md) 与 [实施记录](full-refactor-progress-20260917.md)。日期文档是当时记录，本文件为当前架构说明。
+
+## 批量与单集共用审修执行（2026-09-28）
+
+`application/production/execution.py` 选择操作：只审已有视频，或调用单集 `render --review/--repair`。批量层读取执行器已经保存的结果，不重复审片或叠加整集重拍。
+
+`application/rendering/reviewed.py` 保留生成、自动修复与缓存控制；`application/review/execution.py` 统一已有素材审查、历史观察及验收结果写回。两种入口共用 `thin_media_report.json.quality_review` 与 `episode_execution.json`，已知过期计划、请求或修正记录不能通过验收。
+
+只审查允许检查不完整或过期素材，但不会规划、建卡、消耗新生成次数或启动修复。缓存缺失不会先写入生成历史；源证据复核保留旧片时，读取已经发布的新审查结果，避免继续沿用旧的不通过结论。
+
+批量修复管理器仍负责既有扫描、分步派单与暂停续跑；本次统一的是批量无人值守和单集审修的执行路径，没有替换管理器队列或清空预算。普通只生成模式仍可独立运行。

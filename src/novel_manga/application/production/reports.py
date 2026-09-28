@@ -53,11 +53,16 @@ def report(batch, chapters: list[int]) -> int:
         handle.write(f"\n## {payload['finished']} · chapters {batch.args.chapters} · stage {batch.args.stage}\n\n{table}\n")
     done = [ch for ch in chapters if batch.rows[ch].get("render", batch.render_status(ch)) in {"done", "done_with_warnings"}]
     production_common.log(f"{len(done)}/{len(chapters)} episodes have a final video")
-    if batch.reviewing:
+    if batch.reviewing and not batch.args.dry_run:
         delivery_report(batch, chapters)
         # The novel-level verdict the board shows (delivery.json): a review batch is what changes it.
         batch.run([sys.executable, str(production_common.SCRIPTS / "delivery_gate_thin.py"), "--novel-dir", str(batch.novel_dir), "--quiet"],
                  batch.novel_dir / "delivery_gate.log")
+    from novel_manga.application.production.execution import reviewed_render
+    if batch.args.dry_run:
+        return 0
+    if reviewed_render(batch) and batch.args.stage in {'all', 'render'}:
+        return 0 if all(batch.rows[ch].get('quality_review', {}).get('passed') for ch in chapters) else 2
     return 0 if len(done) == len(chapters) or batch.args.stage != "all" else 2
 
 
@@ -68,7 +73,8 @@ def delivery_report(batch, chapters: list[int]) -> None:
     cards = batch.card_review or (json.loads(cards_path.read_text(encoding="utf-8")) if cards_path.is_file() else {})
     per_episode_flags = sorted({flag for chapter in chapters for flag in batch.rows[chapter].get("card_flags", [])})
     per_episode_fixes = sorted({fix for chapter in chapters for fix in batch.rows[chapter].get("card_fixes", [])})
-    lines = [f"# {batch.title} · 交付报告（{time.strftime('%Y-%m-%d %H:%M')}）", "", f"模式：{'无人值守（自动修复各一次）' if batch.args.unattended else '只审核不修复'}；章节 {batch.args.chapters}", ""]
+    from novel_manga.application.production.execution import reviewed_render
+    lines = [f"# {batch.title} · 交付报告（{time.strftime('%Y-%m-%d %H:%M')}）", "", f"模式：{'无人值守（共用单集审查修复与片段预算）' if reviewed_render(batch) else '只审核不修复'}；章节 {batch.args.chapters}", ""]
     if bible_review:
         lines += ["## 圣经", "", f"- 原文高频但圣经缺失的人物：{', '.join(bible_review.get('missing', {})) or '无'}", f"- 自动补入：{', '.join(bible_review.get('filled', [])) or '无'}", ""]
     lines += ["## 角色卡与地点卡", ""]

@@ -7,6 +7,7 @@ import sys
 import time
 import novel_manga.application.production.common as production_common
 import novel_manga.application.production.runs as thin_runs
+from novel_manga.application.production import execution
 
 def render(batch, chapter: int) -> None:
     row = batch.rows[chapter]
@@ -16,6 +17,21 @@ def render(batch, chapter: int) -> None:
     if status == "no_plan":
         row["render"] = "skipped (no plan)"
         return
+    if execution.only_review(batch):
+        # A review job can inspect existing takes even when the final is stale
+        # or incomplete. It never enters rendering, preparation or run counters.
+        row['render'] = status
+        if batch.args.dry_run:
+            row['review'] = 'would review'
+            return
+        batch.fill_result(chapter)
+        try:
+            batch.review_episode(chapter)
+        except Exception as error:  # noqa: BLE001 - keep other episodes reviewable
+            row['note'] = f'review failed: {type(error).__name__}: {str(error)[:120]}'
+            row['review_error'] = True
+        return
+    reviewed = execution.reviewed_render(batch)
     lane_cap = float(os.environ.get("NOVEL_CLIP_SECONDS_MAX", "0") or 0)
     if lane_cap:
         # This lane's model only takes clips up to lane_cap seconds: a plan
@@ -46,12 +62,6 @@ def render(batch, chapter: int) -> None:
             except Exception as error:  # noqa: BLE001
                 row["note"] = f"review failed: {type(error).__name__}: {str(error)[:120]}"
                 production_common.log(f"ch{chapter}: episode review failed ({type(error).__name__}: {str(error)[:120]})")
-        return
-    if batch.args.no_render:
-        # A review job: the conductor spawns it without the novel's render key, so a render here would run
-        # on whatever model its own environment names - sd2.5 for 雾月 on 2026-09-11, when one re-stitched
-        # 60 invalidated episodes from their cached clips.
-        row["render"] = f"skipped (review job, {status})"
         return
     if batch.args.dry_run:
         row["render"] = f"would render ({status})"
@@ -120,7 +130,7 @@ def render(batch, chapter: int) -> None:
     # bill: the rounds before were spent on the held clip, and the limit turned away the one rerun that could
     # release it.
     held = getattr(batch.args, "resubmit_unconfirmed", False) and production_common.held_submissions(directory)
-    if runs >= thin_runs.RENDER_RUNS_PER_PLAN and not batch.args.cache_only and not held:
+    if runs >= thin_runs.RENDER_RUNS_PER_PLAN and not batch.args.cache_only and not held and not reviewed:
         row["render"] = f"gave up ({runs} render runs on this plan)"
         row["note"] = "needs a look: same failure on every run; see thin_media_report.json"
         production_common.log(f"ch{chapter}: gave up after {runs} render runs on this plan; needs a look")
@@ -136,14 +146,14 @@ def render(batch, chapter: int) -> None:
                 row.update(render="plan_blocked", note="all clips await plans/assets; no generation run spent")
                 production_common.log(f"ch{chapter}: no executable clips after asset preparation; no video requested")
                 return
-            if not video_ids or video_ids - blocked.keys():
+            if not reviewed and (not video_ids or video_ids - blocked.keys()):
                 thin_runs.count_run(directory)
-        command = [sys.executable, str(production_common.SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(batch.novel_dir), "--episode", directory.name, "--workers", str(batch.args.workers), "--inflight", str(batch.args.inflight)] + (["--tier", batch.args.tier] if batch.args.tier else []) + (["--prescreen"] if batch.args.prescreen else []) + ([] if batch.args.moderation_repair else ["--no-moderation-repair"]) + (["--cache-only"] if batch.args.cache_only else [])
+        command = execution.render_command(batch, chapter)
         # Fresh paid takes of gate-failed clips only for the final a person approved them for, and only on the
         # first call: a second call counted the takes the first had just bought as cached failures and bought two
         # more of each, and stale or clips_failed episodes got paid retakes nobody had asked for.
         first = command + (["--retake-failed"] if retake and not free and batch.args.retake_failed else [])
-        for attempt in ((1,) if batch.args.cache_only else (1, 2)):
+        for attempt in ((1,) if batch.args.cache_only or reviewed else (1, 2)):
             production_common.log(f"ch{chapter}: rendering (attempt {attempt})")
             code, problem = batch.run(first if attempt == 1 else command, directory / "render.log")
             status = batch.render_status(chapter)
@@ -154,7 +164,9 @@ def render(batch, chapter: int) -> None:
                 continue
             break
         replans = sum((directory / marker).exists() for marker in production_common.MODERATION_MARKERS)
-        if status == "clips_failed" and not batch.args.cache_only and batch.moderation_blocked(chapter) and replans < len(production_common.MODERATION_MARKERS):
+        if (status == "clips_failed" and not reviewed and not batch.args.cache_only
+                and getattr(batch.args, 'stage', 'render') == 'all'
+                and batch.moderation_blocked(chapter) and replans < len(production_common.MODERATION_MARKERS)):
             # Seedance refused the text or the output twice: re-plan the chapter
             # with a director note that keeps the sensitive beats indirect - the
             # second time naming exactly what was refused.
@@ -174,13 +186,16 @@ def render(batch, chapter: int) -> None:
         if status not in {"done", "done_with_warnings"}:
             row["note"] = problem
         batch.fill_result(chapter)
-        if batch.reviewing and status in {"done", "done_with_warnings"} and not batch.fast:
+        if reviewed:
+            execution.collect_review(batch, chapter)
+        elif batch.reviewing and status in {"done", "done_with_warnings"} and not batch.fast:
             try:
                 batch.review_episode(chapter)
             except Exception as error:  # noqa: BLE001 - the episode is done; a review failure is a note
                 row["note"] = f"review failed: {type(error).__name__}: {str(error)[:120]}"
                 production_common.log(f"ch{chapter}: episode review failed ({type(error).__name__}: {str(error)[:120]})")
-        if batch.args.prune and batch.render_status(chapter) in {"done", "done_with_warnings"}:
+        if (batch.args.prune and batch.render_status(chapter) in {"done", "done_with_warnings"}
+                and (not reviewed or row.get('quality_review', {}).get('passed'))):
             production_common.prune_episode(directory)
     finally:
         lock.unlink(missing_ok=True)

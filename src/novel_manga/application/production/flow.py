@@ -407,26 +407,8 @@ class Batch:
             production_common.log(f"ch{chapter}: card problems {problems[:3]}")
 
     def review_episode(self, chapter: int) -> None:
-        """Automatic clip review; in unattended mode a failed clip gets the reviewer's
-        correction appended to its prompt and is regenerated once, then reviewed again."""
-        from novel_manga.application.review.episode import review_episode
-        row = self.rows[chapter]
-        directory = self.episode_dir(chapter)
-        review = review_episode(directory)
-        feedback_path = directory / "review_feedback.json"
-        existing = json.loads(feedback_path.read_text(encoding="utf-8")) if feedback_path.is_file() else {}
-        fresh = {clip_id: note for clip_id, note in review["feedback"].items() if clip_id not in existing and note}
-        if self.args.unattended and fresh:
-            feedback_path.write_text(json.dumps({**existing, **fresh}, ensure_ascii=False, indent=1), encoding="utf-8")
-            production_common.log(f"ch{chapter}: regenerating {sorted(fresh)} with the reviewer's corrections")
-            self.run([sys.executable, str(production_common.SCRIPTS / "render_clips_thin.py"), "--novel-dir", str(self.novel_dir), "--episode", directory.name, "--workers", str(self.args.workers)], directory / "render.log")
-            row["render"] = self.render_status(chapter)
-            self.fill_result(chapter)
-            review = review_episode(directory)
-            row["auto_fixed"] = sorted(fresh)
-        row["review_flags"] = review["flags"]
-        if review["flags"]:
-            production_common.log(f"ch{chapter}: {len(review['flags'])} clip flag(s) remain: {review['flags'][0][:120]}")
+        from novel_manga.application.production.execution import review_existing
+        review_existing(self, chapter)
 
     def fill_result(self, chapter: int) -> None:
         report = self.episode_dir(chapter) / "thin_media_report.json"
