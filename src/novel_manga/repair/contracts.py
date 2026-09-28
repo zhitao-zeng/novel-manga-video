@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from novel_manga.story.fields import cast_field, actions_field, extras_field, sound_effects_field
+from novel_manga.story.fields import scene_objects_field, props_field, wears_field
 
 def schema_for(names: list[str], indexes: list[int], *, reframe=False, bible=None) -> dict:
     schema = {"type": "object", "additionalProperties": False, "required": ["stages"], "properties": {"stages": {
@@ -17,12 +18,9 @@ def schema_for(names: list[str], indexes: list[int], *, reframe=False, bible=Non
                                                                       # additionalProperties=false ate the field, and an empty
                                                                       # armour became an extra (four-layer audit #1).  The stage
                                                                       # now has somewhere legal to put each of them.
-                                                                      "scene_objects": {"type": "array", "maxItems": 4,
-                                                                                        "items": {"type": "string"}},
-                                                                      "props": {"type": "array", "maxItems": 4,
-                                                                                "items": {"type": "string"}},
-                                                                      "wears": {"type": "object",
-                                                                                "additionalProperties": {"type": ["string", "null"]}},
+                                                                      "scene_objects": scene_objects_field(max_items=4, max_length=None),
+                                                                      "props": props_field(max_items=4),
+                                                                      "wears": wears_field(),
                                                                       "light": {"type": "string", "maxLength": 60},
                                                                       "sfx": sound_effects_field(),
                                                                       "event": {"type": "string"}}}}}}

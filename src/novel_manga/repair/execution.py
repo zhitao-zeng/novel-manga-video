@@ -62,9 +62,10 @@ def apply_stage(shot: dict, fix: dict, names: list[str], *, reframe: bool = Fals
             in_frame.append(speaker)
     shot['in_frame'] = list(in_frame)
     listeners = [name for name in in_frame if name not in speakers] if speakers else []
-    event = str(fix.get("event") or shot.get("motion_prompt") or "").strip()
+    event = str(fix['event'] if 'event' in fix else shot.get("motion_prompt") or "").strip()
     shot["characters"] = in_frame
-    shot["motion_prompt"] = anchored_event(actions, event) or shot.get("motion_prompt", "")
+    # An explicit empty event cancels the old action. Only an omitted event uses the legacy fallback.
+    shot["motion_prompt"] = event if 'event' in fix else anchored_event(actions, event)
     shot["actions"] = actions
     shot["extras"] = normalize_extras(fix.get("extras"))
     shot["listeners"] = listeners

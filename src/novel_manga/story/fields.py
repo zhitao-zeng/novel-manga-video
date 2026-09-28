@@ -30,6 +30,21 @@ def extras_field():
     return deepcopy(EXTRAS_FIELD)
 
 
+def scene_objects_field(*, max_items=3, max_length=80):
+    return {'type': 'array', 'maxItems': max_items,
+            'items': {'type': 'string', **({'maxLength': max_length} if max_length is not None else {})}}
+
+
+def props_field(names=None, *, max_items=2):
+    return {'type': 'array', 'maxItems': max_items,
+            'items': {'type': 'string', **({'enum': list(names)} if names is not None else {})}}
+
+
+def wears_field(names=None):
+    return {'type': 'object', 'additionalProperties': {
+        'type': ['string', 'null'], **({'enum': [*names, None]} if names is not None else {})}}
+
+
 def turn_field(character_names, anonymous_speakers, delivery_modes):
     return {
         "type": "object",

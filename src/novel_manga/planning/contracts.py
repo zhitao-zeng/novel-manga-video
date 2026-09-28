@@ -5,6 +5,7 @@ from novel_manga.story.fields import sound_effects_field, actions_field
 from novel_manga.story.fields import cast_field
 from novel_manga.story.fields import extras_field
 from novel_manga.story.fields import turn_field
+from novel_manga.story.fields import scene_objects_field, props_field, wears_field
 import json
 import copy
 import novel_manga.planning.constants as pc_constants
@@ -54,18 +55,15 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "actions": actions_field(),
             # A chapter can contain an ordinary object before its bible has a prop card.
             # It still needs an object slot; extras is reserved for living performers.
-            "scene_objects": {"type": "array", "maxItems": 3, "items": {"type": "string", "maxLength": 80}},
+            "scene_objects": scene_objects_field(),
         },
     }
     if prop_names:
         # 道具只能来自圣经名单：枚举之外的名字是模型的幻觉，不是新道具
-        stage["properties"]["props"] = {"type": "array", "maxItems": 2,
-                                        "items": {"type": "string", "enum": prop_names}}
+        stage["properties"]["props"] = props_field(prop_names)
         # 镜头级穿戴：{角色名: 道具名|null（null=这一镜脱下）}。只有书里有道具才出现
         # 这个字段——没道具的书 schema 逐字节不变。
-        stage["properties"]["wears"] = {"type": "object",
-                                        "additionalProperties": {"type": ["string", "null"],
-                                                                 "enum": [*prop_names, None]}}
+        stage["properties"]["wears"] = wears_field(prop_names)
     if ctx.story_blueprint:
         beats = [b['beat_id'] for b in ctx.story_blueprint.get('beats', []) if b['segment_id'] in segment_ids]
         if beats:

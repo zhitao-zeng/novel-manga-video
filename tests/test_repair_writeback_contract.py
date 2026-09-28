@@ -107,3 +107,24 @@ def test_repair_can_remove_a_cancelled_action_sound():
     shot={'characters':['甲'],'turns':[],'motion_prompt':'甲站立','sfx':'面罩机械声'}
     apply_stage(shot,{'in_frame':['甲'],'actions':[],'extras':[],'event':'甲站立','sfx':''},['甲'])
     assert shot['sfx']==''
+
+
+def test_explicit_empty_event_does_not_restore_cancelled_flight_during_compile():
+    shot = old_stage()
+    shot.update(motion_prompt='托尼喷气飞入诊室', actions=[{'actor': '托尼', 'action': '喷气飞入', 'target': '诊室'}])
+    fix = corrected_reply()
+    fix.update(event='', actions=[], sfx='', visual_prompt='席勒与托尼在桌边听着', end_state='两人留在桌边')
+    apply_stage(shot, fix, ['托尼', '席勒'], reframe=True)
+    assert shot['motion_prompt'] == '' and shot['actions'] == [] and shot['sfx'] == ''
+    resolved = resolve_scene({'shots': [shot]}, SceneContext()).shots
+    bible = StoryBible(novel_title='试片', genre='generic', visual_style='2d', palette='灰', style_fingerprint='test',
+                       characters=[Character(name=n, appearance='黑发', wardrobe='常服') for n in ['托尼', '席勒']], locations=['诊室'])
+    prompt = ClipCompiler(compiler_options()).compile_prompt({'shots': resolved, 'request_seconds': 10}, bible,
+                                                             ['托尼', '席勒'], [], '诊室')
+    assert '喷气' not in prompt and '飞入' not in prompt and '主要事件：' not in h3.stages_of(prompt)[0][0]
+
+
+def test_omitted_event_keeps_existing_action_for_partial_repairs():
+    shot = old_stage()
+    apply_stage(shot, {'in_frame': ['托尼', '席勒'], 'actions': [], 'extras': []}, ['托尼', '席勒'])
+    assert shot['motion_prompt'] == '旧的重复动作'
