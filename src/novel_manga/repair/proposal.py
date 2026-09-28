@@ -13,6 +13,7 @@ class RepairProposal:
     changes: dict | None = None
     structural_repair: dict | None = None
     visor_states: dict | None = None
+    posture_states: dict | None = None
 
     @classmethod
     def from_result(cls, value):
@@ -36,7 +37,8 @@ class RepairProposal:
     def payload(self):
         return {'script': self.script, 'plan': self.plan, 'notes': self.notes,
                 'changes': self.changes, 'structural_repair': self.structural_repair or {},
-                **({'visor_states':self.visor_states} if self.visor_states is not None else {})}
+                **({'visor_states':self.visor_states} if self.visor_states is not None else {}),
+                **({'posture_states':self.posture_states} if self.posture_states is not None else {})}
 
     def as_result(self, include_proposal=False):
         result = copy.deepcopy(self.result)

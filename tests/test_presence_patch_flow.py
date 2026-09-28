@@ -7,6 +7,8 @@ from novel_manga.application.identity import flow as identity
 from novel_manga.planning import validation
 from novel_manga.planning.context import PlannerContext
 from novel_manga.planning.issues import PlanningCode, PlanningIssue, ValidationResult
+from novel_manga.application.packing import posture
+from support.posture import unspecified_reply
 
 
 def test_final_attempt_still_reviews_presence_and_keeps_the_writer_on_disagreement(tmp_path, monkeypatch):
@@ -34,6 +36,7 @@ def test_final_attempt_still_reviews_presence_and_keeps_the_writer_on_disagreeme
         calls.append(kwargs['source'])
         return {1: {'乙先生': 'on_camera'}}
     monkeypatch.setattr(presence, 'grade_presence', grade)
+    monkeypatch.setattr(posture, 'ask_json', unspecified_reply)
     monkeypatch.setattr(httpx.HTTPTransport, 'handle_request', lambda *a, **kw: (_ for _ in ()).throw(AssertionError('no HTTP')))
     monkeypatch.setattr(sys, 'argv', ['plan_chapter_thin.py', str(source), '--novel-id', 'book',
         '--bible', str(bible), '--output-root', str(tmp_path / 'out'), '--max-redo', '0',

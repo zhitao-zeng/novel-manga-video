@@ -21,14 +21,18 @@ def clip_cast(clip, *, settings=None):
     return cast
 
 
-def prepared_shots(script: dict, episode_dir: Path, *, identity_data=None) -> list[dict]:
+def prepared_shots(script: dict, episode_dir: Path, *, identity_data=None, posture_states=None) -> list[dict]:
     from novel_manga.planning.storyboard import require_bound_storyboard
     require_bound_storyboard(script)
     from novel_manga.application.identity.scene import prepare_scene
     resolved = prepare_scene(script, episode_dir, identity_data=identity_data)
     if resolved.issues:
         raise ValueError('分镜需要明确本镜状态：' + '; '.join(resolved.issues))
-    return resolved.shots
+    from novel_manga.application.packing.posture import FILE, attach
+    from novel_manga.util import read_json
+    states = posture_states if posture_states is not None else read_json(episode_dir / FILE, {})
+    segments = identity_data.segments if identity_data is not None else read_json(episode_dir / 'segments.json', [])
+    return attach(resolved.shots, script, states, segments)
 
 
 def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None) -> dict:
@@ -192,7 +196,8 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
 
 def compile_plan(script: dict, context: dict) -> tuple[dict, dict]:
     """Build the plan and its cut explanation without sharing diagnostic state."""
-    shots = prepared_shots(script, context['episode_dir'], identity_data=context.get('identity_data'))
+    shots = prepared_shots(script, context['episode_dir'], identity_data=context.get('identity_data'),
+                           posture_states=context.get('posture_states'))
     compiler = ClipCompiler(context['compiler_options'])
     packed = compiler.pack(shots)
     chapter = chapter_of(context["episode_dir"])

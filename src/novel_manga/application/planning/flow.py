@@ -451,9 +451,15 @@ def run(args, ctx: PlannerContext) -> int:
     result = None
     patch_rounds = 0  # small repair calls used so far on this chapter
     patch_seconds_left = pc_constants.PATCH_TOTAL_SECONDS
+    posture_states = None
     def validate_draft(draft):
+        nonlocal posture_states
         checked = pc_validation.validate_and_normalize(draft, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
         if not args.replay and all(issue.code == PlanningCode.DURATION_BELOW_MINIMUM for issue in checked.issues):
+            from novel_manga.application.planning.posture import check_draft
+            posture_states, posture_issues = check_draft(
+                episode_dir, checked.shots, segments, previous=posture_states)
+            checked.issues.extend(posture_issues)
             from novel_manga.application.planning.presence import grade_presence, issues_for_grades
             grades = grade_presence(checked.shots, everyone, ctx=ctx,
                                     roster={c.name: c.appearance for c in full_bible.characters},
@@ -694,6 +700,8 @@ def run(args, ctx: PlannerContext) -> int:
     plan = pc_outputs.to_episode_plan(raw, shots, location_map, episode.source_text, episode.source_title, ctx=ctx)
     atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped,
         **({'story_method': method.describe(), 'story_blueprint': ctx.story_blueprint} if method else {})})
+    if posture_states is not None:
+        atomic_write_json(episode_dir / 'posture_states.json', posture_states)
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
     atomic_write_json(episode_dir / "chapter_script_report.json", report)
     with open(recap_path.with_suffix(".lock"), "w") as lock:  # planners may run in parallel

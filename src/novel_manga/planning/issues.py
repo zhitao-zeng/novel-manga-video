@@ -24,6 +24,7 @@ class PlanningCode(Enum):
     STAGE_ABOVE_MAXIMUM = ('stage_above_maximum', 'stage')
     MIXED_THOUGHT = ('mixed_thought', 'stage')
     PRESENCE_DISAGREEMENT = ('presence_disagreement', 'stage')
+    POSTURE_CONTINUITY = ('posture_continuity', 'stage')
     SKIPPED_SEGMENTS = ('skipped_segments', 'chapter')
     MISSING_CHAT = ('missing_chat', 'chapter')
     UNCITED_SEGMENT = ('uncited_segment', 'segment')

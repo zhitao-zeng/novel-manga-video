@@ -13,6 +13,8 @@ from novel_manga.application.planning import cli, presence, requests, retention
 from novel_manga.planning import validation
 from novel_manga.planning.context import PlannerContext
 from novel_manga.planning.issues import PlanningCode, PlanningIssue, ValidationResult
+from novel_manga.application.packing import posture
+from support.posture import unspecified_reply
 
 MISSED = '提纲承诺「6. 席勒：好吧，这次免费」未落实：没有台词；按原文和提纲补进观众能听见或看见的表达'
 
@@ -38,6 +40,7 @@ def run(tmp_path, monkeypatch, max_redo, review):
     monkeypatch.setattr(presence, 'grade_presence', lambda *a, **kw: {})
     monkeypatch.setattr(retention, 'section_of', lambda outline: '6. 席勒：好吧，这次免费')
     monkeypatch.setattr(retention, 'review', review)
+    monkeypatch.setattr(posture, 'ask_json', unspecified_reply)
     monkeypatch.setattr(httpx.HTTPTransport, 'handle_request', lambda *a, **kw: (_ for _ in ()).throw(AssertionError('no HTTP')))
     monkeypatch.setattr(sys, 'argv', ['plan_chapter_thin.py', str(source), '--novel-id', 'book',
         '--bible', str(bible), '--output-root', str(tmp_path / 'out'), '--max-redo', str(max_redo),

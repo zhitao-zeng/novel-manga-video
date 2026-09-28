@@ -12,6 +12,7 @@ import httpx
 import novel_manga.application.planning.cli as command
 import novel_manga.application.planning.requests as requests
 import novel_manga.application.identity.flow as identity
+import novel_manga.application.packing.posture as posture
 from novel_manga.planning.context import PlannerContext
 from novel_manga.planning import validation
 from novel_manga.planning.issues import ValidationResult, PlanningIssue, PlanningCode
@@ -43,9 +44,13 @@ def planner_traces():
       def strict(*a,**kw):
        message='发声字数 5 远低于下限 100'
        return [PlanningIssue(PlanningCode.STRICT_SPEECH_BELOW_MINIMUM,message)]
+      def posture_reply(parts, schema, **kwargs):
+       return {'stages': [{'index': 1, 'boundary': 'reset', 'reason': '开场', 'people': [
+           {'name': '主角', 'entry': 'reset', 'start': {'posture': '站', 'where': '门口', 'quote': '站在门口'},
+            'end': {'posture': '未写明', 'where': '', 'quote': ''}, 'transition': ''}]}]}
       ctx=PlannerContext.from_env();ctx.strict_plan=mode=='strict'
       args=['plan_chapter_thin.py',str(source),'--novel-id','book','--bible',str(bible),'--output-root',str(base/'out'),'--max-redo','2','--model','frozen-model','--base-url','http://model.invalid/v1']
-      with patch.object(sys,'argv',args),patch.object(time,'monotonic',lambda:clock[0]),patch.object(requests,'call_model',call_model),patch.object(requests,'patch_plan',patch_plan),patch.object(validation,'validate_and_normalize',checked),patch.object(validation,'strict_plan_issues',strict),patch.object(identity,'resolve_chapter',lambda *a,**k:{}),patch.object(httpx.HTTPTransport,'handle_request',side_effect=AssertionError('no real HTTP')),redirect_stdout(io.StringIO()):
+      with patch.object(sys,'argv',args),patch.object(time,'monotonic',lambda:clock[0]),patch.object(requests,'call_model',call_model),patch.object(requests,'patch_plan',patch_plan),patch.object(validation,'validate_and_normalize',checked),patch.object(validation,'strict_plan_issues',strict),patch.object(identity,'resolve_chapter',lambda *a,**k:{}),patch.object(posture,'ask_json',posture_reply),patch.object(httpx.HTTPTransport,'handle_request',side_effect=AssertionError('no real HTTP')),redirect_stdout(io.StringIO()):
        code=command.main(context=ctx)
       directory=base/'out/book/book_1'
       reports={p.name:json.loads(p.read_text()) for p in directory.glob('*.json') if p.name in ['planning_failed.json','chapter_script_report.json','chapter_script.json','episode_plan.json']}

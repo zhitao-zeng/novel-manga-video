@@ -51,6 +51,15 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
     with REBUILD_LOCK:
         ctx = packing_context.context_for_plan(episode_dir, bible_path, plan)
         ctx['source_script'] = script
+        if (episode_dir / 'posture_states.json').is_file():
+            from novel_manga.application.packing.posture import fill, changed_stages
+            previous = read(episode_dir / 'posture_states.json', {})
+            ctx['posture_states'] = fill(episode_dir, script=script, previous=previous, write=False)
+            dependent = changed_stages(previous, ctx['posture_states'])
+            clip_ids = clip_ids | {c['clip_id'] for c in plan['clips']
+                                  if dependent.intersection(c.get('shot_indexes', []))}
+            if repack_report is not None:
+                repack_report['_posture_states'] = ctx['posture_states']
         if (episode_dir / 'visor_states.json').is_file():
             from novel_manga.application.packing.visor import fill
             ctx['visor_states'] = fill(episode_dir, script=script, write=False)
@@ -59,7 +68,8 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
         from novel_manga.story.h3 import source_crowds
         bible_data=ctx['bible'].model_dump()
         source_segments={str(s.get('segment_id')):s.get('text','') for s in ctx['identity_data'].segments}
-        shots = packing_service.prepared_shots(copy.deepcopy(script), episode_dir, identity_data=ctx.get("identity_data"))
+        shots = packing_service.prepared_shots(copy.deepcopy(script), episode_dir, identity_data=ctx.get("identity_data"),
+                                               posture_states=ctx.get('posture_states'))
         from novel_manga.application.preparation.readiness import location_issues
         by_index = {s['index']: s for s in shots}
         recut = {c['clip_id'] for c in plan.get('clips', []) if c['clip_id'] in clip_ids
@@ -67,7 +77,7 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
         recut_ids = set()
         if recut:
             from novel_manga.application.packing.blocked import repack
-            plan, report = repack(episode_dir, plan, script, targets=recut)
+            plan, report = repack(episode_dir, plan, script, targets=recut, context=ctx)
             recut_ids = {cid for group in report['groups'] for cid in [*group['old'], *group['new']]}
             if repack_report is not None:
                 repack_report.update(report)
@@ -161,6 +171,7 @@ def _proposal_data(novel_dir: Path, index: int, *, save_evidence=False, use_hist
         affected = {c['clip_id'] for c in plan['clips'] if edited_stages.intersection(c.get('shot_indexes', []))}
         new_plan, changed = rebuild_clips(episode_dir, novel_dir / "story_bible.json", script, plan, affected, repack_report=structural)
         visor_states = structural.pop('_visor_states', None)
+        posture_states = structural.pop('_posture_states', None)
     except Exception as error:  # noqa: BLE001 - one episode's rebuild must not take the batch down
         return {"episode": index, "clips": 0, "failing": len(failing), "why": f"rebuild failed: {type(error).__name__}: {str(error)[:100]}"}
     if identity and set(failing) - set(changed):
@@ -173,6 +184,8 @@ def _proposal_data(novel_dir: Path, index: int, *, save_evidence=False, use_hist
                               'structural_repair': structural}
     if visor_states is not None:
         result['proposal']['visor_states'] = visor_states
+    if posture_states is not None:
+        result['proposal']['posture_states'] = posture_states
     return result
 
 

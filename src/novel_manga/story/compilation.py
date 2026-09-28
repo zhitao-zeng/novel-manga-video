@@ -8,6 +8,7 @@ import re
 from .dialogue import merged_turns
 from .framing import blocking_note
 from .identity import mentioned_names
+from .posture import phrase as posture_phrase
 from novel_manga.models.bible import StoryBible
 
 
@@ -497,6 +498,7 @@ class ClipCompiler:
                 lines.append("【视觉语法】" + axes + "。")
         for index, shot in enumerate(shots):
             label = STAGE_LABELS[index]
+            posture = posture_phrase(shot)
             if index == 0:
                 head = f"{shot['shot_scale']}开场。开始时：{self.compact(shot['visual_prompt'])}"
             elif shot.get('scene_id'):
@@ -508,6 +510,8 @@ class ClipCompiler:
             # directed path to invent a field so the sentence can be printed.
             if self.compact(shot.get('scene_time', '')):
                 head += f"。故事时间：{self.compact(shot['scene_time'])}"
+            if posture:
+                head += f"。人物姿态：{posture}"
             def carried(field: str, label: str) -> str:
                 value = self.compact(shot.get(field, ""))
                 if not value:

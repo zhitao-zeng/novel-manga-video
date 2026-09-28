@@ -47,7 +47,7 @@ def turn_stream(shots: list[dict]) -> list[tuple]:
     return result
 
 
-def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | None = None) -> tuple[dict, dict]:
+def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | None = None, context=None) -> tuple[dict, dict]:
     scope = targets
     addresses = collapsed_source_addresses(plan, script)
     if scope is not None:
@@ -58,8 +58,9 @@ def repack(directory: Path, plan: dict, script: dict, *, targets: set[str] | Non
             if clip['clip_id'] in addresses:
                 clip['shot_indexes'] = addresses[clip['clip_id']]
     targets = (set(plan_issues(plan, script)) | set(addresses)) if scope is None else set(scope)
-    ctx = packing_context.context_for_plan(directory, directory.parent / 'story_bible.json', plan)
-    shots = packing_service.prepared_shots(copy.deepcopy(script), directory, identity_data=ctx.get("identity_data"))
+    ctx = context if context is not None else packing_context.context_for_plan(directory, directory.parent / 'story_bible.json', plan)
+    shots = packing_service.prepared_shots(copy.deepcopy(script), directory, identity_data=ctx.get("identity_data"),
+                                          posture_states=ctx.get('posture_states'))
     # Explicit part numbers can be internally consistent yet no longer match
     # the shortened source stage (e.g. 359 / stage 6). Check reconstruction too.
     for clip in plan.get('clips', []):
