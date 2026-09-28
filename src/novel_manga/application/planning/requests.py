@@ -23,6 +23,7 @@ from novel_manga.planning.methods.blueprint import blueprint_schema, blueprint_p
 from novel_manga.planning.methods.prompts import screenplay_prompt
 
 from novel_manga.planning.methods.errors import IncompleteOutlineError
+from novel_manga.planning.binding import AUTHORED_FIELDS
 
 
 def generate_outline(client: httpx.Client, endpoints: list[str], headers: dict, *, model: str, payload: dict,
@@ -103,7 +104,16 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
         raise ValueError("nothing to patch")
     prop_names = list(dict.fromkeys(p for clip in raw.get('clips', []) for stage in clip.get('stages', [])
                                    for p in [*(stage.get('props') or []), *(stage.get('wears') or {}).values()] if p))
-    stage_of = lambda ids: pc_contracts.build_schema(names, locations, ids, ctx=ctx, prop_names=prop_names)["properties"]["clips"]["items"]["properties"]["stages"]["items"]  # noqa: E731
+    split_labels = set(split_labels) & set(faulty)
+    binding_labels = set(faulty) if ctx.authored_storyboard and not split_labels else set()
+
+    def stage_of(ids, *, binding_only=False):
+        stage = pc_contracts.build_schema(names, locations, ids, ctx=ctx, prop_names=prop_names)["properties"]["clips"]["items"]["properties"]["stages"]["items"]
+        if binding_only:
+            stage["properties"] = {key: field for key, field in stage["properties"].items()
+                                   if key not in AUTHORED_FIELDS}
+            stage["required"] = [key for key in stage["required"] if key not in AUTHORED_FIELDS]
+        return stage
     outline = []
     for clip in raw.get("clips", []):
         stages = clip.get("stages") or []
@@ -120,10 +130,10 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
                                "stage": stage_of(missing_ids or segment_ids)}}},
             "replacements": {"type": "array", "minItems": len(faulty), "maxItems": len(faulty), "items": {
                 "type": "object", "additionalProperties": False, "required": ["label", "stage"],
-                "properties": {"label": {"type": "string", "enum": list(faulty) or ["-"]}, "stage": stage_of(segment_ids)}}},
+                "properties": {"label": {"type": "string", "enum": list(faulty) or ["-"]},
+                               "stage": stage_of(segment_ids, binding_only=bool(binding_labels) and not split_labels)}}},
         },
     }
-    split_labels = set(split_labels) & set(faulty)
     if split_labels:
         schema['properties']['replacements']['items']['properties']['continuations'] = {
             'type': 'array', 'maxItems': 6, 'items': stage_of(segment_ids)}
@@ -131,8 +141,13 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
     if missing_ids:
         parts.append(f"原文里有 {len(missing_ids)} 个区段还没有任何阶段引用（{'、'.join(missing_ids)}）。为每个遗漏区段补写恰好一个阶段，插进最合适的 clip"
                      "（after_stage 是插在该 clip 第几个阶段之后，0 表示放在最前）；新阶段的 segment_id 必须是该遗漏区段。")
-    if faulty:
+    if faulty and not binding_labels:
         parts.append(f"另有 {len(faulty)} 个阶段没过硬门检查，逐个重写整个阶段（label 原样填回，segment_id 不变），只修错误指出的问题，其余内容尽量保持。")
+    elif faulty:
+        parts.append(f"另有 {len(faulty)} 个阶段没过硬门检查（label 原样填回，segment_id 不变）。"
+                     "未要求拆镜的阶段只修Schema中的绑定字段；作者只读上下文由调用方原样保留，不要回抄进stage。"
+                     "缺失的可选字段保持原值；明确清除时返回空数组或null。"
+                     "wears仅填写人物名到穿戴物的关系，作者字段、镜号、时长和叙事目的都不是穿戴者。")
     if split_labels:
         parts.append(f"镜头{sorted(split_labels)}需要明确拆镜：stage写第一镜，continuations写后续完整镜头。"
                      f"每镜按实际对白估算不得超过{ctx.max_clip_seconds:g}秒，逐镜独立写起点、事件、末态、机位和光源。"
@@ -158,7 +173,18 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
     for label, errs in faulty.items():
         clip_index, stage_index = slots[label]
         stage = raw["clips"][clip_index]["stages"][stage_index]
-        parts.append(f"问题阶段 {label}\n错误：" + " | ".join(errs) + f"\n当前内容：{json.dumps(stage, ensure_ascii=False)}")
+        heading = f"问题阶段 {label}\n错误：" + " | ".join(errs)
+        if label in binding_labels:
+            fields = stage_of(segment_ids, binding_only=True)['properties']
+            current = {key: value for key, value in stage.items() if key in fields}
+            # Mechanical IDs and import bookkeeping have no bearing on the requested binding.
+            # The author-owned performance remains available, separately from writable fields.
+            readonly = {key: stage[key] for key in AUTHORED_FIELDS if key in stage
+                        and key in {'event', 'shot_scale', 'camera', 'duration_seconds', 'purpose', 'sfx', 'turns'}}
+            parts.append(heading + f"\n可修改绑定内容：{json.dumps(current, ensure_ascii=False)}"
+                         + f"\n作者只读上下文（仅供核对，调用方原样保留，不输出）：{json.dumps(readonly, ensure_ascii=False)}")
+        else:
+            parts.append(heading + f"\n当前内容：{json.dumps(stage, ensure_ascii=False)}")
         shown.append(str(stage.get("segment_id")))
     for sid in dict.fromkeys(shown):
         if sid in texts:
@@ -167,7 +193,7 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
     return ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget, timeout=timeout, retry_truncated=False)
 
 
-def _apply_patch(raw, verdict, split_labels):
+def _apply_patch(raw, verdict, split_labels, *, authored=False):
     """All reply addresses refer to this original draft, including across batches."""
     slots = pc_validation.stage_slots(raw)
     split_labels = set(split_labels)
@@ -186,7 +212,13 @@ def _apply_patch(raw, verdict, split_labels):
             from novel_manga.story.voice_delivery import speech_sequence
             if speech_sequence([original]) != speech_sequence([item['stage'], *extra]):
                 raise ValueError('voice split changed authored words, speaker, delivery or inner_monologue')
-        replacements[slot] = [item['stage'], *extra]
+        if authored and label not in split_labels:
+            saved = patched['clips'][slot[0]]['stages'][slot[1]]
+            corrected = {**saved, **item['stage']}
+            corrected.update({key: saved[key] for key in AUTHORED_FIELDS if key in saved})
+            replacements[slot] = [corrected]
+        else:
+            replacements[slot] = [item['stage'], *extra]
     insertions = {}
     counts = {str(c['clip_id']): len(c.get('stages') or []) for c in raw['clips']}
     for item in verdict.get('insertions', []):
@@ -210,7 +242,7 @@ def patch_plan(raw: dict, missing_ids: list[str], faulty: dict[str, list[str]], 
     """Make one local proposal; the caller validates the copied draft before adopting it."""
     reply = _patch_reply(raw, missing_ids, faulty, segments, names, locations,
                          timeout=timeout, ctx=ctx, split_labels=split_labels)
-    return _apply_patch(raw, reply, split_labels)
+    return _apply_patch(raw, reply, split_labels, authored=ctx.authored_storyboard)
 
 
 def patch_batches(raw, missing_ids, faulty, segments, names, locations, *, timeout, total_timeout,
@@ -258,7 +290,7 @@ def patch_batches(raw, missing_ids, faulty, segments, names, locations, *, timeo
             if sorted(labels) != sorted(errors) or sorted(inserted) != sorted(missing):
                 raise ValueError('patch did not return exactly its requested stages and segments')
             candidate = {key: [*combined[key], *reply.get(key, [])] for key in combined}
-            patched = _apply_patch(raw, candidate, split_labels)
+            patched = _apply_patch(raw, candidate, split_labels, authored=ctx.authored_storyboard)
         except Exception as error:  # noqa: BLE001 - other batches retain their own proposals
             yield {**row, 'failed': f'{type(error).__name__}: {str(error)[:120]}',
                    'elapsed_seconds': round(time.monotonic() - started, 1)}
