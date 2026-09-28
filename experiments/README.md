@@ -2,6 +2,8 @@
 
 这里的入口不参与生产调度。正式生产和看板入口见根目录 README。
 
+独立实验分支、保留位置与退休工作树恢复方式见[分支归档索引](branch-archive-index.md)。
+
 - [`agent-skill-sandbox/`](agent-skill-sandbox/README.md)：2026-09-18 至 09-20 六技能、读书归并与参考图实验的整理归档；任务输入、结论及两个只分析已有素材的工具。当前采用情况在其 README 中单独说明。
 
 - `benchmark_*`：规划、生成速度、修复原因及构图的对照实验。
