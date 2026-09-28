@@ -1,0 +1,147 @@
+{
+  "source_branch": "exp/agent-skill-writing",
+  "source_revision": "c3939409619a251571212f4977a5f550870e71d4",
+  "archived_on": "2026-09-28",
+  "files": [
+    {
+      "source_path": "experiments/agent-skill-sandbox/README.md",
+      "archive_path": "experiments/agent-skill-sandbox/records/README-20260920.md",
+      "treatment": "historical banner added"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/HANDOFF-20260920.md",
+      "archive_path": "experiments/agent-skill-sandbox/records/HANDOFF-20260920.md",
+      "treatment": "sections 0-6 retained; superseded session/environment sections omitted"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/assets/STYLE_APPROVED.md",
+      "archive_path": "experiments/agent-skill-sandbox/assets/STYLE_APPROVED.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/common/任务说明.md",
+      "archive_path": "experiments/agent-skill-sandbox/common/任务说明.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/common/prompt_template.txt",
+      "archive_path": "experiments/agent-skill-sandbox/common/prompt_template.txt",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/common_v2/任务说明.md",
+      "archive_path": "experiments/agent-skill-sandbox/common_v2/任务说明.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/common_v2/任务说明_山音.md",
+      "archive_path": "experiments/agent-skill-sandbox/common_v2/任务说明_山音.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/common_v2/人物与画风.md",
+      "archive_path": "experiments/agent-skill-sandbox/common_v2/人物与画风.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/ch2/任务说明.md",
+      "archive_path": "experiments/agent-skill-sandbox/ch2/任务说明.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/ch2/人物与画风.md",
+      "archive_path": "experiments/agent-skill-sandbox/ch2/人物与画风.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/ch2/前情与下一集.md",
+      "archive_path": "experiments/agent-skill-sandbox/ch2/前情与下一集.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/任务说明.md",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/任务说明.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/任务说明_山音.md",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/任务说明_山音.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/人物与画风.md",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/人物与画风.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/chaopin/任务说明.md",
+      "archive_path": "experiments/agent-skill-sandbox/chaopin/任务说明.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/chaopin/人物与画风.md",
+      "archive_path": "experiments/agent-skill-sandbox/chaopin/人物与画风.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_分析.md",
+      "archive_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_分析.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_归并.md",
+      "archive_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_归并.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_分镜.md",
+      "archive_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_分镜.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_卷级整理.md",
+      "archive_path": "experiments/agent-skill-sandbox/pilot100/briefs/任务说明_卷级整理.md",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/prompts/shanyin.txt",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/prompts/shanyin.txt",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/prompts/community.txt",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/prompts/community.txt",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/prompts/drama.txt",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/prompts/drama.txt",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/prompts/dream.txt",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/prompts/dream.txt",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/prompts/leos.txt",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/prompts/leos.txt",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/futianshi/prompts/visual.txt",
+      "archive_path": "experiments/agent-skill-sandbox/futianshi/prompts/visual.txt",
+      "treatment": "copied"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/render/refsheet.py",
+      "archive_path": "experiments/agent-skill-sandbox/tools/reference_contact_sheet.py",
+      "treatment": "adapted: explicit input/output CLI, no hard-coded experiment root or generation service"
+    },
+    {
+      "source_path": "experiments/agent-skill-sandbox/voice_v2.py",
+      "archive_path": "experiments/agent-skill-sandbox/tools/voice_budget.py",
+      "treatment": "adapted: explicit input/output CLI, no hard-coded experiment root or generation service"
+    }
+  ]
+}
