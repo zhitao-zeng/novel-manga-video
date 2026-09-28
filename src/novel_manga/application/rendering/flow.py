@@ -368,6 +368,9 @@ class ThinMediaRunner:
         if remaining is not None and remaining<=0:
             raise ValueError('effective clip retry budget used; current cached take retained')
         wait_for_inflight_redraws(references)
+        if generation.uses_h3_prompt(self.context, clip):
+            from novel_manga.application.preparation.request_check import before_generation
+            before_generation(self.context, clip, request)
         atomic_write_json(directory / "request.json", request)
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
         started = time.monotonic()

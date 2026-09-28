@@ -103,3 +103,17 @@ def test_review_reads_current_actual_stage_states_and_split_position(tmp_path):
     shots[2]['motion_prompt'] = '托尼掀开面罩'
     (directory / 'chapter_script.json').write_text(json.dumps({'shots': shots}))
     assert visor.recorded_clip_states(directory, {'shot_indexes': [3]}) == {}
+
+
+def test_questioned_model_state_can_be_re_read_without_rewriting_the_script_or_other_records(tmp_path):
+    directory, shots = episode(tmp_path)
+    original = (directory / 'chapter_script.json').read_bytes()
+    before = visor.fill(directory, ask=lambda q: {'stages': [{'index': 1, 'state': 'closed'}, {'index': 3, 'state': 'closed'}]})
+    asked = []
+    candidate = visor.fill(directory, write=False, reconsider={'托尼': {1: '本镜需要露出脸部表演，闭合图与之冲突'}},
+                           ask=lambda q: asked.append(q) or {'stages': [{'index': 1, 'state': 'opening'}]})
+    assert '只需补这些编号：[1]' in asked[0] and '不能把旧判断或参考图本身当成证据' in asked[0]
+    assert candidate['wearers']['托尼']['1']['state'] == 'opening'
+    assert candidate['wearers']['托尼']['3'] == before['wearers']['托尼']['3']
+    assert json.loads((directory / visor.FILE).read_text()) == before
+    assert (directory / 'chapter_script.json').read_bytes() == original

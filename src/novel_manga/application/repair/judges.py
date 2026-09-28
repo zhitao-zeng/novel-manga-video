@@ -207,19 +207,3 @@ def rewrite_clip(passage, shots, snapshot, issue, names, history, reframe, reque
                     reframe, request_context, require_structure=require_structure) + identity_prompt}],
                     schema, name="clip_repair", max_tokens=max(2400, min(4500, 800 * len(indexes))) if reframe else 1500,
                     settings=judge_settings())
-
-
-def request_consistency(clip: dict, issue: str) -> dict:
-    """Review the actual final request after rewriting, before a video slot is spent."""
-    schema = {'type':'object','additionalProperties':False,'required':['consistent','problems'],
-              'properties':{'consistent':{'type':'boolean'},'problems':{'type':'array','items':{'type':'string'}}}}
-    prompt = ('核对一段修复后的实际拍摄指令，判断原有问题是否已在请求层解决。'
-              '不评价尚未生成的视频，不改台词。重点核对：同一个人是否同时被安排在过肩前景与背景/对面；'
-              '机位是否要求看到本应背对镜头的人脸；起止状态和动作方向是否一致；面罩开合、穿戴、'
-              '独立物件与人物空间位置是否矛盾；动作被取消后是否还保留暗示旧动作的同期声。角色可以转身、镜头可以切换，但指令必须明确这种变化。'
-              '“只出现一个人”这样的总声明不能抵消逐镜正文里的两个位置。'
-              '有任何上述冲突或未落实的修复要求，consistent=false并逐项引用冲突原句；否则true。\n'
-              '待修问题：'+issue+'\n中文分镜请求：'+str(clip.get('prompt',''))+'\n最终英文：'+str(clip.get('prompt_h3','')))
-    from novel_manga.application.configuration import h3_translation_endpoint
-    return ask_json([{'type':'text','text':prompt}],schema,name='repair_request_consistency',max_tokens=900,
-                    settings=h3_translation_endpoint())

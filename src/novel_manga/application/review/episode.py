@@ -85,6 +85,15 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
                                   and old.get('source_segment_ids') != (clip.get('segment_ids') or []))
             if same_take and not source_changed:
                 verdict = {key: value for key, value in old.items() if key not in ("video", "take")}
+                from novel_manga.application.review import adjudication
+                if cast_video.enabled() and adjudication.outdated(verdict):
+                    from novel_manga.application.packing.visor import recorded_clip_states
+                    checked_clip = {**clip, 'review_visor_states': recorded_clip_states(episode_dir, clip)}
+                    verdict = adjudication.review(checked_clip, video, bible, episode_dir / 'work' / 'review' / clip_id, verdict)
+                elif cast_video.enabled() and (verdict.get('verify') or {}).get('adjudication'):
+                    from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
+                    if ((verdict.get('verify') or {}).get('request_check') or {}).get('policy') != INPUT_POLICY:
+                        verdict = adjudication.check_inputs(clip, episode_dir / 'work' / 'review' / clip_id, verdict)
             else:
                 cached = ((old.get('verify') or {}).get('cast_video') if same_take and source_changed else None)
                 options = {'cached_cast': cached} if cached and cast_video.enabled() else {}

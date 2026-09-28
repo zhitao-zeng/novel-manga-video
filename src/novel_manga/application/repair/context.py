@@ -1,7 +1,7 @@
 """Load one chapter context for all of its local repair candidates."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from novel_manga.story.catalog import IdentityCatalog
 from pathlib import Path
 from novel_manga.planning.context import PlannerContext
@@ -22,6 +22,7 @@ class RepairChapter:
     protected_bindings: dict
     catalog: IdentityCatalog
     identities: dict
+    posture_states: dict = field(default_factory=dict)
 
 
 def prepare_context(novel_dir, index, script, segments, *, identity=False, identities=None, episode_dir=None):
@@ -63,4 +64,11 @@ def prepare_context(novel_dir, index, script, segments, *, identity=False, ident
     by_index = {int(s.get("index", i)): s for i, s in enumerate(script.get("shots", []), 1)}
     seg_rows = [{"segment_id": k, "text": v} for k, v in segments.items()]
     snapshot = ledger_snapshot_for(novel_dir, index, seg_rows, cast_here, names) if cast_here else {}
-    return RepairChapter(episode_dir, bible, names, cast_here, by_index, segments, snapshot, identity_reading, identity_data, protected_bindings, catalog, identities)
+    from novel_manga.util import read_json
+    posture = read_json(episode_dir / 'posture_states.json', {})
+    if posture:
+        from novel_manga.application.packing.posture import material, POLICY
+        if posture.get('policy') != POLICY or posture.get('inputs') != material(script, seg_rows) or posture.get('issues'):
+            posture = {}
+    return RepairChapter(episode_dir, bible, names, cast_here, by_index, segments, snapshot, identity_reading, identity_data,
+                         protected_bindings, catalog, identities, posture.get('stages', {}))

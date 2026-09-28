@@ -11,6 +11,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from PIL import Image
+from novel_manga.application.preparation import request_check
 
 import novel_manga.application.rendering.flow as rendering
 from support.render_context import uninitialized_runner
@@ -32,7 +34,7 @@ def runner_for(tmp_path, monkeypatch, clip, *, plan=None):
     for ref in clip.get("references") or []:            # a referenced card exists on disk
         path = directory.parent / ref["path"]
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"jpeg")
+        Image.new('RGB', (16, 16), 'white').save(path)
     r = uninitialized_runner()
     r.context.episode_dir, r.context.novel_dir = directory, directory.parent
     r.context.work = directory / "work"
@@ -104,6 +106,7 @@ def test_current_translation_still_submits(tmp_path, monkeypatch):
     fresh = _bound()
     fresh["prompt_h3_of"] = h3_stamp(fresh)
     r = runner_for(tmp_path, monkeypatch, fresh)
+    monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k: {'observations': ['参考一致'], 'findings': []})
     submitted = []
 
     class Slot:
@@ -154,8 +157,24 @@ def test_a_matching_cached_take_is_reused_not_regated(tmp_path, monkeypatch):
                                                         "prompt": PROMPT, "references": [],
                                                         "reference_sha256": [], "repair_take": 0}), encoding="utf-8")
     r = runner_for(tmp_path, monkeypatch, clip)
+    monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k: pytest.fail('cached take needs no new model check'))
     out = r.generate_clip(clip, 1)
     assert out.name == "clip.mp4"                       # 复用，没走到提交闸门
+
+
+def test_wrong_reference_request_is_blocked_before_video_slot_or_attempt_charge(tmp_path, monkeypatch):
+    from novel_manga.application.profiles import h3_stamp
+    clip = _bound()
+    clip['prompt_h3_of'] = h3_stamp(clip)
+    r = runner_for(tmp_path, monkeypatch, clip)
+    monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k:
+                        {'observations': ['参考衣着与请求不符'], 'findings': [{'basis': 'reference', 'aspect': 'appearance',
+                          'picture': 1, 'lines': [1], 'subject_specific': True, 'conflict': True, 'reason': '图1是马甲，请求写西装'}]})
+    monkeypatch.setattr(rendering, 'acquire_inflight_slot', lambda *a, **k: pytest.fail('must not use a video slot'))
+    monkeypatch.setattr(rendering, 'wait_for_inflight_redraws', lambda *a: None)
+    with pytest.raises(ValueError, match='reference mismatch'):
+        r.generate_clip(clip, 1)
+    assert clip['_generated'] is False and r.context._blocked_clips['clip_01']
 
 
 def _outdated(clip) -> bool:

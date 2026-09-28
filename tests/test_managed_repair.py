@@ -1,3 +1,4 @@
+from novel_manga.application.preparation import request_check
 from support.managed_episode import fixture_episode
 from novel_manga.media import cache
 import novel_manga.story.source_identity as source_identity_rules
@@ -206,7 +207,7 @@ def test_one_render_is_recorded_for_every_prepared_clip_and_counted_once(tmp_pat
 
 
 def test_reframe_recut_translates_and_tracks_every_replacement(tmp_path, monkeypatch):
-    monkeypatch.setattr(repair_judges, 'request_consistency', lambda *a: {'consistent': True, 'problems': []})
+    monkeypatch.setattr(request_check, 'request_consistency', lambda *a: {'consistent': True, 'problems': []})
     import novel_manga.application.rendering.h3 as build_h3_prompts
     import novel_manga.application.repair.diagnosis as diagnose_clip_repair
     import novel_manga.application.packing.blocked as repair_blocked_plan
@@ -251,8 +252,71 @@ def test_inconsistent_repair_request_is_not_published_or_charged(tmp_path, monke
         from novel_manga.application.profiles import h3_stamp
         clip.update(prompt_h3='safe words');clip['prompt_h3_of']=h3_stamp(clip,'')
     monkeypatch.setattr(h3,'convert',convert)
-    monkeypatch.setattr(repair_judges,'request_consistency',lambda *a:{'consistent':False,'problems':['同一人在前景和背景']})
+    monkeypatch.setattr(request_check,'request_consistency',lambda *a:{'consistent':False,'problems':['同一人在前景和背景']})
     result=managed.prepare(d,['a'])
     assert len(calls)==2 and not result['changed'] and 'a' in result['blocked']
     assert (d/'clip_plan.json').read_text()==original
     assert not history.load(d)['trials'] and not managed.generated_counts(history.load(d))
+
+
+def test_actual_input_conflict_overrides_a_generation_mismatch_route(tmp_path, monkeypatch):
+    import novel_manga.application.packing.blocked as blocked
+    d, clips, reviews = fixture_episode(tmp_path)
+    clips[0].update(prompt_h3='A dark suit.', references=[{'role': 'character', 'name': '席勒', 'path': 'card.jpeg'}])
+    (d / 'clip_plan.json').write_text(json.dumps({'clips': clips}))
+    monkeypatch.setattr(blocked, 'repair_episode', lambda *a, **k: {'changed': []})
+    monkeypatch.setattr(request_check, 'current_request', lambda *a:
+                        {'observations': ['参考白衬衫马甲'], 'consistent': False, 'problems': ['请求写深色西装']})
+    monkeypatch.setattr(managed, 'whole_take_decision', lambda *a: pytest.fail('input conflict must be corrected first'))
+    proposed = []
+    def reframe(*a, **kw):
+        proposed.append(kw)
+        return {'changed': [], 'why': 'no acceptable candidate'}
+    monkeypatch.setattr(repair, 'repair_episode', reframe)
+    result = managed.prepare(d, ['a'])
+    assert proposed[0]['reframe'] is True and '深色西装' in proposed[0]['source_issues']['a']
+    assert 'a' in result['blocked'] and not history.load(d)['trials']
+
+
+def test_rejected_first_request_can_rewrite_without_existing_footage_or_spending_a_take(tmp_path, monkeypatch):
+    d, clips, _ = fixture_episode(tmp_path)
+    clips[0]['prompt_h3'] = 'dark clothes'
+    (d / 'clip_plan.json').write_text(json.dumps({'clips': clips}))
+    (d / 'thin_media_report.json').write_text(json.dumps({'clips': []}))
+    (d / 'episode_review.json').write_text(json.dumps({'clips': {}, 'feedback': {}}))
+    monkeypatch.setattr(request_check, 'current_request', lambda *a:
+                        {'consistent': False, 'observations': ['white shirt'], 'problems': ['dark clothes conflict']})
+    after = copy.deepcopy(clips); after[0].update(prompt='白衬衫', prompt_h3='white shirt')
+    monkeypatch.setattr(managed, 'reframe_candidate', lambda *a: ({'changed': ['a'], 'proposal': {
+        'script': {'shots': []}, 'plan': {'clips': after}, 'notes': {}, 'changes': {}}}, []))
+    result = managed.prepare_request_conflicts(d, {'blocked_clips': {'a': ['request: wrong clothes']}})
+    assert result['changed'] == ['a'] and not result['blocked']
+    assert json.loads((d / 'clip_plan.json').read_text())['clips'][1] == clips[1]
+    record = history.load(d)
+    assert record['trials'][-1]['managed'] and managed.generated_counts(record) == {}
+
+
+def test_unchanged_failed_input_repair_is_not_repeated_each_render_round(tmp_path, monkeypatch):
+    d, clips, _ = fixture_episode(tmp_path)
+    clips[0]['prompt_h3'] = 'dark clothes'
+    (d / 'clip_plan.json').write_text(json.dumps({'clips': clips}))
+    calls = []
+    monkeypatch.setattr(request_check, 'current_request', lambda *a:
+                        {'consistent': False, 'observations': [], 'problems': ['wrong clothes']})
+    monkeypatch.setattr(managed, 'reframe_candidate', lambda *a: (calls.append(1) or {'changed': [], 'why': 'invalid candidate'}, []))
+    report = {'blocked_clips': {'a': ['request: wrong clothes']}}
+    for _ in range(2):
+        result = managed.prepare_request_conflicts(d, report)
+        assert not result['changed'] and 'a' in result['blocked']
+    assert calls == [1] and not history.load(d)['trials']
+
+
+def test_candidate_validation_failure_is_returned_to_the_second_rewrite(tmp_path, monkeypatch):
+    calls = []
+    def propose(*args, **kwargs):
+        calls.append(kwargs['source_issues']['a'])
+        return {'changed': [], 'why': 'rebuild failed: ValueError: 原稿坐着，候选改成站着'}
+    monkeypatch.setattr(repair, 'repair_episode', propose)
+    result, checks = managed.reframe_candidate(tmp_path / 'book_1', 'a', '只修脚步声')
+    assert len(calls) == 2 and '原稿坐着，候选改成站着' in calls[1]
+    assert not result['changed'] and not checks

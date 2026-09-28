@@ -22,6 +22,7 @@ from novel_manga.story.h3 import request_issues, identity_issues, correction
 from novel_manga.application.repair.inputs import RepairInputs
 
 MAX_GENERATED_TAKES = 3
+REFRAME_POLICY = 'reframe-v3-reference-state-and-candidate-feedback'
 
 
 def generation_limit(directory: Path, cid: str, *, grants: dict | None = None) -> int:
@@ -53,9 +54,12 @@ def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = N
 
 def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inputs: RepairInputs | None = None) -> dict:
     inputs = inputs if inputs is not None else RepairInputs.load(directory)
-    return {'clip':history.accepted_clip_material(clip),
+    from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
+    return {'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
             'note':inputs.notes.get(clip['clip_id'],''),
             'source':source_state(directory,clip,inputs=inputs),'take':takes.get(clip['clip_id']),
+            'error_kinds': (verdict.get('verify') or {}).get('error_kinds', []),
+            'request_conflict': (verdict.get('verify') or {}).get('request_conflict', False),
             'evidence':(verdict.get('verify') or {}).get('evidence',verdict.get('story_issue',''))}
 
 
@@ -104,6 +108,106 @@ def candidates(directory: Path, review: dict | None = None) -> tuple[list[str],d
     return wanted,blocked
 
 
+def reframe_candidate(directory: Path, cid: str, issue: str):
+    """One bounded rewrite/check path shared by video repair and first-take input repair."""
+    from novel_manga.application.repair.flow import repair_episode
+    from novel_manga.application.rendering.h3 import convert
+    from novel_manga.application.profiles import h3_prompt_outdated
+    from novel_manga.application.preparation.request_check import request_consistency
+    request_checks = []
+    for revision in range(2):
+        result = repair_episode(directory.parent,ep_names.chapter_of(directory.name),False,
+                                reframe=True,source_issues={cid:issue},return_proposal=True,episode_dir=directory)
+        if cid not in result.get('changed', []):
+            if revision == 0 and str(result.get('why', '')).startswith('rebuild failed:'):
+                issue += ('\n上次候选未通过场景解析/编译：' + result['why']
+                          + '。只修原有输入冲突，保留原稿其他人物姿态、机位、动作、对白和时长。')
+                continue
+            break
+        trial_plan = result['proposal']['plan']
+        problems = []
+        for checked_entry in trial_plan['clips']:
+            if checked_entry['clip_id'] not in result['changed']:
+                continue
+            note = result['proposal']['notes'].get(checked_entry['clip_id'], '')
+            convert(checked_entry, note=note)
+            if h3_prompt_outdated(checked_entry, note) or request_issues(checked_entry):
+                problems.append('英文请求格式或绑定未通过')
+                continue
+            checked = request_consistency(checked_entry, directory.parent)
+            request_checks.append({'clip_id': checked_entry['clip_id'], 'revision': revision+1, **checked})
+            if not checked.get('consistent') or checked.get('problems'):
+                problems.extend(checked.get('problems') or ['修复要求未落实'])
+        affected = {i for c in trial_plan['clips'] if c['clip_id'] in result['changed'] for i in c.get('shot_indexes', [])}
+        atomic_write_json(directory / 'work' / 'request_checks' / f'{cid}.repair-{revision+1}.json', {
+            'stage': 'candidate_before_publication', 'revision': revision+1,
+            'shots': [s for i,s in enumerate(result['proposal']['script'].get('shots', []), 1)
+                      if s.get('index', i) in affected],
+            'clips': [c for c in trial_plan['clips'] if c['clip_id'] in result['changed']],
+            'checks': request_checks,
+            'visor_states': result['proposal'].get('visor_states'),
+        })
+        if not problems:
+            break
+        if revision == 1:
+            raise ValueError('修后请求仍矛盾：'+'；'.join(problems))
+        issue += '\n上一候选在最终请求检查中失败，重新修改源分镜以消除：'+'；'.join(problems)
+    return result, request_checks
+
+
+def prepare_request_conflicts(directory: Path, report: dict) -> dict:
+    """A rejected first request has no video to review, but can use the existing rewrite path."""
+    from novel_manga.application.preparation.request_check import current_request
+    changed, blocked, checks = [], {}, []
+    counts = generated_counts(history.load(directory))
+    decisions = read(directory / 'repair_routing.json', {})
+    for cid, reasons in report.get('blocked_clips', {}).items():
+        if cid in changed or not any(r.startswith('request:') for r in reasons):
+            continue
+        if counts.get(cid, 0) >= generation_limit(directory, cid):
+            blocked[cid] = 'effective clip retry budget used'
+            continue
+        clip = next((c for c in read(directory / 'clip_plan.json', {}).get('clips', []) if c['clip_id'] == cid), None)
+        if clip is None or not clip.get('prompt_h3'):
+            continue
+        before = input_state(directory, clip, {}, {})
+        previous = decisions.get(cid, {})
+        if previous.get('stage') == 'input_repair' and previous.get('status') == 'blocked' and previous.get('inputs') == before:
+            blocked[cid] = previous['reason']
+            continue
+        try:
+            checked = current_request(directory, clip)
+            if checked.get('consistent') is True and not checked.get('problems'):
+                continue
+            from novel_manga.application.repair.reference_state import propose as reference_state_proposal
+            candidate = reference_state_proposal(directory, clip, checked)
+            if candidate is not None:
+                publish_candidate(directory, candidate, 'reference_state_recheck', set(candidate.changed))
+                record = history.load(directory); record['trials'][-1]['managed'] = True; history.save(directory, record)
+                changed.extend(candidate.changed)
+                decisions[cid] = {'stage': 'input_repair', 'status': 'prepared', 'inputs': before}
+                atomic_write_json(directory / 'repair_routing.json', decisions)
+                continue
+            issue = ('实际请求与参考图冲突，生成尚未开始。保留原文、台词、时长和身份，只修冲突。'
+                     '\n参考图观察：' + '；'.join(checked.get('observations', []))
+                     + '\n冲突：' + '；'.join(checked.get('problems') or reasons))
+            result, evidence = reframe_candidate(directory, cid, issue)
+            checks.extend(evidence)
+            if cid not in result.get('changed', []):
+                raise ValueError('no effective input correction: ' + str(result.get('why', '')))
+            candidate = RepairProposal.from_result(result)
+            publish_candidate(directory, candidate, 'request_consistency', set(candidate.changed))
+            record = history.load(directory); record['trials'][-1]['managed'] = True; history.save(directory, record)
+            changed.extend(candidate.changed)
+            decisions[cid] = {'stage': 'input_repair', 'status': 'prepared', 'inputs': before}
+        except Exception as error:
+            blocked[cid] = str(error)[:350]
+            decisions[cid] = {'stage': 'input_repair', 'status': 'blocked', 'inputs': before, 'reason': blocked[cid]}
+        atomic_write_json(directory / 'repair_routing.json', decisions)
+    return {'changed': sorted(set(changed)), 'blocked': blocked, 'skip_render': not changed,
+            'request_checks': checks, 'stage': 'input_repair'}
+
+
 def prepare(directory: Path, targets: list[str] | None = None) -> dict:
     from novel_manga.application.repair.diagnosis import clip_context, diagnose_numbered
     from novel_manga.application.repair.flow import repair_episode
@@ -140,6 +244,15 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
         problem = identity_issues(clip)
         try:
             decision = source_decision(problem, precise, verified_source, correction(clip) if problem else '')
+            if decision is None and clip.get('prompt_h3') and any(r.get('role') != 'voice' for r in clip.get('references', [])):
+                from novel_manga.application.preparation.request_check import current_request
+                checked_input = current_request(directory, clip)
+                if checked_input.get('consistent') is not True or checked_input.get('problems'):
+                    from novel_manga.repair.policy import RepairDecision
+                    decision = RepairDecision('reframe', {'cause': 'request_mismatch',
+                        'reason': '；'.join(checked_input.get('problems') or ['当前请求与实际参考图不一致'])
+                                  + '\n参考图观察：' + '；'.join(checked_input.get('observations', [])),
+                        'request_check': checked_input})
             if decision is None:
                 decision = whole_take_decision(precise, history.repeated_errors(directory, cid))
             if decision is None:
@@ -153,32 +266,7 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
                 changed.extend(result['changed']);accepted.extend(result['accepted'])
             elif action=='reframe':
                 issue = str(verdict.get('feedback') or verdict.get('story_issue') or '按原文修正画面') + '\n判因：' + str(diagnosis.get('reason') or '')
-                from novel_manga.application.repair.judges import request_consistency
-                request_checks = []
-                for revision in range(2):
-                    result = repair_episode(directory.parent,ep_names.chapter_of(directory.name),False,
-                                            reframe=True,source_issues={cid:issue},return_proposal=True,episode_dir=directory)
-                    if cid not in result.get('changed', []):
-                        break
-                    trial_plan = result['proposal']['plan']
-                    problems = []
-                    for checked_entry in trial_plan['clips']:
-                        if checked_entry['clip_id'] not in result['changed']:
-                            continue
-                        note = result['proposal']['notes'].get(checked_entry['clip_id'], '')
-                        convert(checked_entry, note=note)
-                        if h3_prompt_outdated(checked_entry, note) or request_issues(checked_entry):
-                            problems.append('英文请求格式或绑定未通过')
-                            continue
-                        checked = request_consistency(checked_entry, issue)
-                        request_checks.append({'clip_id': checked_entry['clip_id'], 'revision': revision+1, **checked})
-                        if not checked.get('consistent') or checked.get('problems'):
-                            problems.extend(checked.get('problems') or ['修复要求未落实'])
-                    if not problems:
-                        break
-                    if revision == 1:
-                        raise ValueError('修后请求仍矛盾：'+'；'.join(problems))
-                    issue += '\n上一候选在最终请求检查中失败，重新修改源分镜以消除：'+'；'.join(problems)
+                result, request_checks = reframe_candidate(directory, cid, issue)
                 diagnosis['request_checks'] = request_checks
                 if cid not in result.get('changed',[]):
                     if result.get('proposal') and not verdict.get('confirmed'):

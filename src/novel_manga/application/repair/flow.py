@@ -46,7 +46,7 @@ def failing_clips(review: dict) -> dict[str, str]:
 REBUILD_LOCK = threading.Lock()  # retain the existing rebuild serialization during this refactor
 
 
-def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str], *, repack_report: dict | None = None) -> tuple[dict, list[str]]:
+def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str], *, repack_report: dict | None = None, visor_states=None) -> tuple[dict, list[str]]:
     """Rebuild only the named clips from their recorded shot indexes; every other clip keeps its entry (and request)."""
     with REBUILD_LOCK:
         ctx = packing_context.context_for_plan(episode_dir, bible_path, plan)
@@ -60,7 +60,11 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                                   if dependent.intersection(c.get('shot_indexes', []))}
             if repack_report is not None:
                 repack_report['_posture_states'] = ctx['posture_states']
-        if (episode_dir / 'visor_states.json').is_file():
+        if visor_states is not None:
+            ctx['visor_states'] = visor_states
+            if repack_report is not None:
+                repack_report['_visor_states'] = visor_states
+        elif (episode_dir / 'visor_states.json').is_file():
             from novel_manga.application.packing.visor import fill
             ctx['visor_states'] = fill(episode_dir, script=script, write=False)
             if repack_report is not None:

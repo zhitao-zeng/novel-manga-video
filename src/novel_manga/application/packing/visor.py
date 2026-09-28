@@ -60,7 +60,7 @@ def question(name: str, prop: str, shots: list[dict]) -> str:
             + "\n".join(rows))
 
 
-def fill(episode_dir: Path, *, ask=None, script=None, write=True) -> dict:
+def fill(episode_dir: Path, *, ask=None, script=None, write=True, reconsider=None) -> dict:
     """Ask, per wearer with a closed view, the faceplate state of each stage he is in; write FILE and return it."""
     episode_dir = Path(episode_dir)
     script = script if script is not None else json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
@@ -81,14 +81,21 @@ def fill(episode_dir: Path, *, ask=None, script=None, write=True) -> dict:
         if not shots:
             continue
         old = (previous.get('wearers') or {}).get(name) or {}
+        challenged = (reconsider or {}).get(name, {})
         kept = {str(shot['index']): old[str(shot['index'])] for shot in shots
                 if old.get(str(shot['index']), {}).get('picture') == picture_key(shot)
+                and shot['index'] not in challenged
                 and old[str(shot['index'])].get('state') in STATES
                 and old[str(shot['index'])]['state'] != 'unknown'}
         needed = [shot['index'] for shot in shots if str(shot['index']) not in kept]
         answer = {}
         if needed:
             prompt = question(name, prop, shots) + f"\n只需补这些编号：{needed}；已确认：" + json.dumps(kept, ensure_ascii=False)
+            if challenged:
+                prompt += ('\n以下旧模型判断与实际镜头发生冲突，不能把旧判断或参考图本身当成证据：'
+                           + json.dumps(challenged, ensure_ascii=False)
+                           + '。重新对照本镜原始起点、动作和末态；需要看清本人脸部表演时不能判全程closed。'
+                           '不要改剧本来迎合旧记录；原描述仍有歧义就填unknown，不强制挂闭合视图。')
             answer = {int(row['index']): row['state'] for row in (ask(prompt).get('stages') or [])
                       if row.get('state') in STATES and int(row['index']) in needed}
         missing = [index for index in needed if index not in answer or answer[index] == 'unknown']

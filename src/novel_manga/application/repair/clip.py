@@ -86,7 +86,11 @@ def repair_clip(clip, issue, chapter: RepairChapter, review, *, use_history=True
         from novel_manga.application.repair.history import history_context
         history = history_context(episode_dir, cid)
     clip_names = [n for n in names if n not in excluded_speakers]
-    request_context = json.dumps({'candidate_identities': identity_legend, "cast": clip.get("cast"), "references": clip.get("references"),
+    posture_context = {str(i): {k: chapter.posture_states[str(i)][k] for k in ('start', 'end')}
+                       for i in indexes if str(i) in chapter.posture_states}
+    request_context = json.dumps({**({'resolved_posture': posture_context,
+        'posture_usage': '当前稿已解析的起止姿态，修其他内容时保持；若剧情要求改变，必须明确相应过渡动作。'} if posture_context else {}),
+                                  'candidate_identities': identity_legend, "cast": clip.get("cast"), "references": clip.get("references"),
                                   "prompt": clip.get("prompt", ""), "prompt_h3": clip.get("prompt_h3", ""),
                                   "advice": ((review.get("clips", {}).get(cid) or {}).get("verify") or {}).get("repair_advice")},
                                  ensure_ascii=False)[:7500] if reframe else ""

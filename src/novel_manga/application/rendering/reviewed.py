@@ -47,7 +47,20 @@ def run(runner, *, repair_existing=False):
     review = _review(directory, fresh=not repair_existing)
     rounds, corrected, blocked = [], [], {}
     for _ in range(managed.MAX_GENERATED_TAKES):
+        input_blocked = {}
+        if report.get('blocked_clips') and not ctx.cache_only:
+            prepared_input = managed.prepare_request_conflicts(directory, report)
+            input_blocked = prepared_input.get('blocked') or {}
+            blocked = input_blocked
+            if prepared_input.get('changed'):
+                rounds.append(prepared_input)
+                corrected.extend(prepared_input['changed'])
+                _load_current(runner)
+                report = runner.run()
+                review = _review(directory, fresh=False)
+                continue
         eligible, blocked = managed.candidates(directory, review)
+        blocked = {**input_blocked, **blocked}
         if ctx.cache_only or not eligible:
             break
         prepared = managed.prepare(directory, eligible)
