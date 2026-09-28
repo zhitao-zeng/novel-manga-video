@@ -215,6 +215,8 @@ def test_authored_binding_repair_receives_actual_adjacent_states_without_guessin
         prompt = parts[0]['text']
         assert '同步纠正绑定actions中错误的姿态注记' in prompt
         assert '前镜已经站着时，本镜不能再从椅子上站起' in prompt
+        assert '补足一次必要的自然过渡' in prompt
+        assert '不把作者明确坐着的后续镜头一律改成站着' in prompt
         context = json.loads(prompt.split('相邻镜头只读衔接', 1)[1].split('：', 1)[1].split('\n\n', 1)[0])
         assert context['前镜']['label'] == 'c1 stage 1'
         assert context['前镜']['end_state'] == '席勒仍站在桌边。'
