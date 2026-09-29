@@ -73,11 +73,12 @@ ASK = (
 
 TRIES = 3  # translations per clip before it is left without an English prompt
 NOTE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["note"], "properties": {"note": {"type": "string"}}}
-NOTE_ASK = ("Rewrite this director's correction for one video clip as a description of the target picture: "
-            "a declarative, present-tense description of the corrected picture, not an imperative addressed to the generator: who is in frame, who does what "
-            "to whom, who appears exactly once, who is absent. Never describe the mistake, the previous take or what "
-            "'the director notes'. Refer to each character by the tag given below, never by name. Never quote dialogue. "
-            "Reply with the picture description only - no commentary and no remarks about the tag list; a character without a tag is left out.\n\n")
+NOTE_ASK = ("Rewrite this director correction as a concise declarative description of the target audiovisual scene. "
+            "For visual corrections state who is visible, wearing what, and doing what. For audio-only corrections "
+            "state the existing speaker's timing, utterance order, pauses, silence and mouth state; no new visual "
+            "description is needed. Preserve every requested correction, including speaking once or starting immediately. "
+            "Use the supplied Subject tags. Do not quote or invent dialogue, add actions, discuss the task, "
+            "or explain that visual information is missing. Return only the corrected scene behavior.\n\n")
 
 
 
@@ -300,7 +301,13 @@ def convert(clip: dict, tries: int = TRIES, note: str = "") -> bool:
             problem = f"{type(error).__name__}: {str(error)[:160]}"
             continue
         if len(english) == len(visuals) and all(english) and not (directed and any(CJK.search(s) for s in english)):
-            candidate = compose(clip, english, stages, '', delivery, soundscape)
+            # A folded shot answer may silently omit an audio-only correction. Keep that
+            # correction explicit rather than marking its source note as consumed and losing it.
+            direction = english_note(note, naming) if note else ''
+            if note and not direction:
+                problem = "director correction was not retained"
+                continue
+            candidate = compose(clip, english, stages, direction, delivery, soundscape)
             conflicts = request_issues({**clip, 'prompt_h3':candidate})
             if not conflicts:
                 clip['prompt_h3'] = candidate

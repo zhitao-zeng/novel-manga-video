@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import copy
 import time
 from novel_manga.util import atomic_write_json
 from novel_manga.application.packing.context import load_context, POLICY
@@ -41,6 +42,28 @@ def carry_corrections(old_plan: dict | None, plan: dict, feedback_path: Path) ->
     return dropped
 
 
+def carry_agent_requests(old_plan: dict | None, plan: dict) -> None:
+    """An unchanged re-pack must not erase an accepted final English correction."""
+    from novel_manga.application.profiles import h3_correction_parts, h3_stamp
+    old = {c['clip_id']: c for c in (old_plan or {}).get('clips', [])}
+    for clip in plan.get('clips', []):
+        previous = old.get(clip['clip_id'], {})
+        if not previous.get('prompt_h3_agent') or not previous.get('prompt_h3'):
+            continue
+        if previous.get('shot_indexes') != clip.get('shot_indexes'):
+            continue
+        source, note = h3_correction_parts(previous)
+        if h3_correction_parts(clip)[0] != source:
+            continue
+        if h3_stamp(clip, note) != previous.get('prompt_h3_of'):
+            continue
+        for field in ('prompt_h3', 'prompt_h3_of', 'prompt_h3_agent', 'repair_take',
+                      'prompt', 'prompt_before_correction', 'prompt_correction_merged'):
+            if field in previous:
+                clip[field] = copy.deepcopy(previous[field])
+        clip['prompt_chars'] = len(clip.get('prompt', ''))
+
+
 def run(args) -> int:
     episode_dir = args.episode_dir.resolve()
     script = json.loads((episode_dir / 'chapter_script.json').read_text(encoding='utf-8'))
@@ -53,6 +76,7 @@ def run(args) -> int:
         old_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         old_plan = None
+    carry_agent_requests(old_plan, plan)
     atomic_write_json(episode_dir / "clip_plan.json", plan)
     carry_corrections(old_plan, plan, episode_dir / "review_feedback.json")
     # Observation only: why the packer cut where it did.  clip_plan.json is unchanged by this.

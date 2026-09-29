@@ -1,5 +1,11 @@
 from novel_manga.application import profiles
 from novel_manga.application.rendering import h3
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def correction_translation(monkeypatch):
+    monkeypatch.setattr(h3, 'english_note', lambda note, naming: 'The visible person follows the requested framing.')
 
 
 def clip():

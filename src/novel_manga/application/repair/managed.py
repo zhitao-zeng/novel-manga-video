@@ -155,9 +155,79 @@ def reframe_candidate(directory: Path, cid: str, issue: str):
     return result, request_checks
 
 
+def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> dict:
+    """One agent decision replaces the old decision path, under the same video budget."""
+    from novel_manga.application.repair import agent
+    from novel_manga.application.preparation.request_check import request_consistency
+    from novel_manga.application.profiles import plan_fingerprint
+    from novel_manga.application.repair.source_recheck import prepare_source_recheck
+    blocked = dict(blocked or {})
+    changed, accepted = [], []
+    decisions = read(directory/'repair_routing.json', {})
+    history.adopt_reviewed_run(directory)
+    initial_count = len(history.load(directory)['trials'])
+    for cid in targets:
+        counts = generated_counts(history.load(directory))
+        if counts.get(cid, 0) >= generation_limit(directory, cid):
+            blocked[cid] = 'effective clip retry budget used'
+            continue
+        plan = read(directory/'clip_plan.json', {})
+        clip = next(c for c in plan['clips'] if c['clip_id'] == cid)
+        review = read(directory/'episode_review.json', {})
+        verdict = review.get('clips', {}).get(cid, {})
+        before = input_state(directory, clip, verdict, current_takes(directory, plan, review))
+        source_before = read(directory/'chapter_script.json', {})
+        notes_before = read(directory/'review_feedback.json', {})
+        try:
+            decision = agent.propose(directory, clip, verdict)
+            # Do not accept a proposal against a source changed while the sandbox was running.
+            if (read(directory/'clip_plan.json', {}) != plan
+                    or read(directory/'chapter_script.json', {}) != source_before
+                    or read(directory/'review_feedback.json', {}) != notes_before):
+                raise ValueError('episode inputs changed while repair agent was running')
+            action = decision['action']
+            if action == 'stop': raise ValueError('agent stopped: '+decision['reason'])
+            if action == 'keep':
+                result = prepare_source_recheck(directory, [cid])
+                changed.extend(result['changed']); accepted.extend(result['accepted'])
+            elif action == 'edit':
+                proposal = agent.final_proposal(directory, plan, clip, decision)
+                updated = next(c for c in proposal.plan['clips'] if c['clip_id'] == cid)
+                check = request_consistency(updated, directory.parent)
+                if not check.get('consistent'):
+                    raise ValueError('agent candidate input conflict: '+ '; '.join(check.get('problems', [])))
+                publish_candidate(directory, proposal, 'agent_prompt', {cid})
+                changed.append(cid)
+            else:
+                check = request_consistency(clip, directory.parent)
+                if not check.get('consistent'):
+                    raise ValueError('agent retake input conflict: '+ '; '.join(check.get('problems', [])))
+                publish_retake(directory, retake_proposal(plan, cid, decision))
+                changed.append(cid)
+            decisions[cid] = {'at':time.strftime('%F %T'), 'action':action, 'diagnosis':decision,
+                              'status':'prepared', 'inputs':before}
+        except Exception as error:
+            blocked[cid] = str(error)[:350]
+            decisions[cid] = {'status':'blocked', 'reason':blocked[cid], 'inputs':before}
+        atomic_write_json(directory/'repair_routing.json', decisions)
+    record=history.load(directory); final_plan=read(directory/'clip_plan.json',{})
+    final_notes=read(directory/'review_feedback.json',{})
+    for trial in record['trials'][initial_count:]:
+        trial.update(managed=True,expected_plan=plan_fingerprint(final_plan),expected_notes=copy.deepcopy(final_notes))
+    if len(record['trials'])>initial_count: history.save(directory,record)
+    result={'changed':list(dict.fromkeys(changed)), 'accepted':accepted, 'blocked':blocked,
+            'skip_render':not changed, 'generated_counts':generated_counts(record)}
+    atomic_write_json(directory/'managed_repair_report.json',result)
+    return result
+
+
 def prepare_request_conflicts(directory: Path, report: dict) -> dict:
     """A rejected first request has no video to review, but can use the existing rewrite path."""
     from novel_manga.application.preparation.request_check import current_request
+    from novel_manga.application.repair import agent
+    if agent.enabled(directory):
+        return prepare_agent_batch(directory, [cid for cid, reasons in report.get("blocked_clips", {}).items()
+                                              if any(r.startswith("request:") for r in reasons)])
     changed, blocked, checks = [], {}, []
     counts = generated_counts(history.load(directory))
     decisions = read(directory / 'repair_routing.json', {})
@@ -219,6 +289,9 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
     history.adopt_reviewed_run(directory)
     eligible,blocked = candidates(directory)
     wanted = [cid for cid in eligible if targets is None or cid in targets]
+    from novel_manga.application.repair import agent
+    if agent.enabled(directory):
+        return prepare_agent_batch(directory, wanted, blocked)
     decisions = read(directory/'repair_routing.json',{})
     initial_count = len(history.load(directory)['trials'])
     changed,accepted = [],[]

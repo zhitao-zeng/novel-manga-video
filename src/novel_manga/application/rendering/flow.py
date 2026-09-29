@@ -509,6 +509,11 @@ class ThinMediaRunner:
                 record_privacy_ok(self.context.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice"))
                 attempts.append(analysis)
                 log(f"{clip['clip_id']} attempt {state.attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
+                from novel_manga.media.issues import is_speech_issue
+                if (not analysis.get('passed') and any(is_speech_issue(code) for code in analysis.get('issues', [])) and
+                        (getattr(self.context, 'profile', {}) or {}).get('repair_backend') == 'sandbox_agent'):
+                    log(f"{clip['clip_id']}: deferring failed take to the repair agent; no inner quality retry")
+                    break
                 decision = clip_retries.after_analysis(state, analysis,
                     generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries,
                     local_h3=bool(self.context.settings.local_h3_base_url))

@@ -74,12 +74,13 @@ def test_a_folded_correction_is_merged_into_the_shots(monkeypatch):
             "cast": ["林凡"], "shots": []}
     asked = []
     answers = iter([{"shots": ["A cat pushes the door open."]},                     # folded: one sentence for two lines
-                    {"shots": ["A cat pushes the door open, an orange cat."]}])     # merged ask: one sentence per shot
+                    {"shots": ["A cat pushes the door open, an orange cat."]},
+                    {"note": "The visible animal is an orange cat."}])     # merged ask: one sentence per shot
     def fake(question, schema, **kwargs):
         asked.append(question[0]["text"]); return next(answers)
     monkeypatch.setattr(h3, "ask_json", fake)
     assert h3.convert(clip, note=note)
-    assert len(asked) == 2 and "导演修正" in asked[1] and "导演修正" not in asked[0]
+    assert len(asked) == 3 and "导演修正" in asked[1] and "导演修正" not in asked[0]
     assert "director_note" not in clip["prompt_h3"] and "orange cat" in clip["prompt_h3"]
     # The stamp is versioned: the marker says the digest covers the reference seating too.
     from novel_manga.application.profiles import h3_compile_inputs, h3_source_digest
@@ -127,3 +128,28 @@ def test_a_note_keeps_its_sentence_when_the_table_carries_traits():
     naming = "琥珀·高德 = <Subject 2> (橘色虎斑猫)\n"
     assert tag_names("保持琥珀的形象不变", naming) == "保持<Subject 2>的形象不变"
     assert clean_note("Keep 琥珀·高德 as a cat.", naming) == "Keep <Subject 2> as a cat."
+
+
+def test_folded_audio_correction_is_kept_in_final_request(monkeypatch):
+    from novel_manga.application.rendering import h3
+    c={'clip_id':'c','request_seconds':5,'prompt':'【阶段1】甲站着。声音：中文普通话，平静，甲开口说：{走吧。}结束时：甲站定。',
+       'references':[{'role':'character','name':'甲'}]}
+    replies=iter([{'shots':['<Subject 1> stands.']}, {'shots':['<Subject 1> stands.']},
+                  {'note':'<Subject 1> begins the quoted line immediately and speaks it once, then stays silent.'}])
+    monkeypatch.setattr(h3,'ask_json',lambda *a,**k:next(replies))
+    assert h3.convert(c,note='开镜立即说一次，之后安静。')
+    assert 'begins the quoted line immediately and speaks it once' in c['prompt_h3']
+    assert '<d>[Chinese] 走吧.</d>' in c['prompt_h3']
+    assert c['prompt_correction_merged']
+
+
+def test_visual_only_refusal_cannot_be_accepted_as_audio_correction(monkeypatch):
+    from novel_manga.application.rendering import h3
+    c={'clip_id':'c','request_seconds':5,'prompt':'【阶段1】甲站着。','references':[]}
+    def reply(parts,schema,**kwargs):
+        if 'note' in schema['properties']:
+            return {'note':'The provided text contains only production instructions. Therefore, a visual description cannot be generated from the input.'}
+        return {'shots':['A person stands.']}
+    monkeypatch.setattr(h3,'ask_json',reply)
+    assert not h3.convert(c,note='只说一次。')
+    assert not c.get('prompt_h3') and not c.get('prompt_correction_merged')

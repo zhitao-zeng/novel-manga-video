@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 
-def correction(clip: dict, analysis: dict) -> str:
-    if analysis.get('passed') or not {'excess_unplanned_speech', 'unscripted_speech'}.intersection(analysis.get('issues', [])):
+def correction(clip: dict, analysis: dict, *, include_missing=False) -> str:
+    from .issues import is_speech_issue
+    issues = analysis.get('issues', [])
+    relevant = any(is_speech_issue(code) for code in issues) if include_missing else bool(
+        {'excess_unplanned_speech', 'unscripted_speech'}.intersection(issues))
+    if analysis.get('passed') or not relevant:
         return ''
     if clip.get('audio_delivery') == 'postmix':
         return '本镜是无声表演，人声在后期加入。画内人物嘴部自然闭合，仅保留原分镜动作与环境声。'

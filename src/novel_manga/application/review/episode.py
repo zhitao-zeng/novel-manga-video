@@ -131,9 +131,11 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
     # independently measured failure in the automatic repair work, even when
     # the video judge passed or failed to return a verdict.
     from novel_manga.media.speech_repair import correction, merge_note
+    from novel_manga.application.repair.agent import enabled as agent_enabled
+    use_agent = agent_enabled(episode_dir)
     for clip in plan['clips']:
         cid = clip.get('clip_id')
-        note = correction(clip, selected.get(cid) or {})
+        note = correction(clip, selected.get(cid) or {}, include_missing=use_agent)
         if note and cid in report['clips']:
             report['clips'][cid]['speech_gate'] = {'passed': False, 'issues': list((selected.get(cid) or {}).get('issues') or [])}
             report['clips'][cid]['tier'] = 'must_fix'

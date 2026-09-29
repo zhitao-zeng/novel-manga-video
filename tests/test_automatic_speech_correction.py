@@ -1,3 +1,4 @@
+import pytest
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,3 +63,30 @@ def test_silence_report_only_does_not_disable_extra_or_missing_speech(tmp_path):
     for issue in ['excess_unplanned_speech', 'missing_0.9_over_0.5']:
         row = speech_gate_result(tmp_path, {'passed': False, 'issues': [issue]})
         assert not row['passed'] and row['issues'] == [issue]
+
+
+def test_agent_backend_defers_first_failed_take_without_inner_retries(tmp_path, monkeypatch):
+    runner = uninitialized_runner(); ctx = runner.context
+    ctx.episode_dir = tmp_path/'book'/'book_1'; ctx.episode_dir.mkdir(parents=True)
+    ctx.novel_dir = ctx.episode_dir.parent; ctx.work = ctx.episode_dir/'work'
+    ctx.settings = SimpleNamespace(local_h3_base_url='pool'); ctx.max_attempts = 2
+    ctx.free_retries = True; ctx.profile = {'repair_backend':'sandbox_agent'}
+    calls=[]
+    def generate(clip,attempt):
+        calls.append(attempt);clip['_generated']=True;return tmp_path/f'{attempt}.mp4'
+    monkeypatch.setattr(runner,'generate_clip',generate)
+    monkeypatch.setattr(runner,'analyse_clip',lambda *a:{'video':'v','passed':False,'cer':1.2,
+                         'max_volume_db':-2,'issues':['excess_unplanned_speech']})
+    monkeypatch.setattr(runner,'correct_speech_request',lambda *a:pytest.fail('agent replaces inner repair'))
+    monkeypatch.setattr(flow,'record_privacy_ok',lambda *a:None)
+    result=runner.process_clip({'clip_id':'c','kind':'video','references':[]})
+    assert calls==[1] and not result['selected']['passed']
+
+
+def test_agent_review_includes_missing_dialogue_without_changing_ordinary_route():
+    from novel_manga.media.speech_repair import correction
+    clip={'spoken_text':'我们走吧。'}
+    failed={'passed':False,'issues':['missing_0.5_over_0.2']}
+    assert correction(clip,failed)==''
+    assert correction(clip,failed,include_missing=True)
+    assert correction(clip,{'passed':True,'issues':[],'speech_issues':failed['issues']},include_missing=True)==''

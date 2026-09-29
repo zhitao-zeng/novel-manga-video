@@ -347,7 +347,7 @@ def tag_names(text: str, naming: str) -> str:
     return pattern.sub(lambda match: mapping[match.group()], text)
 
 
-META = re.compile(r"tag list|translat|original text|system prompt|the user|please verify|contradiction|instruction says", re.I)
+META = re.compile(r"tag list|translat|original text|system prompt|the user|please verify|contradiction|instruction says|provided text|cannot be generated|does not describe", re.I)
 
 
 def clean_note(text: str, naming: str) -> str:

@@ -23,6 +23,7 @@ def test_a_correction_merges_into_the_chinese_prompt_once(monkeypatch):
             "references": [{"role": "character", "name": "甲", "path": "c1/turnaround.jpeg"}],
             "lines": [], "cast": ["甲"]}
     monkeypatch.setattr(h3, "ask_json", lambda parts, schema, **kw: {"shots": ["He pushes the door open."]})
+    monkeypatch.setattr(h3, "english_note", lambda *a: "Only hands and a coffee cup are visible.")
     note = "只拍手和咖啡杯，不拍脸部"
     assert h3.convert(clip, note=note)
     assert "【导演修正】" + note in clip["prompt"]           # the Chinese carries it
