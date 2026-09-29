@@ -64,7 +64,7 @@ def traced(tmp_path, monkeypatch):
     """The sheet, taken all the way to the request H3 would receive."""
     merged = merge({"shots": SHEETS}, BINDING)
     ctx = PlannerContext.from_env()
-    configure_budget(100, fast=False, ctx=ctx)
+    configure_budget(100, shape="fixed", ctx=ctx)
     ctx.spoken_range = (0, 300)
     ctx.authored_storyboard = True
     bible = StoryBible.model_validate(BIBLE)

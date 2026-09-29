@@ -58,7 +58,7 @@ def test_authored_wearing_reaches_real_pack_and_translation(tmp_path, monkeypatc
         'locations': [PLACE + '：房间'],
         'props': [{'name': ARMOR, 'category': '战甲', 'appearance': '银色', 'first_chapter': 1, 'quote': '护甲'}]})
     segments = [{'segment_id': 'seg_1', 'text': BOUND['source_quote']}]
-    ctx = PlannerContext(); configure_budget(100, fast=False, ctx=ctx)
+    ctx = PlannerContext(); configure_budget(100, shape="fixed", ctx=ctx)
     ctx.authored_storyboard = True; ctx.spoken_range = (0, 300)
     valid = validate_and_normalize(raw, segments, bible, {PLACE: bible.locations[0]}, BOUND['source_quote'], ctx=ctx)
     assert not valid.errors, valid.errors

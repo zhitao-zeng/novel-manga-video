@@ -149,7 +149,7 @@ def batch_for(episode):
     batch = production_flow.Batch.__new__(production_flow.Batch)
     batch.episode_dir = lambda n: directory
     batch.render_status = lambda n: episode_status(directory, False)
-    batch.rows, batch.fast, batch.reviewing = {1: {}}, False, False
+    batch.rows, batch.expressions, batch.reviewing = {1: {}}, True, False
     batch.args = SimpleNamespace(cache_only=False, no_render=False, dry_run=False, rerender=False, retake_failed=False)
     return batch
 

@@ -18,7 +18,7 @@ def test_independent_lane_budgets_and_book_aliases(tmp_path, monkeypatch):
         book.mkdir();(book / 'bible_aliases.json').write_text(json.dumps({'同一个简称':name}))
         monkeypatch.setenv('NOVEL_CLIP_SECONDS_MAX', str(cap))
         ctx = PlannerContext.from_env();load_entity_index(book,ctx=ctx)
-        configure_budget(3000,fast=False,ctx=ctx);contexts.append(ctx)
+        configure_budget(3000,shape="fixed",ctx=ctx);contexts.append(ctx)
     before = copy.deepcopy(contexts)
     def render(ctx):
         return render_brief(ctx.system_prompt,ctx=ctx),budget_requirements(ctx=ctx),mentioned_characters('同一个简称走进来',['甲天河','乙青阳'],ctx=ctx)

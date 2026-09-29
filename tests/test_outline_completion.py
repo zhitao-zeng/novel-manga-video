@@ -19,7 +19,7 @@ def complete(mode="coverage"):
 
 def kwargs():
     return dict(base_url="http://model.invalid/v1", model="same-model", payload={"segments": [{"segment_id": "seg_1", "text": "原文"}]},
-                schema={"type": "object"}, max_tokens=12000, timeout=5, fast=True)
+                schema={"type": "object"}, max_tokens=12000, timeout=5)
 
 
 def test_truncated_reasoning_is_never_forwarded_as_an_outline(monkeypatch):

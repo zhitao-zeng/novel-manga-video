@@ -70,9 +70,9 @@ class Batch:
         }
         self.rows: dict[int, dict] = {}
         self.reviewing = bool(args.unattended or args.review_only)
-        from novel_manga.application.profiles import is_fast, load_profile
+        from novel_manga.application.profiles import effective_profile, load_profile
         self.profile = load_profile(self.novel_dir, tier=args.tier)
-        self.fast = is_fast(self.profile)
+        self.expressions = effective_profile(self.profile)["expressions"]
         self.grow_lock = threading.Lock()
         self.cards = production_assets.CardFactory(self, args.card_parallel)
         self.card_review: dict = {}
@@ -107,8 +107,6 @@ class Batch:
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             return
         from novel_manga.application.review.bible import grow_bible
-        if self.fast and production_common.GROW_STRIDE > 1 and chapter % production_common.GROW_STRIDE != 1:
-            return  # fast tier: sample chapters for growth (GROW_STRIDE = 1 grows every one)
         try:
             with self.grow_lock:  # parallel planners must not append to the bible at once
                 before = json.loads(self.bible.read_text(encoding="utf-8"))

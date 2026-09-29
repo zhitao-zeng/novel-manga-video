@@ -84,7 +84,9 @@ def render(batch, chapter: int) -> None:
             production_common.log(f"ch{chapter}: restored split dialogue for {', '.join(recovered['changed'])}; refreshing prompts")
         if recovered["skipped"]:
             production_common.log(f"ch{chapter}: split ranges left unchanged: {recovered['skipped']}")
-    if batch.fast and not batch.args.cache_only:
+    # A book without expression cards uses the main character card as the only reference,
+    # so the model cannot blend two faces into one body.  The old gate was the fast tier.
+    if not batch.expressions and not batch.args.cache_only:
         from novel_manga.application.packing.single_card import single_card_plan, repair_missing_expressions
         from novel_manga.util import atomic_write_json
         plan_path = directory / "clip_plan.json"
@@ -188,12 +190,6 @@ def render(batch, chapter: int) -> None:
         batch.fill_result(chapter)
         if reviewed:
             execution.collect_review(batch, chapter)
-        elif batch.reviewing and status in {"done", "done_with_warnings"} and not batch.fast:
-            try:
-                batch.review_episode(chapter)
-            except Exception as error:  # noqa: BLE001 - the episode is done; a review failure is a note
-                row["note"] = f"review failed: {type(error).__name__}: {str(error)[:120]}"
-                production_common.log(f"ch{chapter}: episode review failed ({type(error).__name__}: {str(error)[:120]})")
         if (batch.args.prune and batch.render_status(chapter) in {"done", "done_with_warnings"}
                 and (not reviewed or row.get('quality_review', {}).get('passed'))):
             production_common.prune_episode(directory)

@@ -176,7 +176,7 @@ def batch_for(tmp_path: Path, monkeypatch, **overrides) -> production_flow.Batch
     args.update(overrides)
     batch.args = types.SimpleNamespace(**args)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
-    batch.reviewing, batch.fast, batch.env, batch.notes = False, True, {}, {}
+    batch.reviewing, batch.expressions, batch.env, batch.notes = False, False, {}, {}
     batch.commands = []
 
     def run(command, log_path):

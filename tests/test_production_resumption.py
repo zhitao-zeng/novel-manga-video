@@ -112,7 +112,7 @@ def test_a_preview_that_failed_only_a_media_check_waits_for_a_person(tmp_path, m
     batch.args = types.SimpleNamespace(rerender=False, cache_only=False, retake_failed=False, no_render=False, dry_run=False, workers=0,
                                        inflight=4, tier=None, prescreen=False, moderation_repair=True, prune=False)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
-    batch.reviewing, batch.fast, batch.env, batch.notes, commands = False, True, {}, {}, []
+    batch.reviewing, batch.expressions, batch.env, batch.notes, commands = False, False, {}, {}, []
     monkeypatch.setattr(batch, "run", lambda command, log_path: (commands.append(command), (0, ""))[1])
     monkeypatch.setattr(batch, "fill_result", lambda chapter: None)
     production_render.render(batch, 1)

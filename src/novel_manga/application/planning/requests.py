@@ -344,7 +344,7 @@ def qwen_default() -> str:
     return "__all__"
 
 
-def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 4096, notes: str = "", grammar: dict | None = None, profile: dict | None = None, fast: bool = False, outline_mode: str = "coverage", seed: int | None = None, ctx: PlannerContext, scene_script: dict | None = None) -> tuple[str, dict]:
+def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_tokens: int, timeout: float, analysis_tokens: int = 4096, notes: str = "", grammar: dict | None = None, profile: dict | None = None, outline_mode: str = "coverage", seed: int | None = None, ctx: PlannerContext, scene_script: dict | None = None) -> tuple[str, dict]:
     # A sheet somebody already cut is not a chapter to write.  This branch used to be unconditional
     # and first, so a book that names a local story_method took it even for a chapter holding an
     # accepted sandbox storyboard: the method wrote its own scenes and merge() then failed on an

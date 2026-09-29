@@ -55,7 +55,7 @@ BINDING = {"video_title": "溪岸", "hook": "背包", "summary": "取包", "skip
 def traced(tmp_path, monkeypatch):
     merged = merge({"shots": SHEETS}, BINDING)
     ctx = PlannerContext.from_env()
-    configure_budget(100, fast=False, ctx=ctx)
+    configure_budget(100, shape="fixed", ctx=ctx)
     ctx.spoken_range = (0, 300)
     ctx.authored_storyboard = True
     bible = StoryBible.model_validate(BIBLE)

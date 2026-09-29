@@ -21,7 +21,7 @@ class PlannerContext:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     separate_pairs: list[tuple[str,str]] = field(default_factory=list)
     aliases: dict[str,str] = field(default_factory=dict)
-    fast_tier: bool = False
+    episode_shape: str = "fixed"  # 'flex' (legacy fast tier): aim by chapter length, never rework for the ceiling
     chat_self: str = ""
     chat_card_mode: bool = True
     text_on_props_gate: bool = True

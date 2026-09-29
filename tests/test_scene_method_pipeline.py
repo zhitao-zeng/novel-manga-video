@@ -166,7 +166,7 @@ def test_scene_boundary_duration_and_sound_survive_native_packing_and_h3(tmp_pat
     bp = {**script, 'direction': direction, 'script_review': {'completed': True, 'issues': []}, 'review': {'completed': True, 'issues': []}}
     raw = project_direction(script, direction)
     ctx = PlannerContext(story_method='leos', story_blueprint=bp)
-    configure_budget(100, fast=False, ctx=ctx); ctx.spoken_range = (0, 300)
+    configure_budget(100, shape="fixed", ctx=ctx); ctx.spoken_range = (0, 300)
     b = StoryBible.model_validate(bible())
     valid = validate_and_normalize(raw, payload()['segments'], b, {'溪岸': b.locations[0]},
                                    '\n'.join(s['text'] for s in payload()['segments']), ctx=ctx)
@@ -254,7 +254,7 @@ def test_animal_or_landscape_shot_does_not_gain_a_named_actor_from_context():
     direction['directions']['SC002']['shots'][0]['in_frame'] = []
     bp = {**script, 'direction': direction, 'script_review': {'completed': True, 'issues': []}, 'review': {'completed': True, 'issues': []}}
     ctx = PlannerContext(story_method='leos', story_blueprint=bp)
-    configure_budget(100, fast=False, ctx=ctx); ctx.spoken_range = (0, 300)
+    configure_budget(100, shape="fixed", ctx=ctx); ctx.spoken_range = (0, 300)
     b = StoryBible.model_validate(bible())
     result = validate_and_normalize(project_direction(script, direction), payload()['segments'], b,
                                    {'溪岸': b.locations[0]}, '\n'.join(s['text'] for s in payload()['segments']), ctx=ctx)

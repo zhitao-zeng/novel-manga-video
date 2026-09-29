@@ -17,12 +17,12 @@ from novel_manga.models.bible import Character, StoryBible
 
 
 @pytest.mark.parametrize("cap", [15, 30])
-@pytest.mark.parametrize("fast,chars,target", [(False, 3000, 90), (True, 2500, 75), (True, 6000, 150)])
+@pytest.mark.parametrize("fast,chars,target", [("fixed", 3000, 90), ("flex", 2500, 75), ("flex", 6000, 150)])
 def test_every_prompt_budget_matches_lane_and_episode(monkeypatch, cap, fast, chars, target):
     planner_ctx = PlannerContext.from_env()
     monkeypatch.setattr(planner_ctx, 'clip_seconds_max', float(cap))
     monkeypatch.setattr(planner_ctx, 'short_clips', cap == 15)
-    budget = pc_budget.configure_budget(chars, fast=fast, ctx=planner_ctx)
+    budget = pc_budget.configure_budget(chars, shape=fast, ctx=planner_ctx)
     requirements = pc_budget.budget_requirements(ctx=planner_ctx)
     brief = pc_prompts.render_brief(planner_ctx.system_prompt, ctx=planner_ctx)
 
@@ -45,7 +45,7 @@ def test_floor_is_not_promised_beyond_schema_capacity(monkeypatch):
     monkeypatch.setattr(planner_ctx, 'clip_seconds_max', 15.0)
     monkeypatch.setattr(planner_ctx, 'short_clips', True)
     with pytest.raises(ValueError, match="规划容量"):
-        pc_budget.configure_budget(3000, fast=True, min_seconds=160, ctx=planner_ctx)
+        pc_budget.configure_budget(3000, shape="flex", min_seconds=160, ctx=planner_ctx)
 
 
 def test_subsecond_floor_shortfall_does_not_trigger_a_full_rewrite(monkeypatch):
@@ -75,7 +75,7 @@ def test_ab_has_same_limits_and_each_complete_outline_reaches_pass_two(monkeypat
     planner_ctx = PlannerContext.from_env()
     monkeypatch.setattr(planner_ctx, 'clip_seconds_max', 15.0)
     monkeypatch.setattr(planner_ctx, 'short_clips', True)
-    pc_budget.configure_budget(4000, fast=True, ctx=planner_ctx)
+    pc_budget.configure_budget(4000, shape="flex", ctx=planner_ctx)
     requests = []
     outlines = []
 
@@ -93,7 +93,7 @@ def test_ab_has_same_limits_and_each_complete_outline_reaches_pass_two(monkeypat
 
     monkeypatch.setattr(planner_requests, "post_any", response)
     kwargs = dict(base_url="http://model.invalid/v1", model="same-model", payload={"requirements": pc_budget.budget_requirements(ctx=planner_ctx), "segments": [{"segment_id": "seg_1", "text": "原文"}]},
-                  schema={"type": "object"}, max_tokens=12000, timeout=5, fast=True, seed=37)
+                  schema={"type": "object"}, max_tokens=12000, timeout=5, seed=37)
     planner_requests.call_model(**kwargs, ctx=planner_ctx)  # production default remains coverage
     planner_requests.call_model(**kwargs, outline_mode="story", ctx=planner_ctx)
     a_first, a_final, b_first, b_final = requests

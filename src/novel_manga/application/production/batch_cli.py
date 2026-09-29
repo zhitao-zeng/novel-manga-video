@@ -50,7 +50,7 @@ def main() -> int:
     parser.add_argument("--volume-size", type=int, default=50, help="write volume_review_N.md every N chapters (bible growth, suggestions, flags)")
     parser.add_argument("--min-chapter-chars", type=int, default=300, help="chapters shorter than this (author notes) are skipped")
     parser.add_argument("--merge", type=int, default=1, help="chapters per episode (episode k = chapters (k-1)*N+1..k*N); --chapters then counts episodes")
-    parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier; fast uses the fast planning/render profile; explicit --unattended still reviews and repairs")
+    parser.add_argument("--tier", choices=("quality", "fast"), help="legacy alias: expand this tier preset into profile.json's resolution/expressions/episode_shape; prefer setting those keys in the book's profile")
     parser.add_argument("--plan-parallel", type=int, default=1, help="chapters planned at the same time (needs a Qwen service with --max-num-seqs > 1)")
     parser.add_argument("--card-parallel", type=int, default=6, help="asset cards built at the same time (one process per asset)")
     parser.add_argument("--inflight", type=int, default=20, help="global cap on clips in flight across all rendering episodes (0 = none)")

@@ -176,7 +176,8 @@ def episode_budget(text: str, profile: dict) -> dict:
     # the planner reads it from exactly here.  A brief built on the default would invite 30-second
     # shots for a book whose renderer stops at 15.
     ctx = PlannerContext.from_env()
-    configure_budget(len(text), fast=str(profile.get("tier", "quality")) == "fast", ctx=ctx)
+    from novel_manga.planning.tier_presets import effective_profile
+    configure_budget(len(text), shape=effective_profile(profile)["episode_shape"], ctx=ctx)
     clips_low, clips_high = ctx.clip_range
     stages_low, stages_high = ctx.stage_range
     spoken_low, spoken_high = ctx.spoken_range

@@ -151,7 +151,7 @@ def test_thin_batch_retake_failed_takes_a_paid_final_back(tmp_path, monkeypatch)
         b.args = types.SimpleNamespace(rerender=False, cache_only=False, retake_failed=retake, no_render=False, dry_run=False, workers=0,
                                        inflight=4, tier=None, prescreen=False, moderation_repair=True, prune=False)
         b.novel_dir, b.novel_id, b.rows = tmp_path / "nov", "nov", {1: {}}
-        b.reviewing, b.fast, b.env, b.notes, b.commands = False, True, {}, {}, []
+        b.reviewing, b.expressions, b.env, b.notes, b.commands = False, False, {}, {}, []
         monkeypatch.setattr(b, "run", lambda command, log_path: (b.commands.append(command), (0, ""))[1])
         monkeypatch.setattr(b, "prepare_cards", lambda chapter: None)
         monkeypatch.setattr(b, "fill_result", lambda chapter: None)

@@ -79,7 +79,7 @@ def batch_stub(tmp_path, monkeypatch, statuses, **args) -> production_flow.Batch
     defaults.update(args)
     batch.args = types.SimpleNamespace(**defaults)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
-    batch.reviewing, batch.fast, batch.env, batch.notes, batch.commands = False, True, {}, {}, []
+    batch.reviewing, batch.expressions, batch.env, batch.notes, batch.commands = False, False, {}, {}, []
     sequence = iter(statuses)
     monkeypatch.setattr(batch, "render_status", lambda chapter: next(sequence))
     monkeypatch.setattr(batch, "run", lambda command, log_path: (batch.commands.append(command), (0, ""))[1])
