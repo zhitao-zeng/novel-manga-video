@@ -244,3 +244,22 @@ def test_a_repair_batch_builds_only_the_cards_its_episode_references(tmp_path, m
         return wanted
     assert prepared(False) == {"character_001", "character_099"}
     assert prepared(True) == {"character_001"}
+
+
+# ------------------------------------------------- 31: a candidate awaiting publication has no final yet
+def test_an_unpublished_candidate_does_not_crash_the_conductor(tmp_path):
+    """十日终焉 ch6 (2026-09-29): the candidate passed every gate but sat in repair_candidate/, the final
+    was never promoted to the episode root, and the conductor died on mp4.stat() the next start."""
+    directory = episode(tmp_path)
+    plan = plan_with(directory, [{**CLIP, "prompt_h3": "english"}])
+    report = {"clip_plan_fingerprint": plan_fingerprint(plan), "review_feedback": {}, "failed_clips": [],
+              "gate_failed_clips": [],
+              "assembly": {"thin_passed": True, "pending_publish": True,
+                           "final_video": str(directory / "repair_candidate" / f"{directory.name}.mp4")}}
+    (directory / "thin_media_report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    candidate = directory / "repair_candidate"
+    candidate.mkdir()
+    (candidate / f"{directory.name}.mp4").write_bytes(b"mp4")  # no final at the episode root
+    c = conductor(tmp_path)
+    state = conductor_state.chapter(c, 1)
+    assert state["done"] or state["blocked"] or not state["done"]  # no crash; any state is acceptable

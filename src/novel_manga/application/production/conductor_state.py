@@ -31,7 +31,8 @@ def chapter(conductor, n: int) -> dict:
     elif state["runs"] >= thin_runs.RENDER_RUNS_PER_PLAN:
         state["blocked"] = True
     mp4 = d / f"{conductor.novel_id}_{n}.mp4"
-    if status in {"done", "done_with_warnings"} and (state["done"] or state["blocked"]):
+    # 候选已过审但未发布时 final 不在集目录根上；没有 final 就没有发布时间可比对，按未审查处理。
+    if status in {"done", "done_with_warnings"} and (state["done"] or state["blocked"]) and mp4.is_file():
         final = mp4.stat().st_mtime
         review = d / "episode_review.json"
         seen, batches = conductor.review_tries.get(n, (final, 0))
