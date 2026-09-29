@@ -83,7 +83,7 @@ def test_regular_clips_carry_style_and_physical_sound_into_h3(monkeypatch):
     monkeypatch.setattr(translator, 'english_delivery', lambda *_: {})
     assert translator.convert(clip)
     assert '同期声：机甲喷气声' in seen['ask']
-    assert 'whether someone enters or exits' in seen['ask']
+    assert 'Preserve entrances/exits' in seen['ask']
     assert 'Crisp black ink outlines' in clip['prompt_h3']
     assert 'jet engine roars' in clip['prompt_h3']
     assert '2D animation' in clip['prompt_h3']

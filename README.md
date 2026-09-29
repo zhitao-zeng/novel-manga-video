@@ -14,11 +14,11 @@ uv run pytest
 ## 新书初始化
 
 ```bash
-.venv/bin/python scripts/build_bible_thin.py inputs/book.txt \
-  --novel-id demo --title 示例 --style 3d --frame 16:9
+.venv/bin/python scripts/setup_book_thin.py inputs/book.txt \
+  --novel-id demo --title 示例 --style 3d --frame 16:9 --chapters 1-100
 ```
 
-这一步读取小说、切章并生成初始人物和场景资料。随后在 `configs/pipeline.json` 中配置该书的章节范围、规划与视频资源。
+一条命令走完新书准入：切章建工作区 → 逐章精读（本地 Qwen 并行）→ 沙箱 agent 归并演员表 → 按名单重建圣经并写出 `reading_cast.json`。端点会在开跑前检查，圣经端点连不上自动改用归并端点。**不要**只用 `build_bible_thin.py` 直接初始化：它不会产出 `reading_cast.json`，新书的身份绑定校验（`props: true`）会在规划时把有未命名人物在场的章节全部拦停。随后在 `configs/pipeline.json` 中配置该书的章节范围、规划与视频资源。
 
 ## 唯一生产管理入口
 

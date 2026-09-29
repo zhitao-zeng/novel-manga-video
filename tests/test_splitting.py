@@ -44,3 +44,29 @@ def test_more_than_10000_uses_3000_to_6000_target():
     assert len(episodes) == 4
     assert all(3000 * 0.95 <= episode.text_count <= 6000 * 1.05 for episode in episodes)
     assert sum(episode.text_count for episode in episodes) == visible_count(text)
+
+
+def test_long_chapter_splits_into_balanced_parts():
+    short = "短章正文。" * 10
+    long_body = "\n".join("情节推进" + "甲" * 90 + "。" for _ in range(80))  # ~7600 字
+    text = f"第一章 短\n{short}\n\n第二章 长\n{long_body}\n\n第三章 也短\n{short}"
+    episodes, chaptered = split_episodes(text)
+    assert chaptered is True
+    assert [e.source_title for e in episodes] == ["第一章 短", "第二章 长（上）", "第二章 长（下）", "第三章 也短"]
+    assert [e.index for e in episodes] == [1, 2, 3, 4]
+    upper, lower = episodes[1], episodes[2]
+    assert abs(upper.text_count - lower.text_count) / long_body.__len__() < 0.05
+    assert not upper.source_text.endswith("，")  # cut at sentence ends
+    # offsets slice exactly this part out of the source
+    for e in episodes:
+        assert text[e.source_start:e.source_end] == e.source_text
+    assert "。" in lower.source_text and upper.source_text != lower.source_text
+
+
+def test_chapter_at_6000_chars_stays_one_episode():
+    body = "甲" * 5990 + "。"
+    text = f"第一章 整六千\n{body}"
+    episodes, chaptered = split_episodes(text)
+    assert chaptered is True
+    assert len(episodes) == 1
+    assert episodes[0].source_title == "第一章 整六千"

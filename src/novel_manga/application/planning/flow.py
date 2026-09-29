@@ -15,7 +15,7 @@ class StoryboardAwaitingChoice(PlanningInputError):
     "this chapter is broken".
     """
 
-from novel_manga.ingest import read_novel
+from novel_manga.ingest import read_novel, chapter_table
 from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json
 from pathlib import Path
@@ -58,7 +58,8 @@ def save_method_artifacts(directory, ctx, attempt):
 
 def run(args, ctx: PlannerContext) -> int:
     ctx.episode_seconds_min = args.min_seconds
-    novel = read_novel(args.source, novel_id=args.novel_id, title=args.title)
+    novel = read_novel(args.source, novel_id=args.novel_id, title=args.title,
+                       chapters=chapter_table(Path(args.output_root).resolve() / args.novel_id))
     merge = max(1, args.merge)
     episode_count = -(-len(novel.episodes) // merge)
     if not 1 <= args.episode_index <= episode_count:

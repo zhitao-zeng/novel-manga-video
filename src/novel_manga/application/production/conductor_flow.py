@@ -39,7 +39,7 @@ class Conductor:
             size = config["planning"]["block_size"]
             for a in range(r["a"], r["b"] + 1, size):
                 self.blocks.append({"a": a, "b": min(r["b"], a + size - 1), "mode": r["plan_mode"], "done": False, "proc": None, "started": 0.0, "server": None,
-                                    "runs": 0, "retry_at": 0.0})
+                                    "min_seconds": r["min_seconds"], "runs": 0, "retry_at": 0.0})
         self.prepassed: dict[str, int] = {}
         self.last_review = 0.0
         self.log_path = self.tmp / "conductor.log"
@@ -48,7 +48,8 @@ class Conductor:
     @staticmethod
     def _parse_range(r: dict) -> dict:
         a, b = (int(x) for x in str(r["chapters"]).split("-"))
-        return {"a": a, "b": b, "plan_mode": int(r.get("plan_mode", 30)), "prepass_after_plan": False}
+        return {"a": a, "b": b, "plan_mode": int(r.get("plan_mode", 30)), "prepass_after_plan": False,
+                "min_seconds": float(r.get("min_seconds", 0))}
 
     def log(self, message: str) -> None:
         line = f"{datetime.now():%m-%d %H:%M:%S} {message}"

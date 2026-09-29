@@ -40,12 +40,12 @@ def test_dialogue_is_what_is_inside_quotation_marks():
 
 
 def test_a_chapter_wants_as_many_episodes_as_its_dialogue_fills():
-    """1,138 characters at 3.1 a second is 367 seconds: three episodes, not one."""
-    assert cp.suggest_count(["“" + "话" * 1138 + "”"]) == 3
+    """1,138 characters at 3.1 a second is 367 seconds: four episodes, not one."""
+    assert cp.suggest_count(["“" + "话" * 1138 + "”"]) == 4
     assert cp.suggest_count(CH12) == 2                              # the sample above is a condensed chapter
     assert cp.suggest_count(CH12[:2]) == 1
     assert cp.suggest_count(["“" + "话" * 700 + "”"]) == 3           # 226 s wants 3
-    assert cp.suggest_count(["“" + "话" * 2000 + "”"]) == 3          # and never more than 3
+    assert cp.suggest_count(["“" + "话" * 2000 + "”"]) == 7          # longer dialogue requires more episodes
 
 
 def test_the_mechanical_cut_shares_the_dialogue_and_never_leaves_a_part_empty():

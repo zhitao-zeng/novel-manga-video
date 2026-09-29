@@ -168,6 +168,11 @@ def end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings
             # the same shot as written, so for it the note would be noise.
             if label == "血液或伤口" and not ctx.renderer_moderates:
                 continue
+            if label == "血迹":
+                # 环境血迹不拦(SD2.5 实测放行),但留痕在审查记录里,特写和用血写字仍拦在伤口级。
+                if ctx.renderer_moderates:
+                    warnings.append("report only: " + message)
+                continue
             if ctx.authored_storyboard or (label == "可读文字" and (ctx.fast_tier or not ctx.text_on_props_gate)):
                 warnings.append("report only: " + message)  # a note, not a gate
             else:

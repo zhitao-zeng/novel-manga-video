@@ -37,14 +37,17 @@ SHOT_SCALES = ["特写", "近景", "中近景", "中景", "全景"]
 
 
 AUTHORED_STORYBOARD_USAGE = (
-    "authored_storyboard 是已经定稿的分镜表。这一集不需要你重新分镜：镜头、景别、机位、时长都定了，"
-    "你看不到也改不了它们，bindings 里每个镜号只填这一镜缺的那几项。"
-    "逐镜填：这一镜取自原文哪一段（segment_id）和它在该段里的逐字引文（source_quote）；"
-    "「场景」那一列要落到 available_locations 里的一个地点（location）；"
-    "画面里真正出现的具名角色（in_frame）、没有角色卡的无名人物（extras）、谁对谁做了什么（actions）；"
-    "把「台词 / 声音」一列拆开——说出口的进 turns（delivery_mode 按实际发声填），非人声的进 sfx；"
-    "再写这一镜开始和结束时画面的状态（start_state、end_state）和光（light）。"
-    "bindings 的条数必须等于镜数，每个镜号出现且只出现一次。"
+    "你只为 authored_storyboard 绑定生产资料，按Schema输出JSON；不重新改编或拆镜。"
+    "分镜是本镜动作、对白、机位和时长的依据；原文用于核对事实和定位，人物资料用于确认身份。"
+    "每镜恰好一条bindings：segment_id与source_quote指向本镜实际表达的事件，引用必须逐字来自该区段，"
+    "不能因同一人物出现就引用他在别处的另一段动作。"
+    "start_state与end_state分别提取本镜动作之前、之后的可见状态；actions只提取本镜已有动作，不能另编表演。"
+    "进出、坐起、穿脱按本镜过程确定；前镜状态不能覆盖本镜明确变化，不把结束状态提前到开场。"
+    "light只写本场光源，不把瞬时喷气、闪光继承成持续照明。"
+    "in_frame只列可见具名人物，可为空；extras只放临时人物或动物，道具按props登记，穿戴物不增加一个身体。"
+    "动作目标可为人物、动物、物件或空值；画外对象不因此入镜。"
+    "场景、台词、声音由程序原样读取，不返回location、turns或sfx；speaker_names只回答Schema中尚未确定的称呼。"
+    "未拍的原文区段在skipped_segments说明；不为覆盖它们而向已定稿镜头加戏。"
 )
 
 DELIVERY_MODES = ["visible_dialogue", "offscreen_dialogue", "silent_action", "title_card", "chat_message", "singing"]
@@ -60,7 +63,9 @@ STRIP_PUNCT = r"[\s　，。！？；：、…—,.!?;:\"“”'‘’（）()]"
 
 
 FORBIDDEN_VISUAL = (
-    (re.compile(r"(血迹|渗血|血液|流血|鲜血|伤口|破皮)"), "血液或伤口"),
+    # 血迹级(环境、事后痕迹)只报告不拦——SD2.5 实测不拒;伤口级(流血、破口)仍是硬门。
+    (re.compile(r"(血迹|血渍|血点|血滴|血手印|血泊)"), "血迹"),
+    (re.compile(r"(渗血|血液|流血|鲜血|伤口|破皮|断肢|内脏|碎肉)"), "血液或伤口"),
     (re.compile(r"(大字|显示[“\"『「]|写着|字样|刻着[“\"]|显现出[“\"])"), "可读文字"),
 )
 # What to do about each, in the words the model is given.  One sentence used to serve both, and it
@@ -68,7 +73,8 @@ FORBIDDEN_VISUAL = (
 # novel, sent as the fix for a bullet wound in Hell's Kitchen.  A repair instruction written for
 # another book's world is followed in that world.
 FORBIDDEN_VISUAL_FIX = {
-    "血液或伤口": "图片和视频都不允许；去掉血迹和伤口的描写，用姿态、表情和周围人的反应交代受伤",
+    "血液或伤口": "图片和视频都不允许；去掉流血和伤口的描写，用姿态、表情和周围人的反应交代受伤",
+    "血迹": "允许血迹作为环境或事后痕迹存在；不要给血迹特写，不要用血写字，不要让血成为画面主体",
     "可读文字": "画面里不能出现可读的文字；把字改成无字的纹样、模糊的印记或不入镜",
 }
 

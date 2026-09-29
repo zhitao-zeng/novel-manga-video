@@ -11,6 +11,10 @@ gone.
 Two facts, each a separate rule.  A service that does not refuse blood is not warned about blood.
 And a sheet an author cut is never rewritten by the pipeline, whatever the service - reported, and
 left to the render stage, which already handles a refusal.
+
+2026-09-29, 十日终焉: the gate split into two tiers.  Stains and aftermath (血迹、血泊、血手印) are
+report-only on moderating services - SD2.5 drew them when asked, and gating them cost chapters.  Active
+bleeding and wounds (渗血、流血、伤口、断肢) stay hard errors.  Both tiers stay silent for the local H3.
 """
 from __future__ import annotations
 
@@ -23,8 +27,10 @@ import pytest
 from novel_manga.planning.context import PlannerContext
 from novel_manga.planning.normalization import end_state_and_visual_checks
 
-BLOOD = {"visual_prompt": "席勒上前一步夺回厨刀手起刀落；犬四肢摊平，暗色的血漫进积水", "motion_prompt": "夺刀",
-         "end_state": "血迹漫开", "camera": "微仰中景缓慢推近，落幅停在血迹", "light": "冷顶光"}
+BLOOD = {"visual_prompt": "席勒上前一步夺回厨刀手起刀落；犬四肢摊平，暗色的血从伤口流进积水", "motion_prompt": "夺刀",
+         "end_state": "血从伤口漫开", "camera": "微仰中景缓慢推近，落幅停在伤口", "light": "冷顶光"}
+STAIN = {"visual_prompt": "桌面上的血迹已经发黑，座钟停在十二点", "motion_prompt": "众人围坐",
+         "end_state": "血迹未干", "camera": "固定", "light": "昏黄钨丝灯"}
 TEXT = {"visual_prompt": "碑上写着“天命”二字", "motion_prompt": "抬头", "end_state": "看碑",
         "camera": "固定", "light": "月光"}
 
@@ -63,6 +69,17 @@ def test_the_fix_the_model_is_given_belongs_to_no_particular_book():
     errors, _ = gate(BLOOD, renderer_moderates=True)
     assert "碑" not in str(errors[0]) and "灵" not in str(errors[0])
     assert "姿态、表情" in str(errors[0])
+
+
+def test_stains_and_aftermath_are_report_only_on_a_moderating_service():
+    errors, warnings = gate(STAIN, renderer_moderates=True)
+    assert errors == []
+    assert any(w.startswith("report only:") and "血迹" in w for w in warnings)
+
+
+def test_stains_are_not_mentioned_to_the_local_h3():
+    errors, warnings = gate(STAIN, renderer_moderates=False)
+    assert errors == [] and not any("血" in w for w in warnings)
 
 
 @pytest.mark.parametrize("model, moderates", [("minimax-h3-ref2va-turbo", False), ("sd2.5", True), ("", True)])

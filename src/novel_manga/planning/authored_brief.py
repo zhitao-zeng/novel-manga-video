@@ -258,21 +258,13 @@ def cast_note(bible: dict, cast_index: dict, chapter: int, places: list[str]) ->
 def chapter_text(novel: dict, chapter: int) -> str:
     """The chapter's own text, cut from the source by the chapter table novel.json carries.
 
-    One pass over the source: a title may repeat later as an ordinary line, so the first line that
-    matches a chapter title wins and the chapter runs to whichever start comes next.
+    Chapters recorded with source offsets (long chapters split into parts get synthetic
+    titles that never appear in the text) slice by offset.  Otherwise: one pass over the
+    source: a title may repeat later as an ordinary line, so the first line that matches
+    a chapter title wins and the chapter runs to whichever start comes next.
     """
-    lines = Path(novel["source"]).read_text(encoding="utf-8").splitlines()
-    titles = {c.get("title", "").strip(): int(c["index"]) for c in novel.get("chapters", [])}
-    starts: dict[int, int] = {}
-    for position, line in enumerate(lines):
-        index = titles.get(line.strip())
-        if index is not None:
-            starts.setdefault(index, position)
-    if chapter not in starts:
-        raise ValueError(f"在原文里找不到第 {chapter} 章的标题")
-    here = starts[chapter]
-    later = [position for position in starts.values() if position > here]
-    return "\n".join(lines[here:min(later) if later else None]).strip() + "\n"
+    from novel_manga.ingest import registered_chapter_text
+    return registered_chapter_text(novel, chapter) + "\n"
 
 
 def write_brief(novel_dir: Path, chapter: int, out_dir: Path, skill: str = "") -> list[Path]:

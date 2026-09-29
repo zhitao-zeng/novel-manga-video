@@ -125,10 +125,10 @@ def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None
     appearance and wardrobe concretely; everything else is reported for a
     human to decide.
     """
-    from novel_manga.ingest import read_novel
+    from novel_manga.ingest import read_novel, chapter_table
     bible_path = novel_dir / "story_bible.json"
     bible = review_models_StoryBible.model_validate_json(bible_path.read_text(encoding="utf-8"))
-    novel = read_novel(source, novel_id=novel_dir.name, title=bible.novel_title)
+    novel = read_novel(source, novel_id=novel_dir.name, title=bible.novel_title, chapters=chapter_table(novel_dir))
     counts: dict[str, dict] = {}
     for episode in novel.episodes[:chapters] if chapters else novel.episodes:
         for row in extract_names(episode.source_text):

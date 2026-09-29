@@ -116,7 +116,8 @@ def test_cli_dry_run_carries_the_actual_long_episode_budget(monkeypatch, tmp_pat
     monkeypatch.setattr(planner_ctx, 'clip_seconds_max', 15.0)
     monkeypatch.setattr(planner_ctx, 'short_clips', True)
     source = tmp_path / "novel.txt"
-    source.write_text("第一章 庭院\n" + "主角走入庭院，看见院门紧闭。\n" * 500)
+    # 390 行 ≈ 5500 字：够长到顶满 150s 预算，又低于 6000 字的自动拆集线，整章仍是一集
+    source.write_text("第一章 庭院\n" + "主角走入庭院，看见院门紧闭。\n" * 390)
     bible = tmp_path / "bible.json"
     bible.write_text(json.dumps({
         "novel_title": "测试", "genre": "通用", "visual_style": "国漫", "palette": "青色", "style_fingerprint": "test-style",

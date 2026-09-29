@@ -32,7 +32,7 @@ from pathlib import Path
 from novel_manga.application.profiles import DEFAULTS, STYLE_VISUAL, detect_genre, load_genre, load_style, style_name, style_names
 
 from novel_manga.config import Settings  # noqa: E402
-from novel_manga.ingest import read_novel  # noqa: E402
+from novel_manga.ingest import read_novel, chapter_table  # noqa: E402
 from novel_manga.bible import BibleBuilder, _fingerprint as fingerprint
 from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json  # noqa: E402
@@ -166,11 +166,13 @@ def main() -> int:
     load_dotenv(ROOT / ".env")
 
     source = Path(args.source).resolve()
-    novel = read_novel(source, novel_id=args.novel_id, title=args.title)
+    novel = read_novel(source, novel_id=args.novel_id, title=args.title,
+                       chapters=chapter_table(Path(args.output_root).resolve() / args.novel_id))
     novel_dir = Path(args.output_root).resolve() / args.novel_id
     novel_dir.mkdir(parents=True, exist_ok=True)
     profile = {"style": args.style, "frame": args.frame, "props": True}   # 新书准入道具资产；在产书的 profile 没有这个键，永远不触发提取
-    chapters = [{"index": e.index, "title": e.source_title, "chars": e.text_count} for e in novel.episodes]
+    chapters = [{"index": e.index, "title": e.source_title, "chars": e.text_count,
+                 "start": e.source_start, "end": e.source_end} for e in novel.episodes]
     print(json.dumps({"chapter_count": len(chapters), "first": chapters[:3], "last": chapters[-1:], "seed_chapters": args.bible_chapters}, ensure_ascii=False), flush=True)
 
     bible_path = novel_dir / "story_bible.json"

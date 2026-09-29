@@ -58,23 +58,15 @@ def chapters_of(text: str) -> list[int]:
 
 
 def chapter_texts(novel: dict, wanted: list[int]) -> dict[int, str]:
-    """Cut each wanted chapter out of the source, in one pass over it."""
-    lines = Path(novel["source"]).read_text(encoding="utf-8").splitlines()
-    titles = {c.get("title", "").strip(): int(c["index"]) for c in novel.get("chapters", [])}
-    starts: dict[int, int] = {}
-    for position, line in enumerate(lines):
-        index = titles.get(line.strip())
-        if index is not None:
-            starts.setdefault(index, position)
-    ordered = sorted(starts.items(), key=lambda kv: kv[1])
-    ends = {index: (ordered[n + 1][1] if n + 1 < len(ordered) else len(lines))
-            for n, (index, _) in enumerate(ordered)}
-    out = {}
-    for chapter in wanted:
-        if chapter not in starts:
-            raise ValueError(f"在原文里找不到第 {chapter} 章的标题")
-        out[chapter] = "\n".join(lines[starts[chapter]:ends[chapter]]).strip()
-    return out
+    """Cut each wanted chapter out of the source, in one pass over it.
+
+    Chapters recorded with source offsets (long chapters split into parts get synthetic
+    titles that never appear in the text) slice by offset; older novel.json without
+    offsets falls back to matching title lines exactly."""
+    from novel_manga.ingest import read_source_text, recorded_episodes
+    episodes = recorded_episodes(read_source_text(novel["source"]), novel.get("chapters", []))
+    texts = {ep.index: ep.source_text for ep in episodes}
+    return {chapter: texts[chapter] for chapter in wanted}
 
 
 def read_chapters(title: str, texts: dict[int, str], out_dir: Path, endpoints: list[str]) -> dict:

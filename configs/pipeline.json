@@ -117,8 +117,8 @@
         "base": "http://172.28.4.81:8038/v1",
         "model": "Qwen3.8-Flash-Next",
         "key_var": "GPU81_QWEN_API_KEY",
-        "slots": 2,
-        "note": "别人的机器，最多 2 个请求"
+        "slots": 3,
+        "note": "别人的机器；2026-09-28 用户确认可开到 3 个请求"
       }
     }
   },
@@ -258,9 +258,7 @@
       "plan_only": true,
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor",
       "render_keys": [],
-      "planning": {
-        "flashnext": 2
-      },
+      "planning": {},
       "blocks_max": 4,
       "blocks_min": 2,
       "ranges": [
@@ -281,6 +279,48 @@
         "h3pool"
       ],
       "display_order": 0
+    },
+    {
+      "id": "shiri",
+      "title": "十日终焉",
+      "active": true,
+      "plan_only": true,
+      "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-shiri",
+      "render_keys": [],
+      "planning": {
+        "flashnext": 3
+      },
+      "blocks_max": 3,
+      "blocks_min": 1,
+      "ranges": [
+        {
+          "chapters": "1-34",
+          "plan_mode": 30,
+          "min_seconds": 100
+        },
+        {
+          "chapters": "35-67",
+          "plan_mode": 30,
+          "min_seconds": 100
+        },
+        {
+          "chapters": "68-100",
+          "plan_mode": 30,
+          "min_seconds": 100
+        }
+      ],
+      "paused_keys": [
+        "sd20",
+        "sd25",
+        "h3a",
+        "h3b",
+        "h3c",
+        "h3d"
+      ],
+      "pending_render_keys": [
+        "sd25"
+      ],
+      "display_order": 3
     }
   ]
 }

@@ -56,7 +56,7 @@ def novel_texts(novel_dir: Path) -> dict[int, str]:
     meta = read_json(novel_dir / "novel.json", {})
     try:
         from novel_manga.ingest import read_novel
-        novel = read_novel(Path(meta["source"]).resolve(), novel_id=novel_dir.name)
+        novel = read_novel(Path(meta["source"]).resolve(), novel_id=novel_dir.name, chapters=meta.get("chapters"))
         return {ep.index: ep.source_text for ep in novel.episodes}
     except Exception:  # noqa: BLE001 - no novel.json or source file: fall back to what was planned
         return chapter_texts(novel_dir)

@@ -173,6 +173,8 @@ def tick_planning(conductor, congested: bool) -> None:
             continue  # every planning server is full; try again next tick
         command = [conductor_common.PY, str(conductor_common.SCRIPTS / "thin_batch.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", f"{block['a']}-{block['b']}",
                    "--stage", "plan", "--tier", "fast", "--merge", "1", "--max-redo", "2", "--volume-size", "50", "--no-grow-bible"]
+        if block.get("min_seconds"):
+            command += ["--min-seconds", str(block["min_seconds"])]
         # A server's slots are filled by blocks, one chapter at a time each: thin_batch now honours
         # --plan-parallel, and passing the slot count as well would have put slots x slots requests on it.
         extra = {"NOVEL_CLIP_SECONDS_MAX": "15"} if block["mode"] == 15 else {}

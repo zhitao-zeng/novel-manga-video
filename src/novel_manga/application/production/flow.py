@@ -85,7 +85,7 @@ class Batch:
     def novel(self):
         if self._novel is None:
             from novel_manga.ingest import read_novel
-            self._novel = read_novel(self.source, novel_id=self.novel_id, title=self.title)
+            self._novel = read_novel(self.source, novel_id=self.novel_id, title=self.title, chapters=self.meta.get("chapters"))
         return self._novel
 
     def chapter(self, index: int):

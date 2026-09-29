@@ -106,7 +106,31 @@ def _balanced_boundaries(text: str, episode_count: int) -> list[tuple[int, int]]
     return ranges
 
 
-def split_episodes(text: str) -> tuple[list[Episode], bool]:
+_SPLIT_MARKERS = "一二三四五六七八九十"
+
+
+def _split_long_chapter(body: str, title: str, body_offset: int) -> list[Episode]:
+    """One episode per chapter, unless the chapter alone is longer than an episode's worth
+    of text: then split it at sentence boundaries with the same sizing the heading-less
+    path uses, and mark the parts （上）（下）, or （一）（二）（三）… beyond two."""
+    count = visible_count(body)
+    part_count = _target_episode_count(count)
+    if part_count == 1:
+        return [Episode(index=1, source_title=title, source_text=body, text_count=count,
+                        source_start=body_offset, source_end=body_offset + len(body))]
+    markers = ("上", "下") if part_count == 2 else [
+        _SPLIT_MARKERS[i] if i < len(_SPLIT_MARKERS) else str(i + 1) for i in range(part_count)]
+    parts = []
+    for marker, (start, end) in zip(markers, _balanced_boundaries(body, part_count)):
+        part = body[start:end].strip()
+        part_start = body_offset + start + (len(body[start:end]) - len(body[start:end].lstrip()))
+        parts.append(Episode(index=1, source_title=f"{title}（{marker}）", source_text=part,
+                             text_count=visible_count(part),
+                             source_start=part_start, source_end=part_start + len(part)))
+    return parts
+
+
+def split_episodes(text: str, *, split_long_chapters: bool = True) -> tuple[list[Episode], bool]:
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     if not text:
         raise ValueError("novel text is empty")
@@ -117,15 +141,17 @@ def split_episodes(text: str) -> tuple[list[Episode], bool]:
         for index, heading in enumerate(headings, 1):
             start = 0 if index == 1 else heading.start
             end = headings[index].start if index < len(headings) else len(text)
-            body = text[start:end].strip()
-            episodes.append(Episode(
-                index=index,
-                source_title=heading.title,
-                source_text=body,
-                text_count=visible_count(body),
-                source_start=start,
-                source_end=end,
-            ))
+            raw = text[start:end]
+            body = raw.strip()
+            body_offset = start + (len(raw) - len(raw.lstrip()))
+            if split_long_chapters:
+                episodes.extend(_split_long_chapter(body, heading.title, body_offset))
+            else:
+                episodes.append(Episode(index=index, source_title=heading.title, source_text=body,
+                                        text_count=visible_count(body), source_start=body_offset,
+                                        source_end=body_offset + len(body)))
+        for index, episode in enumerate(episodes, 1):  # renumber after splits
+            episode.index = index
         return episodes, True
 
     count = visible_count(text)

@@ -39,7 +39,6 @@ WINDOW = 0.12                             # a cut may sit this far, in dialogue 
 PART_FLOOR_SECONDS = 80.0                 # a part is planned to at least this, when its dialogue supports it: with the ceiling at 120 the
                                           # model has forty seconds to land in; given twenty (a floor of 100) it bounced 151, 130, 147, 70, 132
 PART_FLOOR_SHARE = 0.85                   # ...or to this share of its estimate, when it does not
-MAX_PARTS = 3
 TITLES = {1: ("",), 2: ("上", "下"), 3: ("上", "中", "下")}
 
 
@@ -82,13 +81,13 @@ def estimate_seconds(rows: list[str]) -> float:
 
 
 def suggest_count(rows: list[str]) -> int:
-    """How many episodes this chapter wants: enough that each is about TARGET_SECONDS, at most three."""
-    return max(1, min(MAX_PARTS, math.ceil(estimate_seconds(rows) / TARGET_SECONDS)))
+    """Estimate the episode count from dialogue; long chapters are not capped at three."""
+    return max(1, math.ceil(estimate_seconds(rows) / TARGET_SECONDS))
 
 
 def make_part(rows: list[str], number: int, count: int, first: int, last: int, reason: str = "") -> Part:
     body = rows[first - 1:last]
-    return Part(number, TITLES[count][number - 1], first, last,
+    return Part(number, TITLES[count][number - 1] if count in TITLES else str(number), first, last,
                 sum(dialogue_chars(p) for p in body), estimate_seconds(body), reason)
 
 
@@ -115,15 +114,14 @@ def mechanical_split(rows: list[str], count: int) -> list[Part]:
     return parts
 
 
-def validate(parts: list[Part], rows: list[str], windows: list[tuple[int, int]] | None = None) -> list[str]:
+def validate(parts: list[Part], rows: list[str], windows: list[tuple[int, int]] | None = None, *,
+             max_seconds: float | None = None) -> list[str]:
     """What is wrong with a proposed cut, in words a person or a model can act on."""
     problems = []
     if not parts:
         return ["没有分出任何一集"]
-    if len(parts) > MAX_PARTS:
-        problems.append(f"分了 {len(parts)} 集，最多 {MAX_PARTS} 集")
     if [p.part for p in parts] != list(range(1, len(parts) + 1)):
-        problems.append("集的编号必须是 1、2、3 依次")
+        problems.append("集的编号必须从 1 开始依次递增")
     expected = 1
     for p in parts:
         if p.first != expected:
@@ -139,7 +137,11 @@ def validate(parts: list[Part], rows: list[str], windows: list[tuple[int, int]] 
     # Balance, not absolute length: a chapter with twice the median dialogue is three long episodes
     # however it is cut, and the cut is still right when the three are alike.  Chapter 12 came back
     # 129 / 326 / 202 seconds - the middle a whole laboratory conversation - which is a cut to redo.
-    if len(parts) > 1 and problems == []:
+    if max_seconds is not None:
+        for p in parts:
+            if p.est_seconds > max_seconds:
+                problems.append(f"第 {p.part} 集第 {p.first}–{p.last} 段台词估约 {p.est_seconds:.0f} 秒，超过 {max_seconds:g} 秒；在完整问答/话题转折处再拆，可增加集数")
+    if max_seconds is None and len(parts) > 1 and problems == []:
         mean = sum(p.est_seconds for p in parts) / len(parts)
         for p in parts:
             if not BALANCE_LOW * mean <= p.est_seconds <= BALANCE_HIGH * mean:

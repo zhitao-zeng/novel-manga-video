@@ -343,6 +343,40 @@ def call_model(*, base_url: str, model: str, payload: dict, schema: dict, max_to
                         scene_script=scene_script)
     if scene_script is not None:
         raise ValueError('复用分场稿需要指定创作方法')
+    if ctx.authored_storyboard:
+        # A completed cut needs grounding, not another adaptation outline competing with it.
+        from novel_manga.llm.config import endpoint_key
+        binding_payload = {key: value for key, value in payload.items() if key not in {
+            'authored_storyboard_usage', 'planning_budget', 'requirements',
+            'quoted_lines_that_must_be_kept', 'handoff_pairs_that_must_be_heard', 'story_method',
+        }}
+        binding_payload['requirements'] = {key: value for key, value in payload.get('requirements', {}).items()
+                                           if key in {'source_quote_chars', 'max_skipped_segments', 'props_usage'}}
+        instructions = pc_constants.AUTHORED_STORYBOARD_USAGE
+        if notes:
+            instructions += "\n仅用于核对绑定的导演意见（不改定稿分镜）：" + notes
+        key = endpoint_key()
+        headers = {'Authorization': f'Bearer {key}'} if key else {}
+        endpoints = endpoint_order(payload.get('chapter_title', '') + str(payload.get('chapter_index', ''))) if base_url == qwen_default() else [base_url]
+        started = time.monotonic()
+        ctx.outline = {}
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
+            body = post_any(client, endpoints, headers, {
+                'model': model, 'temperature': 0.3, 'max_tokens': max_tokens,
+                **({'seed': seed} if seed is not None else {}),
+                'response_format': {'type': 'json_schema', 'json_schema': {
+                    'name': 'authored_bindings', 'strict': True, 'schema': schema}},
+                'chat_template_kwargs': {'enable_thinking': False},
+                'messages': [{'role': 'system', 'content': instructions},
+                             {'role': 'user', 'content': json.dumps(binding_payload, ensure_ascii=False)}],
+            })
+        choice = body['choices'][0]
+        return choice['message'].get('content') or '', {
+            'finish_reason': choice.get('finish_reason'), 'usage': body.get('usage'),
+            'seconds': round(time.monotonic() - started, 1), 'seed': seed,
+            'outline_mode': 'authored_binding', 'outline_attempts': [], 'analysis': '',
+            'analysis_seconds': 0, 'analysis_usage': {},
+        }
     frame = frame_spec(profile) if profile else FRAMES["9:16"]
     brief = screenplay_prompt(method) if method else ctx.system_prompt
     system_prompt = pc_prompts.render_brief(brief, ctx=ctx).replace("{frame_text}", frame["text"]).replace("{style_name}", style_name((profile or {}).get("style", "2d")))

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 
 from docx import Document
 from pypdf import PdfReader
 
-from novel_manga.models.source import NovelDocument
-from .splitting import split_episodes
+from novel_manga.models.source import NovelDocument, Episode
+from .splitting import split_episodes, visible_count
 
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".docx", ".pdf"}
@@ -42,7 +43,7 @@ def _read_pdf(path: Path) -> str:
     return text
 
 
-def read_novel(path: str | Path, novel_id: str, title: str | None = None) -> NovelDocument:
+def read_source_text(path: str | Path) -> str:
     source = Path(path).resolve()
     if not source.is_file():
         raise FileNotFoundError(source)
@@ -56,8 +57,59 @@ def read_novel(path: str | Path, novel_id: str, title: str | None = None) -> Nov
     else:
         text = _read_pdf(source)
 
-    text = re.sub(r"\n{4,}", "\n\n", text).strip()
-    episodes, chaptered = split_episodes(text)
+    return re.sub(r"\n{4,}", "\n\n", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
+
+
+def chapter_table(novel_dir: str | Path) -> list[dict] | None:
+    path = Path(novel_dir) / "novel.json"
+    return json.loads(path.read_text(encoding="utf-8")).get("chapters") if path.is_file() else None
+
+
+def recorded_episodes(text: str, chapters: list[dict]) -> list[Episode]:
+    """Keep a registered book's numbering; offsets refer to read_source_text's text.
+
+    Old registrations without offsets keep their original heading boundaries. They
+    must not silently opt into the new long-chapter split during a later planning run.
+    """
+    legacy = None
+    result = []
+    for entry in chapters:
+        if "start" in entry and "end" in entry:
+            start, end = int(entry["start"]), int(entry["end"])
+            if not 0 <= start < end <= len(text):
+                raise ValueError(f"registered chapter {entry['index']} is outside its source text")
+            raw = text[start:end]
+            start += len(raw) - len(raw.lstrip())
+            body = raw.strip()
+            result.append(Episode(index=int(entry["index"]), source_title=entry["title"],
+                                  source_text=body, text_count=visible_count(body),
+                                  source_start=start, source_end=start + len(body)))
+        else:
+            if legacy is None:
+                legacy = {(ep.index, ep.source_title): ep
+                          for ep in split_episodes(text, split_long_chapters=False)[0]}
+            index = int(entry["index"])
+            original = legacy.get((index, entry['title']))
+            if original is None:
+                raise ValueError(f"registered chapter {index} no longer matches its source title")
+            result.append(original)
+    return result
+
+
+def registered_chapter_text(novel: dict, chapter: int) -> str:
+    episodes = recorded_episodes(read_source_text(novel["source"]), novel.get("chapters", []))
+    return next(ep.source_text for ep in episodes if ep.index == chapter)
+
+
+def read_novel(path: str | Path, novel_id: str, title: str | None = None, *,
+               chapters: list[dict] | None = None) -> NovelDocument:
+    source = Path(path).resolve()
+    text = read_source_text(source)
+    if chapters:
+        episodes = recorded_episodes(text, chapters)
+        chaptered = bool(split_episodes(text, split_long_chapters=False)[1])
+    else:
+        episodes, chaptered = split_episodes(text)
     return NovelDocument(
         novel_id=str(novel_id),
         title=(title or source.stem).strip(),

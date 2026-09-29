@@ -120,7 +120,7 @@ def main() -> int:
     novel_dir = args.novel_dir.resolve()
     meta = json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))
     source = (args.source or Path(meta["source"])).resolve()
-    novel = read_novel(source, novel_id=novel_dir.name)
+    novel = read_novel(source, novel_id=novel_dir.name, chapters=meta.get("chapters"))
     total = len(novel.episodes)
     chapters = [c for c in parse_chapters(args.chapters, total) if len(novel.episodes[c - 1].source_text) >= args.min_chapter_chars]
     growth_path = novel_dir / "bible_growth.json"
