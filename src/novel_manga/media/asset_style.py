@@ -1,7 +1,9 @@
 """Per-build asset appearance configuration; never mutates defaults for another novel."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 CARD_STYLE_SUFFIX_3D = (
     "。整体必须是一眼可辨的风格化三维动画角色（国漫/皮克斯式概括造型）：眼睛略大、五官简化、皮肤光滑无毛孔、"
@@ -38,17 +40,22 @@ class AssetStyle:
     tidy_prompts: bool = False
     # Empty keeps the short 选角定妆照 wording; a package may spell the frame out.
     card_brief: str = ''
+    # 模型方言层(configs/image_models/<backend>.json)提供的字段;空 = 默认(API)行为。
+    prop_brief: str = ''
+    negative_prompt: str = ''
+    prop_negative_prompt: str = ''
 
     @classmethod
     def for_genre(cls, genre, *, frame_text='竖屏9:16', style=None, backend=''):
-        style = style or {}
-        # A package's top-level wording is what gpt-image gets.  A model that reads the same
-        # words differently takes the overrides filed under its own name: Qwen does not know
-        # 选角定妆照 and draws a poster from it, so it needs the frame spelled out, and
-        # spelling it out for gpt-image makes a worse card than the term does.  One package
-        # with a per-model section rather than two packages that drift apart.
-        if backend and isinstance(style.get(backend), dict):
-            style = {**style, **style[backend]}
+        style = dict(style or {})
+        # 模型方言独立于画风包:同一画风对不同模型要说不同的话,但那是模型的耳朵,不是画风。
+        # 方言文件的键覆盖画风包顶层;画风包只保留画风本身(纯美学,模型中立)。
+        dialect = load_dialect(backend)
+        if dialect:
+            card_background = style.get('card_background') or dialect.get('card_background_default', '')
+            style = {**style, **{k: v for k, v in dialect.items() if not k.startswith('_')}}
+            if card_background and style.get('card_brief'):
+                style['card_brief'] = style['card_brief'].replace('{background}', card_background)
         return cls(frame_text=frame_text,
             render_family=style.get('render_family', ''),
             render_direction=style.get('render_direction', ''),
@@ -59,6 +66,9 @@ class AssetStyle:
             speaks_for_itself=bool(style.get('render_direction')),
             tidy_prompts=bool(style.get('tidy_prompts', False)),
             card_brief=style.get('card_brief', ''),
+            prop_brief=style.get('prop_brief', ''),
+            negative_prompt=style.get('negative_prompt', ''),
+            prop_negative_prompt=style.get('prop_negative_prompt', ''),
             # The style decides how it is drawn; the genre decides what may exist in that
             # world (scales and wing membranes in fantasy, European faces in gaslamp), so a
             # genre that states its own wording still wins.
@@ -75,8 +85,21 @@ QWEN = 'qwen'
 
 
 def image_backend(settings) -> str:
-    """Which of a style package's per-model sections applies, from where the cards come from."""
+    """Which image dialect applies, from where the cards come from."""
     return QWEN if getattr(settings, 'local_image_base_url', '') else ''
+
+
+_DIALECTS = Path(__file__).resolve().parents[3] / 'configs' / 'image_models'
+
+
+def load_dialect(backend: str) -> dict:
+    """The prompt dialect of an image model (configs/image_models/<backend>.json); {} when none."""
+    if not backend:
+        return {}
+    try:
+        return json.loads((_DIALECTS / f'{backend}.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
 
 
 def card_suffix(style: AssetStyle, bible) -> str:

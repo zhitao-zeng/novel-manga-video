@@ -46,24 +46,39 @@ def test_asset_configuration_returns_to_defaults_for_another_book():
 
 def test_a_style_package_can_word_itself_differently_per_image_model():
     """gpt-image knows 选角定妆照 and draws one; Qwen draws a poster from the same words and
-    needs the frame spelled out. One package with a section per model, not two that drift."""
+    needs the frame spelled out.  Since 2026-09-29 the per-model wording lives in the dialect
+    layer (configs/image_models/<backend>.json), not in the style package: the same look needs
+    different words per model, but that is the model's ear, not the style."""
     from novel_manga.config import Settings
-    from novel_manga.media.asset_style import image_backend
+    from novel_manga.media.asset_style import image_backend, load_dialect
 
     package = {
         'render_family': '2d',
         'render_direction': '墨线平涂',
-        'qwen': {'card_brief': '背景是一整块高饱和的纯色。', 'prompt_fingerprint': False},
     }
     default = AssetStyle.for_genre({}, style=package)
     qwen = AssetStyle.for_genre({}, style=package, backend='qwen')
 
     assert default.card_brief == '' and default.prompt_fingerprint is True
-    assert qwen.card_brief == '背景是一整块高饱和的纯色。' and qwen.prompt_fingerprint is False
-    # Everything the two models share is still stated once.
+    # the qwen dialect file supplies the spelled-out frame and drops the fingerprint
+    assert '服装参考图' in qwen.card_brief and qwen.prompt_fingerprint is False
+    # Everything the two models share is still stated once, in the style package.
     assert default.render_direction == qwen.render_direction == '墨线平涂'
-    # A package with no section for the backend is left exactly as it is.
-    assert AssetStyle.for_genre({}, style={'render_direction': '墨线平涂'}, backend='qwen').card_brief == ''
+    # 方言只覆盖它声明的键;画风包的其余字段原样穿过。
+    assert AssetStyle.for_genre({}, style={'render_direction': '墨线平涂'}, backend='qwen').render_direction == '墨线平涂'
+    # 画风包里的模型专属段不再被读取:塞进去也不生效。
+    legacy = {'render_direction': '墨线平涂', 'qwen': {'card_brief': '背景是一整块高饱和的纯色。'}}
+    assert AssetStyle.for_genre({}, style=legacy, backend='qwen').card_brief != '背景是一整块高饱和的纯色。'
 
     assert image_backend(Settings()) == ''
     assert image_backend(Settings(local_image_base_url='http://qwen.invalid')) == 'qwen'
+    assert load_dialect('') == {} and load_dialect('nonexistent-model') == {}
+
+
+def test_the_qwen_dialect_carries_the_prop_template_and_negatives():
+    """十日终焉 2026-09-29: 道具卡的'只有这一件物品'正面写法与负向词属于 Qwen 方言,不是画风。"""
+    from novel_manga.media.asset_style import load_dialect
+    dialect = load_dialect('qwen')
+    assert '{name}' in dialect['prop_brief'] and '只有这一件物品' in dialect['prop_brief']
+    assert '人物' in dialect['prop_negative_prompt']
+    assert '人物' not in dialect['negative_prompt']  # 人物卡的负向词不能把人自己排掉

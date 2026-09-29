@@ -19,12 +19,15 @@ class FramedPhanRouter(PhanRouterMediaProvider):
         self.local_image = (LocalQwenImageProvider(settings, settings.local_image_base_url)
                             if settings.local_image_base_url else None)
 
-    def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None, seed=None):
+    def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None, seed=None,
+                     negative_prompt=None):
         # Only the local service takes a seed; the hosted model samples afresh on every request.
+        # 负向词同理:只有本地服务有这个参数,托管 API 不收。
         if self.local_image:
             return self.local_image.create_image(prompt, output, reference=reference,
                                                  additional_references=additional_references,
-                                                 aspect_ratio=aspect_ratio, seed=seed)
+                                                 aspect_ratio=aspect_ratio, seed=seed,
+                                                 negative_prompt=negative_prompt)
         return super().create_image(prompt, output, reference=reference,
                                     additional_references=additional_references,
                                     aspect_ratio=aspect_ratio)

@@ -52,12 +52,14 @@ class FramedAssetFactory:
         frame = self.style.frame_text
         return prompt.replace('9:16', frame.split('屏')[-1]).replace('竖屏', frame[:2]) if frame != '竖屏9:16' else prompt
 
-    def ensure_card(self, prompt: str, output: Path, *, reference=None, additional_references=(), aspect_ratio=None, seed=None):
+    def ensure_card(self, prompt: str, output: Path, *, reference=None, additional_references=(), aspect_ratio=None, seed=None,
+                    negative_prompt: str = ""):
         """_ensure_image, and on a content-moderation refusal one retry with a
         toned-down prompt, then one attempt at the fallback model."""
         try:
             return ensure_image(self.settings, self.provider, prompt, output, reference=reference,
-                                additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed)
+                                additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed,
+                                negative_prompt=negative_prompt)
         except RuntimeError as error:
             if not moderation_error(error):
                 raise
@@ -65,7 +67,8 @@ class FramedAssetFactory:
             log(f"assets: {output.parent.name}/{output.name} refused by content moderation; retrying with a toned-down prompt")
             try:
                 return ensure_image(self.settings, self.provider, safe, output, reference=reference,
-                                    additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed)
+                                    additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed,
+                                    negative_prompt=negative_prompt)
             except RuntimeError as again:
                 if moderation_error(again):
                     return self._fallback_card(prompt, output, aspect_ratio, again)
@@ -213,10 +216,12 @@ class FramedAssetFactory:
             prompt = prop_prompt(bible, prop, family=self.style.render_family,
                                  direction=self.style.render_direction,
                                  fingerprint=self.style.prompt_fingerprint,
-                                 tidy=self.style.tidy_prompts) + guard
+                                 tidy=self.style.tidy_prompts,
+                                 brief=self.style.prop_brief) + guard
             spec = prop_spec(asset_id, prop, bible, prompt)
             atomic_write_json(directory / "spec.json", spec)
-            primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master)
+            primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master,
+                                       negative_prompt=self.style.prop_negative_prompt)
             detail = self.ensure_card(prompt + "局部材质特写，纹理与工艺细节占满画面。",
                                       directory / "detail.jpeg", reference=primary.path) if prop.closeup else None
             props[asset_id] = AssetRecord(

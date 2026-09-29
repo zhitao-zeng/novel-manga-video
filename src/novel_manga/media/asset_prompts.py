@@ -158,13 +158,23 @@ def location_prompt(bible: StoryBible, location: str, *, family: str = "", direc
 
 
 def prop_prompt(bible: StoryBible, prop, *, family: str = "", direction: str = "",
-                fingerprint: bool = True, tidy: bool = False) -> str:
+                fingerprint: bool = True, tidy: bool = False, brief: str = "") -> str:
     """A single object on a clean plate: the reference every later shot of it locks to.
 
     Like the location card, no people; unlike it, one object fills the frame.  The object is
     never drawn held or in use - a hand in the reference becomes a hand in every shot.
+
+    A dialect (configs/image_models) may bring its own prop template: the default body below
+    was written for gpt-image's instruction following; models that read negatives as content
+    need the positive 'only this one object' framing and no style content words.
     """
     trim = (lambda s: str(s).rstrip("。；;，, ")) if tidy else (lambda s: s)
+    if brief:
+        return (brief
+                .replace("{name}", trim(prop.name)).replace("{category}", trim(prop.category))
+                .replace("{appearance}", trim(prop.appearance))
+                .replace("{material}", f"；材质：{trim(prop.material)}" if prop.material else "")
+                .replace("{direction}", rendering_direction(bible, family=family, direction=direction)))
     return (
         _end(bible.visual_style, tidy)
         + (f"系列风格指纹 {bible.style_fingerprint}。" if fingerprint else "")
