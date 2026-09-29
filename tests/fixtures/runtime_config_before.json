@@ -201,6 +201,26 @@
     "chapters": "68-100",
     "plan_mode": 30,
     "min_seconds": 100
+   },
+   {
+    "chapters": "101-163",
+    "plan_mode": 30,
+    "min_seconds": 100
+   },
+   {
+    "chapters": "164-226",
+    "plan_mode": 30,
+    "min_seconds": 100
+   },
+   {
+    "chapters": "227-289",
+    "plan_mode": 30,
+    "min_seconds": 100
+   },
+   {
+    "chapters": "290-300",
+    "plan_mode": 30,
+    "min_seconds": 100
    }
   ],
   "planning": {
