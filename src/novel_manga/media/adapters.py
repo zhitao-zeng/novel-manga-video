@@ -20,10 +20,11 @@ class FramedPhanRouter(PhanRouterMediaProvider):
                             if settings.local_image_base_url else None)
 
     def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None, seed=None,
-                     negative_prompt=None):
+                     negative_prompt=None, route_local=None):
         # Only the local service takes a seed; the hosted model samples afresh on every request.
         # 负向词同理:只有本地服务有这个参数,托管 API 不收。
-        if self.local_image:
+        # route_local=False 是方言 local_kinds 的显式排除(人物卡留在 API);None 维持旧语义。
+        if self.local_image and route_local is not False:
             return self.local_image.create_image(prompt, output, reference=reference,
                                                  additional_references=additional_references,
                                                  aspect_ratio=aspect_ratio, seed=seed,

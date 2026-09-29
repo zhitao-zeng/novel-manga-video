@@ -53,13 +53,16 @@ class FramedAssetFactory:
         return prompt.replace('9:16', frame.split('屏')[-1]).replace('竖屏', frame[:2]) if frame != '竖屏9:16' else prompt
 
     def ensure_card(self, prompt: str, output: Path, *, reference=None, additional_references=(), aspect_ratio=None, seed=None,
-                    negative_prompt: str = ""):
+                    negative_prompt: str = "", route_local: bool | None = None):
         """_ensure_image, and on a content-moderation refusal one retry with a
-        toned-down prompt, then one attempt at the fallback model."""
+        toned-down prompt, then one attempt at the fallback model.
+
+        route_local: True/False 由方言的 local_kinds 决定(道具本地、人物 API);
+        None 是旧调用方的"开了本地就全本地"语义。"""
         try:
             return ensure_image(self.settings, self.provider, prompt, output, reference=reference,
                                 additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed,
-                                negative_prompt=negative_prompt)
+                                negative_prompt=negative_prompt, route_local=route_local)
         except RuntimeError as error:
             if not moderation_error(error):
                 raise
@@ -68,7 +71,7 @@ class FramedAssetFactory:
             try:
                 return ensure_image(self.settings, self.provider, safe, output, reference=reference,
                                     additional_references=tuple(additional_references), aspect_ratio=aspect_ratio, seed=seed,
-                                    negative_prompt=negative_prompt)
+                                    negative_prompt=negative_prompt, route_local=route_local)
             except RuntimeError as again:
                 if moderation_error(again):
                     return self._fallback_card(prompt, output, aspect_ratio, again)
@@ -152,6 +155,13 @@ class FramedAssetFactory:
         characters: dict[str, dict] = {}  # the records this call builds, merged into the manifest at the end
         locations: dict[str, dict] = {}
         voices: dict[str, str] = {}
+        # 按类型路由(方言写了 local_kinds 时):人物/场景显式走 API,道具才落本地;
+        # 方言没写 local_kinds 时维持旧语义——开了本地服务就全部走本地(None)。
+        # 不带 route_local 调用,保持旧测试替身和旁路调用方的签名兼容。
+        remote_route = False if self.style.dialect_routes_subset else None
+        route_kw = {} if remote_route is None else {"route_local": remote_route}
+        prop_route = ({} if not self.style.dialect_routes_subset
+                      else {"route_local": 'prop' in self.style.local_kinds})
         for index, character in enumerate(bible.characters, start=1):
             asset_id = f"character_{index:03d}"
             if asset_id not in character_ids:
@@ -171,14 +181,16 @@ class FramedAssetFactory:
             spec = character_spec(asset_id, character, bible, prompt)
             invariants, state, scope = spec['identity_invariants'], spec['state_variables'], spec['reference_scope']
             atomic_write_json(directory / "spec.json", spec)
-            primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master)
+            primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master,
+                                       **route_kw)
             expression_prompt = make_expression_prompt(bible, character.name, character.expression_profile,
                                                    family=self.style.render_family, direction=self.style.render_direction,
                                                    fingerprint=self.style.prompt_fingerprint,
                                                    tidy=self.style.tidy_prompts)
             # Fast production uses one main character card, including when an
             # old expression sheet happens to remain on disk.
-            secondary = self.ensure_card(expression_prompt, directory / "expressions.jpeg", reference=primary.path) if expressions else None
+            secondary = self.ensure_card(expression_prompt, directory / "expressions.jpeg", reference=primary.path,
+                                         **route_kw) if expressions else None
             characters[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="character", name=character.name, identity_invariants=invariants, state_variables=state, reference_scope=scope,
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(primary.path.relative_to(root.parent)),
@@ -197,7 +209,8 @@ class FramedAssetFactory:
             card = directory / "establishing.jpeg"
             ratio = "16:9" if "16:9" in self.style.frame_text else "9:16"
             before = sha256_file(card) if card.is_file() else None
-            image = self.ensure_card(prompt, card, reference=style_master, aspect_ratio=ratio)
+            image = self.ensure_card(prompt, card, reference=style_master, aspect_ratio=ratio,
+                                     **route_kw)
             # Counted only when the local model drew it just now: a card reused from an earlier run was
             # already looked at, and the hosted model's empty rooms have come back empty.
             if getattr(self.settings, "local_image_base_url", None) and sha256_file(card) != before:
@@ -216,14 +229,17 @@ class FramedAssetFactory:
             prompt = prop_prompt(bible, prop, family=self.style.render_family,
                                  direction=self.style.render_direction,
                                  fingerprint=self.style.prompt_fingerprint,
-                                 tidy=self.style.tidy_prompts,
+                                 tidy=self.style.tidy_prompts or bool(self.style.prop_brief),
                                  brief=self.style.prop_brief) + guard
             spec = prop_spec(asset_id, prop, bible, prompt)
             atomic_write_json(directory / "spec.json", spec)
             primary = self.ensure_card(prompt, directory / "turnaround.jpeg", reference=style_master,
-                                       negative_prompt=self.style.prop_negative_prompt)
+                                       negative_prompt=self.style.prop_negative_prompt,
+                                       **prop_route)
             detail = self.ensure_card(prompt + "局部材质特写，纹理与工艺细节占满画面。",
-                                      directory / "detail.jpeg", reference=primary.path) if prop.closeup else None
+                                      directory / "detail.jpeg", reference=primary.path,
+                                      negative_prompt=self.style.prop_negative_prompt,
+                                      **prop_route) if prop.closeup else None
             props[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="prop", name=prop.name,
                 identity_invariants=spec["identity_invariants"], state_variables=spec["state_variables"],

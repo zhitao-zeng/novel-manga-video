@@ -44,6 +44,10 @@ class AssetStyle:
     prop_brief: str = ''
     negative_prompt: str = ''
     prop_negative_prompt: str = ''
+    # 方言声明接得住的资产类型(configs/image_models 的 local_kinds);只有列出的类型路由到本地。
+    # 空表 = 不开本地时的一切如旧;方言不写 local_kinds 时是"一开全开"的旧语义。
+    local_kinds: tuple = ()
+    dialect_routes_subset: bool = False
 
     @classmethod
     def for_genre(cls, genre, *, frame_text='竖屏9:16', style=None, backend=''):
@@ -51,11 +55,18 @@ class AssetStyle:
         # 模型方言独立于画风包:同一画风对不同模型要说不同的话,但那是模型的耳朵,不是画风。
         # 方言文件的键覆盖画风包顶层;画风包只保留画风本身(纯美学,模型中立)。
         dialect = load_dialect(backend)
+        subset = isinstance(dialect.get('local_kinds'), list)
         if dialect:
-            card_background = style.get('card_background') or dialect.get('card_background_default', '')
-            style = {**style, **{k: v for k, v in dialect.items() if not k.startswith('_')}}
-            if card_background and style.get('card_brief'):
-                style['card_brief'] = style['card_brief'].replace('{background}', card_background)
+            if subset:
+                # 按类型路由:方言只接管它声明接得住的类型(道具措辞/负向词),
+                # 人物和场景维持画风包+API 措辞——方言里的话对 gpt-image 反而更差。
+                style = {**style, **{k: v for k, v in dialect.items()
+                                     if k in ('prop_brief', 'prop_negative_prompt')}}
+            else:
+                card_background = style.get('card_background') or dialect.get('card_background_default', '')
+                style = {**style, **{k: v for k, v in dialect.items() if not k.startswith('_')}}
+                if card_background and style.get('card_brief'):
+                    style['card_brief'] = style['card_brief'].replace('{background}', card_background)
         return cls(frame_text=frame_text,
             render_family=style.get('render_family', ''),
             render_direction=style.get('render_direction', ''),
@@ -69,6 +80,8 @@ class AssetStyle:
             prop_brief=style.get('prop_brief', ''),
             negative_prompt=style.get('negative_prompt', ''),
             prop_negative_prompt=style.get('prop_negative_prompt', ''),
+            local_kinds=tuple(dialect.get('local_kinds') or ()),
+            dialect_routes_subset=subset if dialect else False,
             # The style decides how it is drawn; the genre decides what may exist in that
             # world (scales and wing membranes in fantasy, European faces in gaslamp), so a
             # genre that states its own wording still wins.

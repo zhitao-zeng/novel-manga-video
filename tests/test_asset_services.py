@@ -48,8 +48,11 @@ def test_a_style_package_can_word_itself_differently_per_image_model():
     """gpt-image knows 选角定妆照 and draws one; Qwen draws a poster from the same words and
     needs the frame spelled out.  Since 2026-09-29 the per-model wording lives in the dialect
     layer (configs/image_models/<backend>.json), not in the style package: the same look needs
-    different words per model, but that is the model's ear, not the style."""
+    different words per model, but that is the model's ear, not the style.  A dialect that
+    declares local_kinds routes only those kinds locally and leaves the rest on the API wording;
+    one without it keeps the legacy all-local merge."""
     from novel_manga.config import Settings
+    from novel_manga.media import asset_style
     from novel_manga.media.asset_style import image_backend, load_dialect
 
     package = {
@@ -60,15 +63,25 @@ def test_a_style_package_can_word_itself_differently_per_image_model():
     qwen = AssetStyle.for_genre({}, style=package, backend='qwen')
 
     assert default.card_brief == '' and default.prompt_fingerprint is True
-    # the qwen dialect file supplies the spelled-out frame and drops the fingerprint
-    assert '服装参考图' in qwen.card_brief and qwen.prompt_fingerprint is False
+    # qwen.json 声明 local_kinds=['prop']:道具拿方言措辞,人物保持画风包+API 措辞
+    assert qwen.dialect_routes_subset and qwen.local_kinds == ('prop',)
+    assert qwen.card_brief == '' and qwen.prompt_fingerprint is True
+    assert '{name}' in qwen.prop_brief and '人物' in qwen.prop_negative_prompt
     # Everything the two models share is still stated once, in the style package.
     assert default.render_direction == qwen.render_direction == '墨线平涂'
-    # 方言只覆盖它声明的键;画风包的其余字段原样穿过。
-    assert AssetStyle.for_genre({}, style={'render_direction': '墨线平涂'}, backend='qwen').render_direction == '墨线平涂'
     # 画风包里的模型专属段不再被读取:塞进去也不生效。
     legacy = {'render_direction': '墨线平涂', 'qwen': {'card_brief': '背景是一整块高饱和的纯色。'}}
-    assert AssetStyle.for_genre({}, style=legacy, backend='qwen').card_brief != '背景是一整块高饱和的纯色。'
+    assert AssetStyle.for_genre({}, style=legacy, backend='qwen').card_brief == ''
+    # 方言不写 local_kinds 时维持旧语义:全部字段并入(一开全开)。
+    full = {'card_brief': '背景是一整块高饱和的纯色。', 'prompt_fingerprint': False}
+    real = asset_style.load_dialect
+    asset_style.load_dialect = lambda backend: full
+    try:
+        merged = AssetStyle.for_genre({}, style=package, backend='whatever')
+        assert merged.card_brief == '背景是一整块高饱和的纯色。' and merged.prompt_fingerprint is False
+        assert merged.local_kinds == () and not merged.dialect_routes_subset
+    finally:
+        asset_style.load_dialect = real
 
     assert image_backend(Settings()) == ''
     assert image_backend(Settings(local_image_base_url='http://qwen.invalid')) == 'qwen'

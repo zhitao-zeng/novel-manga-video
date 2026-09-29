@@ -28,6 +28,7 @@ def ensure_image(
     aspect_ratio: str | None = None,
     seed: int | None = None,
     negative_prompt: str = "",
+    route_local: bool | None = None,
 ) -> ImageResult:
     identity = {
         "prompt_sha256": sha256_text(prompt),
@@ -59,10 +60,12 @@ def ensure_image(
         # existing card's request hash exactly as it was; turning it on redraws, which is right
         # - a card from a different model is a different card.  The size is in here because a
         # card drawn at another size is also a different card, and without it raising the
-        # resolution silently reuses the small ones.
+        # resolution silently reuses the small ones.  With per-kind routing the marker follows
+        # the actual route: a character card drawn on the API while props draw locally must not
+        # be stamped local.
         **({"local_image_model": LOCAL_IMAGE_MODEL,
             "local_image_size": "x".join(str(n) for n in NATIVE_SIZE[aspect_ratio or "9:16"])}
-           if settings.local_image_base_url else {}),
+           if settings.local_image_base_url and route_local is not False else {}),
         # 方言层的 negative_prompt 也参与哈希:负向词不同就是不同的卡。空串不进,保住既有哈希。
         **({"negative_prompt": negative_prompt} if negative_prompt else {}),
         # Only a card drawn again on purpose names a seed, so every existing card keeps its hash.
@@ -110,6 +113,9 @@ def ensure_image(
     # 只有本地服务读负向词;托管 API 不认识这个参数,不给。
     if negative_prompt:
         options["negative_prompt"] = negative_prompt
+    # route_local:True/False 是方言 local_kinds 的显式路由;None 维持旧语义(开了本地就本地)。
+    if route_local is not None:
+        options["route_local"] = route_local
     if additional_references:
         result = provider.create_image(
             prompt,
