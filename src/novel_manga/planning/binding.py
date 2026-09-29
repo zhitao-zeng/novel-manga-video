@@ -29,8 +29,11 @@ nearest room on the list, which is precisely what that proposal was written to a
 """
 from __future__ import annotations
 
+from copy import deepcopy
+
 from novel_manga.planning.storyboard import authored_sound
-from novel_manga.story.fields import actions_field, cast_field, extras_field, speaker_field
+from novel_manga.story.fields import (actions_field, cast_field, extras_field, speaker_field,
+                                      props_field, wears_field, scene_objects_field)
 import novel_manga.planning.constants as pc_constants
 
 
@@ -101,12 +104,13 @@ def bind_schema(authored: dict, character_names: list[str], location_names: list
             "in_frame": cast_field(character_names),
             "extras": extras_field(),
             "actions": actions_field(),
+            "scene_objects": scene_objects_field(),
         },
     }
     if prop_names:
         # 这镜里出现了名单上的哪件道具（可没有）：枚举之外的名字是幻觉，不是新道具
-        bound["properties"]["props"] = {"type": "array", "maxItems": 2,
-                                        "items": {"type": "string", "enum": prop_names}}
+        bound["properties"]["props"] = props_field(prop_names)
+        bound["properties"]["wears"] = wears_field(prop_names)
     # One answer per distinct written name, not per shot: the same 秦宇 cannot be one person in shot 3
     # and another in shot 7, and a scene name cannot drift between shots of the same place.
     def naming(written: list[str], field: dict) -> dict:
@@ -197,7 +201,8 @@ def merge(authored: dict, answer: dict, *, character_names=()) -> dict:
             "in_frame": bound["in_frame"],
             "extras": bound["extras"],
             "actions": bound["actions"],
-            **({"props": bound["props"]} if bound.get("props") else {}),
+            # Preserve explicit empty lists and null wearing states as well as populated bindings.
+            **{key: deepcopy(bound[key]) for key in ("props", "wears", "scene_objects") if key in bound},
             "authored_id": shot_id,
             "authored_seconds": shot["预算秒"],
             "authored_angle": shot["摄影角度"],
