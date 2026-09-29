@@ -557,11 +557,14 @@ def run(args, ctx: PlannerContext) -> int:
                 # An authored sheet has nothing to insert - what it leaves uncited is recorded as its
                 # author's choice by the coverage check - and what a patch rewrites on it keeps the
                 # author's columns: the model's answer may correct a quote or a state, never a shot.
+                # A stage the patch was asked to split is the one exception: it grows into its
+                # stamped parts, and keep_authored accepts exactly that expansion.
+                round_split_labels = {issue.stage for issue in validation.issues if issue.code in
+                                      {PlanningCode.STAGE_ABOVE_MAXIMUM, PlanningCode.MIXED_THOUGHT}}
                 for batch in planner_requests.patch_batches(raw, [] if authored else missing_ids, faulty,
                         segments, names, list(location_map), timeout=patch_timeout,
                         total_timeout=patch_seconds_left, ctx=ctx,
-                        split_labels=[issue.stage for issue in validation.issues if issue.code in
-                                      {PlanningCode.STAGE_ABOVE_MAXIMUM, PlanningCode.MIXED_THOUGHT}]):
+                        split_labels=round_split_labels):
                     details = {key: value for key, value in batch.items() if key != 'draft'}
                     if details:
                         batches.append(details)
@@ -570,7 +573,7 @@ def run(args, ctx: PlannerContext) -> int:
                         continue
                     candidate = batch['draft']
                     if authored:
-                        candidate = pc_binding.keep_authored(raw, candidate)
+                        candidate = pc_binding.keep_authored(raw, candidate, split_labels=round_split_labels)
                     # The current complete proposal survives a later batch failure.
                     atomic_write_json(episode_dir / f'patch_attempt_{attempt:02d}_{patch_rounds:02d}.json', candidate)
                     patched = candidate

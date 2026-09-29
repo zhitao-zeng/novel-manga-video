@@ -199,7 +199,13 @@ def test_authored_split_still_returns_full_stages_and_keeps_model_cuts(monkeypat
     assert properties['continuations']['items'] == properties['stage']
     assert '当前内容：' in captured['parts'][0]['text']
     assert '作者只读上下文' not in captured['parts'][0]['text']
-    assert result['clips'][0]['stages'] == [first, second]
+    parts = result['clips'][0]['stages']
+    # the model's directed cuts stand; the author's columns are stamped onto the parts
+    assert [part['event'] for part in parts] == ['托尼打响指。', '空甲飞入后落地。']
+    assert [part['shot_id'] for part in parts] == ['9', '9.v2']
+    assert [part['authored_id'] for part in parts] == ['9', '9.v2']
+    # the author's over-long planned length is not put back onto the parts
+    assert all('duration_seconds' not in part for part in parts)
     assert raw == before
 
 

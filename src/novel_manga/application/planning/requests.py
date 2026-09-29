@@ -227,15 +227,37 @@ def _apply_patch(raw, verdict, split_labels, *, authored=False):
         if extra and label not in split_labels:
             raise ValueError('patch split a stage that was not requested for splitting')
         original = raw['clips'][slot[0]]['stages'][slot[1]]
-        if label in split_labels and any(t.get('inner_monologue') for t in original.get('turns') or []):
+        if label in split_labels:
             from novel_manga.story.voice_delivery import speech_sequence
-            if speech_sequence([original]) != speech_sequence([item['stage'], *extra]):
-                raise ValueError('voice split changed authored words, speaker, delivery or inner_monologue')
-        if authored and label not in split_labels:
+            # An authored shot's words are the author's: a split deals them out, it must not rewrite
+            # them.  A plain draft's thought flags decide its postmix handling, so they are kept too.
+            if authored or any(t.get('inner_monologue') for t in original.get('turns') or []):
+                if speech_sequence([original]) != speech_sequence([item['stage'], *extra]):
+                    raise ValueError('voice split changed authored words, speaker, delivery or inner_monologue')
+        authored_split = authored and label in split_labels
+        if authored and not authored_split:
             saved = patched['clips'][slot[0]]['stages'][slot[1]]
             corrected = {**saved, **item['stage']}
             corrected.update({key: saved[key] for key in AUTHORED_FIELDS if key in saved})
             replacements[slot] = [corrected]
+        elif authored_split:
+            # The model was asked to write each part whole ("逐镜独立写起点、事件、末态、机位和光源"),
+            # so its stage is the part's content.  What the author keeps is identity and provenance:
+            # the shot number (part 1 keeps it, later parts carry it as 镜号.vN, the same shape
+            # voice_splits writes into the sheet), the scene grouping, the sheet's own angle and
+            # budget.  duration_seconds is deliberately not carried over - the author's one number
+            # is exactly the over-cap length the split exists to undo, and keeping it would put
+            # every part straight back over the limit.
+            saved = raw['clips'][slot[0]]['stages'][slot[1]]
+            parts = []
+            for position, entry in enumerate([item['stage'], *extra], 1):
+                part = {**saved, **entry}
+                for key in ('shot_id', 'authored_id'):
+                    if saved.get(key):
+                        part[key] = str(saved[key]) if position == 1 else f"{saved[key]}.v{position}"
+                part.pop('duration_seconds', None)
+                parts.append(part)
+            replacements[slot] = parts
         else:
             replacements[slot] = [item['stage'], *extra]
     insertions = {}
