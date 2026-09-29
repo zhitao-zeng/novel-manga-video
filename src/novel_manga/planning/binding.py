@@ -237,7 +237,7 @@ AUTHORED_FIELDS = ("event", "shot_scale", "camera", "duration_seconds", "shot_id
                    "turns", "authored_id", "authored_seconds", "authored_angle", "scene_id")
 
 
-def keep_authored(before: dict, after: dict) -> dict:
+def keep_authored(before: dict, after: dict, *, split_labels=()) -> dict:
     """The authored columns put back on every stage a patch rewrote.
 
     A patch replaces a rejected stage whole, and merge's stage carries the author's columns and the
@@ -249,14 +249,46 @@ def keep_authored(before: dict, after: dict) -> dict:
     Slots are positional, as the patch's own replacements are.  On this path nothing is ever
     inserted, so the shapes match; if they do not, something upstream has already broken the cut,
     and saying so is better than lining the columns up with the wrong shots.
+
+    A stage may only grow into the parts of a split the caller asked for: the parts carry the
+    model's directed content with the identity already stamped (part 1 keeps the author's shot id,
+    later parts extend it as 镜号.vN, the same shape voice_splits writes into the sheet), and the
+    author's over-long length is not put back onto them.  Anything else that changes the shape -
+    a stage that vanished, a part without the lineage stamp, a stage nobody asked for - refuses.
     """
     import copy
     kept = copy.deepcopy(after)
     clips_before, clips_after = before.get("clips") or [], kept.get("clips") or []
-    if [len(c.get("stages") or []) for c in clips_before] != [len(c.get("stages") or []) for c in clips_after]:
+    if len(clips_before) != len(clips_after):
         raise ValueError("the patch changed the number of stages of an authored storyboard")
-    for clip_before, clip_after in zip(clips_before, clips_after):
-        for stage_before, stage_after in zip(clip_before["stages"], clip_after["stages"]):
-            if stage_before.get("authored_id"):
-                stage_after.update({k: stage_before[k] for k in AUTHORED_FIELDS if k in stage_before})
+    from .validation import stage_slots
+    label_of_slot = {slot: label for label, slot in stage_slots(before).items()}
+    split_labels = set(split_labels)
+    for ci, (clip_before, clip_after) in enumerate(zip(clips_before, clips_after)):
+        stages_before, stages_after = clip_before.get("stages") or [], clip_after.get("stages") or []
+        cursor = 0
+        for si, stage_before in enumerate(stages_before):
+            authored_id = str(stage_before.get("authored_id") or "")
+            label = label_of_slot.get((ci, si), "")
+            if cursor >= len(stages_after):
+                raise ValueError("the patch removed a stage of an authored storyboard")
+            head = stages_after[cursor]
+            head_id = str(head.get("authored_id") or "")
+            if authored_id and label in split_labels:
+                if head_id != authored_id:
+                    raise ValueError("the patch replaced an authored shot with another shot's identity")
+                start = cursor
+                cursor += 1
+                while cursor < len(stages_after) and str(stages_after[cursor].get("authored_id") or "") == f"{authored_id}.v{cursor - start + 1}":
+                    cursor += 1
+            else:
+                if authored_id:
+                    if head_id not in ("", authored_id):
+                        raise ValueError("the patch replaced an authored shot with another shot's identity")
+                    head.update({k: stage_before[k] for k in AUTHORED_FIELDS if k in stage_before})
+                elif head_id:
+                    raise ValueError("the patch introduced a stage an authored storyboard never had")
+                cursor += 1
+        if cursor != len(stages_after):
+            raise ValueError("the patch changed the number of stages of an authored storyboard")
     return kept
