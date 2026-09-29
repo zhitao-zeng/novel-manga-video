@@ -50,6 +50,7 @@ class LocalQwenImageProvider:
         additional_references: tuple[Path, ...] = (),
         *, aspect_ratio: str | None = None,
         seed: int | None = None,
+        negative_prompt: str | None = None,
     ) -> ImageResult:
         width, height = NATIVE_SIZE[aspect_ratio or "9:16"]
         references = [
@@ -68,6 +69,8 @@ class LocalQwenImageProvider:
             "references": [
                 base64.b64encode(path.read_bytes()).decode("ascii") for path in references
             ],
+            # 负向词总是带上(空串也带):Qwen-Image 不传 negative_prompt 会整体掉质量。
+            "negative_prompt": negative_prompt or "",
             # With no seed the service draws at its own fixed default, so the same prompt always
             # returns the same picture: a card drawn again on purpose has to name another seed.
             **({"seed": seed} if seed is not None else {}),
