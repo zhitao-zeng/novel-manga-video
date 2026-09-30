@@ -8,7 +8,7 @@ from novel_manga.planning.context import PlannerContext
 from novel_manga.planning.preparation import audit_schema, grounded_issues
 from novel_manga.application.preparation.store import read
 
-def audit(directory):
+def audit(directory, *, concerns=None):
     planner_ctx = PlannerContext.from_env()
     from novel_manga.llm.client import ask_json
     from novel_manga.application.planning.context import load_entity_index
@@ -40,7 +40,9 @@ def audit(directory):
               '说话者错误归speaker，已有镜头动作错误归action，地点错误归location；不能统统标missing_event。'
               '核心事件完全没拍、现有镜头无法承载时才用stage=0。不要因省略修饰或一般支线标missing_event。'
               '原文如果大段字序打乱而无法理解，source_readable=false，说明原因，禁止编造还原。'
-              '没有确定错误就issues=[]。\n' + json.dumps({'chapter': directory.name, 'source': source_view,
+              '没有确定错误就issues=[]。\n' + (('最终请求生成发现的待核实矛盾（不是已确认错误）：'
+              + json.dumps(concerns, ensure_ascii=False) + '\n') if concerns else '')
+              + json.dumps({'chapter': directory.name, 'source': source_view,
               'identity_context': identity_context, 'script': script}, ensure_ascii=False))
     answer = ask_json([{'type': 'text', 'text': prompt}], audit_schema(), name='pre_render_story_audit',
                       max_tokens=3000, timeout=240)

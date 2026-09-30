@@ -1,3 +1,5 @@
+
+from support.h3_translation import with_dialogue_slots
 """Saved summoning failure: correct repair survives the real writeback/compile path."""
 import copy
 from pathlib import Path
@@ -86,7 +88,7 @@ def test_correct_reply_reaches_final_h3_without_old_state_or_extra_actor(tmp_pat
     seen=[]
     def translate(parts,schema,**kwargs):
         seen.append(parts[0]['text'])
-        return {'shots':['<Subject 1> wearing <Subject 3> snaps once. One separate empty suit flies in and settles between the two people. <Subject 2> points at it.'],
+        return {'shots':with_dialogue_slots(parts, ['<Subject 1> wearing <Subject 3> snaps once. One separate empty suit flies in and settles between the two people. <Subject 2> points at it.']),
                 'soundscape':'A brief jet sound and a landing thud.'}
     monkeypatch.setattr(h3,'ask_json',translate)
     clip={'clip_id':'c','prompt':cn,'request_seconds':10,'render_family':'2d','shot_timing':[{'seconds':10}],

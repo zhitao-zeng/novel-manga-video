@@ -6,7 +6,7 @@ import copy
 import math
 from .scenes import obj, text, array, VERSION
 from novel_manga.story.fields import actions_field, extras_field, cast_field
-from novel_manga.planning.constants import SHOT_SCALES
+from novel_manga.planning.constants import SHOT_SCALES, TIMING_GUIDANCE
 from novel_manga.planning.text import spoken_turn_seconds
 
 
@@ -46,7 +46,7 @@ def direction_budget(script):
 
 
 def direction_prompt(method):
-    return (
+    return (TIMING_GUIDANCE + "\n" +
         f"你按【{method.name}】把已经完成的分场剧本拆成逐镜导演稿。\n" + method.drafting + "\n"
         "输入是已核对原文的分场剧本和人物资料；剧情以分场稿为准，不重新改编原著。先读完剧本及结尾，再写整体设计和逐场镜头。"
         "场景数量、正文段落数量都不等于镜头数；每场按必要动作、信息揭示与反应拆成可拍镜头。"

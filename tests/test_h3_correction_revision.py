@@ -3,11 +3,6 @@ from novel_manga.application.rendering import h3
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def correction_translation(monkeypatch):
-    monkeypatch.setattr(h3, 'english_note', lambda note, naming: 'The visible person follows the requested framing.')
-
-
 def clip():
     return {'clip_id':'c','kind':'video','request_seconds':10,'cast':['甲'],'lines':[],
             'prompt':'【阶段】甲站在门旁。','references':[{'role':'character','name':'甲','path':'a.jpeg'}]}
@@ -41,6 +36,8 @@ def test_batch_writer_persists_the_same_corrected_source_as_convert(tmp_path,mon
     import json,sys
     from novel_manga.application.preparation import readiness
     novel=tmp_path/'book';episode=novel/'book_1';episode.mkdir(parents=True)
+    from PIL import Image
+    Image.new('RGB',(8,8)).save(novel/'a.jpeg')
     path=episode/'clip_plan.json';path.write_text(json.dumps({'clips':[clip()]},ensure_ascii=False))
     monkeypatch.setattr(readiness,'inspect_episode',lambda *a,**k:({},{}))
     monkeypatch.setattr(h3,'corrections',lambda *a:{'c':'只拍手。'})

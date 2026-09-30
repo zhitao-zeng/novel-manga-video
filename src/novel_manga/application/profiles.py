@@ -215,7 +215,7 @@ def h3_compile_inputs(clip: dict) -> dict:
     """
     from novel_manga.story.voice_delivery import visual_request
     clip = visual_request(clip)
-    inputs: dict = {'references': [(r.get('role'), r.get('name'), r.get('path')) for r in (clip.get('references') or [])]}
+    inputs: dict = {'compiler_policy': 'h3-unified-direction-v2', 'references': [(r.get('role'), r.get('name'), r.get('path')) for r in (clip.get('references') or [])]}
     if clip.get('render_family') or clip.get('animation_style'):
         inputs['render_family'] = str(clip.get('render_family') or clip.get('animation_style'))
     if clip.get('h3_style_line'):
@@ -230,6 +230,10 @@ def h3_compile_inputs(clip: dict) -> dict:
         inputs['reference_aliases'] = [(r.get('name'), r['aliases']) for r in clip['references'] if r.get('aliases')]
     if any(r.get('inner_monologue') for r in clip.get('dialogue_bindings', [])):
         inputs['inner_monologue'] = [(r['stage'], r['speaker_name'], r['text']) for r in clip['dialogue_bindings'] if r.get('inner_monologue')]
+    if 'dialogue_bindings' in clip:
+        inputs['dialogue_emotions'] = [r.get('emotion', '') for r in clip['dialogue_bindings']]
+    if 'action_bindings' in clip:
+        inputs['action_bindings'] = clip['action_bindings']
     if not clip.get('scene_ids'):
         return inputs
     return {**inputs, 'render_family': str(clip.get('render_family') or clip.get('animation_style') or ''),

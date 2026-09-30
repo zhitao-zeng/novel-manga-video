@@ -346,4 +346,5 @@ def run_prompt(skill: str, novel: dict, chapter: int) -> str:
     titles = {int(c["index"]): c.get("title", "") for c in novel.get("chapters", [])}
     task = SKILL_TASKS[skill].format(title=novel.get("title", ""), n=chapter,
                                      chapter_title=titles.get(chapter, f"第 {chapter} 章"))
-    return RUN_PROMPT.format(task=task)
+    from novel_manga.planning.constants import TIMING_GUIDANCE
+    return RUN_PROMPT.format(task=task) + "\n" + TIMING_GUIDANCE

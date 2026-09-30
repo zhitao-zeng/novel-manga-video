@@ -13,10 +13,12 @@ EVENT_LINE = re.compile(r"主要事件是(.+?)。\n")
 
 def shot_contract(clip: dict) -> str:
     """The actual shot, including its crop and state changes, rather than the cast card's default pose."""
-    return ("\n本镜中文拍摄计划：\n" + str(clip.get("prompt") or "（未提供）")
-            + "\n本镜实际英文请求（人物编号与引用关系也在其中）：\n" + str(clip.get("prompt_h3") or "（未提供）")
+    description = ("\n本镜实际英文请求（人物编号与引用关系也在其中）：\n" + str(clip['prompt_h3'])
+                   if clip.get('prompt_h3') else
+                   "\n本镜中文拍摄计划：\n" + str(clip.get('prompt') or '（未提供）'))
+    return (description
             + "\n判定边界：角色卡提供身份、服装材质和配色，不规定每一镜的姿势、站位、面罩开合或可见部位。"
-              "这些状态按本镜计划及其动作先后判断；开合过程不能要求全程保持卡上的状态。"
+              "这些状态优先按实际最终英文请求及其动作先后判断，英文未明确时再参考中文计划和台账；开合过程不能要求全程保持卡上的状态。"
               "局部特写、背影、遮挡、画外人物不要求露脸；只看见穿甲者的躯干或腿仍算该人物，"
               "不能由脸不在构图内推断缺头或人物缺席。明确能看到本该连接的断口才可判结构缺失。"
               "无人空甲、雕像和装备与穿戴者分开匹配；空甲的面罩状态不能算到人物身上。"

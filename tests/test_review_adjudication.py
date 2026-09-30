@@ -271,3 +271,44 @@ def test_frame_recheck_error_remains_unreviewed_instead_of_pass(tmp_path, monkey
     final = episode.review_episode(directory)
     assert final['clips']['c']['severity'] == 'review_error'
     assert final['error_rounds'] == 1 and 'frame judge unavailable' in final['clips']['c']['error']
+
+
+def test_text_only_cast_finding_reaches_adjudication_even_when_flags_pass(monkeypatch):
+    from novel_manga.application.review import adjudication as a
+    verdict={'severity':'pass','verify':{'cast_video':{
+        'note':'席勒手臂变成机械义肢，托尼盔甲有红色污渍。',
+        'extra_person':False,'extra_object':False,'face_artifact':False,'looks':[]}}}
+    seen=[]
+    def confirm(clip,video,bible,work,v,concerns):
+        seen.extend(concerns)
+        return a.apply(v,{'checks':[{'id':0,'result':'confirmed','evidence':'视频手臂为金属，参考图为布袖和人体',
+            'instruction':'席勒保持参考图中的布袖和正常手臂。',
+            'error_facts':{k:k=='appearance' for k in ERROR_FACTS}}]},concerns)
+    monkeypatch.setattr(a,'_review_frames',confirm)
+    monkeypatch.setattr(a,'check_inputs',lambda clip,work,v,**kw:v)
+    assert a.outdated(verdict)
+    result=a.review({},None,None,None,verdict)
+    assert seen==[verdict['verify']['cast_video']['note']]
+    assert result['severity']=='fail' and not a.outdated(result)
+    assert verdict['severity']=='pass'
+
+
+def test_note_alone_does_not_force_failure_and_dismissal_is_not_rechecked(monkeypatch):
+    from novel_manga.application.review import adjudication as a
+    verdict={'severity':'pass','verify':{'cast_video':{'note':'疑似多余装甲'}}}
+    def dismiss(clip,video,bible,work,v,concerns):
+        return a.apply(v,{'checks':[{'id':0,'result':'dismissed','evidence':'','instruction':''}]},concerns)
+    monkeypatch.setattr(a,'_review_frames',dismiss)
+    monkeypatch.setattr(a,'check_inputs',lambda clip,work,v,**kw:v)
+    result=a.review({},None,None,None,verdict)
+    assert result['severity']=='pass' and not a.outdated(result)
+    monkeypatch.setattr(a,'_review_frames',lambda *args:(_ for _ in ()).throw(AssertionError('already reviewed')))
+    assert a.review({},None,None,None,result)==result
+
+
+def test_explicit_no_issue_note_does_not_add_a_review(monkeypatch):
+    from novel_manga.application.review import adjudication as a
+    monkeypatch.setattr(a,'_review_frames',lambda *args:(_ for _ in ()).throw(AssertionError('no finding')))
+    for note in ['', '无', '无。', 'None.']:
+        verdict={'severity':'pass','verify':{'cast_video':{'note':note}}}
+        assert not a.outdated(verdict) and a.review({},None,None,None,verdict)==verdict

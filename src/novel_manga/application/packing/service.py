@@ -156,6 +156,9 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "references": references,
         "lines": lines,
         "dialogue_bindings": clip_bindings(clip['shots']),
+        "action_bindings": [{"stage": i, "source_stage": shot["index"],
+                             "actions": copy.deepcopy(shot.get("actions", []))}
+                            for i, shot in enumerate(clip['shots'], 1)],
         "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip(), "chat_target": str(t.get("chat_target") or "").strip()} for shot in clip["shots"] for t in chat_turns(shot)],
         "spoken_text": "".join(line["text"] for line in lines),
         "prompt": prompt,

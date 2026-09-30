@@ -9,6 +9,8 @@ the end the question that matters - what does H3 hear, and what is laid over its
 """
 from __future__ import annotations
 
+from support.h3_translation import with_dialogue_slots
+
 import json
 import re
 
@@ -75,9 +77,7 @@ def traced(tmp_path, monkeypatch):
 
     def translate(parts, schema, **kwargs):
         lines = [line for line in parts[0]["text"].splitlines() if line[:1].isdigit()]
-        if schema.get("properties", {}).get("manners"):
-            return {"manners": ["The line is delivered in a natural voice."] * len(lines)}
-        return {"shots": [f"A young man sits on a stream bank, shot {i}." for i in range(1, len(lines) + 1)]}
+        return {"shots": with_dialogue_slots(parts, [f"The line is delivered in a natural voice. A young man sits on a stream bank, shot {i}." for i in range(1, len(lines) + 1)])}
 
     monkeypatch.setattr(h3, "ask_json", translate)
     for clip in plan["clips"]:

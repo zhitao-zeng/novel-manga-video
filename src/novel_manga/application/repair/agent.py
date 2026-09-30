@@ -32,7 +32,12 @@ def sections(prompt):
 
 def validate_prompt(clip, prompt):
     old, new = sections(clip['prompt_h3']), sections(prompt)
-    if old['subject_definitions'] != new['subject_definitions']:
+    def definition_bindings(text):
+        rows = list(re.finditer(r'(?m)^(<(?:Subject|Audio) \d+>)', text))
+        return [(row[1], sorted(set(re.findall(r'<(?:Picture|Subject|Audio) \d+>|\(S\d+\)',
+                    text[row.end():rows[i+1].start() if i+1<len(rows) else len(text)]))))
+                for i,row in enumerate(rows)]
+    if definition_bindings(old['subject_definitions']) != definition_bindings(new['subject_definitions']):
         raise ValueError('agent changed protected reference binding: subject_definitions')
     def retention_bindings(text):
         rows = list(re.finditer(r'(?m)^(<(?:Subject|Audio) \d+>): (\w+)', text))
@@ -73,7 +78,8 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     media = read_json(directory/'thin_media_report.json', {})
     row = next((r for r in media.get('clips',[]) if r['clip_id']==clip['clip_id']), {})
     history = read_json(directory/'repair_history/history.json', {})
-    evidence = {'clip': clip, 'shots_and_neighbours': shots, 'segments':read_json(directory/'segments.json', []),
+    from novel_manga.story.h3 import REQUEST_CONTENT_RULES
+    evidence = {'request_rules': REQUEST_CONTENT_RULES, 'clip': clip, 'shots_and_neighbours': shots, 'segments':read_json(directory/'segments.json', []),
                 'verdict':verdict, 'media':row, 'feedback':read_json(directory/'review_feedback.json', {}).get(clip['clip_id'],''),
                 'observations':history.get('observations',{}).get(clip['clip_id'],[]),
                 'trials':[{k:t.get(k) for k in ('id','method','changes','expected_notes')}

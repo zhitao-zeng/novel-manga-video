@@ -186,14 +186,15 @@ def test_scene_boundary_duration_and_sound_survive_native_packing_and_h3(tmp_pat
     seen = []
     def translate(parts, schema, **kwargs):
         seen.append(parts[0]['text'])
-        return {'shots': ['A grey goat strikes the held stick; its hoofbeats stop on contact.']}
+        from support.h3_translation import with_dialogue_slots
+        return {'shots': with_dialogue_slots(parts, ['A grey goat strikes the held stick; its hoofbeats stop on contact.'])}
     monkeypatch.setattr(h3, 'ask_json', translate)
     clip = plan['clips'][1]
     assert h3.convert(clip, tries=1)
     assert '蹄声停止' in seen[0]
     assert 'hoofbeats stop' in clip['prompt_h3']
-    assert 'consistent stylized 3D animation' in clip['prompt_h3']
-    assert 'which garments are currently worn, removed or wet' in clip['prompt_h3']
+    assert '3D animation' in clip['prompt_h3']
+    assert 'which garments are currently worn, removed or wet' not in clip['prompt_h3']
     assert not request_issues(clip)
     assert 'non_diegetic_music:\nNone.' in clip['prompt_h3']
     spoken = plan['clips'][0]

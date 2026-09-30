@@ -80,10 +80,9 @@ def test_regular_clips_carry_style_and_physical_sound_into_h3(monkeypatch):
         return {'shots': ['<Subject 1> flies out of the window wearing his armor. Its jet engine roars.']}
 
     monkeypatch.setattr(translator, 'ask_json', translate)
-    monkeypatch.setattr(translator, 'english_delivery', lambda *_: {})
     assert translator.convert(clip)
     assert '同期声：机甲喷气声' in seen['ask']
-    assert 'Preserve entrances/exits' in seen['ask']
+    assert '穿着机甲飞出窗户' in seen['ask'] and '结束时：<Subject 1>在窗外' in seen['ask']
     assert 'Crisp black ink outlines' in clip['prompt_h3']
     assert 'jet engine roars' in clip['prompt_h3']
     assert '2D animation' in clip['prompt_h3']
@@ -91,8 +90,8 @@ def test_regular_clips_carry_style_and_physical_sound_into_h3(monkeypatch):
 
 
 def test_vocal_translation_must_not_invent_sobbing_from_distress():
-    from novel_manga.application.rendering.h3 import DELIVERY_ASK
-    assert '崩溃' in DELIVERY_ASK and 'Never add crying, sobbing' in DELIVERY_ASK
+    from novel_manga.application.rendering.h3 import INPUT_RULES
+    assert 'Do not add crying' in INPUT_RULES and 'unless explicitly requested' in INPUT_RULES
 
 
 # --- one person, two pictures ------------------------------------------------------------------
@@ -144,35 +143,35 @@ def test_the_vocal_manner_survives_the_stage_parse():
     assert turns == [('梁舟', '谁在那里？', False, '压低声音且迟疑')]
 
 
-def test_two_performances_of_one_line_no_longer_compile_to_the_same_request():
-    """Held apart only by the delivery, these used to be byte-identical: the manner was captured and
-    dropped, and the one route left to it was the shot translation, which is asked for what the camera
-    SEES - it turned 恐惧与无奈 into "with a determined expression", a face, with the valence reversed."""
-    loud = PROMPT.replace('压低声音且迟疑', '高声愤怒')
-    clip, english = scene_clip(render_family='2d'), ['<Subject 1> waits by a door.']
-    delivery = {'压低声音且迟疑': 'The line is delivered in a low, hesitant voice.',
-                '高声愤怒': 'The line is delivered as a furious shout.'}
-    quiet_request = compose(clip, english, stages_of(PROMPT), '', delivery)
-    loud_request = compose(clip, english, stages_of(loud), '', delivery)
-    assert quiet_request != loud_request
-    assert 'low, hesitant voice' in quiet_request and 'furious shout' in loud_request
-    # the words themselves are still the packed ones, and the checker still recognises the syntax
-    assert '<Subject 1> (S1) says <d>[Chinese] 谁在那里?</d>' in quiet_request
-    assert not request_issues({**clip, 'prompt_h3': quiet_request})
+def test_vocal_manner_reaches_the_single_writer_and_bound_words_stay_fixed(monkeypatch):
+    from novel_manga.application.rendering import h3
+    seen=[]
+    def write(parts,schema,**kw):
+        text=parts[0]['text'];seen.append(text)
+        tone='loud and angry' if '高声愤怒' in text else 'low and hesitant'
+        return {'shots':[f'<Subject 1> waits by a door. The delivery is {tone}. <DIALOGUE_1>'],
+                'soundscape':'None.', 'conflicts':[]}
+    monkeypatch.setattr(h3,'ask_json',write)
+    quiet=scene_clip(render_family='2d',prompt=PROMPT);loud=scene_clip(render_family='2d',prompt=PROMPT)
+    loud['prompt']=PROMPT.replace('压低声音且迟疑','高声愤怒')
+    assert h3.convert(quiet) and h3.convert(loud)
+    assert len(seen)==2  # no independent manner or note model call
+    assert 'low and hesitant' in quiet['prompt_h3'] and 'loud and angry' in loud['prompt_h3']
+    for c in [quiet,loud]:
+        assert c['prompt_h3'].count('<d>[Chinese] 谁在那里?</d>')==1
+        assert not request_issues(c)
 
 
-def test_the_manner_travels_with_the_binding_not_with_the_prose():
-    clip = scene_clip(render_family='2d', dialogue_bindings=[
+def test_binding_emotion_is_given_to_the_writer_without_changing_the_words(monkeypatch):
+    from novel_manga.application.rendering import h3
+    clip = scene_clip(render_family='2d', prompt=PROMPT, dialogue_bindings=[
         {'stage': 1, 'speaker_name': '梁舟', 'delivery_mode': 'visible_dialogue',
-         'text': '谁在那里？', 'emotion': '压低声音且迟疑'}])
-    request = compose(clip, ['<Subject 1> waits by a door.'], stages_of(PROMPT), '',
-                      {'压低声音且迟疑': 'The line is delivered in a low, hesitant voice.'})
-    assert 'low, hesitant voice' in request
-    assert not request_issues({**clip, 'prompt_h3': request})
-
-
-def test_an_untranslated_manner_costs_the_line_its_performance_and_nothing_else():
-    clip = scene_clip(render_family='2d')
-    request = compose(clip, ['<Subject 1> waits by a door.'], stages_of(PROMPT), '', {})
-    assert '<Subject 1> (S1) says <d>[Chinese] 谁在那里?</d>' in request
-    assert not request_issues({**clip, 'prompt_h3': request})
+         'text': '谁在那里？', 'emotion': '低声'}])
+    def write(parts,schema,**kw):
+        assert '"emotion": "低声"' in parts[0]['text']
+        return {'shots':['<Subject 1> waits by a door. The delivery is quiet. <DIALOGUE_1>'],
+                'soundscape':'None.', 'conflicts':[]}
+    monkeypatch.setattr(h3,'ask_json',write)
+    assert h3.convert(clip)
+    assert clip['prompt_h3'].count('delivery is quiet')==1
+    assert not request_issues(clip)

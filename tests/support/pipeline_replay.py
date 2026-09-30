@@ -27,7 +27,9 @@ def clip_requests(root: Path) -> dict:
                         path.write_bytes(b'fixed reference content')
                 stages = h3.stages_of(clip['prompt'])
                 # Translation is fixed: this replay checks binding and composition, not model quality.
-                translated = [f'The camera shows stage {i}.' for i in range(1, len(stages) + 1)]
+                translated = [f'The camera shows stage {i}. ' + ' '.join(
+                    f'<DIALOGUE_{j}>' for j in range(1,1+sum(r['stage']==i for r in clip.get('dialogue_bindings',[]))))
+                    for i in range(1,len(stages)+1)]
                 clip['prompt_h3'] = h3.compose(clip, translated, stages)
                 request, refs, digests, retry = generation.build_request(ctx, clip, 1)
                 result = {'stages': stages, 'request': request, 'retry': retry,
@@ -39,5 +41,5 @@ def clip_requests(root: Path) -> dict:
     output['repair_routes'] = {cause: [diagnosed_decision({'cause': cause}, repeated).action
                                       for repeated in (False, True)]
                                for cause in ('generation_mismatch', 'source_attribution', 'request_mismatch')}
-    output['translation_contract'] = {'shots': translation.ASK, 'note': translation.NOTE_ASK, 'schema': translation.SCHEMA}
+    output['translation_contract'] = {'shots': translation.ASK, 'input_rules': translation.INPUT_RULES, 'schema': translation.SCHEMA}
     return output

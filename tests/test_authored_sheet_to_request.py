@@ -10,6 +10,8 @@ So: a fixed sheet, and at each layer the same question - is this still what the 
 """
 from __future__ import annotations
 
+from support.h3_translation import with_dialogue_slots
+
 import json
 
 import pytest
@@ -84,9 +86,7 @@ def traced(tmp_path, monkeypatch):
 
     def translate(parts, schema, **kwargs):
         lines = [line for line in parts[0]["text"].splitlines() if line[:1].isdigit()]
-        if schema.get("properties", {}).get("manners"):
-            return {"manners": ["The line is delivered in a relieved, breathy voice."] * len(lines)}
-        return {"shots": [f"A young man on a stream bank, shot {i}." for i in range(1, len(lines) + 1)]}
+        return {"shots": with_dialogue_slots(parts, [f"The line is delivered in a relieved, breathy voice. A young man on a stream bank, shot {i}." for i in range(1, len(lines) + 1)])}
 
     monkeypatch.setattr(h3, "ask_json", translate)
     for clip in plan["clips"]:
@@ -162,7 +162,7 @@ def test_the_sound_reaches_the_plan_shot_by_shot(traced):
 def test_the_request_says_what_this_book_is_rendered_as(traced):
     _, _, plan = traced
     for clip in (c for c in plan["clips"] if c["kind"] == "video"):
-        assert "consistent stylized 3D animation" in clip["prompt_h3"]
+        assert "3D animation" in clip["prompt_h3"]
 
 
 def test_the_request_carries_the_authored_duration_of_each_shot(traced):

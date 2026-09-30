@@ -23,18 +23,18 @@ def test_only_visible_matching_evidence_can_request_a_retake(changes, wrong):
 
 def test_the_actual_ending_state_is_not_cut_off_and_guides_the_correction(monkeypatch):
     clip = {'cast': ['穿甲者'], 'prompt': '腿部特写；另一套无人空甲随后飞入。',
-            'prompt_h3': 'detailed_description:\n' + 'A long shot. ' * 300 + 'The silver visor closes at the end.'}
+            'prompt_h3': 'detailed_description:\n' + 'A leg close-up. ' * 300 + 'The silver visor closes at the end.'}
     seen = [{'who': '穿甲者', 'wears': '银色盔甲，结尾合上面罩'}]
     def ask(parts, schema, name):
         text = parts[0]['text']
-        assert 'The silver visor closes at the end.' in text and '腿部特写' in text
+        assert 'The silver visor closes at the end.' in text and 'A leg close-up.' in text and '腿部特写' not in text
         return {'checks': [{'name': '穿甲者', 'kind': 'state', 'same_entity': True, 'visibility': 'visible',
                             'same_color_family': True, 'state_stage': 1, 'expected_state': 'closing', 'instruction': '结尾合上银白面甲。'}]}
     monkeypatch.setattr(cast_video, 'ask', ask)
     draw = {'穿甲者': '银色盔甲，参考卡的面罩打开'}
     checks = cast_video.compare(draw, [], seen, clip, {'穿甲者': {'1': 'closing'}})
     assert cast_video.instruction(clip, {'looks': checks}, draw) == '结尾合上银白面甲。'
-    assert '腿部特写' in shot_contract(clip)
+    assert 'A leg close-up.' in shot_contract(clip) and '腿部特写' not in shot_contract(clip)
 
 
 def test_closed_only_card_is_available_for_review(tmp_path):

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from novel_manga.models.bible import StoryBible as review_models_StoryBible
-from .contracts import STORY_FATAL
+from .contracts import STORY_FATAL, VERIFY_FLAGS
 
 
 BREAKDOWN = re.compile(r"尾巴|尖耳|崩坏|畸形|穿模|六指|多余(的)?(手|臂|腿|肢)|赤膊巨人|肌肉极其夸张|非人(?!类|形态)")
@@ -109,7 +109,7 @@ def count_mismatches(answer: dict) -> list[str]:
 
 def verify_to_verdict(answer: dict) -> dict:
     """The verifier's answer in the shape the review file, fix_tier and the board already read."""
-    flags = {k: bool(answer.get(k)) for k in ("same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing", "lead_face_swapped")}
+    flags = {k: bool(answer.get(k)) for k in VERIFY_FLAGS if k != 'body_artifact' or k in answer}
     counts = count_mismatches(answer)
     obvious = answer.get("verdict") == "obvious" or any(flags.values()) or bool(counts)
     subtle = answer.get("verdict") == "subtle" and not obvious
@@ -127,7 +127,7 @@ def verify_to_verdict(answer: dict) -> dict:
         "location_ok": None, "time_of_day_ok": None, "location_issue": "",
         "text_or_watermark": bool(answer.get("ghost_text")),
         "chat_text_ok": None, "chat_text_issue": "",
-        "visual_defects": None, "defect_issue": evidence if obvious and not any(flags.values()) else "",
+        "visual_defects": True if flags.get("body_artifact") else None, "defect_issue": ("身体结构异常待复核：" + evidence) if flags.get("body_artifact") else evidence if obvious and not any(flags.values()) else "",
         "story_ok": False if story_error else None,
         "story_kind": story_kind,
         "story_issue": evidence if story_error else "",

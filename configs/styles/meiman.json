@@ -1,7 +1,7 @@
 {
   "name": "美漫",
   "render_family": "2d",
-  "h3_style_line": "Clean 2D American comic animation with clear contour lines, consistent local colors, controlled contrast and broad simple shading. Natural skin tones and plain fabric surfaces follow the character references. Lighting comes from the practical light sources in the scene.",
+  "h3_style_line": "Clean 2D American comic animation with clear contour lines and simple shading, matching the reference images.",
   "visual_style": "二维美式漫画角色设定稿：清楚的轮廓线，稳定的平涂色块，少量块面阴影，自然肤色，背景为单一纯色",
   "render_direction": "保留参考人物的五官、发型、体型、服装款式和配色。用清楚且疏朗的轮廓线和少量块面阴影塑造体积，面部中间调可读，肤色与参考图一致。衣物保持普通布料表面与自然衣褶，以稳定的大色块区分款式。照明来自场景里的真实灯具或自然光，高光面积克制。",
   "scene_style": "二维美式漫画场景设定稿：结构清楚的轮廓线，平整的大色块，适量明暗层次，克制的材质纹理",

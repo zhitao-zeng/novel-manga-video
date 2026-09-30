@@ -2,23 +2,35 @@
 from __future__ import annotations
 import re
 from ..runtime_backends import correct_protected_lexicon, edit_distance
-from .subtitles import match_key, subsequence_overlap, align_chunks, classify_unmatched
+from .subtitles import match_key, subsequence_overlap, align_chunks
 from .issues import QualityIssue, missing_dialogue, replaced_by_speech_recheck
 
 MAX_MISSING = 0.5
 MIN_PEAK_DB = -35.0
 UNSCRIPTED_MIN_CHARS = 5
 UNSCRIPTED_MIN_DB = -40.0
-EVALUATION_POLICY = 2
+EVALUATION_POLICY = 3
 
 
 def unplanned_segments(reference, rows):
     timed = [r for r in rows if 'start' in r and 'end' in r]
     if not reference or not timed:
         return []
-    return [row for row, text, score, pieces in align_chunks([reference], timed)
-            if not text and classify_unmatched(str(row.get('hypothesis', '')),
-                                               float(row['end']) - float(row['start'])) == 'asr_text']
+    # Subtitle suppression is not a speech-quality decision. Consecutive unmatched
+    # chunks form one extra utterance even when ASR split it into short fragments.
+    found, pending = [], []
+    def flush():
+        if (sum(len(match_key(str(r.get('hypothesis', '')))) for r in pending) >= 6
+                and sum(float(r['end'])-float(r['start']) for r in pending) >= 0.8):
+            found.extend(pending)
+        pending.clear()
+    for row, text, score, pieces in align_chunks([reference], timed):
+        if text:
+            flush()
+        elif match_key(str(row.get('hypothesis', ''))):
+            pending.append(row)
+    flush()
+    return found
 
 
 def corrected_rows(rows, reference, protected_terms, aliases):

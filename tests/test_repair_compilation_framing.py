@@ -54,8 +54,9 @@ def test_last_utterance_finishes_before_a_silent_reaction_shot():
     clip={'request_seconds':10,'references':[{'role':'character','name':'甲','path':'a.jpeg'}],
           'shot_timing':[{'seconds':5},{'seconds':5}],
           'dialogue_bindings':[{'stage':1,'speaker_name':'甲','delivery_mode':'visible_dialogue','text':'事情就是这样……'}]}
-    result=compose(clip,['<Subject 1> speaks.','The empty cup remains still.'],[('',[]),('',[])])
+    result=compose(clip,['<Subject 1> faces the listener. <DIALOGUE_1> He lowers his hand.','The empty cup remains still.'],[('',[]),('',[])])
     before,after=result.split('[Shot 2]')
     assert '事情就是这样.</d>' in before
-    assert 'The quoted words complete' in before
+    assert before.index('</d>') < before.index('He lowers his hand.')
+    assert 'The quoted words complete' not in before
     assert '<d>' not in after

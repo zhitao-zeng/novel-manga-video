@@ -65,9 +65,20 @@ def apply(verdict, answer, concerns):
     return out
 
 
+def pending_cast_note(verdict):
+    """The observer's free-text finding must not disappear behind empty boolean flags."""
+    cast = (verdict.get('verify') or {}).get('cast_video') or {}
+    if cast.get('adjudicated'):
+        return ''
+    note = str(cast.get('note') or '').strip()
+    # The cast question explicitly uses 无 for no issue. Any other reported
+    # observation is a candidate to verify, never an automatic failure.
+    return '' if note.rstrip('。.!！').strip().lower() in {'', '无', 'none'} else note
+
+
 def outdated(verdict):
     record = (verdict.get('verify') or {}).get('adjudication') or {}
-    return bool(record.get('confirmed') and record.get('policy') != POLICY)
+    return bool(pending_cast_note(verdict) or (record.get('confirmed') and record.get('policy') != POLICY))
 
 
 def check_inputs(clip, work_dir, verdict, *, video=None, bible=None):
@@ -107,10 +118,13 @@ def check_inputs(clip, work_dir, verdict, *, video=None, bible=None):
 
 
 def review(clip, video, bible, work_dir, verdict):
-    if verdict.get('severity') != 'fail':
+    note = pending_cast_note(verdict)
+    if verdict.get('severity') != 'fail' and not note:
         return verdict
     concerns = list(dict.fromkeys(str(verdict.get(k) or '').strip() for k in
                                  ('identity_issue', 'story_issue', 'defect_issue') if verdict.get(k)))
+    if note and verdict.get('severity') != 'fail':
+        concerns.append(note)
     if not concerns:
         concerns = [str(verdict.get('feedback') or '候选判断为失败，核对是否有可见错误')]
     return check_inputs(clip, work_dir, _review_frames(clip, video, bible, work_dir, verdict, concerns),

@@ -11,7 +11,6 @@
 import json
 
 import novel_manga.application.rendering.h3 as h3
-from novel_manga.application.rendering.h3 import delivery_acceptable
 from novel_manga.story.h3 import compose
 
 
@@ -23,7 +22,6 @@ def test_a_correction_merges_into_the_chinese_prompt_once(monkeypatch):
             "references": [{"role": "character", "name": "甲", "path": "c1/turnaround.jpeg"}],
             "lines": [], "cast": ["甲"]}
     monkeypatch.setattr(h3, "ask_json", lambda parts, schema, **kw: {"shots": ["He pushes the door open."]})
-    monkeypatch.setattr(h3, "english_note", lambda *a: "Only hands and a coffee cup are visible.")
     note = "只拍手和咖啡杯，不拍脸部"
     assert h3.convert(clip, note=note)
     assert "【导演修正】" + note in clip["prompt"]           # the Chinese carries it
@@ -51,33 +49,9 @@ def test_the_inner_voice_follows_the_framing():
         "dialogue_bindings": [{"stage": 1, "speaker_name": "甲", "text": "今天真难啊。",
                                "delivery_mode": "offscreen_dialogue", "emotion": "平静", "inner_monologue": True}]}
     request = compose(clip, ["His hands tighten around the cup."],
-                      [("stage", [])], note="")
+                      [("stage", [])])
     assert "only eyes and breathing" not in request
     assert "whatever the shot's framing shows" in request
-
-
-def test_a_manner_that_invents_vocal_behaviour_is_dropped():
-    """#6: 崩溃 alone licenses nothing; a phrase that names the behaviour licenses it."""
-    assert not delivery_acceptable("崩溃", "The line is delivered in a voice that breaks.")
-    assert delivery_acceptable("哽咽着说", "The line is delivered in a choked voice.")
-    # 怒吼 names the shout, so the shout is not an invention.
-    assert delivery_acceptable("怒吼", "The line is delivered as a furious shout.")
-    assert not delivery_acceptable("愤怒", "The line is delivered as a furious shout.")
-
-
-def test_a_manner_that_describes_the_body_is_dropped():
-    assert not delivery_acceptable("恐惧", "The line is delivered with a determined expression.")
-    assert not delivery_acceptable("紧张", "The line is delivered while clenching his fists.")
-    assert delivery_acceptable("紧张", "The line is delivered fast and unsteady.")
-
-
-def test_english_delivery_filters_invented_manners(monkeypatch):
-    wanted = ["崩溃", "哽咽着说"]
-    answers = iter([{"manners": ["The line is delivered in a voice that breaks.",
-                                 "The line is delivered in a choked voice."]}])
-    monkeypatch.setattr(h3, "ask_json", lambda parts, schema, **kw: next(answers))
-    got = h3.english_delivery(wanted)
-    assert got == {"哽咽着说": "The line is delivered in a choked voice."}   # 崩溃's invention is gone
 
 
 def test_the_style_line_comes_from_the_live_style(tmp_path, monkeypatch):

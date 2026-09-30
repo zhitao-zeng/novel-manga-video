@@ -82,7 +82,7 @@ def repair_missing_expressions(directory: Path) -> dict:
         cid=clip['clip_id']
         if cid not in changed:
             continue
-        convert(clip,note=str(notes.get(cid,'')))
+        convert(clip,note=str(notes.get(cid,'')),episode_dir=directory)
         if h3_prompt_outdated(clip,str(notes.get(cid,''))):
             english_pending.append(cid);continue
         row=review.get('clips',{}).get(cid,{})

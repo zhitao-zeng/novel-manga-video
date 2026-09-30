@@ -1,6 +1,6 @@
 """Existing planner defaults, schemas vocabulary and prompt text."""
 from __future__ import annotations
-from novel_manga.story.fields import field_instructions
+from novel_manga.story.fields import field_instructions, DIRECTION_CONTENT_RULES
 import re
 
 SEGMENT_COUNT = 8
@@ -35,6 +35,12 @@ SCENE_JOBS = ["建立", "推进", "对峙", "揭示", "反转", "决定", "收�
 
 SHOT_SCALES = ["特写", "近景", "中近景", "中景", "全景"]
 
+
+TIMING_GUIDANCE = (
+    "按发言和动作的实际顺序安排秒数：开场必要动作、完整发言、确有叙事作用的反应/收尾。"
+    "对白按自然语速估算，声音和动作同时发生时不重复累加；预算是约束，不用持姿或重复表演填满。"
+    "结束状态写结果，不再次表演已完成的动作；语气写在台词表演，sound只写可听的环境与物理音效。"
+) + DIRECTION_CONTENT_RULES
 
 AUTHORED_STORYBOARD_USAGE = (
     "你只为 authored_storyboard 绑定生产资料，按Schema输出JSON；不重新改编或拆镜。"
@@ -165,7 +171,7 @@ DEFAULT_SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧�
 8. clip.characters只填该段画面中出现的StoryBible具名角色；location只填给定地点名。speaker_name是具名角色，或"无名测验员""无名族人"这类无名画外角色；无名角色只能用offscreen_dialogue。silent_action和title_card的speaker_name留空字符串。
 {scene_fields}
 8c. 如果给了ledger_snapshot：它是原著逐段的出场记录，chapter_cast是本章在场/只有声音/只被提及的人，segments里是每个区段原文点到名的人。只让原文这一段在场的人进in_frame；segments里没点到、chapter_cast里又不在场的人不要出现；must_not_reveal里的关系此时读者还不知道，台词和画面都不得点破。
-9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。""".replace("{scene_fields}", field_instructions("planning"))
+9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。""".replace("{scene_fields}", field_instructions("planning")) + "\n" + TIMING_GUIDANCE
 
 
 DEFAULT_ANONYMOUS_SPEAKERS = ["无名测验员", "无名族人", "无名少年", "无名少女", "无名群声"]

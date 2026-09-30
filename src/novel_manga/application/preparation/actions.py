@@ -52,15 +52,15 @@ def prepare_plan(directory):
     return plan
 
 
-def check_script(directory, plan):
+def check_script(directory, plan, *, concerns=None):
     n = ep_names.chapter_of(directory.name)
     cache_path = directory / 'pre_render_story_audit.json'
     cache = read(cache_path, {})
     record(directory, 'auditing')
-    if cache.get('inputs') == inputs(directory) and cache.get('policy') == POLICY:
+    if not concerns and cache.get('inputs') == inputs(directory) and cache.get('policy') == POLICY:
         answer = cache['answer']
     else:
-        answer = audit(directory)
+        answer = audit(directory, concerns=concerns) if concerns else audit(directory)
         atomic_write_json(cache_path, {'policy': POLICY, 'at': time.strftime('%F %T'),
                                      'inputs': inputs(directory), 'answer': answer})
     if not answer['source_readable']:
@@ -135,7 +135,12 @@ def translate_and_check(directory, plan, answer):
             continue
         note = str(notes.get(clip['clip_id'], ''))
         if h3_prompt_outdated(clip, note, strict=True):
-            if not convert(clip, note=note):
+            problems = []
+            if not convert(clip, note=note, episode_dir=directory, problems=problems):
+                if problems:
+                    return record(directory, 'needs_repair', reason=problems,
+                                  request_conflicts={clip['clip_id']: {
+                                      'stage_indexes': clip.get('shot_indexes', []), 'problems': problems}})
                 return record(directory, 'error', reason='English prompt incomplete: ' + clip['clip_id'])
             atomic_write_json(plan_path, plan)  # each completed translation survives an interruption
         if request_issues(clip):

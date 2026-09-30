@@ -7,7 +7,7 @@ from novel_manga.application.configuration import h3_translation_endpoint
 from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import read_json, atomic_write_json
 
-POLICY = 'request-reference-v5-explicit-contradictions'
+POLICY = 'request-reference-v6-final-request'
 STABLE_ASPECTS = {'identity', 'appearance', 'wearing', 'object'}
 SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'maxLength': 240}},
               'findings': {'type': 'array', 'items': obj({
@@ -63,9 +63,10 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
     # cannot be evidence that the armoured subject was asked to change into cloth.
     style = str(clip.get('h3_style_line') or '').strip()
     lines = [('中文', s) for s in str(clip.get('prompt', '')).splitlines()
-             if s.strip() and not s.startswith(('【生成目标】', '【视觉语法】', '画面呈现', '【不要】'))]
+             if not english and s.strip() and not s.startswith(('【生成目标】', '【视觉语法】', '画面呈现', '【不要】'))]
     lines += [('英文', s) for s in english.splitlines() if s.strip() and not (style and style in s)]
     prompt = ('核对实际即将发给视频模型的请求与参考图，不评价尚未生成的视频，不改台词。'
+              '最终英文是实际执行的画面和声音要求，中文仅提供剧情和身份背景；不要用过期的中文机位/状态否定已确认的英文修正。'
               '先在observations逐图记录可见的衣物款式、主色、配饰、物件类型，再比较本镜文字。'
               '角色的稳定外观以实际角色参考为准；本镜具体衣物、主色、配饰要求与图中事实明确不兼容且没有换装情节时，才是输入冲突。'
               '有明确穿戴关系和对应装备参考时可覆盖基础衣物；明确的穿脱、面罩开合按本镜事件执行，'
@@ -118,7 +119,7 @@ def cached_consistency(novel_dir, work, clip, request):
     old_inputs, old_answer = saved.get('inputs', {}), saved.get('answer', {})
     if (answer is None and old_inputs.get('policy') in {'request-reference-v1', 'request-reference-v2-scoped-evidence',
                                                      'request-reference-v3-scoped-evidence',
-                                                     'request-reference-v4-current-input-only'}
+                                                     'request-reference-v4-current-input-only', 'request-reference-v5-explicit-contradictions'}
             and {**old_inputs, 'policy': POLICY} == inputs
             and old_answer.get('consistent') is True and not old_answer.get('problems')):
         answer = {**old_answer, 'policy': POLICY, 'reused_from': old_inputs['policy']}

@@ -63,7 +63,7 @@ def test_one_prop_through_the_whole_chain(tmp_path):
     prop_def = next(d for d in defs if "is the prop design" in d)
     assert "<Subject 4>" in prop_def and "<Picture 4>" in prop_def and "not a person" in prop_def
     assert subject_of == {"莱恩": 1, "琥珀": 2}
-    english = compose(clip, ["He draws the bronze sword."], [(None, [])], note="")
+    english = compose(clip, ["He draws the bronze sword."], [(None, [])])
     assert "<Picture 4>" in english
 
     # 3) 实际发送：非 voice 引用按声明顺序全部进入请求，道具在最后

@@ -32,7 +32,9 @@ def prepare_one(directory):
     if n in source_blocks:
         return record(directory, 'needs_source', reason=source_blocks[n])
     plan = actions.prepare_plan(directory)
-    answer, stopped = actions.check_script(directory, plan)
+    concerns = previous.get('request_conflicts') if previous.get('inputs') == inputs(directory) else None
+    answer, stopped = (actions.check_script(directory, plan, concerns=concerns) if concerns
+                       else actions.check_script(directory, plan))
     if stopped is not None:
         return stopped
     plan = actions.refresh_entity_bindings(directory)

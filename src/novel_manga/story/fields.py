@@ -74,11 +74,18 @@ FIELD_INSTRUCTIONS = {'planning': '8b. '
            'in_frame只表示本镜实际可见的人，包含可见听者；不因不说话而移出画面，也不因是动作主体或目标就强迫入镜。按原文和当前机位修正可见范围；同处一个场景不等于本镜可见。event保留完整因果顺序，不能依赖程序拼接actions补写。'}
 
 
+DIRECTION_CONTENT_RULES = (
+    "导演可以创作机位、节奏和当前机位能看见的必要反应，但不能增加改变剧情事实的装备功能、"
+    "特效、人物或关键物件。动作音效应有本镜动作或环境中的声源，不能为了气氛凭空增加声源或能力。"
+    "穿戴装备属于穿戴者，只有剧情明确要求的无人副本才是独立物件；面罩状态及变化要与本镜事件一致。"
+)
+
+
 def field_instructions(entry):
     instructions = SCENE_STATE_INSTRUCTIONS
     if entry == 'repair':
         instructions = '修复时只填写当前Schema提供的字段。' + instructions.replace('start_state', 'visual_prompt')
-    return FIELD_INSTRUCTIONS[entry] + '\n' + instructions
+    return FIELD_INSTRUCTIONS[entry] + '\n' + instructions + ('\n' + DIRECTION_CONTENT_RULES if entry == 'repair' else '')
 
 
 SCENE_STATE_INSTRUCTIONS = (

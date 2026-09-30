@@ -234,14 +234,14 @@ def test_a_correction_goes_into_the_english_prompt_in_english(tmp_path, monkeypa
     assert "【导演修正】" not in generation.clip_base(runner(tmp_path, local='pool', feedback={'clip_01': note}).context, clip)  # H3 read it out
     assert generation.clip_base(runner(tmp_path, feedback={'clip_01': note}).context, clip).endswith(f"【导演修正】{note}")  # Seedance keeps it
     assert not h3_prompt_outdated(clip) and h3_prompt_outdated(clip, note)  # a new correction rebuilds the English prompt
-    # The correction rides along as one more numbered line of the same ask (a separate ask had the model commenting
-    # on the tag list instead of translating), so one answer carries the shots and, last, the note.
-    answers = iter([{"shots": ["A man pushes the door open.", "He looks up at the throne.", "The man wears a blue robe."]}])
+    # A single answer incorporates the correction in the shots, not a second summary instruction.
+    answers = iter([{"shots": ["A man wearing a blue robe pushes the door open.", "He looks up at the throne."]}])
     monkeypatch.setattr(h3prompts, "ask_json", lambda *args, **kwargs: next(answers))
     fresh = {key: value for key, value in clip.items() if key not in ("prompt_h3", "prompt_h3_of")}
     assert h3prompts.convert(fresh, note=note)
     section = fresh["prompt_h3"].split("summary:\n")[1].split("\n\nretention_analysis")[0]
-    assert section.endswith("The man wears a blue robe.") and not re.search("[一-鿿]", section)
+    assert "blue robe" not in section and not re.search("[一-鿿]", section)
+    assert fresh["prompt_h3"].count("blue robe")==1
     from novel_manga.application.profiles import h3_compile_inputs
     assert fresh["prompt_h3_of"] == "2:" + h3_source_digest(prompt, note, fresh.get("crowd_roles"), h3_compile_inputs(fresh))
 

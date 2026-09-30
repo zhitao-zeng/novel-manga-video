@@ -170,7 +170,7 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
         new_words = ''.join(t.get('text','') for t in clip.get('lines',[]) if not nonverbal_sound(t))
         if normalize_text(new_words) != normalize_text(old_words):
             raise ValueError(f'{cid}: source repair changed the adapted dialogue wording')
-        convert(clip,note=str(notes.get(cid,'')))
+        convert(clip,note=str(notes.get(cid,'')),episode_dir=directory)
         if h3_prompt_outdated(clip,str(notes.get(cid,''))) or request_issues(clip):
             raise ValueError(f'{cid}: corrected English request not ready')
         print(f'{cid}: English request prepared; reviewing existing video',flush=True)

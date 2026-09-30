@@ -1,3 +1,5 @@
+
+from support.h3_translation import with_dialogue_slots
 """Posture reads reach packing/H3 and repair uses a candidate ledger before publishing it."""
 import copy
 import json
@@ -50,9 +52,7 @@ def test_compiled_request_contains_only_confirmed_inherited_pose_and_reaches_h3(
     captured = []
     def translate(parts, schema, **kwargs):
         captured.append(parts[0]['text'])
-        if 'manners' in schema.get('properties', {}):
-            return {'manners': ['The line is delivered naturally.']}
-        return {'shots': ['A young man remains seated on a chair by the window and raises a finger.']}
+        return {'shots': with_dialogue_slots(parts, ['A young man remains seated on a chair by the window and raises a finger.'])}
     monkeypatch.setattr(h3, 'ask_json', translate)
     clip = copy.deepcopy(other['clips'][1])
     assert h3.convert(clip, tries=1)

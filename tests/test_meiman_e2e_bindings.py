@@ -71,7 +71,7 @@ def test_h3_closes_a_split_clause_without_changing_its_words():
         {'role': 'character', 'name': '席勒', 'path': 'face.jpeg'}]}
     prompt = compose(clip, ['<Subject 1> remains seated.'], [('', [])])
     assert '<d>[Chinese] 这恐怕是你无法体会的艰辛.</d>' in prompt
-    assert 'closes their mouth' in prompt
+    assert 'holds a silent reaction' not in prompt
     assert s['turns'][0]['text'].endswith('，')
     assert not request_issues({**clip, 'prompt_h3': prompt})
 

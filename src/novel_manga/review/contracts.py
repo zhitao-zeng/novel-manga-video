@@ -121,13 +121,22 @@ SCRIPT_CHECK_RULES = (
 )
 
 
+VERIFY_FLAGS = ('same_person_twice', 'species_or_gender_wrong', 'action_by_wrong_person',
+                'actor_missing', 'lead_face_swapped', 'body_artifact')
+
+BODY_QUESTION = (
+    "body_artifact：对照参考图与实际视频，沿肩—肘—腕—手的连接检查是否多出独立手臂、腿或机械附肢，"
+    "或存在明显断裂/重复连接。不能只数人头而忽略同一身体的额外分支；遮挡、裁切不算缺失，"
+    "原文明确的非人形态按其实际结构判断。evidence写具体视频帧与连接位置。\n"
+)
+
 VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
-                 "required": ["people", "same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing",
-                              "lead_face_swapped", "ghost_text", "count_checks", "verdict", "evidence", "instruction"],
+                 "required": ["people", *VERIFY_FLAGS, "ghost_text", "count_checks", "verdict", "evidence", "instruction"],
                  "properties": {
                      "people": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["who", "entity_kind", "gender", "is_animal", "doing", "frames"],
                                                            "properties": {"who": {"type": "string"}, "entity_kind": {"type": "string", "enum": ["character", "object"]}, "gender": {"type": "string", "enum": ["男", "女", "不明"]},
                                                                           "is_animal": {"type": "boolean"}, "doing": {"type": "string"}, "frames": {"type": "string"}}}},
+                     "body_artifact": {"type": "boolean"},
                      "same_person_twice": {"type": "boolean"}, "species_or_gender_wrong": {"type": "boolean"}, "action_by_wrong_person": {"type": "boolean"},
                      "actor_missing": {"type": "boolean"}, "lead_face_swapped": {"type": "boolean"}, "ghost_text": {"type": "boolean"},
                      "count_checks": {"type": "array", "minItems": 1, "maxItems": 24, "items": {
@@ -142,7 +151,7 @@ VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
                      "instruction": {"type": "string"}}}
 
 
-VERIFY_QUESTIONS = (
+VERIFY_QUESTIONS = (BODY_QUESTION +
     "\n先逐个描述视频帧里看到的角色及人形物件（people：who 是谁或长相，entity_kind 为 character 或 object，gender，is_animal，doing 在做什么，frames 出现在哪几帧）。有身份和行为的角色填character；无人空甲、雕像、人体模型等物件填object，不能因为它们长得像人就填character，再回答：\n"
     "count_checks：必须数实际视频帧，不数参考卡。按镜头阶段分三类：count_kind=characters只数entity_kind=character的角色；worn_equipment数剧情指定的穿戴装备，entity填写具体装备名，不混入普通衬衫、马甲；independent_objects数独立无人甲、车辆等关键物件，entity填写具体物件名。"
     "每项写entity、视频帧号frames、按原文和本镜构图允许的expected_min/expected_max、实际observed数量，以及依据reason。"
@@ -157,7 +166,7 @@ VERIFY_QUESTIONS = (
     "lead_face_swapped：主角或其他给了角色卡的主要人物，脸型发型明显不是角色卡上那个人（追剧的观众认得主角，这也算一眼看出）；\n"
     "ghost_text：画面出现字幕、文字、水印、Logo（手机屏幕上的消息除外）；这一项单独记录，不影响 verdict；\n"
     "verdict：obvious＝观众会觉得荒谬或前后不一致（same_person_twice、species_or_gender_wrong、action_by_wrong_person、actor_missing、"
-    "lead_face_swapped 任一成立就是 obvious）；subtle＝只有对照角色卡才看得出的配角差别（发色、服装、帽子、徽章）；fine＝没问题；\n"
+    "lead_face_swapped、body_artifact 任一成立就是 obvious）；subtle＝只有对照角色卡才看得出的配角差别（发色、服装、帽子、徽章）；fine＝没问题；\n"
     "evidence：一句话，写清哪几帧、谁、看到了什么；\n"
     "instruction：给视频生成模型的一句修正指令，只说画面里该有谁、谁对谁做什么、谁只能出现一次或不该出现，点名到人，不复述错误、不提上一次；verdict 为 fine 时留空。只输出JSON。"
 )

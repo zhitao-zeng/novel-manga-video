@@ -396,7 +396,7 @@ def prepare(directory: Path, targets: list[str] | None = None) -> dict:
     if normalized:
         for clip in final_plan['clips']:
             if clip['clip_id'] in normalized:
-                convert(clip,note=str(final_notes.get(clip['clip_id'],'')))
+                convert(clip,note=str(final_notes.get(clip['clip_id'],'')),episode_dir=directory)
         atomic_write_json(directory/'clip_plan.json',final_plan)
     for trial in record['trials'][initial_count:]:
         trial.update(managed=True,expected_plan=plan_fingerprint(final_plan),expected_notes=copy.deepcopy(final_notes))

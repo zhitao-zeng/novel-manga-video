@@ -45,6 +45,19 @@ def speech_chunks(wav: Path, *, noise_db: float = -30.0, min_silence: float = 0.
             merged.append(chunk)
     return [[round(max(0.0, s - pad), 3), round(min(duration, e + pad), 3)] for s, e in merged]
 
+def with_dialogue_timing(result):
+    """Report actual planned-speech end; silence is not automatically a pacing error."""
+    rows = [r for r in result.get('chunks', []) if 'start' in r and 'end' in r]
+    if not rows or not result.get('reference'):
+        return result
+    matched = [float(row['end']) for row,text,_,_ in speech.align_chunks([result['reference']],rows) if text]
+    if not matched:
+        return result
+    end=max(matched)
+    return {**result, 'last_dialogue_end':end,
+            'trailing_no_dialogue_seconds':round(max(0., float(result.get('duration',end))-end),3)}
+
+
 def analyse_clip(ctx, clip: dict, video: Path) -> dict:
     directory = video.parent
     wav = directory / "native.wav"
@@ -84,8 +97,9 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
             cached.update(checked)
             if 'speech_recheck_policy' in cached:
                 cached = speech.recheck(reference, cached, ctx.protected_terms, ctx.aliases)
+            cached = with_dialogue_timing(cached)
             atomic_write_json(asr_path, cached)
-        return cached
+        return with_dialogue_timing(cached)
     mean_db, peak_db = audio_levels(wav)
     # Listened to even with no line to compare against: the old guard meant a wordless shot
     # was never transcribed, so nothing downstream could ever notice it talking. Keep
@@ -102,6 +116,7 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
     rows = speech.corrected_rows(rows, reference, ctx.protected_terms, ctx.aliases)
     result = {"clip_id": clip["clip_id"], "video": str(video), "duration": round(media_duration(video), 3),
               **speech.evaluate(reference, rows, mean_db, peak_db)}
+    result = with_dialogue_timing(result)
     atomic_write_json(asr_path, result)
     return result
 

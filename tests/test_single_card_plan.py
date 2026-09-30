@@ -132,7 +132,7 @@ def test_missing_expression_cleanup_only_reuses_a_current_approved_video(tmp_pat
         (d/name).write_text(json.dumps(data))
     history.begin_trial(d,{'other'},'source_recheck',after_plan=plan)
     h=history.load(d);h['trials'][0]['managed']=True;history.save(d,h)
-    def convert(c,note=''):
+    def convert(c,note='',episode_dir=None):
         c.update(prompt_h3='fresh English',prompt_h3_of=h3_source_digest(c['prompt'],note,c.get('crowd_roles')))
         return True
     monkeypatch.setattr(prompts,'convert',convert)
