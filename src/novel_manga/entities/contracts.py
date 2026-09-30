@@ -162,3 +162,16 @@ SETTLE_RULES_BODY = (
     "这是一条换身体、化身或冒充类关系，它决定画面里该画成谁的样子。只回答一个问题：全书证据里有没有原文明说“谁在谁的身体里”或“谁扮成了谁”，"
     "并且那具身体（或被冒充的人）就是记录乙？只输出 JSON {verdict, why}：supports = 原文明说了且就是记录乙；contradicts = 没明说，或不是记录乙。"
 )
+
+
+# ---- same_as 的变身类证据硬护栏 -------------------------------------------------
+# 十日终焉许流年案(2026-09-30):"楚天秋陡然变成了许流年"被三审接受成 same_as 并自动合并,
+# 此后许流年与楚天秋同场的章绑定全部失败。"变成/乔装/装扮"描述的是形态转换(transformation),
+# 不是同一人;同一人需要原文的直陈句。程序级拦检,不依赖模型自觉。
+TRANSFORMATION_HINTS = __import__('re').compile(r"(变成|变为|化作|乔装|装扮|扮成|假扮|易容|伪装|冒充成|化妆成)")
+IDENTITY_DIRECT_HINTS = __import__('re').compile(r"(同一个人|同一人|就是|其实是|正是|本人|真身|原名|本名|本名是)")
+
+
+def looks_like_transformation(evidence: str) -> bool:
+    """Evidence describes a transformation, not an identity: same_as with this must go to a person."""
+    return bool(TRANSFORMATION_HINTS.search(evidence or "")) and not IDENTITY_DIRECT_HINTS.search(evidence or "")

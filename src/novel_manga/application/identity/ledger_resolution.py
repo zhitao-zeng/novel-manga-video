@@ -155,6 +155,11 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
                 f = fourth[i]
                 status = "accepted" if f.get("verdict") == "supports" else "rejected"
                 note = f"换身体专项复核 {f.get('verdict')}：{str(f.get('why') or '')[:80]}；" + note
+            if status == "accepted" and c["type"] == "same_as" \
+                    and entity_contracts.looks_like_transformation(c.get("evidence", "")):
+                # 变身/乔装类证据不直证同一人(那是 transformation):same_as 转人工,不自动合并。
+                # 十日终焉许流年案(2026-09-30):"陡然变成了"被三审接受自动合并,同场章绑定全废。
+                status, note = "pending", "证据是变身/乔装类描述,不直证同一人,转人工裁决；" + note
             carded = bool(ledger.by_id[a].get("asset_id")) and bool(ledger.by_id[b].get("asset_id"))
             lead = any("主角" in str(ledger.by_id[x].get("role", "")) for x in (a, b))
             for r in twins:
@@ -162,7 +167,7 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
                 # what a person should look at: a body claim, a merge of two carded records (the picture changes
                 # either way), or anything touching a lead; a label folding into an uncarded record changes no picture
                 r["priority"] = c["type"] in entity_contracts.BODY_TYPES or (c["type"] in entity_contracts.MERGING and carded) or lead
-            if status in ("accepted", "rejected"):
+            if status in ("accepted", "rejected", "pending"):
                 # remembered apart from the model's output, so that a chapter read again does not undo it; a person's
                 # later decision on the same pair replaces it
                 ledger.corrections = [k for k in ledger.corrections if not (k["type"] == c["type"] and {ledger.canonical(k["subject"]), ledger.canonical(k["object"])} == {a, b})]

@@ -398,3 +398,14 @@ def test_settling_closes_what_it_cannot_ask_about(tmp_path, monkeypatch):
     rows = {r["id"]: r for r in ledger_resolution.settle_pending(ledger, workers=1)}
     assert rows["c-1"]["status"] == "closed" and rows["c-2"]["status"] == "accepted"
     assert not [c for c in ledger.claims if c.get("status") == "pending"]
+
+
+def test_same_as_with_transformation_evidence_goes_to_a_person_not_a_merge():
+    """十日终焉许流年案(2026-09-30):"陡然变成了"被三审接受成 same_as 并自动合并,
+    两人同场的章绑定全废。变身/乔装类证据的 same_as 必须转人工。"""
+    from novel_manga.entities.contracts import looks_like_transformation
+    assert looks_like_transformation("眼前的楚天秋陡然变成了许流年")
+    assert looks_like_transformation("她乔装成他的样子混进了会场")
+    assert not looks_like_transformation("原来李尚武就是当年的那个齐夏本人")
+    assert not looks_like_transformation("齐夏和乔家劲一起走进房间")
+    assert not looks_like_transformation("")
