@@ -12,7 +12,7 @@ from novel_manga.story.compilation import CompilerOptions
 from novel_manga.application.planning.context import load_entity_index
 from novel_manga.application.identity.store import load_chapter
 from novel_manga.application.identity.phases import chapter_of
-from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, load_style
+from novel_manga.application.profiles import frame_spec, load_genre, load_profile, load_style
 
 POLICY = "thin-clip-plan-v12-six-stages" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 
@@ -141,13 +141,16 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     else:
         profile.pop('story_method', None)
     genre = load_genre(profile)
+    # two_view_cast_limit follows the profile's own two_views choice; the old
+    # fast tier forced it to 0, which is why two_views never worked on fast books.
+    two_views = str(profile.get('two_views', TWO_VIEWS))
     options = replace(compiler_options(frame_spec(profile), planning_context=planner_ctx),
         chat_screen=chat_screen, voices=voices,
         genre_rejects=[x for x in [genre.get("era_rejects", "")] + list(genre.get("grammar_rejects_extra", [])) if x],
         genre_crowd=genre.get("crowd_default", ""),
         anon_voice={**DEFAULT_ANON_VOICE, **(genre.get("anon_voice") or {})},
-        two_view_cast_limit=0 if is_fast(profile) else 2,
-        two_views=str(profile.get('two_views', TWO_VIEWS)),
+        two_view_cast_limit=0 if two_views == 'off' else 2,
+        two_views=two_views,
         camera_policy='authored' if method else 'fixed')
     if limits is not None:
         options = replace(options, **limits)
@@ -184,5 +187,13 @@ def context_for_plan(episode_dir: Path, bible_path: Path, plan: dict) -> dict:
               "max_stages": int(saved.get("max_stages") or (3 if cap <= 15 else 6)),
               "soft_cut_seconds": float(saved.get("soft_cut_seconds") or cap * 0.6),
               "camera_policy": saved.get('camera_policy', 'fixed')}
-    return load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"),
-                        tier=profile.get("tier"), limits=limits)
+    # A plan snapshot's own two_views (and, once books carry it, resolution/shape)
+    # travels with the plan; the disk profile only fills what the snapshot omits.
+    extra = {k: v for k, v in (("two_views", profile.get("two_views")),) if v}
+    ctx = load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"),
+                       tier=profile.get("tier"), limits=limits)
+    if extra:
+        options = ctx["compiler_options"]
+        ctx["compiler_options"] = replace(options, two_view_cast_limit=0 if extra["two_views"] == 'off' else 2,
+                                          two_views=extra["two_views"])
+    return ctx

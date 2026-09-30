@@ -59,7 +59,7 @@ from novel_manga.util import atomic_write_json, media_duration
 import novel_manga.application.rendering.moderation as moderation_repair
 from dataclasses import replace as dc_replace
 
-from novel_manga.application.profiles import frame_spec, h3_prompt_fingerprint, is_fast, load_genre, load_profile, load_style, plan_fingerprint, styled_bible
+from novel_manga.application.profiles import effective_profile, frame_spec, h3_prompt_fingerprint, load_genre, load_profile, load_style, plan_fingerprint, styled_bible
 from novel_manga.application.profiles import MAX_HOLD_SECONDS, media_qc_ignores
 
 POLICY = "thin-media-v22-coverage-gate"
@@ -126,7 +126,9 @@ class ThinMediaRunner:
         # PlayRes, QC resolution) reads settings.width/height.
         self.context.settings = dc_replace(settings, width=self.context.frame_spec["width"], height=self.context.frame_spec["height"])
         self.context.bible = styled_bible(bible, self.context.profile, novel_dir) if (novel_dir / "profile.json").is_file() else bible
-        self.context.fast = is_fast(self.context.profile)
+        effective = effective_profile(self.context.profile)
+        self.context.fast = effective["resolution"] == "480p"  # legacy alias for media/assets.py
+        self.context.expressions = effective["expressions"]
         genre = load_genre(self.context.profile)
         self.context.asset_style = AssetStyle.for_genre(genre, frame_text=self.context.frame_spec["text"],
                                                         style=load_style(self.context.profile, novel_dir),
@@ -134,14 +136,14 @@ class ThinMediaRunner:
         self.context.softening_rules = [*media_policy.SOFTEN, *((re.compile(pattern), replacement) for pattern, replacement in genre.get('soften', []))]
         self.context.voice_budget = generation.voice_budget_seconds()
         self.context._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)
-        # Fast tier still gets a second attempt, but only when the first one
-        # failed the speech gate (the retry loop runs on gate failures alone):
-        # a line the model did not speak costs the line and its subtitles.
-        self.context.max_attempts = 2 if self.context.fast else max_attempts
+        # Every tier gets a second attempt, but only when the first one failed
+        # the speech gate (the retry loop runs on gate failures alone): a line
+        # the model did not speak costs the line and its subtitles.
+        self.context.max_attempts = max_attempts
         # On a free lane (local H3) a clip whose cached takes all failed gets fresh ones on a later run,
         # not the same verdict again (process_clip); a paid lane leaves further takes to a person.
         self.context.free_retries = takes_past_cache(self.context.settings, retake_failed, cache_only)
-        resolution = "480p" if self.context.fast else "720p"
+        resolution = effective["resolution"]
         local = self.context.settings.local_h3_base_url
         self.context.provider = (FramedLocalH3(self.context.settings, self.context.frame_spec, local, resolution=resolution)
                          if local else FramedPhanRouter(self.context.settings, self.context.frame_spec, resolution=resolution))

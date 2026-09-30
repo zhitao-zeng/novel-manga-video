@@ -17,6 +17,9 @@ from pathlib import Path
 
 DEFAULTS = {"style": "2d", "frame": "9:16", "tier": "quality", "genre": "generic"}
 TIERS = ("quality", "fast")
+from novel_manga.planning.tier_presets import (  # noqa: F401 - re-exported for callers of load_profile
+    RESOLUTIONS, EPISODE_SHAPES, TIER_PRESETS, effective_profile,
+)
 # Which characters get the second reference view (expressions.jpeg) beside the turnaround.
 # Off by default: the second view sharpens identity but a crowded shot then carries twice the
 # reference images and the model starts blending faces.
@@ -73,14 +76,20 @@ def load_profile(novel_dir: Path, **overrides) -> dict:
     if profile["style"] not in style_names():
         raise ValueError(f"profile.style must be one of {style_names()}")
     if profile.get("tier", "quality") not in TIERS:
-        raise ValueError(f"profile.tier must be one of {TIERS}")
+        raise ValueError(f"profile.tier must be one of {list(TIERS)}")
     if profile.get("two_views", "off") not in TWO_VIEWS:
-        raise ValueError(f"profile.two_views must be one of {TWO_VIEWS}")
+        raise ValueError(f"profile.two_views must be one of {list(TWO_VIEWS)}")
     if profile.get("planning_backend", "local") not in PLANNING_BACKENDS:
-        raise ValueError(f"profile.planning_backend must be one of {PLANNING_BACKENDS}")
+        raise ValueError(f"profile.planning_backend must be one of {list(PLANNING_BACKENDS)}")
     if profile.get("planning_backend") == "sandbox_agent" and not str(profile.get("agent_skill") or "").strip():
         raise ValueError("profile.planning_backend=sandbox_agent 需要 profile.agent_skill 指定一套技能")
     profile.setdefault("tier", "quality")
+    if profile.get("resolution", "720p") not in RESOLUTIONS:
+        raise ValueError(f"profile.resolution must be one of {list(RESOLUTIONS)}")
+    if profile.get("episode_shape", "fixed") not in EPISODE_SHAPES:
+        raise ValueError(f"profile.episode_shape must be one of {list(EPISODE_SHAPES)}")
+    if not isinstance(profile.get("expressions", True), bool):
+        raise ValueError("profile.expressions must be a boolean")
     # deliberately not setdefault: the profile dict is written into chapter_script.json and printed in
     # the planner trace, so adding a key to it changes those artefacts for every book.  Readers default
     # it themselves (packing.context.compiler_options).
@@ -88,10 +97,9 @@ def load_profile(novel_dir: Path, **overrides) -> dict:
 
 
 def is_fast(profile: dict | None) -> bool:
-    """The fast tier trades polish for throughput: no planning think-pass or
-    redo, ~60 s episodes of 3 clips, one reference card per character, 480p,
-    no speech-gate regeneration, no episode review."""
-    return bool(profile) and profile.get("tier") == "fast"
+    """Deprecated alias: the tier presets as one boolean.  New code reads the
+    independent keys through effective_profile instead."""
+    return bool(profile) and effective_profile(profile)["resolution"] == "480p"
 
 
 def _scope_speech_policy(path: str) -> tuple:

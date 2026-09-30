@@ -450,7 +450,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    }
@@ -1125,7 +1124,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -1583,7 +1581,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -2041,7 +2038,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    }
@@ -2539,7 +2535,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -2997,7 +2992,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -3455,7 +3449,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    }
@@ -4126,7 +4119,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -4584,7 +4576,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -5042,7 +5033,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    }
@@ -5715,7 +5705,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -6173,7 +6162,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -6631,7 +6619,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    }
@@ -7129,7 +7116,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -7587,7 +7573,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    }
@@ -8245,7 +8230,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -8703,7 +8687,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    },
@@ -9161,7 +9144,6 @@
      "tier": "quality",
      "genre": "generic"
     },
-    "fast": false,
     "outline_mode": "coverage",
     "seed": null
    }

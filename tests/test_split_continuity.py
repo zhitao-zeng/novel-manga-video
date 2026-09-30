@@ -87,7 +87,7 @@ def packed_episode(tmp_path: Path):
     new = copy.deepcopy(old)
     new["shots"][0]["characters"] = ["林凡", "苏清"]
     plan = {"policy": "thin-15s", "limits": {"max_clip_seconds": 15, "max_stages": 3},
-            "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d"}}}
+            "totals": {"profile": {"tier": "fast", "frame": "16:9", "style": "2d", "two_views": "off"}}}
     ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
     plan["clips"] = [packing_service.clip_entry(c, f"clip_{i:02d}", ctx)
                      for i, c in enumerate(ClipCompiler(ctx['compiler_options'] or compiler_options()).pack([part for row in packing_service.prepared_shots(copy.deepcopy(old), episode) for part in ClipCompiler(ctx['compiler_options'] or compiler_options()).split_long_shot(row)]), 1)]
@@ -95,7 +95,9 @@ def packed_episode(tmp_path: Path):
 
 
 @pytest.mark.parametrize("metadata", ["recorded", "legacy", "split_tool"])
-def test_cast_completion_preserves_each_split_parts_lines_and_fast_tier(tmp_path, metadata, monkeypatch):
+def test_cast_completion_preserves_each_split_parts_lines_without_second_cards(tmp_path, metadata, monkeypatch):
+    # a lean plan (no two_views in its profile snapshot) keeps one card per character,
+    # whatever the module default is set to by some other book
     monkeypatch.setattr(packing_context, "TWO_VIEWS", "all")
     novel, episode, old, new, plan = packed_episode(tmp_path)
     for asset in ("character_001", "character_002"):
@@ -144,14 +146,16 @@ def test_unrecoverable_cuts_are_left_unwritten(tmp_path, monkeypatch):
     assert before == ((episode / "chapter_script.json").read_bytes(), (episode / "clip_plan.json").read_bytes())
 
 
-def test_context_switch_back_to_quality_restores_two_views(tmp_path):
+def test_context_switch_to_two_views_restores_the_second_card(tmp_path):
     novel, episode, old, new, plan = packed_episode(tmp_path)
-    fast = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)["compiler_options"]
-    assert fast.two_view_cast_limit == 0
-    plan["totals"]["profile"]["tier"] = "quality"
+    # the tier presets no longer own the second view: a plan (or a book profile)
+    # asks for it with two_views, whatever its resolution or shape
+    off = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)["compiler_options"]
+    assert off.two_view_cast_limit == 0
+    plan["totals"]["profile"]["two_views"] = "all"
     ctx = packing_context.context_for_plan(episode, novel / "story_bible.json", plan)
-    assert ctx["profile"]["tier"] == "quality" and ctx["compiler_options"].two_view_cast_limit == 2
-    assert fast.two_view_cast_limit == 0
+    assert ctx["compiler_options"].two_views == "all" and ctx["compiler_options"].two_view_cast_limit == 2
+    assert off.two_view_cast_limit == 0
 
 
 def test_an_unrelated_old_uncut_stage_does_not_change_or_block_split_repair(tmp_path):

@@ -10,7 +10,7 @@ def test_packer_book_and_saved_lane_settings_are_independent(tmp_path):
         novel=tmp_path/name;episode=novel/f'{name}_1';episode.mkdir(parents=True)
         bible=novel/'story_bible.json'
         bible.write_text(StoryBible(novel_title=name,genre='generic',visual_style='v',palette='p',style_fingerprint='f',characters=[Character(name='演员',appearance='青年',wardrobe='白衣')],locations=['庭院']).model_dump_json())
-        plan={'policy':'test','limits':{'max_clip_seconds':cap},'totals':{'profile':{'frame':frame,'style':'3d','tier':'fast' if cap==15 else 'quality'}}}
+        plan={'policy':'test','limits':{'max_clip_seconds':cap},'totals':{'profile':{'frame':frame,'style':'3d','two_views':'off' if cap==15 else 'all'}}}
         if name=='first':
             (novel/'chat_screen.json').write_text('{"self_name":"演员","group_name":"第一本群聊"}')
             voices=novel/'series_assets/voices';voices.mkdir(parents=True)

@@ -19,7 +19,7 @@ from novel_manga.ingest import read_novel, chapter_table
 from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json
 from pathlib import Path
-from novel_manga.application.profiles import is_fast
+from novel_manga.application.profiles import effective_profile
 from novel_manga.application.profiles import load_genre
 from novel_manga.application.profiles import load_profile
 import fcntl
@@ -136,10 +136,9 @@ def run(args, ctx: PlannerContext) -> int:
     for key, default in pc_constants.PROMPT_EXAMPLE_DEFAULTS.items():
         ctx.system_prompt = ctx.system_prompt.replace(default, str((genre.get("prompt_examples") or {}).get(key) or default))
     ctx.text_on_props_gate = genre.get("text_on_props", "report") == "gate"
-    fast = is_fast(profile)
-    ctx.fast_tier = fast
+    ctx.episode_shape = effective_profile(profile)["episode_shape"]
     try:
-        planning_budget = pc_budget.configure_budget(episode.text_count, fast=fast, min_seconds=args.min_seconds, ctx=ctx)
+        planning_budget = pc_budget.configure_budget(episode.text_count, shape=ctx.episode_shape, min_seconds=args.min_seconds, ctx=ctx)
     except ValueError as error:
         raise PlanningInputError(str(error)) from error
     usual_ceiling = ctx.episode_seconds_max
@@ -495,7 +494,8 @@ def run(args, ctx: PlannerContext) -> int:
             try:
                 content, meta = planner_requests.call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema,
                                            max_tokens=args.max_tokens, timeout=args.timeout, analysis_tokens=args.outline_tokens or (8192 if method else 4096),
-                                           notes=args.notes, grammar=grammar, profile=profile, fast=fast, outline_mode=args.outline_mode, seed=args.seed, ctx=ctx)
+                                           notes=args.notes, grammar=grammar, profile=profile,
+                                           outline_mode=args.outline_mode, seed=args.seed, ctx=ctx)
             except planner_requests.IncompleteOutlineError as error:
                 save_method_artifacts(episode_dir, ctx, attempt)
                 final_errors = [str(error)]

@@ -44,7 +44,7 @@ def tick_lanes(conductor, stats: dict[int, dict]) -> None:
             if conductor_workers.external_running(conductor, f"--chapters {r['a']}-{r['b']} --stage render", r["plan_mode"]):
                 continue  # a lane started outside the conductor is still on this range: adopt, do not duplicate
             command = [conductor_common.PY, str(conductor_common.SCRIPTS / "thin_batch.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", f"{r['a']}-{r['b']}",
-                       "--stage", "render", "--tier", "fast", "--merge", "1", "--parallel", str(key["parallel"]), "--workers", "0",
+                       "--stage", "render", "--merge", "1", "--parallel", str(key["parallel"]), "--workers", "0",
                        "--inflight", str(key["inflight"]["max"]), "--plan-mode", str(r["plan_mode"]),
                        # render.prescreen: the local Qwen scores each prompt for content-filter risk and softens the
                        # wording before the first submission (worth it now that planning no longer queues on Qwen).
@@ -67,7 +67,7 @@ def ensure_prepass(conductor, r: dict) -> None:
     for i, group in enumerate(groups):
         if group:
             conductor_workers.spawn(conductor, f"{name}_w{i}", [conductor_common.PY, str(conductor_common.SCRIPTS / "build_cards_thin.py"), "--novel-dir", str(conductor.novel_dir),
-                                        "--assets", ",".join(group), "--review", "--tier", "fast"])
+                                        "--assets", ",".join(group), "--review"])
 
 
 def cards_todo(conductor, r: dict) -> list[str]:
@@ -172,7 +172,7 @@ def tick_planning(conductor, congested: bool) -> None:
         if planning_models(conductor) and server is None:
             continue  # every planning server is full; try again next tick
         command = [conductor_common.PY, str(conductor_common.SCRIPTS / "thin_batch.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", f"{block['a']}-{block['b']}",
-                   "--stage", "plan", "--tier", "fast", "--merge", "1", "--max-redo", "2", "--volume-size", "50", "--no-grow-bible"]
+                   "--stage", "plan", "--merge", "1", "--max-redo", "2", "--volume-size", "50", "--no-grow-bible"]
         if block.get("min_seconds"):
             command += ["--min-seconds", str(block["min_seconds"])]
         # A server's slots are filled by blocks, one chapter at a time each: thin_batch now honours
@@ -198,4 +198,4 @@ def tick_review(conductor, waiting: int, stats: dict[int, dict]) -> None:
         seen, batches = conductor.review_tries.get(n, (final, 0))
         conductor.review_tries[n] = (final, batches + 1 if seen == final else 1)
     conductor_workers.spawn(conductor, "review", [conductor_common.PY, str(conductor_common.SCRIPTS / "thin_batch.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", ",".join(map(str, todo)),
-                          "--stage", "render", "--review-only", "--no-render", "--tier", "fast", "--merge", "1", "--parallel", str(conductor.cfg.get("review", {}).get("parallel", 3))])
+                          "--stage", "render", "--review-only", "--no-render", "--merge", "1", "--parallel", str(conductor.cfg.get("review", {}).get("parallel", 3))])

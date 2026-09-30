@@ -95,7 +95,7 @@ def command(manager, job: dict) -> tuple[list[str], dict]:
     if step.startswith("note"):
         return [python, "scripts/apply_review_feedback.py", "--novel-dir", str(manager.novel), "--episodes", episodes, "--must-fix", "--apply"], env
     return [python, "scripts/thin_batch.py", "--novel-dir", str(manager.novel), "--chapters", episodes,
-            "--stage", "render", "--tier", "fast", "--merge", "1", "--parallel", "1" if len(job["episodes"]) == 1 else "12", "--workers", "0",
+            "--stage", "render", "--merge", "1", "--parallel", "1" if len(job["episodes"]) == 1 else "12", "--workers", "0",
             "--card-parallel", "1" if len(job["episodes"]) == 1 else "6", "--no-recurring-cards",
             "--inflight", str(options["inflight"]), "--plan-mode", str(options["clip_cap"]), "--no-prescreen", "--prune"] + (
                 ["--rerender"] if job["kind"] == "recovery" and job.get("recovery_kind") == "technical" else []) + (

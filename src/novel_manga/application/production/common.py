@@ -15,9 +15,6 @@ ROOT = project_root()
 SCRIPTS = ROOT / "scripts"
 
 
-GROW_STRIDE = 1
-
-
 PLAN_STAGES = ("plan", "assets", "render")
 
 

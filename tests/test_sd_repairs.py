@@ -205,7 +205,7 @@ def test_thin_batch_cache_only_rebuilds_without_cards_or_a_run(tmp_path, monkeyp
     batch.args = types.SimpleNamespace(rerender=True, cache_only=True, no_render=False, dry_run=False, workers=0, inflight=4, tier=None,
                                        prescreen=False, moderation_repair=True, prune=False, retake_failed=False)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {1: {}}
-    batch.reviewing, batch.fast, batch.env, batch.notes = False, True, {}, {}
+    batch.reviewing, batch.expressions, batch.env, batch.notes = False, False, {}, {}
     commands, cards = [], []
     monkeypatch.setattr(batch, "run", lambda command, log_path: (commands.append(command), (0, ""))[1])
     monkeypatch.setattr(batch, "prepare_cards", lambda chapter: cards.append(chapter))

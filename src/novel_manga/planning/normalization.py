@@ -173,7 +173,9 @@ def end_state_and_visual_checks(shot, turns_out, position, ctx, errors, warnings
                 if ctx.renderer_moderates:
                     warnings.append("report only: " + message)
                 continue
-            if ctx.authored_storyboard or (label == "可读文字" and (ctx.fast_tier or not ctx.text_on_props_gate)):
+            # Readable text on props is the genre's call alone now (text_on_props: gate|report);
+            # the old fast-tier exemption folded into it when tier was removed.
+            if ctx.authored_storyboard or (label == "可读文字" and not ctx.text_on_props_gate):
                 warnings.append("report only: " + message)  # a note, not a gate
             else:
                 errors.append(PlanningIssue(PlanningCode.VISUAL_CONTENT, detail, stage=position, field=field))

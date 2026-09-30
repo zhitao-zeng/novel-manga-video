@@ -25,7 +25,7 @@ from novel_manga.media.asset_policy import ModerationRejected
 from novel_manga.media.asset_style import AssetStyle, image_backend
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
-from novel_manga.application.profiles import frame_spec, is_fast, load_genre, load_profile, load_style, project_root, style_names, styled_bible
+from novel_manga.application.profiles import effective_profile, frame_spec, load_genre, load_profile, load_style, project_root, style_names, styled_bible
 from novel_manga.util import load_dotenv
 
 from novel_manga.config import Settings  # noqa: E402
@@ -46,7 +46,8 @@ def split_asset_ids(text: str) -> tuple[set[str], set[str], set[str]]:
 def build_with_backoff(factory, root: Path, bible: StoryBible, characters: set[str], locations: set[str], profile: dict | None = None, props: set[str] | None = None):
     for wait in (*IMAGE_BACKOFF, None):
         try:
-            return factory.build_selected(root, bible, characters, locations, expressions=not is_fast(profile), prop_ids=props)
+            return factory.build_selected(root, bible, characters, locations,
+                                          expressions=effective_profile(profile or {})["expressions"], prop_ids=props)
         except ModerationRejected:
             raise
         except RuntimeError as error:

@@ -27,7 +27,7 @@ def batch_for(tmp_path, monkeypatch, *, status='pending', **options):
     batch = object.__new__(flow.Batch)
     batch.args = SimpleNamespace(**args)
     batch.novel_dir, batch.novel_id, batch.rows = directory.parent, 'book', {1: {}}
-    batch.fast = False
+    batch.expressions = True
     batch.reviewing = args['unattended'] or args['review_only']
     batch.commands = []
     batch.render_status = lambda ch: status
@@ -49,7 +49,7 @@ def batch_for(tmp_path, monkeypatch, *, status='pending', **options):
 @pytest.mark.parametrize('fast', [False, True])
 def test_unattended_batch_calls_shared_reviewed_renderer_once_even_when_clips_fail(tmp_path, monkeypatch, fast):
     batch, directory, plan, media = batch_for(tmp_path, monkeypatch, status='clips_failed', unattended=True)
-    batch.fast = fast
+    batch.expressions = not fast
     batch.plan = lambda *a, **k: pytest.fail('no extra whole-chapter replan outside the shared engine')
     batch.review_episode = lambda *a: pytest.fail('no second review after render --review')
     if fast:
