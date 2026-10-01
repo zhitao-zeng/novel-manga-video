@@ -58,9 +58,15 @@ def test_inner_voice_and_worn_prop_reach_actual_h3_syntax():
         {'role': 'prop', 'name': '马克2机甲', 'path': 'armor.jpeg', 'wearers': ['托尼']},
         {'role': 'voice', 'name': '托尼', 'path': 'voice.wav'}]}
     prompt = compose(clip, ['<Subject 1> watches the cup.'], [('', [])])
-    assert 'private thought' in prompt and 'jaw does not move' in prompt
+    assert "<Subject 1>'s audience-only private thought in their own voice" in prompt
+    assert "The speaker's lips stay closed and the jaw stays still" in prompt
     assert '<Audio 1> is the voice-timbre reference for <Subject 1> (S1)' in prompt
-    assert 'not the clothing' in prompt and 'Ignore any face or human model in this prop picture' in prompt
+    assert 'The face, hair and build follow <Picture 1>' in prompt
+    assert 'This person wears the armor or garment design from <Picture 2>' in prompt
+    assert 'The wearer and worn garment form one body' in prompt
+    assert 'Use its garment design on <Subject 1>' in prompt
+    assert 'Each wearer retains their character-reference identity' in prompt
+    assert '<d>[Chinese] 这次免费.</d>' in prompt
     assert not request_issues({**clip, 'prompt_h3': prompt})
 
 

@@ -71,7 +71,7 @@ def test_regular_clips_carry_style_and_physical_sound_into_h3(monkeypatch):
             'prompt': '【阶段一】莱恩穿着机甲飞出窗户。声音：机甲喷气声。结束时：莱恩在窗外。画面呈现',
             'references': [{'role': 'character', 'name': '莱恩', 'path': 'c.jpeg'}],
             'render_family': '2d',
-            'h3_style_line': 'Crisp black ink outlines and flat color blocks. No 3D rendering.',
+            'h3_style_line': 'Crisp black ink outlines and flat color blocks. Flat 2D comic rendering.',
             'shot_sound': ['机甲喷气声']}
     seen = {}
 
@@ -83,7 +83,7 @@ def test_regular_clips_carry_style_and_physical_sound_into_h3(monkeypatch):
     assert translator.convert(clip)
     assert '同期声：机甲喷气声' in seen['ask']
     assert '穿着机甲飞出窗户' in seen['ask'] and '结束时：<Subject 1>在窗外' in seen['ask']
-    assert 'Crisp black ink outlines' in clip['prompt_h3']
+    assert clip['h3_style_line'] in clip['prompt_h3']
     assert 'jet engine roars' in clip['prompt_h3']
     assert '2D animation' in clip['prompt_h3']
     assert h3_stamp({**clip, 'shot_sound': ['窗外风声']}) != clip['prompt_h3_of']
