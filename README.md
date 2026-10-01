@@ -79,6 +79,10 @@ uv run pytest
 
 沙箱的容器、镜像、技能模板、端点和分时段并发在 `configs/agent_sandbox.json`。一次 run 的每次执行是独立 attempt，产出互不覆盖；选定的分镜以快照加 digest 固定在章节旁，重新提案不会改写已采用的版本。批量驱动把「提案→自动采用→绑定→对照」放在同一槽位，可安全中断续跑，进度和等人的章节写在 `agent_storyboard_batch.md`。自动采用只在唯一一份可读分镜时发生，其余情况留给人选。
 
+### 独立 Agent 产线
+
+`scripts/episode_agent.py prepare/run/status` 提供每集一个持续沙箱会话，由 Agent 自主调用检查、生成、审查和修复工具。默认复用已有读书资料、剧本与资产；显式选择 `--input-mode source` 才从完整原文重新创作。原小说目录和现有批量控制器保持原有操作方式，产物写入独立 Agent 工作区。单集与章范围用法见[独立 Agent 产线](docs/episode-agent.md)。
+
 正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
 
 - [当前架构与修改位置](docs/architecture.md)：职责、依赖、配置来源和产物写入者。
