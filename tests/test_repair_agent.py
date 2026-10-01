@@ -145,3 +145,15 @@ def test_retention_description_can_clarify_clothes_but_not_change_reference():
         agent.validate_prompt(c,c['prompt_h3'].replace(old,bad))
     with pytest.raises(ValueError,match='retention_analysis'):
         agent.validate_prompt(c,c['prompt_h3'].replace(old,new.replace('fully_preserved','partially_preserved')))
+
+
+def test_definition_self_reference_preserves_binding_but_other_tags_remain_locked():
+    c = example()
+    old = agent.sections(c['prompt_h3'])['subject_definitions']
+    # A description on the same definition line may refer to its own subject.
+    first, separator, rest = old.partition('\n')
+    clarified = first + ' <Subject 1> wears the outfit from <Picture 1>.' + separator + rest
+    agent.validate_prompt(c, c['prompt_h3'].replace(old, clarified))
+    with pytest.raises(ValueError, match='subject_definitions'):
+        crossed = first + ' It follows <Subject 2>.' + separator + rest
+        agent.validate_prompt(c, c['prompt_h3'].replace(old, crossed))

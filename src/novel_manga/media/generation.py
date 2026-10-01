@@ -138,6 +138,11 @@ def build_request(ctx, clip, attempt):
 
 
 def submit(ctx, clip, request, output, references):
+    if ctx.settings.local_h3_base_url:
+        from novel_manga.story.h3 import request_issues
+        problems = request_issues({**clip, 'prompt_h3': request['prompt']})
+        if problems:
+            raise ValueError('H3 final request invalid: ' + '; '.join(problems))
     voices = (tuple(Path(p) for p in request['reference_audios']) if 'reference_audios' in request
               else reference_voices(ctx, clip))
     return ctx.provider.create_video(request['prompt'], None, output, duration=float(clip['request_seconds']),

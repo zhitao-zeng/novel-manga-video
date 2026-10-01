@@ -162,10 +162,9 @@ class ThinMediaRunner:
         # clips they name, so a corrected clip is regenerated exactly once.
         feedback_path = episode_dir / FEEDBACK_FILE
         self.context.feedback = json.loads(feedback_path.read_text(encoding="utf-8")) if feedback_path.is_file() else {}
-        from novel_manga.application.repair.history import load as repair_history_load
-        from novel_manga.application.repair.managed import generated_counts, generation_limit
+        from novel_manga.application.repair.history import load as repair_history_load, generation_counts, generation_limit
         history_record=repair_history_load(episode_dir)
-        counts=generated_counts(history_record)
+        counts=generation_counts(episode_dir, history_record)
         managed={cid for trial in history_record.get('trials',[]) if trial.get('managed')
                  and trial['expected_plan']==plan_fingerprint(self.context.clip_plan)
                  and trial['expected_notes']==self.context.feedback for cid in trial['clips']}
@@ -319,11 +318,14 @@ class ThinMediaRunner:
         directory = self.context.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
         directory.mkdir(parents=True, exist_ok=True)
         output = directory / "clip.mp4"
+        episode_dir = self.context.work.parent
         request, references, digests, retry = generation.build_request(self.context, clip, attempt)
         prompt = request['prompt']
         import novel_manga.application.repair.history as repair_history
         cached = cache.current_video(self.context, clip, attempt, directory, references, digests, repair_history)
         if cached is not None:
+            if not self.context.cache_only:
+                repair_history.complete_generation(episode_dir, clip['clip_id'], cached)
             return cached
         if self.prescreens(clip):
             clip["_prescreened"] = True
@@ -337,6 +339,8 @@ class ThinMediaRunner:
         # under another attempt directory; use it rather than paying again.
         cached = cache.other_video(self.context, clip, attempt, directory, references, digests)
         if cached is not None:
+            if not self.context.cache_only:
+                repair_history.complete_generation(episode_dir, clip['clip_id'], cached)
             return cached
         if self.context.cache_only:
             raise CacheMiss(f"{clip['clip_id']} attempt {attempt}: not in the cache")
@@ -373,6 +377,11 @@ class ThinMediaRunner:
         if generation.uses_h3_prompt(self.context, clip):
             from novel_manga.application.preparation.request_check import before_generation
             before_generation(self.context, clip, request)
+        task_path = output.with_suffix(output.suffix + ".task.json")
+        from novel_manga.util import read_json
+        prior_task = read_json(task_path, {}).get('task_id')
+        request = repair_history.generation_request(episode_dir, output, request,
+            expected_plan=plan_fingerprint(self.context.clip_plan), expected_notes=self.context.feedback)
         atomic_write_json(directory / "request.json", request)
         log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
         started = time.monotonic()
@@ -396,12 +405,28 @@ class ThinMediaRunner:
                 time.sleep(wait)
         finally:
             release_inflight_slot(slot)
-        clip["_generated"] = True
+        current_task = read_json(task_path, {}).get('task_id')
+        owner = request.get(repair_history.GENERATION_FIELD) or {}
+        if current_task and current_task != prior_task and (not owner or owner.get('take')):
+            # The provider discarded an old legacy task and really submitted a
+            # new one. That new task belongs to the current managed trial.
+            request = repair_history.generation_request(episode_dir, output, request,
+                expected_plan=plan_fingerprint(self.context.clip_plan), expected_notes=self.context.feedback, fresh_task=True)
+            atomic_write_json(directory / "request.json", request)
+        clip["_generated"] = not (prior_task and current_task == prior_task
+                                   and not request.get(repair_history.GENERATION_FIELD))
+        seconds = media_duration(output)
+        completion = repair_history.complete_generation(episode_dir, clip['clip_id'], output, duration=seconds)
         if remaining is not None:
-            self.context._managed_remaining[clip['clip_id']]-=1
+            if completion is not None:
+                counts = repair_history.generation_counts(episode_dir)
+                self.context._managed_remaining[clip['clip_id']] = max(0, repair_history.generation_limit(
+                    episode_dir, clip['clip_id']) - counts.get(clip['clip_id'], 0))
+            elif clip['_generated']:
+                self.context._managed_remaining[clip['clip_id']]-=1
         finished = time.monotonic()
         log(f"{clip['clip_id']} attempt {attempt}: video ready in {finished - submitted:.0f}s "
-            f"(queued {submitted - started:.0f}s, {media_duration(output):.1f}s long)")
+            f"(queued {submitted - started:.0f}s, {seconds:.1f}s long)")
         return output
 
     def analyse_clip(self, clip: dict, video: Path) -> dict:

@@ -21,15 +21,8 @@ import novel_manga.application.repair.history as history
 from novel_manga.story.h3 import request_issues, identity_issues, correction
 from novel_manga.application.repair.inputs import RepairInputs
 
-MAX_GENERATED_TAKES = 3
+from novel_manga.application.repair.history import MAX_GENERATED_TAKES, generated_counts, generation_limit
 REFRAME_POLICY = 'reframe-v3-reference-state-and-candidate-feedback'
-
-
-def generation_limit(directory: Path, cid: str, *, grants: dict | None = None) -> int:
-    """Explicit clip-level grants after a reviewed change; history is retained."""
-    grants = read(directory/'repair_budget_grants.json',{}) if grants is None else grants
-    grant = grants.get(cid,{})
-    return int(grant.get('limit',MAX_GENERATED_TAKES)) if grant.get('reason') else MAX_GENERATED_TAKES
 
 
 def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = None) -> dict:
@@ -61,25 +54,6 @@ def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inpu
             'error_kinds': (verdict.get('verify') or {}).get('error_kinds', []),
             'request_conflict': (verdict.get('verify') or {}).get('request_conflict', False),
             'evidence':(verdict.get('verify') or {}).get('evidence',verdict.get('story_issue',''))}
-
-
-def generated_counts(record: dict) -> dict[str,int]:
-    """Only actual takes produced through the integrated route spend its budget.
-
-    Legacy episode counters are retained as history, not interpreted as attempts
-    on every clip. A retry/read of the same media record counts only once.
-    """
-    by_clip = {}
-    for trial in record.get('trials',[]):
-        if not trial.get('managed'):
-            continue
-        for render in trial.get('renders',[]):
-            for cid,row in render.get('clips',{}).items():
-                for take in row.get('generated_takes',[]):
-                    by_clip.setdefault(cid,set()).add((take['video'],tuple(take['take'])))
-    prior = (record.get('prior_generation_counts') or {}).get('clips') or {}
-    return {cid:int(prior.get(cid,0))+len(by_clip.get(cid,set())) for cid in set(prior)|set(by_clip)}
-
 
 def candidates(directory: Path, review: dict | None = None) -> tuple[list[str],dict]:
     plan = read(directory/'clip_plan.json',{})

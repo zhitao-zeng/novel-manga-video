@@ -14,7 +14,7 @@ def test_existing_repair_uses_full_preparation_and_preserves_budget(tmp_path,mon
     seen=[];reviews=[]
     monkeypatch.setattr(reviewed.history,'adopt_reviewed_run',lambda *a:None)
     monkeypatch.setattr(reviewed.history,'load',lambda *a:{})
-    monkeypatch.setattr(reviewed.managed,'generated_counts',lambda *a:{'a':2,'b':1})
+    monkeypatch.setattr(reviewed.history,'generation_counts',lambda *a:{'a':2,'b':1})
     monkeypatch.setattr(reviewed.managed,'candidates',lambda *a: (['a'],{}) if not seen else ([],{}))
     def prepare(*args):seen.append('full repair');return {'changed':['a'],'skip_render':False}
     monkeypatch.setattr(reviewed.managed,'prepare',prepare)

@@ -16,6 +16,29 @@ from novel_manga.util import read_json as read, atomic_write_json
 
 ERROR_FIELDS = ("same_person_twice", "species_or_gender_wrong", "action_by_wrong_person", "actor_missing", "lead_face_swapped")
 HISTORY_DIR = "repair_history"
+GENERATION_FIELD = "managed_generation"
+MAX_GENERATED_TAKES = 3
+
+
+def generation_limit(directory: Path, cid: str, *, grants: dict | None = None) -> int:
+    """Explicit clip-level grants after a reviewed change; history is retained."""
+    grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants
+    grant = grants.get(cid, {})
+    return int(grant.get('limit', MAX_GENERATED_TAKES)) if grant.get('reason') else MAX_GENERATED_TAKES
+
+
+def generated_counts(record: dict) -> dict[str, int]:
+    """Only actual integrated-route takes spend budget; rereading one take counts once."""
+    by_clip = {}
+    for trial in record.get('trials', []):
+        if not trial.get('managed'):
+            continue
+        for render in trial.get('renders', []):
+            for cid, row in render.get('clips', {}).items():
+                for take in row.get('generated_takes', []):
+                    by_clip.setdefault(cid, set()).add((take['video'], tuple(take['take'])))
+    prior = (record.get('prior_generation_counts') or {}).get('clips') or {}
+    return {cid: int(prior.get(cid, 0)) + len(by_clip.get(cid, set())) for cid in set(prior) | set(by_clip)}
 
 
 def load(directory: Path) -> dict:
@@ -24,6 +47,111 @@ def load(directory: Path) -> dict:
 
 def save(directory: Path, history: dict):
     atomic_write_json(directory / HISTORY_DIR / "history.json", history)
+
+
+def generation_request(directory: Path, output: Path, request: dict, *, expected_plan: str,
+                       expected_notes: dict, fresh_task: bool = False) -> dict:
+    """Own a new submission, preserving the owner of a task being resumed."""
+    previous = read(output.parent / "request.json", {})
+    task = read(output.with_suffix(output.suffix + ".task.json"), {})
+    metadata = {GENERATION_FIELD, "clip_id", "attempt", "workflow"}
+    same = {k: v for k, v in previous.items() if k not in metadata} == {
+        k: v for k, v in request.items() if k not in metadata}
+    if not fresh_task and task.get("task_id") and same:
+        # A legacy pending task predates ownership tracking. Finishing it is
+        # cache recovery, not a new submission by the current managed trial.
+        return {**request, **({GENERATION_FIELD: copy.deepcopy(previous[GENERATION_FIELD])}
+                            if previous.get(GENERATION_FIELD) else {})}
+    owner = next((trial for trial in reversed(load(directory).get("trials", []))
+                  if trial.get("managed") and request["clip_id"] in trial.get("clips", [])
+                  and trial.get("expected_plan") == expected_plan
+                  and trial.get("expected_notes") == expected_notes), None)
+    return {**request, **({GENERATION_FIELD: {"trial": owner["id"], "clip_id": request["clip_id"]}} if owner else {})}
+
+
+def _owned_trial(record: dict, cid: str, owner: dict) -> int | None:
+    cid = owner.get("clip_id", cid)
+    return next((trial["id"] for trial in record.get("trials", [])
+                 if trial.get("managed") and trial.get("id") == owner.get("trial")
+                 and cid in trial.get("clips", [])), None)
+
+
+def complete_generation(directory: Path, cid: str, video: Path, *, duration: float | None = None) -> dict | None:
+    """Save the actual take before ASR; this does not write repair history."""
+    from novel_manga.review.storage import take_identity
+    request_path = video.parent / "request.json"
+    request = read(request_path, {})
+    owner = request.get(GENERATION_FIELD) or {}
+    if _owned_trial(load(directory), cid, owner) is None:
+        return None
+    current = take_identity(video) if video.is_file() else None
+    if not current or current[1] <= 0:
+        return None
+    task_id = read(video.with_suffix(video.suffix + ".task.json"), {}).get("task_id")
+    if owner.get("take") and current != owner.get("file_take", owner["take"]):
+        # Re-downloading the same saved task is the same generated take. A
+        # manual replacement without that task evidence is not a new receipt.
+        if not task_id or task_id != owner.get("task_id"):
+            return None
+    completed = {**owner, "video": owner.get("video", str(video)),
+                 "take": owner.get("take", current), "file_take": current,
+                 **({"task_id": task_id} if task_id else {}),
+                 **({"duration": duration} if duration is not None else {})}
+    if completed != owner:
+        atomic_write_json(request_path, {**request, GENERATION_FIELD: completed})
+    return completed
+
+
+def owned_generations(directory: Path, record: dict | None = None) -> dict[int, dict[str, list[dict]]]:
+    """Read confirmed owned material, including completion interrupted before ASR."""
+    from novel_manga.review.storage import take_identity
+    record = load(directory) if record is None else record
+    found = {}
+    paths = [(path, False) for path in (directory / "work" / "clips").glob("*/attempt_*/request.json")]
+    paths += [(path, True) for path in (directory / HISTORY_DIR / "takes").glob("*/*/request.json")]
+    for request_path, archived in paths:
+        request = read(request_path, {})
+        owner = request.get(GENERATION_FIELD) or {}
+        cid = owner.get("clip_id", request.get("clip_id"))
+        trial = _owned_trial(record, cid, owner)
+        if trial is None:
+            continue
+        video = request_path.with_name("clip.mp4")
+        current = take_identity(video) if video.is_file() else None
+        if not current or current[1] <= 0:
+            continue
+        if owner.get("take"):
+            physical = owner.get("file_take", owner["take"])
+            # copy_complete preserves size/mtime, while its inode changes.
+            if (current[1:] != physical[1:] if archived else current != physical):
+                continue
+        elif archived:
+            continue
+        fact = {"video": owner.get("video", str(video)), "take": owner.get("take", current),
+                **({"duration": owner["duration"]} if "duration" in owner else {})}
+        key = (fact["video"], tuple(fact["take"]))
+        found.setdefault(trial, {}).setdefault(cid, {})[key] = fact
+    return {trial: {cid: list(takes.values()) for cid, takes in clips.items()} for trial, clips in found.items()}
+
+
+def generation_counts(directory: Path, record: dict | None = None) -> dict[str, int]:
+    """Budget also includes owned completions awaiting the report/history write."""
+    record = load(directory) if record is None else record
+    counts = generated_counts(record)
+    recorded = {}
+    for trial in record.get("trials", []):
+        if trial.get("managed"):
+            for render in trial.get("renders", []):
+                for cid, row in render.get("clips", {}).items():
+                    recorded.setdefault(cid, set()).update((take["video"], tuple(take["take"]))
+                                                          for take in row.get("generated_takes", []))
+    pending = {}
+    for clips in owned_generations(directory, record).values():
+        for cid, takes in clips.items():
+            pending.setdefault(cid, set()).update((take["video"], tuple(take["take"])) for take in takes)
+    for cid, takes in pending.items():
+        counts[cid] = counts.get(cid, 0) + len(takes - recorded.get(cid, set()))
+    return counts
 
 
 def copy_complete(source: Path, target: Path):
@@ -36,6 +164,7 @@ def archived_take(directory: Path, cid: str, video: Path) -> dict | None:
     """Keep media and its request before the renderer renames/prunes an old take."""
     if not video.is_file():
         return None
+    complete_generation(directory, cid, video)
     folder = directory / HISTORY_DIR / "takes" / cid / f"{video.parent.name}-{video.stat().st_mtime_ns}"
     folder.mkdir(parents=True, exist_ok=True)
     for name, source in (("clip.mp4", video), ("request.json", video.parent / "request.json"),
@@ -157,27 +286,43 @@ def record_render(directory: Path, report: dict):
     if not history["trials"]:
         return
     from novel_manga.review.storage import take_identity
+    owned = owned_generations(directory, history)
     changed = False
     for trial in history['trials']:
         if trial is not history['trials'][-1] and not trial.get('managed'):
             continue
-        if trial['expected_plan'] != report.get('clip_plan_fingerprint') or trial['expected_notes'] != (report.get('review_feedback') or {}):
+        matches = (trial['expected_plan'] == report.get('clip_plan_fingerprint')
+                   and trial['expected_notes'] == (report.get('review_feedback') or {}))
+        completions = owned.get(trial['id'], {})
+        if not matches and not completions:
             continue
         clips = {}
-        for c in report.get('clips',[]):
+        for c in report.get('clips', []) if matches else []:
             if c['clip_id'] not in trial['clips']:
                 continue
             generated = {}
+            seconds = sum(float(a.get('duration') or 0) for a in c.get('attempts', [])
+                          if a.get('generated_this_run') and (not a.get('video') or _owned_trial(
+                              history, c['clip_id'], read(Path(a['video']).parent / "request.json", {}).get(GENERATION_FIELD) or {}) is None))
             for attempt in [*c.get('attempts',[]),c.get('selected') or {}]:
                 video = attempt.get('video')
                 if attempt.get('generated_this_run') and video:
+                    owner = read(Path(video).parent / "request.json", {}).get(GENERATION_FIELD) or {}
+                    if _owned_trial(history, c['clip_id'], owner) is not None:
+                        continue  # attributed to its original trial below
                     take = take_identity(Path(video))
                     if take:
-                        generated[(video,tuple(take))] = {'video':video,'take':take}
+                        key = (video, tuple(take))
+                        generated[key] = {'video':video,'take':take}
             clips[c['clip_id']] = {'selected':c.get('selected'),'error':c.get('error'),
-                                  'completed_generated_seconds':sum(float(a.get('duration') or 0) for a in c.get('attempts',[]) if a.get('generated_this_run')),
+                                  'completed_generated_seconds':seconds,
                                   'generated_takes':list(generated.values())}
-        record = {'clips':clips,'candidate_video':(report.get('assembly') or {}).get('final_video')}
+        for cid, takes in completions.items():
+            row = clips.setdefault(cid, {'selected': None, 'error': None,
+                                         'completed_generated_seconds': 0, 'generated_takes': []})
+            row['generated_takes'].extend({k: take[k] for k in ('video', 'take')} for take in takes)
+            row['completed_generated_seconds'] += sum(float(take.get('duration') or 0) for take in takes)
+        record = {'clips':clips,'candidate_video':(report.get('assembly') or {}).get('final_video') if matches else None}
         if not trial['renders'] or trial['renders'][-1] != record:
             trial['renders'].append(record)
             changed = True

@@ -12,6 +12,8 @@ from novel_manga.application.configuration import project_root
 from novel_manga.application.profiles import h3_stamp
 from novel_manga.repair.proposal import RepairProposal
 from novel_manga.story.h3 import request_issues
+from novel_manga.application.review.evidence import clip_frames
+from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
 SECTIONS = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
@@ -34,8 +36,8 @@ def validate_prompt(clip, prompt):
     old, new = sections(clip['prompt_h3']), sections(prompt)
     def definition_bindings(text):
         rows = list(re.finditer(r'(?m)^(<(?:Subject|Audio) \d+>)', text))
-        return [(row[1], sorted(set(re.findall(r'<(?:Picture|Subject|Audio) \d+>|\(S\d+\)',
-                    text[row.end():rows[i+1].start() if i+1<len(rows) else len(text)]))))
+        return [(row[1], sorted(set(token for token in re.findall(r'<(?:Picture|Subject|Audio) \d+>|\(S\d+\)',
+                    text[row.end():rows[i+1].start() if i+1<len(rows) else len(text)]) if token != row[1])))
                 for i,row in enumerate(rows)]
     if definition_bindings(old['subject_definitions']) != definition_bindings(new['subject_definitions']):
         raise ValueError('agent changed protected reference binding: subject_definitions')
@@ -59,6 +61,28 @@ def validate_prompt(clip, prompt):
     problems = request_issues({**clip, 'prompt_h3': prompt})
     if problems:
         raise ValueError('; '.join(problems))
+
+
+def provided_frames(directory: Path, clip_id: str, video: Path, target: Path):
+    """Copy frames supported by the same-take review, or extract four on the host."""
+    review_path = directory/'episode_review.json'
+    reviewed = (read_json(review_path, {}).get('clips') or {}).get(clip_id, {})
+    identity = take_identity(video)
+    cached = [directory/'work/review'/clip_id/f'frame_{i}.jpg' for i in range(1, 4)]
+    same_review = (reviewed.get('video') == str(video) and identity
+                   and reviewed.get('take') == identity and reviewed.get('severity') != 'review_error')
+    # Later numbered frames can be stale tails of an earlier review.
+    if (same_review and all(p.is_file() and p.stat().st_size > 0
+                            and identity[2] <= p.stat().st_mtime_ns <= review_path.stat().st_mtime_ns
+                            for p in cached)):
+        target.mkdir(parents=True, exist_ok=True)
+        frames = []
+        for source in cached:
+            frame = target/source.name
+            shutil.copy2(source, frame)
+            frames.append(frame)
+        return frames, 'same_take_review_report_supported'
+    return clip_frames(video, target, 4), 'host_uniform_10_to_90_percent'
 
 
 def propose(directory: Path, clip: dict, verdict: dict, *, config=None):

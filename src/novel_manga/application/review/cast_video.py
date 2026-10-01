@@ -85,6 +85,18 @@ CARD_LOOK_QUESTION = ("这是{name}的角色参考卡。用一句中文写出卡
                       "只记录图中可见的稳定外观。不要写面甲开合、动作、表情、站坐、背景或机位；这些由每一镜的计划决定。")
 
 
+def recorded_model(video: Path | None) -> str:
+    """The generated take's provider sidecar, rather than an unused English plan field."""
+    if video is None:
+        return ""
+    path = Path(video)
+    try:
+        task = json.loads(path.with_suffix(path.suffix + ".task.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(task.get("model") or "")
+
+
 def enabled() -> bool:
     return os.environ.get("NOVEL_REVIEW_CAST_VIDEO", "").strip() == "1"
 

@@ -11,7 +11,7 @@ def _load_current(runner):
     ctx.clip_plan = read_json(ctx.episode_dir / 'clip_plan.json', {})
     ctx.script = read_json(ctx.episode_dir / 'chapter_script.json', {})
     ctx.feedback = read_json(ctx.episode_dir / 'review_feedback.json', {})
-    counts = managed.generated_counts(history.load(ctx.episode_dir))
+    counts = history.generation_counts(ctx.episode_dir)
     ctx._managed_remaining = {c['clip_id']: max(0, managed.generation_limit(ctx.episode_dir, c['clip_id'])-counts.get(c['clip_id'],0))
                               for c in ctx.clip_plan['clips'] if c.get('kind') == 'video'}
 

@@ -36,25 +36,24 @@ CJK = re.compile(r"[\u4e00-\u9fff]")
 # we say nothing rather than assert the wrong medium - the reference cards already carry the look, and a
 # sentence that contradicts them is worse than no sentence.
 REQUEST_CONTENT_RULES = (
-    "The source excerpt constrains story facts, not extra shots to add. The approved storyboard decides "
-    "this shot's action, camera and timing. Reference images determine stable identity and design, not pose, "
-    "camera, default faceplate state or extra people from a turnaround sheet. "
+    "The source excerpt constrains story facts. The approved storyboard decides "
+    "this shot's action, camera and timing. Reference images determine stable identity and design. "
+    "The authored shot determines pose, camera, faceplate state and visible people. "
     "Use packed action bindings (or source-stage actions for an older plan) to check attribution and "
     "omissions against the current shot and source; "
     "integrate an agreed action once rather than concatenating duplicate action lists. If a stage was split, "
     "keep to the current part's scope instead of replaying the full source stage. "
-    "Use explicit wearing bindings; do not interpret every prop as an independent empty body. "
+    "Use explicit wearing bindings; each worn garment belongs to its wearer, and independent copies follow the shot. "
     "The current correction replaces conflicting storyboard wording only in its stated scope. "
-    "Integrate its visual, sound and speaking-timing requirements into the affected shots, not a separate "
-    "note or summary. Remove obsolete effects AND their sound cues. Preserve unaffected action order and dialogue. "
+    "Integrate its visual, sound and speaking-timing requirements into the affected shots at their authored positions. "
+    "Remove obsolete effects AND their sound cues. Preserve unaffected action order and dialogue. "
 )
 
 
 MEDIUM_SENTENCE = {
     '3d': '3D animation matching the reference images.',
     '2d': '2D animation matching the reference images.',
-    'photo': ' Everything is photographed live action: real people, real fabrics and real light, with no animation, '
-             'no CG characters and no illustrated rendering.',
+    'photo': 'Everything is photographed live action: real people, real fabrics and practical lighting.',
 }
 
 
@@ -124,8 +123,8 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             crowd=clip.get('crowd_roles',{}).get(ref['name'])
             if crowd:
                 defs.append(f"<Subject {asset_ids[picture]}> is the shared clothing design in <Picture {picture}> for {crowd['count'] or 'several'} distinct unnamed supporting people. "
-                            'Their faces and hairstyles must be different from each other and must not copy the face in this picture. '
-                            'For a pair, one has a narrow face and the other a broad face. This is a clothing reference, not one repeated identity.')
+                            'Each supporting person has a distinct face and hairstyle. '
+                            'For a pair, one has a narrow face and the other a broad face. The picture supplies their shared clothing design.')
                 continue
             name = ref['name']
             if name in declared:
@@ -148,9 +147,9 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             else:
                 take = f"Identity and outfit design follow <Picture {body}>."
             if name in worn:
-                take = (f"Take the face, hair and build from <Picture {face or body}>, not the clothing. "
+                take = (f"The face, hair and build follow <Picture {face or body}>. "
                         f"This person wears the armor or garment design from <Picture {worn[name]}>. "
-                        "The wearer and worn garment are one figure, not two actors.")
+                        "The wearer and worn garment form one body.")
             closed = next((n for n, r in own if view_of(r) == 'closed'), None)
             if closed is not None and all(view_of(r) == 'closed' for _, r in own):
                 take = (f"Take the visible body proportions, outfit and fully closed helmet from <Picture {closed}>. "
@@ -160,22 +159,22 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
                 take += (f" <Picture {closed}> shows this same person with the helmet's faceplate closed: "
                          f"whenever the faceplate is closed, it looks exactly like <Picture {closed}>.")
             defs.append(SUBJECT_DECLARATION.format(subject=subject, pictures=picture_phrase(numbers)) + ' ' + take +
-                        f" Exactly one <Subject {subject}> appears in the video; no other person has "
-                        f"<Subject {subject}>'s face, hair or clothes.")
+                        f" When visible in a shot, exactly one <Subject {subject}> is present; "
+                        "visibility and arrival or exit timing follow the shot description.")
         elif ref.get("role") == "location":
             if clip.get('scene_ids'):
                 defs.append(f"<Subject {asset_ids[picture]}> is the setting in <Picture {picture}>, providing its architecture and terrain. "
                             'Use the time of day and lighting specified in each shot; people and portable objects come from the shot description.')
             else:
                 defs.append(f"<Subject {asset_ids[picture]}> is the setting in <Picture {picture}>: take its architecture, ground, "
-                            f"fixed props and light from it, and none of the people in it.")
+                            "fixed props and light from it. People and portable objects follow the current shot.")
         elif ref.get("role") == "prop":
             defs.append(f"<Subject {asset_ids[picture]}> is the prop design in <Picture {picture}>, retaining its appearance, "
-                        'material, structure and scale relative to people. This subject is an object, not a person.')
+                        'material, structure and scale relative to people. Its role is an object design.')
             if ref.get('wearers'):
                 tags = ', '.join(f'<Subject {subject_of[name]}>' for name in ref['wearers'] if name in subject_of)
-                defs[-1] += (f' Use only its garment design on {tags}. Ignore any face or human model in this prop picture. '
-                             'The prop image does not introduce another person; a separate empty copy exists only when explicitly described in the shot.')
+                defs[-1] += (f' Use its garment design on {tags}. Each wearer retains their character-reference identity. '
+                             'A separate empty copy appears at the time explicitly described in the shot.')
     return defs, subject_of
 
 
@@ -267,9 +266,9 @@ def compose(clip: dict, english: list[str], stages: list, *, soundscape: str = "
                 # The reaction follows the shot's own framing: a close-up of hands carries it in
                 # the hands, a face shot in the eyes - fixing "eyes and breathing" against a
                 # headless composition asked for a reaction nothing on camera could show (audit #5).
-                body.append(f"The following voice is <Subject {subject_of[who]}>'s private thought in their own voice, "
-                            "heard only by the audience, not spoken aloud in the scene. Nobody in the scene hears or replies to it. "
-                            "The speaker's lips stay closed and the jaw does not move; whatever the shot's framing shows of them "
+                body.append(f"The following voice is <Subject {subject_of[who]}>'s audience-only private thought in their own voice. "
+                            "The room's characters continue their scene actions. The speaker's lips stay closed and the jaw stays still; "
+                            "whatever the shot's framing shows of them "
                             "(hands, shoulders, profile or face) carries the reaction within that framing.")
             if who in subject_of and not offscreen:
                 body.append(f"<Subject {subject_of[who]}> {sid(who)} says <d>[Chinese] {line}</d>{said}")
@@ -302,7 +301,7 @@ def compose(clip: dict, english: list[str], stages: list, *, soundscape: str = "
     # reference is really attached.
     has_audio = any(ref.get("role") == "voice" for ref in (clip.get("references") or []))
     for index, ref in enumerate((r for r in clip.get('references', []) if r.get('role') == 'voice'), 1):
-        retention.append(f"<Audio {index}>: reference - retain the speaker's voice timbre and vocal identity, not the sample's words.")
+        retention.append(f"<Audio {index}>: reference - the speaker's voice timbre and vocal identity guide the supplied dialogue.")
     task = "[reference generation + audio reference]" if has_audio else "[reference generation]"
     animation = ''
     locations = []
@@ -404,6 +403,15 @@ def final_dialogue_issues(clip: dict) -> list[str]:
 
 
 CHINESE_OUTSIDE_DIALOGUE = 'H3 description contains Chinese outside bound dialogue'
+AFFIRMATIVE_DIRECTIONS = 'Write affirmative visible facts.'
+NEGATIVE_DIRECTION = re.compile(r"\b(?:not|no|without|never|avoid|ignore|cannot|nobody|nothing|neither|nor)\b"
+                                r"|\b\w+n['’]t\b|\bnone\s+of\b", re.I)
+
+
+def positive_direction_issues(text: str) -> list[str]:
+    """Inspect instruction shape; protected dialogue and official empty markers stay intact."""
+    directions = re.sub(r'<d>.*?</d>', '', str(text), flags=re.S)
+    return [AFFIRMATIVE_DIRECTIONS] if NEGATIVE_DIRECTION.search(directions) else []
 
 
 def request_issues(clip: dict) -> list[str]:
@@ -432,7 +440,7 @@ def request_issues(clip: dict) -> list[str]:
         # Every clip, not only authored scenes: H3 reads Chinese aloud wherever it stands.  美漫 ch12 clip_20
         # (2026-09-25) carried the naming table's traits after a subject tag and passed as "ok".
         issues.append(CHINESE_OUTSIDE_DIALOGUE)
-    return issues + final_dialogue_issues(clip)
+    return issues + final_dialogue_issues(clip) + positive_direction_issues(text)
 
 
 def identity_issues(clip: dict) -> list[str]:
@@ -440,7 +448,8 @@ def identity_issues(clip: dict) -> list[str]:
     translating again, which every new submission does first; routed to a source re-check it would carry
     the identity correction below.  (Every translation made before 2026-09-17 names its subjects in
     Chinese: 30,810 of 30,986 translated clips on 2026-09-25.)"""
-    return [issue for issue in request_issues(clip) if issue != CHINESE_OUTSIDE_DIALOGUE]
+    return [issue for issue in request_issues(clip)
+            if issue not in {CHINESE_OUTSIDE_DIALOGUE, AFFIRMATIVE_DIRECTIONS}]
 
 
 def source_crowds(clip: dict, bible: dict, passage: str, *, context=None) -> dict:
