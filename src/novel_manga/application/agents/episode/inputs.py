@@ -8,6 +8,7 @@ import shutil
 from novel_manga.episodes import chapter_of
 from novel_manga.util import atomic_write_json, read_json
 from .context import EpisodeContext
+from .session import SKILL_SOURCE
 
 
 BOOK_FILES = ('novel.json', 'story_bible.json', 'bible_aliases.json', 'entity_index.json',
@@ -18,6 +19,30 @@ READING_FILES = ('identity_source_reading.json', 'identity_context.json', 'sourc
                  'source_speaker_contract.json')
 SCRIPT_FILES = ('chapter_script.json', 'clip_plan.json', 'episode_plan.json', 'scene_outline.json',
                 'scene_script.json', 'clip_overrides.json', 'visor_states.json', 'posture_states.json')
+SKILL_REFERENCES = {
+    'output_contract': 'references/output-contract.md',
+    'authoring': 'references/authoring.md',
+    'h3_format': 'references/h3-format.md',
+    'official_h3_guide': 'references/official/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md',
+    'review_and_repair': 'references/review-and-repair.md',
+    'case_lessons': 'references/case-lessons.md',
+}
+
+
+def _install_skill(ctx):
+    """Make this code revision's rules available through the episode's sole mount."""
+    relative = Path('.claude/skills/episode-production')
+    files = ('SKILL.md', *SKILL_REFERENCES.values(),
+             'references/official/LICENSE', 'references/official/NOTICE')
+    for name in files:
+        source = SKILL_SOURCE / name
+        if not source.is_file():
+            raise ValueError(f'episode skill resource is missing: {name}')
+        target = ctx.work_dir / relative / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    return str(relative / 'SKILL.md'), {key: str(relative / name)
+                                        for key, name in SKILL_REFERENCES.items()}
 
 
 def _copy(source, target):
@@ -162,6 +187,7 @@ def prepare_inputs(ctx: EpisodeContext):
     for directory in (ctx.run_dir, ctx.novel_dir, ctx.episode_dir, ctx.work_dir / 'input/refs',
                       ctx.work_dir / 'output', ctx.asset_snapshot_dir / 'series_assets'):
         directory.mkdir(parents=True, exist_ok=True)
+    skill, skill_references = _install_skill(ctx)
     asset_link = ctx.novel_dir / 'series_assets'
     if not asset_link.exists():
         asset_link.symlink_to(ctx.asset_snapshot_dir / 'series_assets', target_is_directory=True)
@@ -238,6 +264,9 @@ def prepare_inputs(ctx: EpisodeContext):
         'segments': 'input/segments.json', 'catalog': 'input/catalog.json', 'reading': reading,
         'chapter': chapter_of(ctx.source_episode_dir.name), 'title': title,
         'profile': 'input/profile.json', 'target_seconds': list(target) if target else None,
+        'skill': skill, 'skill_references': skill_references,
+        'format_reference': skill_references['h3_format'],
+        'runtime_rules': skill_references['review_and_repair'],
         'clip_seconds_max': ctx.clip_seconds_max, 'authoritative_inputs': authoritative,
         'authority': ('Original source; Agent owns screenplay, cutting and final requests.'
                       if ctx.input_mode == 'source' else

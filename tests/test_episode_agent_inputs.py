@@ -6,6 +6,7 @@ import pytest
 
 from novel_manga.application.agents.episode import context
 from novel_manga.application.agents.episode.inputs import prepare_inputs
+from novel_manga.application.agents.episode.session import SKILL_SOURCE
 
 
 def write(path, value):
@@ -85,6 +86,46 @@ def test_source_reads_registered_offsets_and_preserves_source_and_profile(book):
     assert before == {str(p): p.read_bytes() for p in source.rglob('*') if p.is_file()}
     assert ctx.novel_dir != source and ctx.episode_dir.parent == ctx.novel_dir
     assert (ctx.novel_dir / 'series_assets').resolve() == ctx.asset_snapshot_dir / 'series_assets'
+
+
+def test_manifest_resources_are_readable_in_the_episode_mount_and_use_current_code_skill(book):
+    source, _, _ = book
+    ctx = context.create_context(source, 2)
+    outdated = ctx.project_root / 'skills/episode-production/SKILL.md'
+    outdated.parent.mkdir(parents=True)
+    outdated.write_text('outdated runtime-root skill', encoding='utf-8')
+    result = prepare_inputs(ctx)
+    installed = ctx.work_dir / result['skill']
+    assert installed.read_bytes() == (SKILL_SOURCE / 'SKILL.md').read_bytes()
+    assert result['format_reference'] == result['skill_references']['h3_format']
+    assert result['runtime_rules'] == result['skill_references']['review_and_repair']
+    for name in result['skill_references'].values():
+        path = ctx.work_dir / name
+        assert path.is_file() and path.stat().st_size > 0
+        assert path.resolve().is_relative_to(ctx.work_dir.resolve())
+    guide = ctx.work_dir / result['skill_references']['official_h3_guide']
+    assert guide.read_bytes() == (SKILL_SOURCE / 'references/official/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md').read_bytes()
+    assert (guide.parent / 'LICENSE').is_file() and (guide.parent / 'NOTICE').is_file()
+    assert not any('production-lessons' in str(path) or path.suffix == '.log'
+                   for path in installed.parent.rglob('*'))
+
+
+def test_refreshing_skill_resources_preserves_frozen_inputs_output_and_budget(book):
+    source, episode, _ = book
+    saved_script(source, episode)
+    ctx = context.create_context(source, 2)
+    first = prepare_inputs(ctx)
+    protected = {path: path.read_bytes() for path in (ctx.work_dir / 'input').rglob('*') if path.is_file()}
+    write(ctx.work_dir / 'output/requests.json', {'prompts': {'clip_01': 'agent work'}})
+    write(ctx.episode_dir / 'repair_history/history.json', {'trials': [{'id': 1, 'managed': True}]})
+    core = ctx.work_dir / first['skill']
+    core.write_text('earlier installed rules', encoding='utf-8')
+    second = prepare_inputs(ctx)
+    assert second['skill_references'] == first['skill_references']
+    assert core.read_bytes() == (SKILL_SOURCE / 'SKILL.md').read_bytes()
+    assert all(path.read_bytes() == value for path, value in protected.items())
+    assert read(ctx.work_dir / 'output/requests.json') == {'prompts': {'clip_01': 'agent work'}}
+    assert read(ctx.episode_dir / 'repair_history/history.json') == {'trials': [{'id': 1, 'managed': True}]}
 
 
 def test_script_inputs_freeze_existing_words_groups_seconds_order_and_long_total(book):

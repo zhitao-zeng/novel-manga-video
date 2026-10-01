@@ -52,8 +52,9 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
     expected_output = expected_output or ("repair.json" if resume and not enable_tools else "episode.json")
     if expected_output not in {"episode.json", "requests.json", "repair.json"}:
         raise SandboxRefused("Expected output must be episode.json, requests.json or repair.json.")
-    supplied = Path(project_root) / 'skills/episode-production' if project_root is not None else None
-    skill_source = supplied if supplied is not None and supplied.is_dir() else SKILL_SOURCE
+    # The running code owns its skill. project_root supplies runtime settings,
+    # not an older skill that happens to remain in a production checkout.
+    skill_source = SKILL_SOURCE
     key = key_for(config["key_var"])
     if not key:
         raise SandboxRefused(f"No credential in {config['key_var']} or the project .env.")

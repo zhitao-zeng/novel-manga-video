@@ -1,56 +1,54 @@
 ---
 name: episode-production
-description: Author, execute and repair one complete novel episode using original text, actual assets, media evidence and the supplied host workflow client in a persistent episode workspace.
+description: Author, execute and repair one novel episode from original text or an approved screenplay, using actual assets and the supplied host workflow client in a persistent workspace.
 ---
 
 # Episode production
 
-Read `input/manifest.json` to identify the input mode and its authority.
-In source mode, own this episode's screenplay, storyboard and final H3 requests as one author.
-In script mode, retain the supplied screenplay, clip groups, exact dialogue/ownership,
-camera, durations and selected references; author only the final H3 requests in
-`output/requests.json`. Source contradictions are reported for a supported correction.
-Read the complete original chapter and inspect the supplied actual asset images.
-Preserve the source's key causes, identities, action ownership, motivations and decisions.
-In source mode choose the cinematic cuts, framing, acting and rhythm yourself.
-Compress or rewrite dialogue while preserving its meaning and who knows, thinks or says each fact.
-Record meaningful adaptation choices and verbatim source evidence for each shot.
+Read `input/manifest.json` for the input mode, authority, assets, duration limits
+and the installed `skill_references`. Read [the output contract](references/output-contract.md)
+and [H3 format](references/h3-format.md) before writing final requests.
+Use [authoring](references/authoring.md) when creating shots or resolving identity,
+wearing, visibility, action, sound or continuity. Use [review and repair](references/review-and-repair.md)
+when executing tools or assessing a take. Read [case lessons](references/case-lessons.md)
+only when a matching failure needs explanation.
 
-Use the supplied asset identifiers and images for stable appearance, locations and
-objects. Make each image's role and current visible state clear in its H3 definition.
-Keep spoken dialogue, audience-only inner voice and physical sound sources distinct.
-Write each final H3 request in full: subject_definitions, summary, retention_analysis,
-detailed_description, overall_soundscape and non_diegetic_music. Use the supplied
-H3 format reference for numbered pictures, audio, subjects, speakers and retention values.
-Describe camera cuts and the timing of action and dialogue in the shot body.
-Write production prose in affirmative English; quote chosen Chinese dialogue exactly
-inside its language-tagged dialogue marker. Empty audio sections may use `None.`.
-Keep reference tags consistent with the actual ordered references selected for the clip.
+In source mode, read the complete original chapter and own the screenplay, cuts
+and final H3 requests. Preserve identities, action ownership, who knows or thinks
+each fact, and the questions, causes, motivations and decisions needed for the ending.
+Use confirmed aliases and source evidence; animals, objects, self-actions and empty
+targets retain their actual roles. Inspect the supplied images and state their
+reference role, wearing relations and actual visible contents.
+In script mode, keep the approved shots, words, owners, camera, groups, seconds
+and ordered references; write only `output/requests.json`. Report a source or asset
+contradiction through the host's supported path instead of inventing a resolution.
 
-Use the supplied target duration and clip duration limits. Source mode normally
-targets 120–150 seconds; script mode retains the saved episode and clip durations.
-Every ordered chapter shot belongs to exactly one clip; a clip may contain several shots.
-Set each shot's `duration_seconds` so its clip's shot durations sum to `request_seconds`.
-Read [the output contract](references/output-contract.md) and write the requested JSON
-file under `output/`. The host supplies the original, asset manifest and format references.
+Write each event once, with an opening state, chronological action and persistent
+ending state that connects to the next authored cut. A correction replaces the
+affected conflicting description. Physical sounds follow their scene sources and
+action timing; speech, private thought and environment sound remain distinct.
+For postmix, separate a pure single-thinker clip and keep its words in structured
+turns for recording; its H3 visual request contains visual acting and scene sound.
+Use the manifest's limits and the selected profile, while choosing cinematic rhythm
+within the authority of the input mode.
 
-When resumed, keep working on this same episode using its actual frames, ASR,
-submitted requests and current verdicts. Inspect the frames before deciding which
-clips to keep, edit, retake or stop. Explain each decision using current evidence.
-An edit contains the entire replacement H3 request, including all six sections.
-Use the episode context to keep changes coherent with adjacent clips.
+Write all six H3 sections in affirmative English. Keep approved Chinese dialogue
+exactly inside its language-tagged `<d>` marker and preserve the supplied reference
+and speaker bindings. Use `None.` for an empty audio section. The supplied pictures
+are references; concrete first-frame/keyframe use requires explicit host support.
 
-When Bash and `/work/tools/episode.py` are available, execute this episode yourself.
-Use `python3 /work/tools/episode.py --help` for command arguments. Run `check`, read
-its errors, edit the mode's requested output file, and check again. After it passes,
-run `render`, use `status` to wait for completion, then run `review`. Read the actual
-frames, ASR and current verdicts. Update your own episode requests and use `apply`
-for repair decisions, then render and review the required clips within the supplied
-remaining budget. Run `finish` when the episode is accepted or must stop, and report
-the actual outcome. Temporary helper scripts may live inside this episode workspace.
+With `/work/tools/episode.py`, use its help and run `check` on the requested output.
+Correct reported input errors, then request `render` and `review` as needed.
+When an operation returns `accepted` or `yield`, end this turn with its job ID and
+pending operation. The host waits and resumes this same session with the result;
+continue from that result rather than polling or submitting the pending operation again.
+Inspect actual frames, ASR, submitted requests and current verdicts before `apply`.
+Use the reported remaining budget, explain each keep/edit/retake/stop from current
+evidence, and keep edits coherent with adjacent clips. Tool errors and incomplete
+reviews remain unresolved; use `finish` to report an accepted or stopped outcome.
+Assess the complete assembled story and audio as well as individual clips: format,
+ASR or technical passes alone do not establish a complete, accepted episode.
 
-The workspace client reaches the existing host pipeline through its Unix socket.
-The host owns format/source checks, H3 services, frame/audio extraction, independent
-acceptance, budgets, caches and publication. Use its reported results and allowances;
-keep your work and helper scripts scoped to this episode. With file tools alone,
-return the requested JSON for the host to execute.
+The host owns checks, generation, extraction, independent acceptance, caches,
+budgets and publication. Keep work and helper scripts in this episode workspace.
+With file tools alone, return the requested JSON for the host to execute.

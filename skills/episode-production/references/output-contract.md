@@ -68,8 +68,11 @@ offscreen speech uses `says in an off-screen voiceover`, or `An off-screen voice
 when its owner has no visual subject. Bind audio reference, owner and the same `(Sx)`
 in the audio definition and first spoken voice-timbre instruction.
 When the supplied mode is postmix, a pure inner-voice clip has one thinker and its
-H3 request stages the visual action; its inner voice remains in the shot turns for
-the host's separate recording and mix.
+H3 request stages the visual action and scene sounds, with zero native dialogue
+and zero Audio tags/definitions. Select the supplied thinker card and voice for
+recording; its inner voice remains in the shot turns for the host's separate mix.
+Keep the authored camera. Split mixed private/native delivery explicitly when
+creating the screenplay, or report it through the host's supported correction.
 
 Repair: write `output/repair.json` for the whole supplied episode evidence:
 
@@ -91,8 +94,10 @@ The host decides whether a proposal fits the remaining budget and passes accepta
 When the host workflow client is supplied, keep the manifest's output file current:
 `output/episode.json` in source mode or `output/requests.json` in script mode.
 Invoke `check` after edits; `render` submits
-the checked requests; `status` reports completion and remaining budget; `review`
-returns the current media evidence. For repairs, write `output/repair.json` and use
+the checked requests; `review` returns current media evidence. When an operation
+returns `accepted` or `yield`, end the turn with its job ID and pending operation;
+the host waits and resumes this same session with the result. Continue from that
+result without a polling loop or duplicate submission. For repairs, write `output/repair.json` and use
 `apply`, following the client's command help. Then render/review the affected clips
 and call `finish` with the actual accepted or stopped outcome. Host results and saved
 evidence determine completion; writing a JSON file alone does not complete this mode.
