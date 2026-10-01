@@ -41,7 +41,8 @@ def spawn(conductor, name: str, command: list[str], extra_env: dict | None = Non
     if conductor.dry:
         conductor.log(f"[dry] would start {name}: {' '.join(command[:8])} ...")
         return
-    env = {**os.environ, **conductor_common.BASE_ENV, **(extra_env or {})}
+    env = {**os.environ, **conductor_common.BASE_ENV,
+           **conductor.cfg.get('model_environment', {}), **(extra_env or {})}
     env.update(reference_image_env(env))
     log_path = conductor.tmp / f"{name}.log"
     with log_path.open("ab") as handle:

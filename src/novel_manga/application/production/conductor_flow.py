@@ -43,6 +43,14 @@ class Conductor:
         self.prepassed: dict[str, int] = {}
         self.last_review = 0.0
         self.log_path = self.tmp / "conductor.log"
+        self.executor = config.get('executor', 'standard')
+        if self.executor == 'episode_agent':
+            if self.plan_only:
+                raise ValueError('episode_agent requires its complete workflow; --plan-only uses the standard executor')
+            from . import episode_agents
+            episode_agents.configure(self)
+        elif self.executor != 'standard':
+            raise ValueError('executor must be standard or episode_agent')
 
     # ---------------------------------------------------------------- helpers
     @staticmethod
@@ -69,6 +77,9 @@ class Conductor:
 
     # ------------------------------------------------------------------- loop
     def tick(self) -> bool:
+        if self.executor == 'episode_agent':
+            from . import episode_agents
+            return episode_agents.tick(self)
         stats = {id(r): conductor_state.range_stats(self, r) for r in self.ranges}
         waiting = conductor_state.qwen_waiting(self)
         locked = [ep_names.chapter_of(p.parent.name) for p in self.novel_dir.glob(f"{self.novel_id}_*/.render.lock")]
@@ -86,7 +97,7 @@ class Conductor:
                              for r, s in ((r, stats[id(r)]) for r in self.ranges))
         pools = " ".join(f"{name}={conductor_capacity.held_slots(self, k)}/{self.lanes[name]['limit']}" for name, k in self.keys.items())
         self.log(f"tick: {summary} | inflight {pools} | qwen waiting {waiting} card waits {card_waits}{' CONGESTED' if congested else ''}")
-        state = {"lanes": self.lanes, "blocks": [{k: v for k, v in b.items()} for b in self.blocks], "time": time.time(),
+        state = {"executor": 'standard', "lanes": self.lanes, "blocks": [{k: v for k, v in b.items()} for b in self.blocks], "time": time.time(),
                  "pid": os.getpid(), "status": "running",
                  "workers": {name: proc.pid for name, proc in self.procs.items() if proc.poll() is None},
                  "work": {"pending": len({n for row in stats.values() for n in row['pending']}),
@@ -108,7 +119,9 @@ class Conductor:
         while True:
             more = self.tick()
             if once or not more:
-                self.log("conductor done" if not more else "single tick done")
+                self.log('episode agent coordinator paused after hosts drained'
+                         if self.executor == 'episode_agent' and self.agent_pause.is_file()
+                         else "conductor done" if not more else "single tick done")
                 for name in list(self.procs):
                     if name.startswith("lane_"):
                         conductor_workers.stop(self, name, "all ranges finished")

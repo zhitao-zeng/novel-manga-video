@@ -6,6 +6,17 @@ import json
 import os
 from novel_manga.llm.config import JsonEndpoint
 
+EXECUTORS = ('standard', 'episode_agent')
+
+
+def validate_agent_h3(keys):
+    keys = list(keys)
+    if not keys:
+        raise ValueError('episode_agent requires an assigned H3 render resource')
+    if any(not key.get('base_url') or not str(key.get('model', '')).startswith('minimax-h3')
+           for key in keys):
+        raise ValueError('episode_agent supports H3 render resources only; SD cannot use this executor')
+
 
 def project_root() -> Path:
     return Path(os.environ.get('NOVEL_PROJECT_ROOT') or Path(__file__).resolve().parents[3]).resolve()
@@ -70,7 +81,7 @@ def repair_settings(root: Path) -> dict:
 
 def repair_environment(root: Path, legacy: Path) -> tuple[dict, dict]:
     settings = repair_settings(root)
-    env = environment(root)
+    env = {**environment(root), **model_resources_environment(root)}
     env.update(PYTHONPATH='src', NOVEL_VIDEO_MODEL=settings['model'],
                NOVEL_LOCAL_H3_URL=settings['base_url'], NOVEL_INFLIGHT_POOL=settings['pool'],
                NOVEL_REVIEW_MODE=settings['review_mode'],
@@ -89,7 +100,19 @@ def model_resources_environment(root: Path, pipeline: dict | None = None) -> dic
             'NOVEL_MODEL_INFLIGHT_DIR': str(RuntimePaths(root).temporary / 'model-inflight')}
 
 
-def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None) -> dict:
+def episode_agent_settings(root: Path, spec: dict) -> dict:
+    settings = {'input_mode': 'auto', 'parallel': 1, 'workers': 2, **spec.get('agent', {})}
+    if settings['input_mode'] not in {'auto', 'source', 'script'}:
+        raise ValueError('agent.input_mode must be auto, source or script')
+    if int(settings['parallel']) < 1 or int(settings['workers']) < 1:
+        raise ValueError('agent.parallel and agent.workers must be positive')
+    settings['parallel'], settings['workers'] = int(settings['parallel']), int(settings['workers'])
+    settings['output_root'] = str((root / settings.get('output_root', 'outputs/episode-agent')).resolve())
+    return settings
+
+
+def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None,
+                     executor: str | None = None) -> dict:
     """Build one novel's conductor config out of the shared pipeline description."""
     paths = RuntimePaths(root or project_root())
     novels = {n["id"]: n for n in pipeline.get("novels", [])}
@@ -104,6 +127,9 @@ def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None)
     if missing:
         raise SystemExit(f"{novel_id} asks for resources that are not defined: {missing}")
     defaults = pipeline.get("defaults", {})
+    selected = executor or novel.get('executor', 'standard')
+    if selected not in EXECUTORS:
+        raise ValueError(f'executor must be one of {EXECUTORS}')
     planning = {**defaults.get("planning", {}),
                 "blocks_max": novel.get("blocks_max", 0), "blocks_min": novel.get("blocks_min", 0),
                 "models": [{**models[name], "slots": slots} for name, slots in novel.get("planning", {}).items()]}
@@ -119,12 +145,15 @@ def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None)
         "aimd": defaults.get("aimd", {}),
         "review": defaults.get("review", {}),
         "render": defaults.get("render", {}),
+        "executor": selected,
+        "agent": episode_agent_settings(paths.root, novel),
+        "model_environment": model_resources_environment(paths.root, pipeline),
     }
 
 
 def preparation_environment(root: Path) -> dict:
     settings = pipeline_config(root).get('defaults', {}).get('preparation', {})
-    env = environment(root)
+    env = {**environment(root), **model_resources_environment(root)}
     defaults = h3_translation_endpoint()
     env.update(QWEN38_LOCAL_BASE_URL=','.join(settings.get('endpoints', defaults.endpoints)),
                QWEN38_LOCAL_MODEL=settings.get('model', 'Qwen3.8-27B-Project'),

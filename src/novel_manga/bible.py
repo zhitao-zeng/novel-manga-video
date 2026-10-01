@@ -12,6 +12,7 @@ import httpx
 from pydantic import ValidationError
 
 from .config import Settings
+from .llm.resources import model_slot
 from .llm.responses import bible_object
 from .llm.transport import send_json
 from novel_manga.models.bible import Character, StoryBible
@@ -251,8 +252,9 @@ class BibleBuilder:
             # vLLM/Qwen accepts this OpenAI-compatible extension.  Keep it
             # opt-in so hosted OpenAI-compatible providers are unaffected.
             payload["chat_template_kwargs"] = {"enable_thinking": False}
-        response = send_json(self.client, f"{base}/chat/completions",
-                             {"Authorization": f"Bearer {self.settings.llm_api_key}"}, payload)
+        with model_slot(base):
+            response = send_json(self.client, f"{base}/chat/completions",
+                                 {"Authorization": f"Bearer {self.settings.llm_api_key}"}, payload)
         if getattr(response, "status_code", 200) == 400:
             try:
                 error_message = str(response.json()["error"]["message"])
@@ -276,8 +278,9 @@ class BibleBuilder:
                 )
                 if adjusted < int(payload["max_tokens"]):
                     payload["max_tokens"] = adjusted
-                    response = send_json(self.client, f"{base}/chat/completions",
-                                         {"Authorization": f"Bearer {self.settings.llm_api_key}"}, payload)
+                    with model_slot(base):
+                        response = send_json(self.client, f"{base}/chat/completions",
+                                             {"Authorization": f"Bearer {self.settings.llm_api_key}"}, payload)
         try:
             response.raise_for_status()
         except Exception as error:
@@ -334,5 +337,4 @@ class BibleBuilder:
             ),
             lambda data: _validate_story_bible(data, novel, cast),
         )
-
 

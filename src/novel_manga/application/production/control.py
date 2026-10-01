@@ -90,6 +90,9 @@ def flow_snapshot(root: Path, spec: dict, *, rows=None, repair_state=None):
     result = {}
     for flow, state in states.items():
         owners = controllers(root, spec, flow, rows)
+        agent_production = flow == 'production' and (
+            (argument(owners[0].get('args', []), '--executor') if owners else None)
+            or state.get('executor') or spec.get('executor', 'standard')) == 'episode_agent'
         blocked = []; pending = None; active = set(); blocked_count = 0
         if flow == 'repair':
             waiting, held = set(), set()
@@ -115,6 +118,9 @@ def flow_snapshot(root: Path, spec: dict, *, rows=None, repair_state=None):
                     blocked_count += counts[key]; blocked.append(f'{label}：{counts[key]} 集')
         else:
             active = {pid for pid in state.get('workers', {}).values() if alive(pid)}
+            if agent_production:
+                active.update(row['pid'] for row in state.get('agents', {}).values()
+                              if row.get('pid') and alive(row['pid']))
             counts = state.get('work', {})
             pending = counts.get('pending'); blocked_count = counts.get('blocked', 0)
             if blocked_count:
@@ -136,6 +142,17 @@ def flow_snapshot(root: Path, spec: dict, *, rows=None, repair_state=None):
                         'controller_pids': [p['pid'] for p in owners], 'in_flight': len(active),
                         'pending': pending, 'blocked': blocked_count,
                         'blocked_reasons': list(dict.fromkeys(blocked)), 'updated_at': at}
+        if agent_production:
+            agent_pause = production_directory(root, spec) / 'pause'
+            if agent_pause.exists():
+                result[flow]['status'] = 'pausing' if active else 'paused'
+            result[flow]['executor'] = 'episode_agent'
+            result[flow]['agents'] = state.get('agents', {})
+            result[flow]['lanes'] = state.get('lanes', {})
+            result[flow]['pools'] = state.get('pools', {})
+            result[flow]['blocked_reasons'] = list(dict.fromkeys(
+                row['reason'] for row in state.get('agents', {}).values()
+                if row.get('reason') and row.get('status') in {'blocked', 'finished_with_issues'}))
     return result
 
 
@@ -161,13 +178,24 @@ def spawn(root: Path, command: list[str], log: Path):
     return proc.pid
 
 
-def control(root: Path, spec: dict, flow: str, action: str, *, chapters=None, workers=None):
+def control(root: Path, spec: dict, flow: str, action: str, *, chapters=None, workers=None, executor=None):
     """Dispatch an operator action to the native controller, without replacing its state."""
     root = root.resolve(); novel = novel_directory(root, spec)
     owners = controllers(root, spec, flow, processes())
     pause = novel / 'repair_manager/pause'
+    saved_production = read(production_directory(root, spec) / 'state.json')
+    selected_executor = executor or saved_production.get('executor') or spec.get('executor', 'standard')
+    agent_production = flow == 'production' and selected_executor == 'episode_agent'
+    running_executor = (argument(owners[0]['args'], '--executor') if owners else None) or (
+        saved_production.get('executor') or spec.get('executor', 'standard'))
+    if flow == 'production' and owners:
+        agent_production = running_executor == 'episode_agent'
+    production_pause = production_directory(root, spec) / 'pause'
     if action == 'stop':
-        if flow == 'repair':
+        if agent_production:
+            production_pause.parent.mkdir(parents=True, exist_ok=True)
+            production_pause.write_text(time.strftime('%F %T'))
+        elif flow == 'repair':
             pause.parent.mkdir(parents=True, exist_ok=True)
             if not pause.exists():
                 pause.write_text(time.strftime('%F %T'))
@@ -176,14 +204,27 @@ def control(root: Path, spec: dict, flow: str, action: str, *, chapters=None, wo
                 os.kill(row['pid'], signal.SIGTERM)
         return {'action': 'stop_requested', 'pids': [p['pid'] for p in owners]}
     if owners:
+        if executor and selected_executor != running_executor:
+            raise ValueError('production executor cannot change while its controller is running')
+        if agent_production:
+            production_pause.unlink(missing_ok=True)
         if flow == 'repair':
             pause.unlink(missing_ok=True)
-        return {'action': 'resumed' if flow == 'repair' else 'already_running',
+        return {'action': 'resumed' if flow == 'repair' or agent_production else 'already_running',
                 'pids': [p['pid'] for p in owners]}
     python = root / '.venv/bin/python'
     command = [str(python) if python.is_file() else sys.executable, str(root / 'scripts' / ENTRIES[flow])]
     if flow == 'production':
         command += ['--pipeline', str(root / 'configs/pipeline.json'), '--novel', spec['id']]
+        if executor or selected_executor != 'standard':
+            command += ['--executor', selected_executor]
+        if agent_production:
+            from novel_manga.application.configuration import config_for_novel, validate_agent_h3
+            # Validate the selected H3 resources before starting a background controller.
+            config = config_for_novel(read(root / 'configs/pipeline.json'), spec['id'], root=root,
+                                      executor=selected_executor)
+            validate_agent_h3(config['keys'])
+            production_pause.unlink(missing_ok=True)
         log = production_directory(root, spec).with_suffix('.stdout.log')
     elif flow == 'prepare':
         saved = read(novel / 'h3_preparation/status.json')
@@ -206,7 +247,7 @@ def control(root: Path, spec: dict, flow: str, action: str, *, chapters=None, wo
     # A dead coordinator can still have draining workers. Let them finish
     # before another controller can claim the same episode preparation.
     current = flow_snapshot(root, spec)[flow]
-    if current['in_flight']:
+    if current['in_flight'] and (not agent_production or saved_production.get('executor') != 'episode_agent'):
         raise ValueError(f"{flow} 仍有 {current['in_flight']} 个在途任务，请等待完成后续跑")
     pid = spawn(root, command, log)
     if flow == 'repair':

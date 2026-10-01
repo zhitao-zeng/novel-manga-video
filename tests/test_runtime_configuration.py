@@ -12,7 +12,10 @@ def test_registered_production_configuration_matches_original():
     root = Path(__file__).parents[1]
     pipeline = json.loads((root / 'configs/pipeline.json').read_text())
     expected = json.loads((Path(__file__).parent / 'fixtures/runtime_config_before.json').read_text())
-    assert {n['id']: config_for_novel(pipeline, n['id'], root=root) for n in pipeline['novels']} == expected
+    current = {n['id']: config_for_novel(pipeline, n['id'], root=root) for n in pipeline['novels']}
+    assert {name: {k: v for k, v in row.items() if k not in {'executor', 'agent', 'model_environment'}}
+            for name, row in current.items()} == expected
+    assert all(row['executor'] == 'standard' for row in current.values())
 
 
 def test_new_novel_uses_one_registration_for_dashboard_and_production(tmp_path):

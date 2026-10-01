@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Manage production, preparation and repair through their existing controllers."""
 from __future__ import annotations
-from novel_manga.application.configuration import project_root
+from novel_manga.application.configuration import EXECUTORS, project_root
 import argparse
 import json
 import sys
@@ -66,6 +66,7 @@ def main(argv=None) -> int:
     parser.add_argument('--json', action='store_true', help='输出结构化状态或操作结果')
     parser.add_argument('--chapters', help='仅 prepare start：章节范围；默认复用已有准备范围或小说配置')
     parser.add_argument('--workers', type=int, choices=range(1, 13), help='仅 prepare/repair start：工作并发数')
+    parser.add_argument('--executor', choices=EXECUTORS, help='仅 production start：覆盖本次执行方式')
     args = parser.parse_args(argv)
     config = load()
     if args.novel and args.novel not in {n['id'] for n in config['novels']}:
@@ -75,6 +76,8 @@ def main(argv=None) -> int:
         parser.error('--chapters 只用于 prepare start')
     if args.workers and (args.action != 'start' or flow not in {'prepare', 'repair'}):
         parser.error('--workers 只用于 prepare/repair start')
+    if args.executor and (args.action != 'start' or flow != 'production'):
+        parser.error('--executor 只用于 production start')
     if args.action == 'validate' or (args.action == 'start' and flow == 'production'):
         problems = validate(config)
         if args.action == 'validate' or problems:
@@ -93,13 +96,19 @@ def main(argv=None) -> int:
                     print(f"{novel['title']} / {name} / {row['status']} / {row['in_flight']} / {pending} / {row['blocked']} / {row['updated_at'] or '无记录'}")
                     for reason in row['blocked_reasons'][:5]:
                         print(f'  {reason}')
+                    for episode, agent in row.get('agents', {}).items():
+                        print(f"  Agent {episode}: {agent.get('phase', agent.get('status'))}"
+                              + (f" · {agent['reason']}" if agent.get('reason') else ''))
         return 0
     results = []; failed = False
     for spec in config['novels']:
         if (args.novel and spec['id'] != args.novel) or (not args.novel and not spec.get('active')):
             continue
         try:
-            result = control(ROOT, spec, flow, args.action, chapters=args.chapters, workers=args.workers)
+            options = {'chapters': args.chapters, 'workers': args.workers}
+            if args.executor:
+                options['executor'] = args.executor
+            result = control(ROOT, spec, flow, args.action, **options)
         except (OSError, ValueError) as error:
             result = {'action': 'error', 'reason': str(error)}; failed = True
         results.append({'novel': spec['id'], 'flow': flow, **result})

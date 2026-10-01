@@ -117,7 +117,8 @@ def recent_lines(conductor, chapters, pattern: str, seconds: int) -> int:
     cutoff = (datetime.now() - timedelta(seconds=seconds)).strftime("%H:%M:%S")
     count = 0
     for n in chapters:
-        path = conductor.episode_dir(n) / "render.log"
+        path = (conductor.tmp / f'agent_{n}.log' if getattr(conductor, 'executor', 'standard') == 'episode_agent'
+                else conductor.episode_dir(n) / "render.log")
         if not path.is_file() or time.time() - path.stat().st_mtime > seconds + 60:
             continue
         try:
