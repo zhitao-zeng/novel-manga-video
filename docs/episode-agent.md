@@ -4,6 +4,8 @@
 
 每集使用独立工作区与持续会话。Agent 调用 `check`、`render`、`status`、`review`、`apply`、`finish`，自行安排创作与修复。主机执行现有视频供应商、缓存、ASR、合成和独立审查，保留实际生成次数与停止条件。
 
+批量资源调度、同会话工具交接与暂停恢复见[Agent 集级制作与共享调度](episode-agent-scheduling.md)。
+
 ## 接入已有产物
 
 ```bash

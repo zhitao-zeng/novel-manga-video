@@ -46,6 +46,7 @@ def install_fake_runtime(monkeypatch, ctx):
                 atomic_write_json(ctx.work_dir / 'input/latest-finish.json', {
                     'passed': True, 'technical_passed': True,
                     'author_session': read_json(ctx.work_dir / 'episode-session.json')})
+                return {'ok': True, 'action': action, 'passed': True}
             return {'ok': True, 'action': action}
 
     monkeypatch.setattr(flow, 'EpisodeTools', FakeTools)

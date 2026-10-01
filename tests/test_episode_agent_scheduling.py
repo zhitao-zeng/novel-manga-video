@@ -236,3 +236,20 @@ def test_accepted_finish_settles_before_expired_deadline_or_model_admission(ctx,
     assert result['passed'] and result['status'] == 'finished'
     assert result['job']['status'] == 'completed'
     assert result['attempts'] == []
+
+
+def test_written_pass_file_without_host_finish_receipt_does_not_complete_episode(ctx, config, monkeypatch):
+    calls = install_fake_runtime(monkeypatch, ctx)
+    sessions = []
+
+    def run(work, prompt, **options):
+        sessions.append(options)
+        atomic_write_json(work / 'episode-session.json', {'session_id': 'same-session'})
+        atomic_write_json(work / 'input/latest-finish.json', {
+            'passed': True, 'author_session': {'session_id': 'same-session'}})
+        return fake_attempt(ctx, len(sessions))
+
+    monkeypatch.setattr(flow, 'run_session', run)
+    result = flow.run_episode(ctx, config=config)
+    assert result['passed'] is False and result['status'] == 'blocked'
+    assert calls.count('finish') == 0

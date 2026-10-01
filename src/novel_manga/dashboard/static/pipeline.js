@@ -199,6 +199,27 @@ function pipelineAlerts(novels){
   return rows.length?pipelineLines(rows):'<div class="dim">当前产线暂无运行阻塞告警。</div>';
 }
 
+function pipelineAgentStatus(r){
+  if(r.executor!=='episode_agent')return '';
+  const phases={ready_agent:'等待 Agent 续跑',agent_running:'Agent 写稿／修改',waiting_resource:'等待资源',waiting_external:'外部批任务待轮到本集',tool_running:'宿主执行工具',paused:'已暂停',finished:'已收尾',blocked:'需要处理'};
+  const actions={render:'视频生成',review:'独立审片',apply:'修复写回',finish:'合成与验收'};
+  const pools=Object.entries(r.pools||{}).map(([name,pool])=>[name,
+    `生成在途 ${pipelineNumber(pool.held)} / ${pipelineNumber(pool.limit)}${pool.parked_until>Date.now()/1000?' · 暂停派单':''}`]);
+  const rows=Object.entries(r.agents||{}).sort((a,b)=>Number(a[0])-Number(b[0])).map(([episode,a])=>{
+    const job=a.job||{},result=job.result||{};
+    const counts=result.generation_counts;
+    const generated=counts?Object.values(counts).reduce((sum,value)=>sum+Number(value||0),0):null;
+    const phase=a.status==='finished_with_issues'?'已收尾，仍有问题':
+      (a.phase==='waiting_resource'&&a.waiting_for==='agent_model'?'等待模型资源':phases[a.phase]||pipelineStatus(a.status)||a.phase);
+    const reason=a.reason||job.error||(a.waiting_for==='agent_model'?'等待编剧模型额度':'');
+    return `<tr><td>${pipelineEscape(episode)}</td><td>${pipelineEscape(phase)}</td><td>${pipelineEscape(actions[job.action]||'—')}</td>`+
+      `<td>${pipelineNumber(generated)}</td><td>${pipelineEscape(reason||'—')}</td><td>${pipelineEscape(a.updated_at||r.updated_at||'无记录')}</td></tr>`;
+  }).join('');
+  return `<div class="pipeline-note">每集保持同一 Agent 会话；工具等待期间可调度其他集。</div>`+
+    (pools.length?pipelineLines(pools):'')+
+    (rows?`<details><summary>Agent 各集阶段</summary><div style="overflow-x:auto"><table><thead><tr><th>集</th><th>阶段</th><th>最近工具</th><th>已记录生成次数</th><th>等待／问题</th><th>更新于</th></tr></thead><tbody>${rows}</tbody></table></div></details>`:'');
+}
+
 function pipelineFlowStatus(p){
   if(!p.flows)return '';
   const names={production:'生产',prepare:'开拍准备',repair:'审查修复'};
@@ -206,7 +227,7 @@ function pipelineFlowStatus(p){
     const counts=`在途 ${pipelineNumber(r.in_flight)} 个进程 · 待办 ${r.pending==null?'未统计':r.pending+' 集'} · 阻塞 ${pipelineNumber(r.blocked)} 集`;
     const reasons=(r.blocked_reasons||[]).slice(0,5).map(reason=>`<div class="pipeline-note warn-t">${pipelineEscape(reason)}</div>`).join('');
     return `<div class="pipeline-head"><b>${names[name]||pipelineEscape(name)} · ${pipelineEscape(pipelineStatus(r.status))}</b><span>${r.controller_alive?'管理器存活':'管理器未运行'}</span></div>`+
-      `<div class="pipeline-note">${pipelineEscape(counts)} · 状态更新 ${pipelineEscape(r.updated_at||'无记录')}</div>`+reasons;
+      `<div class="pipeline-note">${pipelineEscape(counts)} · 状态更新 ${pipelineEscape(r.updated_at||'无记录')}</div>`+reasons+pipelineAgentStatus(r);
   }).join('');
   return pipelineSection('运行状态',body);
 }

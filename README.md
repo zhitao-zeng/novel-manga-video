@@ -83,6 +83,8 @@ uv run pytest
 
 `scripts/episode_agent.py prepare/run/status` 提供每集一个持续沙箱会话，由 Agent 自主调用检查、生成、审查和修复工具。默认复用已有读书资料、剧本与资产；显式选择 `--input-mode source` 才从完整原文重新创作。原小说目录和现有批量控制器保持原有操作方式，产物写入独立 Agent 工作区。单集与章范围用法见[独立 Agent 产线](docs/episode-agent.md)。
 
+主调度器支持 `pipeline.py start --novel BOOK_ID --executor episode_agent`，复用公共模型槽、H3 池和暂停恢复。每集仍归同一个 Agent；耗时工具交接后释放模型槽，由宿主执行并续接原会话。默认小说配置继续使用标准执行方式，详见[共享调度与验证边界](docs/episode-agent-scheduling.md)。
+
 正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
 
 - [当前架构与修改位置](docs/architecture.md)：职责、依赖、配置来源和产物写入者。

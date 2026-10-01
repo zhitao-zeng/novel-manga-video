@@ -187,7 +187,11 @@ def _episode_lock(ctx):
             path.unlink()
 
 
-def _current_finish(ctx, previous_stamp):
+def _current_finish(ctx, previous_stamp, job):
+    receipt = (job or {}).get('result') or {}
+    if ((job or {}).get('action') != 'finish' or (job or {}).get('status') != 'completed'
+            or type(receipt.get('passed')) is not bool):
+        return None
     path = ctx.work_dir / 'input/latest-finish.json'
     stamp = _file_stamp(path)
     if stamp is None or stamp == previous_stamp:
@@ -197,6 +201,8 @@ def _current_finish(ctx, previous_stamp):
         return None
     current = read_json(ctx.work_dir / SESSION_FILE, {}).get('session_id')
     if not current or (manifest.get('author_session') or {}).get('session_id') != current:
+        return None
+    if manifest.get('passed') is not receipt['passed']:
         return None
     return manifest
 
@@ -238,10 +244,12 @@ def _run_episode(ctx, *, config=None, timeout=None):
     if saved.get('status') in {'finished', 'finished_with_issues'}:
         return saved
     previous_job = saved.get('job') or {}
-    if previous_job.get('action') == 'finish' and previous_job.get('status') == 'completed':
+    if (previous_job.get('action') == 'finish' and previous_job.get('status') == 'completed'
+            and type((previous_job.get('result') or {}).get('passed')) is bool):
         manifest = read_json(ctx.work_dir / 'input/latest-finish.json', {})
         current_session = read_json(ctx.work_dir / SESSION_FILE, {}).get('session_id')
-        if current_session and (manifest.get('author_session') or {}).get('session_id') == current_session:
+        if (current_session and (manifest.get('author_session') or {}).get('session_id') == current_session
+                and manifest.get('passed') is previous_job['result']['passed']):
             _record_finish(saved, manifest)
             atomic_write_json(ctx.run_dir / 'agent-run.json', saved)
             return saved
@@ -298,7 +306,7 @@ def _run_episode(ctx, *, config=None, timeout=None):
                     result.update(status='paused', phase='paused', reason='production dispatch paused', exit_code=0)
                     break
                 status = _wait_for_idle(bridge)
-                manifest = _current_finish(ctx, finish_stamp)
+                manifest = _current_finish(ctx, finish_stamp, status.get('job'))
                 if manifest is not None:
                     _record_finish(result, manifest)
                     break
@@ -346,7 +354,7 @@ def _run_episode(ctx, *, config=None, timeout=None):
                 if not attempt.ok:
                     result.update(reason='episode agent invocation failed', session_exit=attempt.exit_code)
                     break
-                manifest = _current_finish(ctx, finish_stamp)
+                manifest = _current_finish(ctx, finish_stamp, status.get('job'))
                 if manifest is not None:
                     _record_finish(result, manifest)
                     break
