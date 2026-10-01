@@ -5,6 +5,7 @@ import os
 import time
 import httpx
 from .config import JsonEndpoint, streaming_wanted
+from .resources import model_slot
 
 def stream_completion(client: httpx.Client, url: str, headers: dict, payload: dict, timeout: float | None = None, *, settings: JsonEndpoint | None = None) -> dict:
     """POST with stream=True and rebuild the non-streaming response body.
@@ -82,20 +83,21 @@ def reachable_first(base_urls):
 def post_any(client, base_urls, headers, request, *, settings=None, deadline=None, timeout_message='model time budget exhausted'):
     last = None
     for base_url in reachable_first(list(base_urls)):
-        options = {}
-        if deadline is not None:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError(timeout_message)
-            options['timeout'] = remaining
         try:
-            url = f"{base_url.rstrip('/')}/chat/completions"
-            if settings.stream if settings else streaming_wanted():
-                return stream_completion(client, url, headers, request, settings=settings, **options)
-            response = send_json(client, url, headers, request, **options)
-            response.raise_for_status()
-            _UNREACHABLE.pop(base_url, None)   # it answered: whatever we believed about it is stale
-            return response.json()
+            with model_slot(base_url, deadline=deadline):
+                options = {}
+                if deadline is not None:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(timeout_message)
+                    options['timeout'] = remaining
+                url = f"{base_url.rstrip('/')}/chat/completions"
+                if settings.stream if settings else streaming_wanted():
+                    return stream_completion(client, url, headers, request, settings=settings, **options)
+                response = send_json(client, url, headers, request, **options)
+                response.raise_for_status()
+                _UNREACHABLE.pop(base_url, None)   # it answered: whatever we believed about it is stale
+                return response.json()
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
             _UNREACHABLE[base_url] = time.monotonic() + UNREACHABLE_COOLDOWN
             last = error

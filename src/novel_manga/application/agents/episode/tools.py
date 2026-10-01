@@ -172,11 +172,18 @@ class EpisodeTools:
         from novel_manga.application.rendering.flow import ThinMediaRunner
         from novel_manga.config import Settings
         from novel_manga.models.bible import StoryBible
+        workers = int(os.environ.get('NOVEL_RENDER_WORKERS', '2'))
+        inflight = int(os.environ.get('NOVEL_RENDER_INFLIGHT', '0'))
+        if workers < 0 or inflight < 0:
+            raise ValueError('NOVEL_RENDER_WORKERS and NOVEL_RENDER_INFLIGHT must be nonnegative')
+        if os.environ.get('NOVEL_AGENT_MANAGED') == '1' and inflight <= 0:
+            raise ValueError('managed episode rendering requires a positive NOVEL_RENDER_INFLIGHT')
         runner = ThinMediaRunner(novel_dir=self.ctx.novel_dir, episode_dir=self.ctx.episode_dir,
             settings=Settings.from_env(provider='phanrouter', output_root=self.ctx.run_dir,
                                        admission_mode='preview'),
             bible=StoryBible.model_validate(read_json(self.ctx.novel_dir / 'story_bible.json')),
-            workers=2, max_attempts=1, profile=read_json(self.ctx.novel_dir / 'profile.json'))
+            workers=workers, inflight=inflight, max_attempts=1,
+            profile=read_json(self.ctx.novel_dir / 'profile.json'))
         runner.context.asr_helper = self.ctx.project_root / 'scripts/thin_asr_segments.py'
         return runner
 
@@ -300,7 +307,9 @@ class EpisodeTools:
         history.save(self.ctx.episode_dir, record)
         runner = self._runner()
         _load_current(runner)
-        self.state('rendering', owner='episode_agent_tools', workers=2)
+        self.state('rendering', owner='episode_agent_tools',
+                   workers=int(os.environ.get('NOVEL_RENDER_WORKERS', '2')),
+                   inflight=int(os.environ.get('NOVEL_RENDER_INFLIGHT', '0')))
         report = runner.run()
         atomic_write_json(self.ctx.work_dir / 'input/latest-render.json', report)
         self.state('rendered', status=report.get('status'))
