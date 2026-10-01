@@ -79,6 +79,16 @@ def repair_environment(root: Path, legacy: Path) -> tuple[dict, dict]:
     return env, settings
 
 
+def model_resources_environment(root: Path, pipeline: dict | None = None) -> dict:
+    """Every endpoint in a comma-separated resource shares that resource's global cap."""
+    pipeline = pipeline_config(root) if pipeline is None else pipeline
+    resources = [{'base': row['base'], 'slots': int(row.get('slots', 1))}
+                 for row in pipeline.get('resources', {}).get('planning_models', {}).values()
+                 if row.get('base')]
+    return {'NOVEL_MODEL_RESOURCES': json.dumps(resources, separators=(',', ':')),
+            'NOVEL_MODEL_INFLIGHT_DIR': str(RuntimePaths(root).temporary / 'model-inflight')}
+
+
 def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None) -> dict:
     """Build one novel's conductor config out of the shared pipeline description."""
     paths = RuntimePaths(root or project_root())

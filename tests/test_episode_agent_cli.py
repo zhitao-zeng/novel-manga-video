@@ -8,59 +8,13 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
-from types import SimpleNamespace
 
 import pytest
 
 from novel_manga.application.agents.episode import cli, flow
 from novel_manga.application.agents.episode.context import create_context
 from novel_manga.util import atomic_write_json, read_json
-
-
-@pytest.fixture
-def ctx(tmp_path):
-    book = tmp_path / 'original/book'
-    directory = book / 'book_1'
-    directory.mkdir(parents=True)
-    atomic_write_json(book / 'novel.json', {'novel_id': 'book'})
-    context = create_context(book, 1, output_root=tmp_path / 'isolated', input_mode='source')
-    return replace(context, project_root=Path(__file__).resolve().parents[1])
-
-
-@pytest.fixture
-def config():
-    return {'image': 'agent-sandbox:test', 'base_url': 'http://agent.example',
-            'model': 'configured-agent', 'key_var': 'AGENT_TEST_KEY', 'timeout_seconds': 30}
-
-
-def install_fake_runtime(monkeypatch, ctx):
-    monkeypatch.setattr(flow, 'runtime_environment', lambda *args: dict(os.environ))
-    monkeypatch.setattr(flow, 'prepare_inputs', lambda context: (
-        (context.work_dir / 'input').mkdir(parents=True, exist_ok=True),
-        (context.work_dir / 'output').mkdir(parents=True, exist_ok=True)))
-    calls = []
-
-    class FakeTools:
-        def __init__(self, context):
-            self.context = context
-
-        def dispatch(self, action, payload):
-            calls.append(action)
-            if action == 'finish':
-                atomic_write_json(ctx.work_dir / 'input/latest-finish.json', {
-                    'passed': True, 'technical_passed': True,
-                    'author_session': read_json(ctx.work_dir / 'episode-session.json')})
-            return {'ok': True, 'action': action}
-
-    monkeypatch.setattr(flow, 'EpisodeTools', FakeTools)
-    return calls
-
-
-def fake_attempt(ctx, index, exit_code=0):
-    directory = ctx.work_dir / f'attempt-{index}'
-    directory.mkdir(parents=True, exist_ok=True)
-    return SimpleNamespace(ok=exit_code == 0, exit_code=exit_code, directory=directory,
-                           record={'session_id': 'same-session'}, produced=[])
+from support.episode_runtime import episode_context as ctx, sandbox_config as config, fake_attempt, install_fake_runtime
 
 
 def test_prepare_and_status_use_no_model_and_preserve_source(ctx, monkeypatch, capsys):
@@ -146,12 +100,13 @@ def test_run_waits_for_background_then_resumes_same_session(ctx, monkeypatch, co
         sessions.append((prompt, kwargs))
         atomic_write_json(work / 'episode-session.json', {'session_id': 'same-session'})
         if len(sessions) == 1:
-            assert created[0].handle('render', {})['status'] == 'running'
-            assert submitted.wait(1)
+            answer = created[0].handle('render', {})
+            assert answer['status'] == 'accepted' and answer['yield'] is True
+            assert not submitted.is_set()
             threading.Timer(0.05, released.set).start()
         else:
             assert released.is_set()
-            assert created[0].handle('finish', {})['status'] == 'running'
+            assert created[0].handle('finish', {})['status'] == 'accepted'
         return fake_attempt(ctx, len(sessions))
 
     monkeypatch.setattr(flow, 'run_session', session)
@@ -236,7 +191,8 @@ def test_environment_uses_configured_qa_and_respects_explicit_h3(ctx, monkeypatc
 def test_environment_uses_existing_h3_pool_configuration(ctx, monkeypatch):
     monkeypatch.setattr(flow, 'environment', lambda root: {})
     monkeypatch.setattr(flow, 'repair_environment', lambda root, legacy: ({
-        'NOVEL_LOCAL_H3_URL': 'pool', 'NOVEL_INFLIGHT_POOL': 'configured-pool'}, {}))
+        'NOVEL_LOCAL_H3_URL': 'pool', 'NOVEL_INFLIGHT_POOL': 'configured-pool'},
+        {'pool': 'configured-pool', 'inflight': 7}))
     settings = {'base_url': 'http://configured-agent', 'model': 'qa-model', 'key_var': 'QA_KEY'}
     monkeypatch.setattr(flow, 'ENDPOINTS', {'configured': {
         'QWEN38_LOCAL_BASE_URL': 'http://configured-agent/v1', 'QWEN38_LOCAL_MODEL': 'qa-model',
@@ -333,7 +289,7 @@ def test_session_exception_waits_for_accepted_host_job_before_cleanup(ctx, monke
 
     def session(work, prompt, **kwargs):
         bridges[0].handle('render', {})
-        assert entered.wait(1)
+        assert not entered.is_set()
         threading.Timer(0.05, released.set).start()
         raise OSError('test CLI startup error')
 
@@ -378,3 +334,18 @@ def test_cli_requires_exactly_one_episode_selection(args):
     with pytest.raises(SystemExit) as exc:
         cli.main(args)
     assert exc.value.code == 2
+
+
+def test_assigned_multi_endpoint_judge_is_resolved_from_actual_runtime(ctx, monkeypatch):
+    group = 'http://one.model:9000/v1,http://two.model:9000/v1'
+    values = {'QWEN38_LOCAL_BASE_URL': group, 'QWEN38_LOCAL_MODEL': 'qa-model',
+              'QWEN38_LOCAL_API_KEY_VAR': 'QA_KEY', 'NOVEL_LOCAL_H3_URL': 'http://h3'}
+    for key in ('QWEN38_LOCAL_BASE_URL', 'QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_API_KEY_VAR'):
+        monkeypatch.setenv(key, values[key])
+    monkeypatch.delenv('SECOND_REVIEW_JUDGE', raising=False)
+    monkeypatch.delenv('NOVEL_REVIEW_VIDEO_JUDGE', raising=False)
+    monkeypatch.setattr(flow, 'environment', lambda root: values.copy())
+    monkeypatch.setattr(flow, 'ENDPOINTS', {'group-qa': values})
+    settings = {'base_url': 'http://one.model:9000', 'model': 'qa-model', 'key_var': 'QA_KEY'}
+    env = flow.runtime_environment(ctx, settings)
+    assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'group-qa'

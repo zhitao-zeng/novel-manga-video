@@ -30,8 +30,9 @@ def request(action, payload, *, socket_path=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description='Call the host episode workflow through /work/episode-tools.sock; print JSON.',
-        epilog='render, review, apply and finish return a job_id immediately. Poll status until '
-               'job.status is completed or failed, then inspect job.result or job.error. '
+        epilog='render, review, apply and finish return a job_id immediately. When yield=true, '
+               'end this Agent turn; the host executes the operation and resumes the same session. '
+               'On resume, read status and inspect job.result or job.error. '
                'Only status is available while an operation is running; new operations return busy. '
                'Files are paths relative to /work. No file contents or credentials are sent by this CLI.')
     commands = parser.add_subparsers(dest='action', required=True)

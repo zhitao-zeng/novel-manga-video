@@ -7,6 +7,9 @@ from pathlib import Path
 import shutil
 import socket
 import threading
+import time
+
+from novel_manga.util import atomic_write_json, read_json
 
 ACTIONS = {'check', 'render', 'review', 'apply', 'status', 'finish'}
 SLOW_ACTIONS = {'render', 'review', 'apply', 'finish'}
@@ -46,11 +49,58 @@ class EpisodeBridge:
         self.socket_path = socket_path if socket_path.suffix == '.sock' else socket_path / 'episode-tools.sock'
         self.ready = threading.Event()
         self._stop = threading.Event()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._future = None
         self._job = None
         self._count = 0
+        self._turn_active = False
+        self.state_path = None
+
+    def bind_state(self, path):
+        """Keep accepted operations in the existing episode run record."""
+        self.state_path = Path(path)
+        saved = read_json(self.state_path, {}).get('job')
+        if saved:
+            self._count = int(saved['id'].split('-')[-1])
+            self._job = saved
+            if saved['status'] in {'accepted', 'running'}:
+                self._job = {**saved, 'status': 'accepted'}
+                if saved['status'] == 'running' and saved['action'] == 'apply':
+                    # An interrupted write may already be in the plan/history.
+                    # Let the same agent inspect it instead of applying it twice.
+                    self._job.update(status='failed', error='Apply was interrupted; inspect current plan and repair history before continuing.')
+            self._save_job()
+
+    def update_state(self, **values):
+        with self._lock:
+            if self.state_path is not None:
+                state = read_json(self.state_path, {})
+                state.update(values)
+                state['updated_at'] = time.strftime('%F %T')
+                atomic_write_json(self.state_path, state)
+
+    def _save_job(self):
+        self.update_state(job=self._job_status())
+
+    def begin_turn(self):
+        with self._lock:
+            self._turn_active = True
+
+    def end_turn(self, *, dispatch=True):
+        """Execute a handoff only after the CLI has ended and released its LM slot."""
+        with self._lock:
+            self._turn_active = False
+            if dispatch and self._job and self._job.get('status') == 'accepted':
+                self._start_job()
+
+    def _start_job(self):
+        self._job['status'] = 'running'
+        self._save_job()
+        job = dict(self._job)
+        log('job_started', id=job['id'], action=job['action'])
+        self._future = self._executor.submit(self._dispatch, job['action'], job.get('payload', {}))
+        self._future.add_done_callback(lambda future: self._complete(future, job))
 
     def stop(self):
         self._stop.set()
@@ -65,6 +115,8 @@ class EpisodeBridge:
         if self._job is None:
             return None
         job = dict(self._job)
+        if self._future is None:
+            return job
         if not self._future.done():
             return {**job, 'status': 'running'}
         try:
@@ -73,11 +125,16 @@ class EpisodeBridge:
             return {**job, 'status': 'failed', 'error': f'{type(error).__name__}: {error}'}
 
     def _complete(self, future, job):
-        log('job_finished', **job, status='failed' if future.exception() else 'completed')
+        log('job_finished', id=job['id'], action=job['action'],
+            status='failed' if future.exception() else 'completed')
+        with self._lock:
+            if self._job['id'] == job['id']:
+                self._job = self._job_status()
+                self._save_job()
 
     def handle(self, action, payload):
         with self._lock:
-            busy = self._future is not None and not self._future.done()
+            busy = (self._job is not None and self._job.get('status') == 'accepted') or (self._future is not None and not self._future.done())
             if action == 'status':
                 return {'ok': True, **self._dispatch('status', {}), 'busy': busy, 'job': self._job_status()}
             if busy:
@@ -88,12 +145,16 @@ class EpisodeBridge:
             if action not in SLOW_ACTIONS:
                 raise ValueError('unknown episode tool action')
             self._count += 1
-            self._job = {'id': f'job-{self._count}', 'action': action}
-            log('job_started', **self._job)
-            self._future = self._executor.submit(self._dispatch, action, payload)
-            job = dict(self._job)
-            self._future.add_done_callback(lambda future: self._complete(future, job))
-            return {'ok': True, 'status': 'running', 'job_id': job['id'], 'action': action}
+            self._job = {'id': f'job-{self._count}', 'action': action, 'payload': payload,
+                         'status': 'accepted'}
+            self._future = None
+            self._save_job()
+            if not self._turn_active:
+                self._start_job()
+            return {'ok': True, 'status': 'accepted' if self._turn_active else 'running',
+                    'job_id': self._job['id'], 'action': action,
+                    **({'yield': True, 'next': 'End this Agent turn. The host will run the operation and resume the same session with its result.'}
+                       if self._turn_active else {})}
 
     def serve(self):
         # bind fails if a different server or an old pathname is still present.
