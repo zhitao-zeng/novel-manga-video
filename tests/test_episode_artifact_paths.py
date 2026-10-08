@@ -30,7 +30,7 @@ def voiced_episode(root, selector):
     return directory
 
 
-def test_parts_are_listed_opened_and_in_recent_activity(tmp_path):
+def test_parts_are_listed_opened_and_in_recent_activity(tmp_path, monkeypatch):
     (tmp_path/'configs').mkdir()
     atomic_write_json(tmp_path/'configs/pipeline.json',{'novels':[]})
     novel=book(tmp_path/'outputs/book')
@@ -39,6 +39,12 @@ def test_parts_are_listed_opened_and_in_recent_activity(tmp_path):
     assert [r['episode'] for r in listing]==[2,'12-1','12-2']
     assert workbench.episode(tmp_path,'book','12-2')['video']=='book_12-2/book_12-2.mp4'
     assert {r['episode'] for r in workbench.recent(tmp_path)['episodes']}=={2,'12-1','12-2'}
+    from novel_manga.application.dashboard import inventory
+    monkeypatch.setattr(inventory.dashboard_config, 'ROOT', tmp_path)
+    monkeypatch.setattr(inventory.dashboard_config, '_lane_keys', lambda: {})
+    current = inventory._episode_inventory('book')
+    assert current['planned'] == current['files'] == 3
+    assert [r['chapter'] for r in current['attention']] == [2, '12-1', '12-2']
 
 
 def test_nested_agent_book_can_be_opened_without_aggregating_symlinks(tmp_path):

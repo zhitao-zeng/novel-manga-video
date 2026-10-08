@@ -5,6 +5,7 @@ are cached by episode file mtimes and refreshed in the monitor background thread
 """
 from __future__ import annotations
 from novel_manga.application.configuration import project_root
+from novel_manga.episodes import episode_selector
 
 from collections import Counter
 import json
@@ -125,7 +126,7 @@ def episode_details(directory: Path, *, scan=None) -> dict:
     blocks=[]
     for cid,reason in blocked.items():
         row=routing.get(cid,{})
-        blocks.append({'episode':int(directory.name.rsplit('_',1)[1]),'clip':cid,'reason':reason,
+        blocks.append({'episode':episode_selector(directory.name),'clip':cid,'reason':reason,
                        'category':block_label(reason),'at':row.get('at')})
     result={'tracked':len(tracked),'passed':len(successful),'generated':sum(len(v) for v in generations.values()),
             'passed_generated':sum(len(generations.get(cid,set())) for cid in successful),'retained':accepted,

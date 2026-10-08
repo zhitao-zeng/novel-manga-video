@@ -1,6 +1,7 @@
 """dashboard_inventory_thin responsibilities; existing dashboard metric definitions."""
 from __future__ import annotations
 from pathlib import Path
+from novel_manga.episodes import episode_order, episode_selector
 from novel_manga.application.dashboard.metrics import pipeline_metrics
 from novel_manga.application.production.runs import RENDER_RUNS_PER_PLAN
 from novel_manga.application.production.runs import REVIEW_POLICY
@@ -117,7 +118,7 @@ def _episode_inventory(novel_id: str, *, scan=None) -> dict:
     h3_lane = bool(keys) and all(k.get("base_url") for k in keys)
     base = dashboard_config.ROOT / "outputs" / novel_id
     scan = scan if scan is not None else scan_book(base)
-    for directory in sorted(scan.directories, key=lambda p: int(p.name.rsplit('_', 1)[-1])):
+    for directory in sorted(scan.directories, key=lambda p: episode_order(p.name)):
         state = _episode_state(directory, h3_lane, scan=scan)
         status = state["status"]
         result["planned"] += state["planned"]
@@ -131,7 +132,7 @@ def _episode_inventory(novel_id: str, *, scan=None) -> dict:
         result["review_errors"] += state["review"] == "error"
         reason = attention_reason(state, h3_lane)
         if reason:
-            result["attention"].append({"chapter": int(directory.name.rsplit("_", 1)[-1]), "reason": reason})
+            result["attention"].append({"chapter": episode_selector(directory.name), "reason": reason})
     return result
 
 

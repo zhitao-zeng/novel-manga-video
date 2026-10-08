@@ -14,7 +14,8 @@ import time
 from pathlib import Path
 
 from novel_manga.application.configuration import pipeline_config
-from novel_manga.application.episode_paths import book_directories, episode_directories, episode_selector, resolve_episode
+from novel_manga.application.episode_paths import book_directories, episode_directories, resolve_episode
+from novel_manga.episodes import episode_selector
 from novel_manga.episodes import episode_order
 
 MEDIA_TYPES = {".mp4": "video/mp4", ".jpeg": "image/jpeg", ".jpg": "image/jpeg",

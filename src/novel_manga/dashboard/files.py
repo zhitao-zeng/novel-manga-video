@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import threading
+from novel_manga.episodes import is_episode
 
 
 class DashboardFiles:
@@ -27,7 +28,7 @@ class DashboardFiles:
             if cached is None or cached[0] != stamp:
                 with os.scandir(novel) as entries:
                     directories = tuple(Path(e.path) for e in entries if e.is_dir()
-                                        and e.name.startswith(novel.name + '_') and e.name.rsplit('_', 1)[-1].isdigit())
+                                        and e.name.startswith(novel.name + '_') and is_episode(e.name))
                 cached = self._directories[novel] = (stamp, directories)
         return BookScan(self, novel, cached[1])
 

@@ -53,11 +53,6 @@ def episode_directories(root: Path, *, novel_id: str | None = None) -> list[Path
     return sorted(found)
 
 
-def episode_selector(name: str) -> int | str:
-    chapter, part = parse_episode(name)
-    return chapter if part is None else f'{chapter}-{part}'
-
-
 def resolve_episode(book: Path, selector: int | str) -> Path:
     token = str(selector)
     parsed = parse_episode(episode_name(book.name, token))

@@ -12,6 +12,7 @@ from collections import Counter
 from pathlib import Path
 
 from novel_manga.application.production.runs import episode_status
+from novel_manga.episodes import episode_selector
 
 
 def read_json(path: Path, default=None):
@@ -70,7 +71,7 @@ def viewer_progress(novel_dir: Path, h3_lane: bool) -> dict | None:
             contexts[episode] = (plan, {c["clip_id"]: c.get("selected") or {} for c in media.get("clips", [])}, status)
         plan, selected, episode_state = contexts[episode]
         ids = current_ids(cid, original_at, plan)
-        row = {"episode": episode, "chapter": int(episode.rsplit("_", 1)[-1]), "clip": ",".join(ids),
+        row = {"episode": episode, "chapter": episode_selector(episode), "clip": ",".join(ids),
                "original_clip": cid, "baseline_votes": original.get("votes", 0),
                "repair_check": (episode, cid) in repaired, "status": "needs_review", "reason": "缺少当前版本的双轮复审",
                "kind": original.get("kind", ""), "observation": original.get("saw", "")}
