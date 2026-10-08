@@ -1,6 +1,6 @@
 # 当前批量产线架构
 
-正式流程是 production、prepare、repair；统一操作入口为 `scripts/pipeline.py`，看板入口为 `scripts/status_server.py`。scripts 中只保留命令启动文件，参数处理和执行实现在 application；内部辅助模块不再作为旧接口转发。
+截至 2026-10-09，正式流程是 production、prepare、repair；统一操作入口为 `scripts/pipeline.py`，看板入口为 `scripts/status_server.py`。31 个 `*_thin.py` 均只启动对应的应用命令，参数处理和业务实现在 application；scripts 还包含明确用途的模型运维、诊断和实验启动工具。内部辅助模块不提供旧导入路径的兼容转发。
 
 ## 职责与依赖
 
@@ -24,6 +24,7 @@ flowchart TD
 | 路径 | 唯一职责 |
 |---|---|
 | `application/planning` | 读书、新书初始化、章节规划调用与流程 |
+| `application/planning/setup_book.py`、`lean_bible.py`、`bible_builder.py` | 新书接入、逐章读书归并、初始人物库设计；命令和模型调用由这一层负责 |
 | `application/identity` | 章节资料、账本读写、实体解析编排 |
 | `application/packing` | 加载本集资料、编译及写回片段计划 |
 | `application/rendering` | ThinMediaRunner、一次生成执行、报告与后期协调 |
@@ -34,16 +35,18 @@ flowchart TD
 | `application/production` | 批量调度、进程、统一启动停止和状态 |
 | `application/agents` | 沙箱执行（run/attempt）、agent 分镜提案、采用状态机与整本批量驱动 |
 | `application/dashboard` | 状态采集、后台刷新和 HTTP 服务 |
-| `application/configuration.py`、`profiles.py` | 运行配置组装、路径和小说级策略 |
+| `application/configuration.py`、`profiles.py`、`resolved_settings.py` | 配置源与路径、小说级策略、本集有效配置和覆盖关系 |
+| `source` | 原文读取、注册章节定位和原文长章切分，不调用生成模型 |
 | `story` | 共享字段、身份、动作、对白、构图、场景解析及中文/H3 表达 |
 | `planning` | 请求字段、预算、归一化、原文验证和修订决策 |
 | `planning/methods` | 六种可选创作方法、分场正文、导演拆镜及来源/对白交接；不读文件或请求模型 |
 | `entities`、`review`、`repair` | 各领域的证据、判定和内存候选；不反向调度 |
-| `media` | 资产、生成、缓存、音频、字幕、后期和重试规则 |
+| `media` | 资产、生成、缓存、音频、字幕、后期、基础渲染和技术质检 |
 | `providers` | 图片/视频请求、任务恢复、下载、H3 实例池 |
 | `llm` | 端点配置、HTTP/流式传输、响应解析和结构化请求 |
 | `reporting` | 现存记录的用量/费用统计、交付净增口径 |
 | `models` | source/bible/dialogue/directing/drama/episode/assets/runtime 数据类型 |
+| 根级 `config.py`、`episodes.py`、`resource_waits.py`、`util.py` | 跨领域设置类型、集号规则、资源等待计时和文件/进程工具；不编排生产 |
 | `dashboard/templates`、`dashboard/static` | 页面模板、CSS、JavaScript |
 
 依赖只向下走：命令 → 应用流程 → 业务服务/共享规则。正式包不得导入 scripts 或 experiments；纯故事规则、规划校验、修复决策不得导入 application；分析和质检不得发起生成或发布。
@@ -64,6 +67,9 @@ flowchart TD
 | 规划字段整理、原文依据、时长 | `planning/normalization.py`、`source_checks.py`、`budget.py` |
 | 保留旧片/改分镜/重拍 | `repair/policy.py`；执行与发布在 `application/repair` |
 | 音轨识别和文件复用 | `media/analysis.py` |
+| FFmpeg 基础渲染、音频/视频技术检测 | `media/renderer.py`、`quality.py`、`av_quality.py`、`video_quality.py` |
+| ASR 与口型证据工具 | `media/evidence_backends.py` |
+| 原文解码、章节索引和长章边界 | `source/ingest.py`、`source/splitting.py` |
 | 对照当前台词评价识别结果 | `media/speech.py` |
 | 字幕分页、时点和后期 | `media/pagination.py`、`subtitles.py`、`postprocess.py` |
 | 供应商的画幅和任务协议 | `providers/phanrouter_images.py`、`phanrouter_video.py`、`local_h3.py` |
@@ -142,4 +148,32 @@ RenderContext、RenderOptions、RenderState分别承担资料、选项和临时�
 动作/穿戴/对白的共用语义在story字段与值校验中，接口独有约束保留。人物库抽取/设计/增量写回分开。
 media/results声明已有结果契约，review/acceptance计算技术和内容结果，流程负责写回。
 普通书、分集、嵌套Agent集合由episode_paths定位；工作台和声线采集消费同一份定位实现。
-范围、回归和剩余三项见[固定清单](structure-debt-20261008.md#第二批6–12)。
+范围与回归见[固定清单](structure-debt-20261008.md)。
+
+## 命令收尾与根级归属（2026-10-09）
+
+9 个剩余命令的业务实现迁入 application，外部文件名和参数保留：
+
+| 命令 | 实现（相对 application） |
+|---|---|
+| `setup_book_thin.py` | `planning/setup_book.py` |
+| `lean_bible_thin.py` | `planning/lean_bible.py` |
+| `split_chapter_thin.py` | `planning/parts_cli.py` |
+| `authored_trace_thin.py` | `planning/authored_trace.py` |
+| `fill_locations_thin.py` | `identity/location_design.py` |
+| `agent_brief_thin.py` | `agents/brief_cli.py` |
+| `run_agent_thin.py` | `agents/cli.py` |
+| `agent_storyboard_thin.py` | `agents/storyboard_cli.py` |
+| `agent_storyboard_batch_thin.py` | `agents/storyboard_batch_cli.py` |
+
+原根级 render/qc/av_quality/video_quality/runtime_backends 分别归入 media 的
+renderer/quality/av_quality/video_quality/evidence_backends；bible 的构建器归入
+application/planning/bible_builder；ingest/splitting 归入 source；safety 归入 story。
+算法、模型请求和媒体报告格式保持，测试与实验直接导入新位置，没有旧路径转发模块。
+
+`episodes.py` 是普通章节与分集的标识规则，`application/episode_paths.py` 负责从文件定位。
+工作台、声线和看板统计消费这些规则；看板的计数、待处理列表、修复阻塞与复审明细
+保留分集后缀，普通章的数字标识保持。DashboardFiles 继续缓存目录和未变化文件。
+
+固定的 15 项整理已闭合。这是本次范围完成，不表示所有未来策略或性能改动都已解决。
+历史实验、在途任务、其他会话的草稿和运行快照保持各自归属；不因目录整理迁移数据或重启服务。
