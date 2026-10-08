@@ -16,6 +16,7 @@ from novel_manga.application.agents.sandbox import (
     key_for,
     load_config,
     unique_attempt,
+    provider_container_args,
 )
 
 SKILL_SOURCE = Path(__file__).resolve().parents[5] / "skills" / "episode-production"
@@ -118,6 +119,7 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
         "--user", "1001:1001", "-e", "HOME=/work/.agent-home",
         "-v", f"{work_dir}:/work", "-w", "/work",
         "-e", f"ANTHROPIC_BASE_URL={config['base_url']}", "-e", "ANTHROPIC_AUTH_TOKEN",
+        *provider_container_args(config),
     ]
     if enable_tools:
         command.extend(['-v',f'{skill_source.parents[1]/"src"}:/opt/novel-code:ro'])
@@ -127,11 +129,6 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
     if config.get('max_thinking_tokens') is not None:
         command.extend(['-e', f"MAX_THINKING_TOKENS={int(config['max_thinking_tokens'])}",
                         '-e', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1'])
-    if config.get('chat_template_kwargs') is not None:
-        # vLLM's Anthropic endpoint forwards template options but does not read
-        # Anthropic's thinking budget. Use the CLI's native extra-body setting.
-        command.extend(['-e', 'CLAUDE_CODE_EXTRA_BODY='+json.dumps({
-            'chat_template_kwargs': config['chat_template_kwargs']})])
     direct_draft = ((work_dir/'output/episode.json').is_file()
                     and read_json(work_dir.parent/'source-draft-call.json', {}).get('status') == 'candidate')
     role = ('Repair the existing production draft using the reported check results and original source. '

@@ -127,6 +127,13 @@
         "key_var": "GPU52_DEEPSEEK_API_KEY",
         "slots": 8,
         "note": "GPU52 六卡 H100 的 DS 服务；2026-10-02 用户确认支持并发，共享上限设为 8"
+      },
+      "phanthy": {
+        "endpoint": "phanthy",
+        "base": "http://127.0.0.1:8789/v1",
+        "model": "glm-5.3-flash",
+        "key_var": "PHANTHY_API_KEY",
+        "slots": 1
       }
     }
   },

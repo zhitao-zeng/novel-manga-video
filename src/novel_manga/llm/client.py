@@ -73,6 +73,10 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
                 choice = body['choices'][0]
                 content = choice['message'].get('content') or '{}'
             try:
+                if choice.get('finish_reason') == 'length' and not choice['message'].get('content'):
+                    # Thinking models may exhaust the budget before producing
+                    # any JSON. The fallback "{}" is not a successful answer.
+                    raise json.JSONDecodeError('empty truncated JSON response', '', 0)
                 return json.loads(content)
             except json.JSONDecodeError as error:
                 if choice.get("finish_reason") == "length":
