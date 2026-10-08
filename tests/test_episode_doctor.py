@@ -19,7 +19,8 @@ VIDEO_KEY, IMAGE_KEY, FLASH_KEY, DEEPSEEK_KEY = "video-secret", "image-secret", 
 
 
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
+def clean_env(monkeypatch, tmp_path):
+    monkeypatch.setattr(doctor, 'project_root', lambda: tmp_path)
     for name in list(os.environ):
         if name.startswith(("QWEN38_", "PHANROUTER_", "NOVEL_", "GPU81_", "GPU52_",
                             "SECOND_REVIEW", "H3_PROMPT")):

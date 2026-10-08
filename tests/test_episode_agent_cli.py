@@ -24,6 +24,14 @@ from novel_manga.util import atomic_write_json, read_json
 from support.episode_runtime import episode_context as ctx, sandbox_config as config, fake_attempt, install_fake_runtime
 
 
+@pytest.fixture(autouse=True)
+def isolated_agent_endpoint(monkeypatch):
+    """Endpoint scenarios supply their own overrides, independent of the live .env."""
+    for name in ('QWEN38_LOCAL_BASE_URL', 'QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_API_KEY_VAR',
+                 'QWEN38_LOCAL_STREAM', 'SECOND_REVIEW_JUDGE', 'NOVEL_REVIEW_VIDEO_JUDGE'):
+        monkeypatch.delenv(name, raising=False)
+
+
 def test_refused_episode_switches_model_and_finishes_without_resetting_budget(ctx, monkeypatch, config):
     install_fake_runtime(monkeypatch, ctx)
     bridges=[];original=flow.EpisodeBridge
