@@ -2,6 +2,7 @@
 from __future__ import annotations
 from novel_manga.application.configuration import project_root
 from collections import Counter
+from contextlib import nullcontext
 from pathlib import Path
 import argparse
 import json
@@ -35,13 +36,21 @@ def main() -> int:
     parser.add_argument("--claim", help="undo/accept/reject: the claim id")
     parser.add_argument("--note", default="", help="accept/reject: why")
     args = parser.parse_args()
+    lock = ledger_store.ledger_lock(args.novel_dir) if args.command in {
+        'index', 'undo', 'dedup', 'settle', 'accept', 'reject',
+    } else nullcontext()
+    with lock:
+        return dispatch(args)
+
+
+def dispatch(args) -> int:
     novel_dir = args.novel_dir.resolve()
     if args.command == "extract":
         texts = ledger_store.novel_texts(novel_dir)
         ledger_flow.run_extract(novel_dir, parse_chapters(args.chapters) if args.chapters else sorted(texts), args.workers, texts)
     elif args.command == "resolve":
-        ledger = ledger_store.Ledger(novel_dir)
-        chapters = parse_chapters(args.chapters) if args.chapters else sorted(int(p.stem[3:]) for p in (ledger.base / "raw").glob("ch_*.json"))
+        chapters = parse_chapters(args.chapters) if args.chapters else sorted(
+            int(p.stem[3:]) for p in (ledger_store.store(novel_dir) / "raw").glob("ch_*.json"))
         ledger_flow.run_resolve(novel_dir, chapters, args.workers)
     elif args.command == "snapshot":
         print(json.dumps(ledger_views.snapshot(novel_dir, args.chapter, args.segments.split(",") if args.segments else None), ensure_ascii=False, indent=1))
@@ -73,7 +82,8 @@ def main() -> int:
         ledger = ledger_store.Ledger(novel_dir)
         rows = ledger_resolution.settle_pending(ledger, args.workers)
         for r in rows:
-            print(f"  {r['id']} {r['type']:<13} {r['subject']} → {r['object']} [{r['votes'][0]}/{r['votes'][1]}] → {r['status']} | {r['why'][12:90]}")
+            votes = '/'.join(r['votes']) if r['votes'] else '—'
+            print(f"  {r['id']} {r['type']:<13} {r['subject']} → {r['object']} [{votes}] → {r['status']} | {r['why'][12:90]}")
         print(f"复判 {len(rows)} 对：{dict(Counter(r['status'] for r in rows))}；仍待确认 {sum(1 for c in ledger.claims if c.get('status') == 'pending')}")
     elif args.command in ("accept", "reject"):
         ok = ledger_resolution.decide(ledger_store.Ledger(novel_dir), args.claim or "", "accepted" if args.command == "accept" else "rejected", args.note)

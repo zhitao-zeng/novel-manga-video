@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import argparse
 import json
 
-from novel_manga.application.identity.ledger_store import Ledger
+from novel_manga.application.identity.ledger_store import Ledger, ledger_lock
 from novel_manga.entities import contracts as entity_contracts
 
 
@@ -56,9 +56,13 @@ def main() -> int:
         print("\n变身类证据的已接受合并: 无")
 
     if args.fix and seedable:
-        for name in seedable:
-            ledger._add_entity(name, "person", True, "读书名单在册(对账播种)", 0)
-        ledger.save()
+        with ledger_lock(novel_dir):
+            ledger = Ledger(novel_dir)
+            known = {ledger.name_of(eid) for eid in ledger.by_id} | set(ledger.by_name)
+            seedable = [name for name in seedable if name not in known]
+            for name in seedable:
+                ledger._add_entity(name, "person", True, "读书名单在册(对账播种)", 0)
+            ledger.save()
         print(f"\n已补播种 {len(seedable)} 人。")
     return 1 if (suspicious or (seedable and not args.fix)) else 0
 

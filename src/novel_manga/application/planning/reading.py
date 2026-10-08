@@ -41,7 +41,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-from novel_manga.application.identity.ledger_store import Ledger
+from novel_manga.application.identity.ledger_store import Ledger, ledger_lock
 from novel_manga.application.identity.ledger_views import build_index
 from novel_manga.llm.client import ask_json
 from novel_manga.application.identity.bible_growth import grow_bible
@@ -130,7 +130,10 @@ def main() -> int:
     have_summary = recap_rows(novel_dir)
     to_grow = [c for c in chapters if args.grow and str(c) not in grown]
     to_summarise = [c for c in chapters if c not in have_summary]
-    ledger = Ledger(novel_dir) if args.ledger else None
+    ledger = None
+    if args.ledger:
+        with ledger_lock(novel_dir):
+            ledger = Ledger(novel_dir)
     to_ledger = [c for c in chapters if ledger is not None and not ledger.has_chapter(c)]
     to_commit = sorted(set(to_grow) | set(to_ledger))
     grow_set, ledger_set = set(to_grow), set(to_ledger)
@@ -187,7 +190,9 @@ def main() -> int:
             scan = ahead["scan"]
             if index in ledger_set:
                 try:
-                    summary = ledger_resolution.resolve_chapter(ledger, index, novel.episodes[index - 1].source_text, ahead["raw"], workers=args.scan_workers)
+                    with ledger_lock(novel_dir):
+                        ledger = Ledger(novel_dir)
+                        summary = ledger_resolution.resolve_chapter(ledger, index, novel.episodes[index - 1].source_text, ahead["raw"], workers=args.scan_workers)
                 except Exception as error:  # noqa: BLE001
                     summary, ahead["raw"] = None, None
                     log(f"ch{index}: ledger failed: {type(error).__name__}: {str(error)[:120]}")
@@ -238,11 +243,13 @@ def main() -> int:
             except Exception as error:  # noqa: BLE001
                 log(f"volume {first}-{end} failed: {type(error).__name__}: {str(error)[:120]}")
     if ledger is not None:
-        ledger.save()
-        index = build_index(novel_dir)
-        atomic_write_json(novel_dir / "entity" / "index.json", index)
-        if args.write_index:
-            atomic_write_json(novel_dir / "entity_index.json", index)
+        with ledger_lock(novel_dir):
+            ledger = Ledger(novel_dir)
+            ledger.save()
+            index = build_index(novel_dir)
+            atomic_write_json(novel_dir / "entity" / "index.json", index)
+            if args.write_index:
+                atomic_write_json(novel_dir / "entity_index.json", index)
         log(f"ledger: {sum(1 for e in ledger.entities if e['status'] == 'active')} records, {sum(1 for c in ledger.claims if c.get('status') == 'pending')} claims for a person, index {'written' if args.write_index else 'kept aside'}")
     log(f"story pass done: {len(chapters)} chapters in {(time.monotonic() - started) / 60:.0f} min")
     return 0

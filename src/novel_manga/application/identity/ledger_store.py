@@ -1,6 +1,8 @@
 """ledger_store_thin responsibilities; existing evidence and identity policy."""
 from __future__ import annotations
 from pathlib import Path
+from contextlib import contextmanager
+import fcntl
 import json
 import threading
 
@@ -12,6 +14,17 @@ def store(novel_dir: Path) -> Path:
     for sub in ("mentions", "raw", "relations"):
         (path / sub).mkdir(parents=True, exist_ok=True)
     return path
+
+
+@contextmanager
+def ledger_lock(novel_dir: Path):
+    """Serialize a book's writes, from loading current state through saving it."""
+    with (store(novel_dir) / 'ledger.lock').open('a') as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def read_json(path: Path, default):
