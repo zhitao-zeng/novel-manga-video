@@ -62,7 +62,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -736,7 +736,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -1187,7 +1187,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -1644,7 +1644,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -2147,7 +2147,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -2598,7 +2598,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -3055,7 +3055,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -3731,7 +3731,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -4182,7 +4182,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -4639,7 +4639,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -5317,7 +5317,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -5768,7 +5768,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -6225,7 +6225,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -6728,7 +6728,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -7179,7 +7179,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -7842,7 +7842,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -8293,7 +8293,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {
@@ -8750,7 +8750,7 @@
       "主角"
      ],
      "identity_context": {
-      "policy": "story-identity-v5-grounded-types",
+      "policy": "story-identity-v6-catalogue-bindings",
       "chapter": 1,
       "candidates_not_source_facts": [
        {

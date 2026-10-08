@@ -18,7 +18,12 @@ class IdentityCatalog:
             seen = set()
             while record.get('merged_into') in by_id and record['id'] not in seen:
                 seen.add(record['id']); record = by_id[record['merged_into']]
-            eid = record.get('id', f'e{i:03d}')
+            eid = record.get('id')
+            if eid is None:
+                positional = f'e{i:03d}'
+                # Reading's ledger order and appended bible order differ. A
+                # new design must not reuse a ledger id already owned by someone.
+                eid = f'bible:{i:03d}' if positional in by_id else positional
             original_names[name] = eid
             if eid not in self.entities or record.get('canonical') == name:
                 forms = self.entities.get(eid, {}).get('forms', set()) | {name}
@@ -51,4 +56,3 @@ class IdentityCatalog:
         rows.sort(key=lambda r: (r['name'] not in wanted,
                   -max((len(normalize_text(f)) for f in r['forms'] if normalize_text(f) in text), default=0)))
         return rows[:80]  # retrieval budget, not a rule that a shorter name cannot be a person
-

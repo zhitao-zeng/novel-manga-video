@@ -63,7 +63,8 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
         stage["properties"]["props"] = props_field(prop_names)
         # 镜头级穿戴：{角色名: 道具名|null（null=这一镜脱下）}。只有书里有道具才出现
         # 这个字段——没道具的书 schema 逐字节不变。
-        stage["properties"]["wears"] = wears_field(prop_names)
+        stage["properties"]["wears"] = wears_field(
+            prop_names if ctx.wearable_prop_names is None else ctx.wearable_prop_names)
     if ctx.story_blueprint:
         beats = [b['beat_id'] for b in ctx.story_blueprint.get('beats', []) if b['segment_id'] in segment_ids]
         if beats:

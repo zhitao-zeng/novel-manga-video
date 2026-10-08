@@ -164,6 +164,10 @@ def test_plain_patch_request_is_the_existing_full_request_and_replaces_whole_sta
     expected = [
         '下面是一集短剧的分镜大纲。只输出需要修改的部分，不要改动其他阶段。',
         '另有 1 个阶段没过硬门检查，逐个重写整个阶段（label 原样填回，segment_id 不变），只修错误指出的问题，其余内容尽量保持。',
+        '姿态交接错误中的前态来自最近一次明确出镜，可能隔着反打或空镜；不看见人物不等于他离场。'
+        '如果本镜确实需要从站到坐，start_state先承接站立，event补一次自然落座，end_state再写坐着；'
+        '从坐到站或从停留到走动同理。保留原关键事件和对白，不能只原样复述已经坐着/站着的起点，'
+        '也不能用删除姿态文字掩盖改变。前镜已经完成的过渡不得再演一遍。',
         field_instructions('planning'),
         '规则：source_quote 从该区段原文逐字复制 8 到 120 字；offscreen_dialogue 和 chat_message 必须写 speaker_name；对白保持原文事实、意图与知识边界，允许等义口语改写；'
         '心理叙述改为本人心声时，用本人视角表达自己的想法，不能保留导致指代变成其他人的第三人称；chat_message仍逐字取自原文；只用给出的人物名，格式和已有阶段一致。',
@@ -174,7 +178,7 @@ def test_plain_patch_request_is_the_existing_full_request_and_replaces_whole_sta
         '区段 seg_1 原文：\n' + SEGMENTS[0]['text'],
     ]
     assert seen['parts'] == [{'type': 'text', 'text': '\n\n'.join(expected)}]
-    assert seen['kwargs'] == {'name': 'plan_patch', 'max_tokens': 1700,
+    assert seen['kwargs'] == {'name': 'plan_patch', 'max_tokens': 2700,
                              'timeout': constants.PATCH_TIMEOUT_SECONDS, 'retry_truncated': False}
     assert result['clips'][0]['stages'] == [fixed]
 

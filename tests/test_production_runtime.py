@@ -1378,8 +1378,9 @@ def test_locked_series_asset_survives_prompt_revision_without_image_call(tmp_pat
     assert result.path == output
     assert provider.calls == 0
     saved = json.loads(meta.read_text(encoding="utf-8"))
-    assert saved["origin"] == "locked-existing-asset"
-    assert saved["artifact_sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+    assert saved == {"request_sha256": "old-prompt-identity"}
+    assert result.request_current is False
+    assert output.read_bytes() == b"existing-character-asset"
 
 
 def test_series_asset_prompts_follow_3d_story_bible_without_2d_conflict() -> None:

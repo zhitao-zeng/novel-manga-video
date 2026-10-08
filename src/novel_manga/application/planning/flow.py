@@ -281,14 +281,18 @@ def run(args, ctx: PlannerContext) -> int:
     # the most recently introduced places BEFORE this chapter, not the newest
     # ones in a bible that may be a thousand chapters ahead.
     added_at: dict[str, int] = {}
+    props_added_at: dict[str, int] = {}
     growth_path = novel_dir / "bible_growth.json"
     if growth_path.is_file():
         try:
             for ch, entry in json.loads(growth_path.read_text(encoding="utf-8")).items():
                 for loc in entry.get("locations", []) or []:
                     added_at.setdefault(str(loc).split("：", 1)[0].strip(), int(ch))
+                for prop in entry.get("props", []) or []:
+                    props_added_at.setdefault(str(prop).strip(), int(ch))
         except (OSError, ValueError):
             added_at = {}
+            props_added_at = {}
 
     from novel_manga.application.identity.reading_locations import for_chapter
     sliced_locations = planner_context.offered_locations(
@@ -392,8 +396,14 @@ def run(args, ctx: PlannerContext) -> int:
     segment_ids = [segment["segment_id"] for segment in segments]
     # Props join the slice the way people and places do: only the ones this chapter's text names.
     # A book without props keeps prop_names empty and the schema byte-identical to before.
-    prop_all = list(getattr(full_bible, "props", None) or [])
+    # Pre-reading can register later objects whose generic names also occur early on
+    # (a different character's cloak, for example). Keep those out of new adaptation;
+    # an authored storyboard retains its explicit choices and full-bible asset ids.
+    prop_all = [p for p in full_bible.props or []
+                if authored or props_added_at.get(p.name, 0) <= episode.index]
     prop_names = [p.name for p in pc_prompts.props_for_chapter(prop_all, episode.source_text)]
+    ctx.wearable_prop_names = (None if authored else
+                              [p.name for p in prop_all if p.name in prop_names and p.wearable])
     if prop_all:
         bible = bible.model_copy(update={"props": [p for p in prop_all if p.name in prop_names]})
     # A bound sheet is not re-planned: the model answers one object per authored shot with only the
@@ -443,6 +453,12 @@ def run(args, ctx: PlannerContext) -> int:
             # An unexplained optional field is ignored: the enum alone did not get a single prop
             # marked in the pilot.  The instruction is what makes the seat get used.
             **({"props_usage": "story_bible.props 是本书已建档的剧情道具。某 stage 画面里道具本体实际出现时（被拿着、被展示、被使用、被特写都算），在该 stage 的 props 字段标出它的名单名字——画面描述不管用什么称呼（玉石、那东西），只要指的就是它就标；最多 2 件，没出现就留空。标注的道具渲染时携带参考图以保持跨集一致"} if prop_names else {}),
+            **({"wears_usage": "wears仅表示实际穿在身上的登记装备或服装，可用名单："
+                + json.dumps(ctx.wearable_prop_names, ensure_ascii=False)
+                + "。名单为空或本镜没有登记穿戴物时用空对象{}；角色基础服装沿用档案与参考图。"
+                  "手持、腋下夹着、搬运的包裹或武器属于props，不属于wears。"
+                  "null仅表示原文明确脱下此前的穿戴物，不能用来表示没有额外装备。"}
+               if prop_names and not authored else {}),
             "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来",
         },
         **({"director_notes": args.notes} if args.notes else {}),
@@ -566,7 +582,7 @@ def run(args, ctx: PlannerContext) -> int:
         else:
             try:
                 content, meta = planner_requests.call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema,
-                                           max_tokens=args.max_tokens, timeout=args.timeout, analysis_tokens=args.outline_tokens or (8192 if method else 4096),
+                                           max_tokens=args.max_tokens, timeout=args.timeout, analysis_tokens=args.outline_tokens or (30000 if method else 4096),
                                            notes=args.notes, grammar=grammar, profile=profile,
                                            outline_mode=args.outline_mode, seed=args.seed, ctx=ctx)
             except planner_requests.IncompleteOutlineError as error:
@@ -671,6 +687,7 @@ def run(args, ctx: PlannerContext) -> int:
                 from novel_manga.resource_waits import active_seconds
                 patch_seconds_left = max(0.0, patch_seconds_left - active_seconds(patch_started))
             validation = validate_draft(patched)
+            patched, validation = compress_duration(patched, validation, attempt)
             errors, warnings, shots = validation.errors, validation.warnings, validation.shots
             attempts[-1].setdefault("patches", []).append({**summary, "errors_after": len(errors), "errors": errors[:6]})
             print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False), flush=True)

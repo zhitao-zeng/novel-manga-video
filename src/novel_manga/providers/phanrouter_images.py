@@ -24,8 +24,11 @@ SEEDREAM_DIMENSIONS = {"9:16": (1440, 2560), "16:9": (2560, 1440)}
 
 
 def reference_base64(path: Path) -> str:
-    """Compress only large upload copies, preserving the original reference asset."""
+    """Keep small references intact; encode large cards for the request body."""
     data = path.read_bytes()
+    # A generated PNG can be stored under .jpeg and exceed 8 MiB. Sending
+    # those bytes as base64 made expression-card submission fail with HTTP413.
+    # Resize only the upload copy, retaining the original full-size asset.
     if len(data) > 2 * 1024 * 1024:
         with Image.open(io.BytesIO(data)) as source:
             image = ImageOps.exif_transpose(source).convert('RGB')

@@ -174,7 +174,7 @@ def test_fresh_card_review_keeps_confirmed_flags_when_no_redraw_is_allowed(tmp_p
     monkeypatch.setattr(Settings,'from_env',classmethod(lambda *a,**k:Settings()))
     monkeypatch.setattr(cards,'FramedPhanRouter',lambda *a:object())
     monkeypatch.setattr(cards,'FramedAssetFactory',lambda *a,**k:object())
-    monkeypatch.setattr(cards,'build_with_backoff',lambda *a:None)
+    monkeypatch.setattr(cards,'build_with_backoff',lambda *a, **k:None)
     calls=[]
     def judged(*a,**k):
         calls.append(1)

@@ -26,6 +26,9 @@ class Conductor:
         self.workspaces = read_json(Path(self.workspace_index), {}) if self.workspace_index else {}
         self.tmp = Path(config.get("tmp_dir", RuntimePaths(conductor_common.REPO).temporary / "conductor"))
         self.tmp.mkdir(parents=True, exist_ok=True)
+        self.quota_stop_file = self.tmp / "quota-exhausted" if config.get("stop_on_quota_exhausted") else None
+        if self.quota_stop_file and not self.dry:
+            self.quota_stop_file.unlink(missing_ok=True)
         self.procs: dict[str, subprocess.Popen] = {}
         self.keys = {k["name"]: k for k in config["keys"]}
         # Every key renders on local H3: a retake costs nothing, so a final with gate-failed clips goes back
@@ -90,13 +93,15 @@ class Conductor:
         locked = [ep_names.chapter_of(p.parent.name) for p in self.novel_dir.glob(f"{self.novel_id}_*/.render.lock")]
         card_waits = conductor_state.recent_lines(self, locked, "waiting for in-flight redraw", 600)
         congested = waiting > self.cfg["qwen"].get("waiting_high", 40) or card_waits > self.cfg["qwen"].get("card_waits_high", 3)
-        if not self.plan_only:
+        quota_stopped = bool(self.quota_stop_file and self.quota_stop_file.is_file())
+        if not self.plan_only and not quota_stopped:
             for name, key in self.keys.items():
                 lane = self.lanes[name]
                 chapters = list(range(lane["range"][0], lane["range"][1] + 1)) if lane["range"] else []
                 conductor_capacity.tick_aimd(self, name, key, chapters)
             conductor_dispatch.tick_lanes(self, stats)
-        conductor_dispatch.tick_planning(self, congested)
+        if not quota_stopped:
+            conductor_dispatch.tick_planning(self, congested)
         conductor_dispatch.tick_review(self, waiting, stats)
         summary = " | ".join(f"{r['a']}-{r['b']}: done {s['done']}/{s['total']} planned {s['planned']} renderable {len(s['renderable'])} waiting {len(s['blocked'])}"
                              for r, s in ((r, stats[id(r)]) for r in self.ranges))
@@ -142,6 +147,10 @@ class Conductor:
             all_done=not more
             state['status']=('waiting_assets' if waiting_assets and not active and not unprepared else 'running') if more else (
                 'complete' if state['batch_pipeline']['accepted']==len(self.workspaces) else 'blocked')
+        if self.quota_stop_file and self.quota_stop_file.is_file():
+            all_done = not state["workers"] and not any(stats[id(r)]["unreviewed"] for r in self.ranges)
+            state["status"] = "waiting_quota" if all_done else "draining_quota"
+            state["stop_reason"] = "quota_not_enough"
         (self.tmp / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
         return not all_done
 
@@ -150,8 +159,10 @@ class Conductor:
         while True:
             more = self.tick()
             if once or not more:
-                self.log('episode agent coordinator paused after hosts drained'
-                         if self.executor == 'episode_agent' and self.agent_pause.is_file()
+                quota_stopped = bool(self.quota_stop_file and self.quota_stop_file.is_file())
+                self.log("conductor stopped: quota exhausted; waiting for next scheduled start" if quota_stopped and not more
+                         else "episode agent coordinator paused after hosts drained"
+                         if self.executor == "episode_agent" and self.agent_pause.is_file()
                          else "conductor done" if not more else "single tick done")
                 for name in list(self.procs):
                     if name.startswith("lane_"):

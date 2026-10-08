@@ -6,7 +6,7 @@ import json
 from novel_manga.runtime_backends import normalize_text
 from novel_manga.story.identity import canonical_entity, resolved_aliases
 
-POLICY = 'story-identity-v5-grounded-types'
+POLICY = 'story-identity-v6-catalogue-bindings'
 RELATIONS = ['same_as', 'rename', 'avatar_of', 'occupies_body', 'transformation', 'lookalike', 'impersonates']
 
 def source_schema(paragraphs):
@@ -92,13 +92,15 @@ def map_source_reading(answer, catalog, segments, verified_aliases=None):
     # The raw source is read before any catalogue is offered to the model.
     # Catalogue matching cannot change the source's actor count or relations.
     actors = answer['actors']
+    verified = verified_aliases or {}
     by_source = {r['source_id']: r for r in actors}
     if len(by_source) != len(actors):
         raise ValueError('source reading repeated an actor id')
     mapping = {}
     for actor in actors:
         forms = {actor['name'], *(f['form'] for f in actor['forms'] if f['kind'] == 'proper')}
-        exact = {catalog.by_name[name]['id'] for name in forms if name in catalog.by_name}
+        known_forms = forms | {verified[f] for f in forms if f in verified}
+        exact = {catalog.by_name[name]['id'] for name in known_forms if name in catalog.by_name}
         primary = [eid for eid in exact if catalog.entities[eid]['design'].get('role') in {'主角','男主角','女主角'}]
         if primary:
             eid = sorted(primary)[0]
@@ -118,7 +120,6 @@ def map_source_reading(answer, catalog, segments, verified_aliases=None):
         eid = mapping[actor['source_id']]
         if eid != 'UNKNOWN':
             by_entity.setdefault(eid, []).append(actor)
-    verified = verified_aliases or {}
     for eid, owners in by_entity.items():
         if len(owners) < 2:
             continue
@@ -209,5 +210,3 @@ def identity_rows(names, bible, passage, context=None, catalog=None):
                      'source_names': source_names, 'source_mentions': evidence,
                      'candidate_names': sorted(forms)})
     return rows
-
-

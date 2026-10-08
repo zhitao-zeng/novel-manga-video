@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 from novel_manga.llm.client import ask_json, obj
-from novel_manga.llm.config import endpoint_settings
+from novel_manga.review.endpoints import judge_settings
 from novel_manga.story.posture import POLICY, POSTURES, people, resolve, phrase
 from novel_manga.story.sources import segment_ids
 from novel_manga.util import atomic_write_json, read_json
@@ -21,7 +21,6 @@ BATCH = 12
 FIELDS = ('location', 'scene_id', 'scene_time', 'scene_transition', 'visual_prompt', 'motion_prompt',
           'end_state', 'camera', 'light', 'source_quote', 'actions')
 _TEXT = {'type': 'string'}
-_STATE = obj({'quote': _TEXT, 'posture': {'type': 'string', 'enum': list(POSTURES)}, 'where': _TEXT})
 
 
 def material(script, segments=()):
@@ -33,18 +32,29 @@ def material(script, segments=()):
 
 
 def schema(rows):
-    names = list(dict.fromkeys(n for s in rows for n in s['in_frame']))
-    person = obj({'name': {'type': 'string', 'enum': names} if names else _TEXT,
-                  'entry': {'type': 'string', 'enum': ['continue', 'reset', 'unknown']},
-                  'start': _STATE, 'end': _STATE, 'transition': _TEXT})
+    stages = []
+    for shot in rows:
+        quotes = list(dict.fromkeys(['', *[str(shot.get(k) or '') for k in
+                                          ('visual_prompt', 'motion_prompt', 'end_state')]]))
+        quote = {'type': 'string', 'enum': quotes}
+        state = obj({'quote': quote, 'posture': {'type': 'string', 'enum': list(POSTURES)},
+                     'where': _TEXT})
+        persons = [obj({'name': {'type': 'string', 'enum': [name]},
+                        'entry': {'type': 'string', 'enum': ['continue', 'reset', 'unknown']},
+                        'start': state, 'end': state, 'transition': quote})
+                   for name in shot['in_frame']]
+        stages.append(obj({'index': {'type': 'integer', 'enum': [shot['index']]},
+                           'boundary': {'type': 'string', 'enum': ['continuous', 'reset', 'unknown']},
+                           'reason': _TEXT,
+                           'people': {'type': 'array', 'minItems': len(persons), 'maxItems': len(persons),
+                                      **({'prefixItems': persons} if persons else {}), 'items': False}}))
     return obj({'stages': {'type': 'array', 'minItems': len(rows), 'maxItems': len(rows),
-                          'items': obj({'index': {'type': 'integer', 'enum': [s['index'] for s in rows]},
-                                        'boundary': {'type': 'string', 'enum': ['continuous', 'reset', 'unknown']},
-                                        'reason': _TEXT, 'people': {'type': 'array', 'items': person}})}})
+                          **({'prefixItems': stages} if stages else {}), 'items': False}})
 
 
 def question(inputs):
-    return ('核对分镜的姿态台账，不重写剧本，不设计新姿势。逐镜按输入顺序输出。\n'
+    return ('核对分镜的姿态台账，不重写剧本，不设计新姿势。逐镜按输入顺序输出。'
+            'Schema固定了每镜index与入镜人名，people必须逐个列齐in_frame，in_frame为空时people必须为空。\n'
             'boundary：continuous=与前镜属于同一段连续时间；reset=开场、跳时、回忆切入/切出或新的场次；'
             'unknown=依据不足。相同地点或scene_id不能证明时间连续；不同机位、反打、空镜不等于跳时。'
             '必须结合source原文、scene_time、光线与起点/事件/末态判断。\n'
@@ -53,10 +63,11 @@ def question(inputs):
             'unknown=无法确定。镜头暂时不拍这个人不等于离场，已经离开后再出现也不等于原地不动。\n'
             'start/end只摘取本镜文字明确写的姿势、位置；未写姿势填未写明，位置留空，程序再按已确认的连续关系继承。'
             'where仅记桌后椅子上、窗边等场景位置，不继承画面左侧、前景等随机位改变的构图坐标。'
+            'quote和transition只选择Schema枚举里的本镜原字段完整文字或空字符串，不截取、不改写。'
             '先写quote，再按quote填写posture/where。quote必须逐字引用本镜visual_prompt/motion_prompt/end_state中的依据，'
             '不得引用前镜或原文来冒充本镜明写；没有坐站位置的本镜依据就quote留空、posture填未写明、where留空。'
             '例如前镜坐着，本镜只写“抬起一根手指”，本镜start.posture必须是未写明、quote为空，entry可填continue。'
-            '例如本镜写“站在窗边看报告”，start应摘录站，quote摘录“站在窗边”；end未单独交代则填未写明。'
+            '例如本镜写“站在窗边看报告”，start应摘录站，quote填该原字段完整文字；end未单独交代则填未写明。'
             '身体前倾、抬手或人物气质不代表坐或站，source只帮助理解连续性，不能替剧本新编动作。'
             'transition只逐字摘录本镜明确属于这个人的姿态改变动作，没写就空字符串；不能拿另一个人的起身为他作证。'
             '不要把说话或点头当成坐站改变。结束时没写姿势表示本镜姿态未明确改变。'
@@ -105,8 +116,7 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
             break
         unchanged_prefix.add(new['index'])
     ask = ask or (lambda prompt, contract: ask_json([{'type': 'text', 'text': prompt}], contract,
-                       name='posture_continuity', max_tokens=6000,
-                       settings=endpoint_settings(os.environ.get('NOVEL_PLANNER_ENDPOINT', '').strip() or 'local')))
+                       name='posture_continuity', max_tokens=6000, settings=judge_settings()))
     result = {'policy': POLICY, 'inputs': rows, 'stages': {}, 'issues': [], 'batches': []}
     last = {}
     for offset in range(0, len(rows), BATCH):

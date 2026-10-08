@@ -98,4 +98,5 @@ def test_missing_card_is_generated_from_its_registered_asset_id(tmp_path, monkey
     monkeypatch.setattr('novel_manga.application.agents.episode.input_repair.refresh_inputs',lambda *a:None)
     local_preparation.ensure_assets(ctx)
     assert len(calls)==1
-    assert (ctx.asset_snapshot_dir/ref['path']).is_file()
+    assert (ctx.novel_dir/ref['path']).is_file()
+    assert not (ctx.asset_snapshot_dir/ref['path']).is_file()

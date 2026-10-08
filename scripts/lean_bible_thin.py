@@ -70,7 +70,7 @@ def chapter_texts(novel: dict, wanted: list[int]) -> dict[int, str]:
     return {chapter: texts[chapter] for chapter in wanted}
 
 
-def read_chapters(title: str, texts: dict[int, str], out_dir: Path, endpoints: list[str]) -> dict:
+def read_chapters(title: str, texts: dict[int, str], out_dir: Path, endpoints: list[str], *, workers: int = 0) -> dict:
     """One call per chapter, fanned out; a chapter already on disk is not read again."""
     out_dir.mkdir(parents=True, exist_ok=True)
     from novel_manga.llm.config import JsonEndpoint
@@ -83,7 +83,8 @@ def read_chapters(title: str, texts: dict[int, str], out_dir: Path, endpoints: l
         settings = JsonEndpoint.from_env({
             "QWEN38_LOCAL_BASE_URL": endpoint,
             "QWEN38_LOCAL_MODEL": os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project"),
-            "QWEN38_LOCAL_API_KEY_VAR": "LEAN_NO_KEY", "QWEN38_LOCAL_STREAM": "0"})
+            "QWEN38_LOCAL_API_KEY_VAR": os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "LEAN_NO_KEY"),
+            "QWEN38_LOCAL_STREAM": "0"})
         prompt = lean.EXTRACT_PROMPT.format(title=title, n=chapter, text=texts[chapter])
         started = time.time()
         try:
@@ -92,13 +93,14 @@ def read_chapters(title: str, texts: dict[int, str], out_dir: Path, endpoints: l
         except Exception as error:  # noqa: BLE001 - one chapter failing must not stop the book
             return f"第{chapter}章：失败 {type(error).__name__}: {str(error)[:160]}"
         path.write_text(json.dumps({"chapter": chapter, "answer": answer,
+                                    "model": settings.model, "endpoint": endpoint,
                                     "seconds": round(time.time() - started, 1)},
                                    ensure_ascii=False, indent=1), encoding="utf-8")
         return (f"第{chapter}章：{len(answer['people'])} 个称谓、{len(answer['locations'])} 个地点，"
                 f"{round(time.time() - started, 1)}s")
 
     jobs = [(chapter, endpoints[n % len(endpoints)]) for n, chapter in enumerate(sorted(texts))]
-    with ThreadPoolExecutor(max_workers=PER_ENDPOINT * len(endpoints)) as pool:
+    with ThreadPoolExecutor(max_workers=workers or PER_ENDPOINT * len(endpoints)) as pool:
         for line in pool.map(one, jobs):
             print("  " + line, flush=True)
 
@@ -229,6 +231,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--novel-dir", required=True, type=Path)
     parser.add_argument("--chapters", required=True, help="例如 1-5 或 1,3,5")
+    parser.add_argument("--workers", type=int, default=0, help="提取并发；0 使用每端点默认并发")
     parser.add_argument("--judge", default="flashnext", help="归并用哪个端点：flashnext / local")
     parser.add_argument("--agent-input", type=Path,
                         help="主路径：把归并交给沙箱里的 agent，输入写到这个目录，跑完读 output/export/")
@@ -254,7 +257,7 @@ def main() -> int:
     print(f"《{title}》第 {wanted[0]}–{wanted[-1]} 章，{len(endpoints)} 个端点")
     texts = chapter_texts(novel, wanted)
     started = time.time()
-    extracts = read_chapters(title, texts, out_dir / "extract", endpoints)
+    extracts = read_chapters(title, texts, out_dir / "extract", endpoints, workers=args.workers)
     print(f"逐章读完 {len(extracts)}/{len(wanted)} 章，{time.time() - started:.0f}s")
     if len(extracts) < len(wanted):
         print(f"缺章：{sorted(set(wanted) - set(extracts))}——先补齐再归并", file=sys.stderr)

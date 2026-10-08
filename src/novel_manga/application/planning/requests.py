@@ -154,6 +154,11 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
                      "不要为迁就错误的坐站状态，虚构或重复姿态过渡；前镜已经站着时，本镜不能再从椅子上站起。"
                      "如果原文或作者演出明确需要先坐后起，而绑定只漏了自然落座过程，可在起止状态和绑定动作中补足一次必要的自然过渡；"
                      "不改作者关键事件、机位或对白，不把作者明确坐着的后续镜头一律改成站着。")
+    if faulty and not binding_labels and any('姿态' in error for errors in faulty.values() for error in errors):
+        parts.append('姿态交接错误中的前态来自最近一次明确出镜，可能隔着反打或空镜；不看见人物不等于他离场。'
+                     '如果本镜确实需要从站到坐，start_state先承接站立，event补一次自然落座，end_state再写坐着；'
+                     '从坐到站或从停留到走动同理。保留原关键事件和对白，不能只原样复述已经坐着/站着的起点，'
+                     '也不能用删除姿态文字掩盖改变。前镜已经完成的过渡不得再演一遍。')
     if split_labels:
         parts.append(f"镜头{sorted(split_labels)}需要明确拆镜：stage写第一镜，continuations写后续完整镜头。"
                      f"每镜按实际对白估算不得超过{ctx.max_clip_seconds:g}秒，逐镜独立写起点、事件、末态、机位和光源。"
@@ -189,27 +194,33 @@ def _patch_reply(raw, missing_ids, faulty, segments, names, locations, *, timeou
                         and key in {'event', 'shot_scale', 'camera', 'duration_seconds', 'purpose', 'sfx', 'turns'}}
             parts.append(heading + f"\n可修改绑定内容：{json.dumps(current, ensure_ascii=False)}"
                          + f"\n作者只读上下文（仅供核对，调用方原样保留，不输出）：{json.dumps(readonly, ensure_ascii=False)}")
-            position = neighbouring_slots.index((clip_index, stage_index))
-            neighbours = {}
-            for title, index in (('前镜', position - 1), ('后镜', position + 1)):
-                if 0 <= index < len(neighbouring_slots):
-                    ci, si = neighbouring_slots[index]
-                    neighbour_clip = raw['clips'][ci]
-                    neighbour = neighbour_clip['stages'][si]
-                    neighbours[title] = {
-                        'label': next(name for name, slot in slots.items() if slot == (ci, si)),
-                        'location': neighbour.get('location') or neighbour_clip.get('location'),
-                        **{key: neighbour[key] for key in ('scene_id', 'scene_time', 'start_state',
-                           'event', 'end_state', 'in_frame', 'actions') if key in neighbour}}
-            parts.append('相邻镜头只读衔接（场景/时间与人物承接以这些实际字段及原文为据，不输出）：'
-                         + json.dumps(neighbours, ensure_ascii=False))
         else:
             parts.append(heading + f"\n当前内容：{json.dumps(stage, ensure_ascii=False)}")
+        position = neighbouring_slots.index((clip_index, stage_index))
+        neighbours = {}
+        for title, index in (('前镜', position - 1), ('后镜', position + 1)):
+            if 0 <= index < len(neighbouring_slots):
+                ci, si = neighbouring_slots[index]
+                neighbour_clip = raw['clips'][ci]
+                neighbour = neighbour_clip['stages'][si]
+                neighbours[title] = {
+                    'label': next(name for name, slot in slots.items() if slot == (ci, si)),
+                    'location': neighbour.get('location') or neighbour_clip.get('location'),
+                    **{key: neighbour[key] for key in ('scene_id', 'scene_time', 'start_state',
+                       'event', 'end_state', 'in_frame', 'actions') if key in neighbour}}
+        if neighbours or label in binding_labels:
+            parts.append('相邻镜头只读衔接（场景/时间与人物承接以这些实际字段及原文为据，不输出）：'
+                         + json.dumps(neighbours, ensure_ascii=False))
         shown.append(str(stage.get("segment_id")))
     for sid in dict.fromkeys(shown):
         if sid in texts:
             parts.append(f"区段 {sid} 原文：\n{texts[sid][:1800]}")
     budget = min(10000, 800 + 900 * (len(missing_ids) + len(faulty)) + 1600 * len(split_labels))
+    if not ctx.authored_storyboard:
+        # Full stage rewrites include the camera, states and dialogue. Four DS
+        # stages repeatedly truncated at 4400 tokens; binding-only author edits
+        # keep their smaller existing budget.
+        budget = min(10000, 1200 + 1500 * (len(missing_ids) + len(faulty)) + 1600 * len(split_labels))
     return ask_json([{"type": "text", "text": "\n\n".join(parts)}], schema, name="plan_patch", max_tokens=budget, timeout=timeout, retry_truncated=False)
 
 

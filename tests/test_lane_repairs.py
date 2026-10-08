@@ -426,7 +426,8 @@ def test_parallel_card_builds_keep_each_others_manifest_records(tmp_path):
         output.write_bytes(b"card")
         if output.parent.name == "location_001":  # another process finishes its card meanwhile
             rc.FramedAssetFactory.build_selected(factory, root, bible, set(), {"location_002"})
-        return types.SimpleNamespace(path=output)
+        from novel_manga.providers.base import ImageResult
+        return ImageResult(path=output)
     factory.ensure_card = ensure_card
     rc.FramedAssetFactory.build_selected(factory, root, bible, set(), {"location_001"})
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))

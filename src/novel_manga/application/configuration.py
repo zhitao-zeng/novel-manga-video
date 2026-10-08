@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import json
 import os
-from novel_manga.llm.config import JsonEndpoint, endpoint_settings
+from novel_manga.llm.config import ENDPOINTS, JsonEndpoint, endpoint_settings
 
 EXECUTORS = ('standard', 'episode_agent')
 
@@ -177,6 +177,7 @@ def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None,
         **({'workspace_index':str((paths.root/novel['workspace_index']).resolve())} if novel.get('workspace_index') else {}),
         "agent": episode_agent_settings(paths.root, novel),
         "model_environment": model_resources_environment(paths.root, pipeline),
+        **({"stop_on_quota_exhausted": True} if novel.get("stop_on_quota_exhausted") else {}),
     }
 
 
@@ -188,8 +189,10 @@ def preparation_environment(root: Path) -> dict:
                QWEN38_LOCAL_MODEL=settings.get('model', 'Qwen3.8-27B-Project'),
                QWEN38_LOCAL_API_KEY_VAR=settings.get('key_var', 'H3_PROMPT_NO_KEY'),
                NOVEL_CLIP_SECONDS_MAX=str(settings.get('clip_cap', 15)))
-    if selected := env.get('NOVEL_PREPARATION_ENDPOINT'):
-        from novel_manga.llm.config import ENDPOINTS
+    selected = str(env.get('NOVEL_PREPARATION_ENDPOINT') or '').strip()
+    if selected:
+        if selected not in ENDPOINTS:
+            raise ValueError(f'unknown preparation endpoint {selected}; pick one of {sorted(ENDPOINTS)}')
         env.update(ENDPOINTS[selected])
         endpoint = JsonEndpoint.from_env(env)
         env.update(NOVEL_LLM_BASE_URL=endpoint.endpoints[0], NOVEL_LLM_MODEL=endpoint.model,

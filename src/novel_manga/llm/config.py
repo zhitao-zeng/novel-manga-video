@@ -5,11 +5,11 @@ import contextlib
 import os
 import hashlib
 
-# The model endpoints this project runs on, by name. QWEN38_LOCAL_* is read by three different
+# The model endpoints this project runs on, by name.  QWEN38_LOCAL_* is read by three different
 # jobs - the planner, the H3 prompt translation and the judge - so moving one of them used to move all
 # three.  A command applies the preset it wants to its own process, and nothing else changes.
 #
-# Neither streams.  The streaming transport was written for a platform model behind a proxy: it drops
+# These presets do not stream.  The streaming transport was written for a platform model behind a proxy: it drops
 # chat_template_kwargs as "vLLM-only" and raises max_tokens to a floor of 50,000, because such a model
 # counts its reasoning inside the budget.  Flash-Next is vLLM, reached directly, and chat_template_kwargs
 # is where every request in this project says enable_thinking: False.  With the field stripped it thought

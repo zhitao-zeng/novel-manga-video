@@ -68,11 +68,12 @@ def test_noop_repair_keeps_requests_cache_and_never_asks_again(episode, monkeypa
     assert json.loads((directory / posture.FILE).read_text()) == states
 
 
-def test_posture_rebuild_uses_the_explicit_planner_endpoint(episode, monkeypatch):
+def test_posture_rebuild_uses_the_explicit_judge_endpoint(episode, monkeypatch):
     directory, script, _, _, responses = episode
     endpoints = []
-    monkeypatch.setenv('NOVEL_PLANNER_ENDPOINT', 'deepseek')
-    monkeypatch.setattr(posture, 'endpoint_settings', lambda name: endpoints.append(name) or object())
+    monkeypatch.setenv('NOVEL_PLANNER_ENDPOINT', 'flashnext')
+    monkeypatch.setenv('SECOND_REVIEW_JUDGE', 'deepseek')
+    monkeypatch.setattr(posture, 'judge_settings', lambda: endpoints.append(__import__('os').environ['SECOND_REVIEW_JUDGE']) or object())
     monkeypatch.setattr(posture, 'ask_json', lambda *a, **k: {'stages': responses})
     posture.fill(directory, script=script, previous={}, write=False)
     assert endpoints == ['deepseek']

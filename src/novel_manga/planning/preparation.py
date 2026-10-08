@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..runtime_backends import normalize_text
 
-POLICY = 'h3-book-preparation-v4-targeted-retry'
+POLICY = 'h3-book-preparation-v5-source-wear-bindings'
 TERMINAL = {'ready', 'needs_source', 'needs_replan', 'needs_repair', 'error', 'existing_video', 'production_owned'}
 
 
@@ -38,4 +38,3 @@ def grounded_issues(answer, script, segments):
         if issue['stage'] not in indexes and not (issue['stage'] == 0 and issue['kind'] == 'missing_event'):
             raise ValueError('text audit supplied an unknown stage')
     return answer['issues']
-

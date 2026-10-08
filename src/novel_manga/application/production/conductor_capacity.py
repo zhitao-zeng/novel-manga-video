@@ -69,7 +69,10 @@ def tick_aimd(conductor, name: str, key: dict, chapters: list[int]) -> None:
     # Count only the lines since the last limit change: one burst of 429s halves the
     # limit once, instead of on every tick until the burst ages out of the window.
     window = int(min(aimd.get("window_seconds", 600), max(1.0, now - lane["limit_changed"])))
-    quota = conductor_state.recent_lines(conductor, chapters, "quota_not_enough", aimd.get("window_seconds", 600)) if chapters else 0
+    # Daily runs stop on the shared marker written by a refused submission.
+    # Appended logs also contain yesterday's failures, so they cannot end a new run.
+    quota = (conductor_state.recent_lines(conductor, chapters, "quota_not_enough", aimd.get("window_seconds", 600))
+             if chapters and not conductor.cfg.get("stop_on_quota_exhausted") else 0)
     if quota:
         park = max(1800, int(aimd.get("park_seconds", 3600)))
         conductor.log(f"{name}: QUOTA EXHAUSTED - {quota} x HTTP 403 quota_not_enough; parking this key for {park} s "

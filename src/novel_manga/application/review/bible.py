@@ -1,10 +1,10 @@
 """Existing book scanning, bounded bible growth and volume recap workflow."""
 from __future__ import annotations
-from novel_manga.story.source_context import excerpts
 
 import fcntl
 import json
 import re
+from novel_manga.story.character_evidence import excerpts
 from pathlib import Path
 import novel_manga.llm.client as model_client
 from novel_manga.models.bible import StoryBible as review_models_StoryBible
@@ -47,6 +47,7 @@ def extract_names(chapter_text: str) -> list[dict]:
         "如果一个称呼在段中后来被点出姓名，只保留姓名。只输出JSON。\n\n" + chapter_text
     )
     return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.NAME_SCHEMA, name="names", max_tokens=1500, settings=bible_settings()).get("characters", [])
+
 
 
 
@@ -374,7 +375,6 @@ def judge_unknown(novel_dir: Path, names: list[str], chapter_text: str, chapter_
     path = Path(novel_dir) / "reading_cast.json"
     if not names or not path.is_file():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
     prompt = ("下面是一章小说原文，以及原文里出现、但全书通读时没有收进名单的几个指称。"
               "对每一个判断它属于哪一类：\n"
               "角色——这本书的一个人物，会再出现，值得单独定妆；\n"
@@ -401,11 +401,14 @@ def judge_unknown(novel_dir: Path, names: list[str], chapter_text: str, chapter_
         return {}
     # 路人 and 不是人物 are both filmed as what the shot describes rather than as a card; the difference
     # is honesty about what they are, and a model that is offered only the wrong two answers gives none
-    data["declined"] = sorted({*(data.get("declined") or []),
-                               *(n for n, v in verdicts.items() if v in {"路人", "不是人物"})})
-    data["characters"] = sorted({*(data.get("characters") or []),
-                                 *(n for n, v in verdicts.items() if v == "角色")})
-    atomic_write_json(path, data)
+    with open(novel_dir / "reading_cast.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["declined"] = sorted({*(data.get("declined") or []),
+                                   *(n for n, v in verdicts.items() if v in {"路人", "不是人物"})})
+        data["characters"] = sorted({*(data.get("characters") or []),
+                                     *(n for n, v in verdicts.items() if v == "角色")})
+        atomic_write_json(path, data)
     model_client.log(f"bible ch{chapter_index}: 读书没见过的指称，补判并记下："
                      + "、".join(f"{n}={v}" for n, v in verdicts.items()))
     return verdicts
@@ -428,6 +431,8 @@ def grow_unbound_roster(novel_dir: Path, context: dict, chapter_text: str, chapt
     if not reading["roster"]:
         return []
     aliases = load_aliases(novel_dir)
+    from novel_manga.application.identity.flow import reading_aliases
+    aliases.update(reading_aliases(novel_dir, chapter_index))
     bible_path = novel_dir / "story_bible.json"
     with open(novel_dir / "story_bible.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

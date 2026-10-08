@@ -1,0 +1,6 @@
+# novel-manga-video: shiri daily 18:00 Asia/Shanghai
+# Install in zengzhitao's crontab; the host timezone is Asia/Shanghai.
+# The production entry resumes saved work and skips an already running controller.
+# shiri's stop_on_quota_exhausted policy drains submitted work and waits for the next daily start.
+# Use the live local LLM and image gateway, bypassing the old reference-asset tunnel.
+0 18 * * * /usr/bin/env NOVEL_LLM_BASE_URL=http://127.0.0.1:18120/v1 NOVEL_LLM_MODEL=Qwen3.8-27B-Project NOVEL_LOCAL_QWEN_IMAGE_URL=http://127.0.0.1:8770 PHANROUTER_REFERENCE_ASSETS=0 PHANROUTER_ASSET_PUBLIC_BASE= /mnt/disk1/zengzhitao/novel-manga-video/.venv/bin/python /mnt/disk1/zengzhitao/novel-manga-video/scripts/pipeline.py start --novel shiri --flow production --json >> /mnt/disk1/zengzhitao/novel-manga-video/.runtime/shiri-scheduled-start.log 2>&1

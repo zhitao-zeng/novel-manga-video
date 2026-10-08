@@ -3,8 +3,7 @@ import os
 import re
 import wave
 from pathlib import Path
-from ..util import run
-from ..util import read_json
+from ..util import read_json, run
 from .common import log, reference_digests
 from .policy import COMPLIANCE_SUFFIX, RETRY_SUFFIX, soften_prompt
 

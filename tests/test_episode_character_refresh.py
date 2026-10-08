@@ -6,7 +6,7 @@ import pytest
 from novel_manga.application.agents.episode import cli, context
 from novel_manga.application.agents.episode.inputs import prepare_inputs, refresh_character_inputs
 from novel_manga.util import atomic_write_json, read_json
-from support.episode_inputs import book, saved_script
+from support.character_asset_inputs import book, saved_script
 
 
 @pytest.fixture

@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -28,13 +29,15 @@ from novel_manga.application.production.runs import corrections
 from novel_manga.util import atomic_write_json  # noqa: E402
 from novel_manga.story.h3 import request_issues, stages_of, subject_lines, asset_subjects, compose, tag_names, CJK, CHARACTER_TRAIT, REQUEST_CONTENT_RULES
 
+ENGLISH_CHARACTERS = r'[^\u4e00-\u9fff]'
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots", "soundscape", "conflicts"],
-          "properties": {"shots": {"type": "array", "items": {"type": "string", "minLength": 1},
-                                   "description": "One nonempty chronological English paragraph per input shot, preserving its dialogue markers."},
-                         "soundscape": {"type": "string"},
+          "properties": {"shots": {"type": "array", "items": {"type": "string", "minLength": 1, "description": "One chronological paragraph per shot, preserving dialogue markers.",
+                         "pattern": '^' + ENGLISH_CHARACTERS + '*$'}},
+                         "soundscape": {"type": "string", "pattern": '^' + ENGLISH_CHARACTERS + '*$'},
                          "conflicts": {"type": "array", "items": {"type": "string"}}}}
 ASK = (
     "Write one concise chronological English paragraph per numbered shot. "
+    "Every shot needs a nonempty paragraph, including an empty setting with no named character. "
     "Describe the framing and starting state, then unfold each action once. "
     "State the result only when it adds information; do not repeat the action as an ending. "
     "Do not copy input field labels, shot numbers or item headings. "
@@ -199,9 +202,18 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
                    shot_timing=clip.get('shot_timing', []))
     schema = copy.deepcopy(SCHEMA)
     schema['properties']['shots'].update(minItems=len(visuals), maxItems=len(visuals))
+    directions = []
+    for markers in slots:
+        contract = {'type': 'string', 'minLength': 1,
+                    'pattern': '^' + (ENGLISH_CHARACTERS + '*').join(
+                        ['', *[re.escape(m) for m in markers], '']) + '$'}
+        directions.append(contract)
+    schema['properties']['shots'].update(prefixItems=directions, items=False)
     problem = ''
     endpoint = h3_translation_endpoint()
-    for _ in range(tries):
+    run_id = time.strftime('%Y%m%d-%H%M%S')
+    for attempt in range(1, tries + 1):
+        answer = None
         try:
             feedback = ('\nPrevious response was rejected: ' + problem + '\n') if problem else ''
             text = (ASK + INPUT_RULES + feedback + naming + '\nInput context:\n'
@@ -232,8 +244,12 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
                 if re.findall(r'<DIALOGUE_\d+>', sentence) != slots[i]:
                     raise ValueError(f'shot {i+1} lost or reordered dialogue slots: {slots[i]}')
             from novel_manga.story.h3 import META
-            if any(CJK.search(v) or META.search(v) for v in [*english, soundscape]):
-                raise ValueError('directions must be English scene behavior, not meta commentary')
+            for field, value in [(f'shot {i}', v) for i, v in enumerate(english, 1)] + [('soundscape', soundscape)]:
+                match = CJK.search(value) or META.search(value)
+                if match:
+                    excerpt = value[max(0, match.start() - 40):match.end() + 80]
+                    raise ValueError(f'{field} contains Chinese or task commentary: {excerpt!r}; '
+                                     'write only English scene behavior and physical sound')
             candidate = compose(clip, english, stages, soundscape=soundscape)
             conflicts = request_issues({**clip, 'prompt_h3': candidate})
             if conflicts:
@@ -244,6 +260,9 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
             return True
         except Exception as error:  # noqa: BLE001 - bounded generation, never a semantic fallback
             problem = f'{type(error).__name__}: {str(error)[:350]}'
+            if episode_dir is not None and answer is not None:
+                atomic_write_json(episode_dir / 'h3_translation_failures' / clip['clip_id']
+                                  / f'{run_id}-{attempt:02d}.json', {'answer': answer, 'error': problem})
     warn(clip, f"FAILED after {tries} tries: {problem}")
     if problems is not None and problem:
         problems.append(problem)

@@ -55,7 +55,7 @@ def reconcile_characters(novel_dir: Path, names: list[str], *, character_facts: 
             batch = selected[start:start + 4]
             records = []
             # Context is a contiguous source window, not a guess at its speaker or owner.
-            from novel_manga.story.source_context import excerpts
+            from novel_manga.story.character_evidence import excerpts
             for name in batch:
                 fact = facts_for_name(facts, name, aliases=aliases)
                 context = excerpts(source, name)

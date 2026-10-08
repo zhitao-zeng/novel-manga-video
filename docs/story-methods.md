@@ -87,17 +87,16 @@ NOVEL_CLIP_SECONDS_MAX=15 .venv/bin/python scripts/build_clip_plan_thin.py \
 8. 同地点的不同场景也保持边界，打包和短片段吸收都不能将它们合成一次连续拍摄。保留导演计划镜长、场景时间、源镜号、具体声音和动画媒介；台词最低估时超过计划镜长时，程序在单镜上限内延长并记录原值，超过单镜上限仍须拆镜；不再用拼接 actor/action/target 的句子覆盖导演的完整事件句。
 9. H3 保留六段英文结构与原有对白绑定。新场景稿的具体声源、声响开始/停止会进入英文翻译，中文仅能出现在对白标签内；统一 3D/2D 媒介显式写入请求，地点参考不再强迫所有场次沿用参考图的白天光线。原有无场景元数据的剧本与请求路径维持原行为。
 
-首次试跑建议使用足够的文本预算，防止把省略清单或导演表截断：
+完整分场剧本与导演稿默认输出上限均为 30,000 tokens，模型生成完会提前结束：
 
 ```bash
 NOVEL_CLIP_SECONDS_MAX=15 .venv/bin/python scripts/plan_chapter_thin.py \
   inputs/盛唐天工.txt --novel-id method-shanyin --episode-index 1 \
   --bible outputs/shengtang/story_bible.json --output-root outputs/experiments/story-methods \
-  --story-method shanyin --style 3d --frame 16:9 \
-  --outline-tokens 12000 --max-tokens 16000 --max-redo 0
+  --story-method shanyin --style 3d --frame 16:9 --max-redo 0
 ```
 
-`--outline-tokens` 在新方法中控制分场稿的输出预算，默认 8192；`--max-tokens` 控制导演稿预算。普通规划仍是原提纲含义，默认 4096。数组容量上限用于限制模型无止境输出，不能当成正常镜数或每个原文区段的戏份配额。
+`--outline-tokens` 在新方法中控制分场稿的输出上限，默认 30,000；`--max-tokens` 控制导演稿的输出上限，默认 30,000，也可通过 `NOVEL_PLAN_MAX_TOKENS` 覆盖。显式命令行参数优先。普通规划的 `--outline-tokens` 仍控制短提纲，默认 4,096。数组容量上限用于限制模型无止境输出，不能当成正常镜数或每个原文区段的戏份配额。
 
 `--max-seconds` 可明确指定全片上限。新方法未指定时只有约 90 秒的参考目标，不沿用旧规划的 105 秒硬上限；用户提供的 100 秒样稿预算不作为限制。指定上限时，导演按真实镜长与台词预算调整，程序不等比压缩台词或删掉整场。普通默认规划未指定此参数时保持原预算。
 
