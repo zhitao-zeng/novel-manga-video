@@ -1,5 +1,4 @@
 """Actual concurrent ledger writers load fresh state only after acquiring the book lock."""
-from contextlib import contextmanager
 import fcntl
 import json
 import os

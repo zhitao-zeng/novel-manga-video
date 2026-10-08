@@ -58,13 +58,14 @@ def dedup_generic(ledger: "Ledger", workers: int = 4) -> list[dict]:
     return made
 
 
-def evidence_pack(ledger: "Ledger", a: str, b: str, claim_type: str, limit: int = 6) -> str:
+def evidence_pack(ledger: "Ledger", a: str, b: str, claim_type: str, limit: int = 6,
+                  *, chapters: list[int] | None = None) -> str:
     """Everything the book has said about two records, for one settling question."""
-    chapters = ledger.chapters_read()
+    chapters = ledger.chapters_read() if chapters is None else chapters
     on_stage: dict[str, set[int]] = {a: set(), b: set()}
     quotes: dict[str, list[str]] = {a: [], b: []}
     for c in chapters:
-        for m in ledger_store.read_json(ledger.mentions_path(c), []):
+        for m in ledger.mentions_by_chapter.get(c, []):
             if not str(m.get("entity", "")).startswith("e"):
                 continue
             eid = ledger.canonical(m["entity"])
@@ -114,15 +115,24 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
             continue
         seen.add(key)
         pairs.append(c)
-    packs = [evidence_pack(ledger, ledger.canonical(c["subject"]), ledger.canonical(c["object"]), c["type"]) for c in pairs]
+    index = ledger.entity_chapters()
+    packs = []
+    for c in pairs:
+        a, b = ledger.canonical(c['subject']), ledger.canonical(c['object'])
+        chapters = sorted(set(index.get(a, [])) | set(index.get(b, [])))
+        packs.append(evidence_pack(ledger, a, b, c['type'], chapters=chapters))
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         first = list(pool.map(lambda p: ledger_judges.judge_settle(p, entity_contracts.SETTLE_RULES), packs))
         second = list(pool.map(lambda p: ledger_judges.judge_settle(p, entity_contracts.SETTLE_RULES_B), packs))
+        if any(answer.get('error') for answer in [*first, *second]):
+            raise RuntimeError('settle judge request failed; ledger decisions were not changed')
         # No human queue (2026-09-14): a split vote goes to a third judge who must decide, and a body claim whose
         # quotations never name the body's owner gets one targeted question instead of waiting for a person.
         votes = [(x.get("verdict", "insufficient"), y.get("verdict", "insufficient")) for x, y in zip(first, second)]
         split = [i for i, v in enumerate(votes) if v not in (("supports", "supports"), ("contradicts", "contradicts"))]
         third = dict(zip(split, pool.map(lambda i: ledger_judges.judge_settle(packs[i], entity_contracts.SETTLE_RULES_TIEBREAK), split)))
+        if any(answer.get('error') for answer in third.values()):
+            raise RuntimeError('settle tiebreak request failed; ledger decisions were not changed')
 
         def owner_named(i: int) -> bool:
             c = pairs[i]
@@ -279,6 +289,7 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
                     m["entity"] = "UNCERTAIN"
     with ledger.lock:
         ledger_store.write_json(ledger.mentions_path(chapter), mentions)
+        ledger.mentions_by_chapter[chapter] = mentions
         relations = []
         for r in entity_evidence.ground_relations(chapter, text, raw, ledger.dropped):
             a, b = ledger._resolve_ref(r["from"], local_new), ledger._resolve_ref(r["to"], local_new)
@@ -287,6 +298,7 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
                 continue
             relations.append({**r, "from": a, "to": b})
         ledger_store.write_json(ledger.relations_path(chapter), relations)
+        ledger.relations_by_chapter[chapter] = relations
         ledger.claims = [c for c in ledger.claims if c["chapter"] != chapter]
         pending = []
         for c in claims:
@@ -427,7 +439,7 @@ def undo_merge(ledger, claim_id: str) -> bool:
             return False
         drop = ledger.by_id[row["from"]]
         drop["status"], drop["merged_into"] = "active", None
-        own = {m["form"] for c in ledger.chapters_read() for m in ledger_store.read_json(ledger.mentions_path(c), [])
+        own = {m["form"] for c in ledger.chapters_read() for m in ledger.mentions_by_chapter.get(c, [])
                if m.get("kind") == "proper" and m.get("entity") == drop["id"]} | {drop["canonical"]}
         ledger.forms[drop["id"]] = own
         ledger.forms[row["into"]] -= own - {ledger.by_id[row["into"]]["canonical"]}

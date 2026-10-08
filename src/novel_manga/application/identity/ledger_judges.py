@@ -62,7 +62,7 @@ def judge_settle(pack: str, rules: str) -> dict:
     try:
         return ask_json([{"type": "text", "text": rules + "（why 不超过 80 字）\n\n" + pack}], entity_contracts.VERDICT_SCHEMA, name="entity_settle", max_tokens=600, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"verdict": "insufficient", "why": f"error {type(error).__name__}"}
+        return {"verdict": "insufficient", "why": f"error {type(error).__name__}", "error": True}
 
 
 def judge_generic(e: dict, rows: list[dict]) -> dict:
