@@ -11,132 +11,19 @@ import sys
 
 from novel_manga.application.identity.phases import LOOK_FIELDS, chapter_of
 from novel_manga.application.repair import history
-from novel_manga.repair.proposal import RepairProposal
 from novel_manga.util import atomic_write_json, read_json
 from .arguments import RepairArgumentError, UnsupportedInput, CompileConflict, validate_resume
 from .input_records import (INPUT_LIMIT, SOURCE_REVIEW_POLICY, _phase_groups, effects,
                            remaining_input_attempts, input_receipt, source_review_recoverable,
                            latest_input_records)
 
-SHOT_NAMES = {'in_frame', 'extras', 'listeners'}
-SHOT_FIELDS = {'location', 'light', 'wears', 'props', 'scene_objects', 'visual_prompt', 'motion_prompt',
-               'start_state', 'event', 'end_state', 'sfx', 'actions', 'speaker_map', 'turn_texts', 'turns', *SHOT_NAMES}
+from .input_contracts import normalize_arguments, expand_shared_scope, SHOT_NAMES, SHOT_FIELDS
+from .input_compilation import compile_input
+from .input_candidate import prepare_candidate
 
 
-def expand_shared_scope(row, plan):
-    scope = row.get('clip_ids')
-    if scope is None:
-        return row
-    addresses = {i for c in plan['clips'] if c['clip_id'] in scope for i in c.get('shot_indexes', [])}
-    touched = {p['index'] for p in row.get('shots') or []} & addresses
-    shared = [c['clip_id'] for c in plan['clips'] if touched.intersection(c.get('shot_indexes', []))]
-    return {**row, 'clip_ids': list(dict.fromkeys([*scope, *shared]))}
 
 
-def normalize_arguments(row):
-    """Reject malformed interface values before receipts, models or asset work."""
-    validate_resume(row)
-    allowed = {'clip_id','action','reason','source_quote','clip_ids','shots','phases','locations','characters','resume'}
-    unknown = set(row)-allowed
-    if unknown:
-        raise RepairArgumentError(f'unsupported input fields: {sorted(unknown)}; '
-                                  'use shots, characters, phases.characters and locations for adopted input repairs')
-    row = copy.deepcopy(row)
-    scope = row.get('clip_ids')
-    if scope is not None and (not isinstance(scope, list) or not scope
-            or any(not isinstance(key, str) or not key.strip() for key in scope)):
-        raise RepairArgumentError('clip_ids must be a nonempty list of clip ID strings, including the target clip')
-    patches = row.get('shots')
-    if patches is not None and not isinstance(patches, list):
-        raise RepairArgumentError('shots must be a list of patch objects with index and supported source fields')
-    for number, patch in enumerate(patches or []):
-        path = f'shots[{number}]'
-        if not isinstance(patch, dict) or type(patch.get('index')) is not int:
-            raise RepairArgumentError(f'{path} must be an object with an integer index')
-        if extra := set(patch)-{'index'}-SHOT_FIELDS:
-            raise RepairArgumentError(f'{path} unsupported fields {sorted(extra)}; allowed: {sorted(SHOT_FIELDS)}')
-        for field, value in patch.items():
-            if field == 'turns':
-                from novel_manga.planning.constants import DELIVERY_MODES
-                permitted={'speaker_name','delivery_mode','text','emotion','chat_target','inner_monologue'}
-                if not isinstance(value,list):
-                    raise RepairArgumentError(f'{path}.turns must be an ordered list of source-correct turns')
-                for turn in value:
-                    if (not isinstance(turn,dict) or set(turn)-permitted
-                            or any(not isinstance(turn.get(k),str) for k in ('speaker_name','delivery_mode','text'))
-                            or turn['delivery_mode'] not in DELIVERY_MODES or not turn['text'].strip()):
-                        raise RepairArgumentError(f'{path}.turns needs speaker_name, delivery_mode and nonempty text')
-                    if turn.get('inner_monologue') and turn['delivery_mode']!='offscreen_dialogue':
-                        raise RepairArgumentError('inner_monologue requires offscreen_dialogue')
-                    if turn['delivery_mode'] in {'silent_action','title_card'} and turn['speaker_name']:
-                        raise RepairArgumentError('silent_action/title_card have an empty speaker_name')
-            elif field == 'turn_texts':
-                if not isinstance(value, list) or not value or any(not isinstance(t, str) or not t.strip() for t in value):
-                    raise RepairArgumentError(f'{path}.turn_texts must list each shortened complete spoken turn in original order')
-            elif field == 'speaker_map':
-                if not isinstance(value, dict) or not value or any(
-                        not isinstance(k, str) or not k.strip() or not isinstance(v, str) or not v.strip()
-                        for k, v in value.items()):
-                    raise RepairArgumentError(f'{path}.speaker_map must map existing speech owners to source-correct names')
-            elif field == 'actions':
-                if not isinstance(value, list) or any(not isinstance(v, dict)
-                        or set(v) != {'actor', 'action', 'target'}
-                        or any(not isinstance(x, str) for x in v.values()) for v in value):
-                    raise RepairArgumentError(f'{path}.actions must contain actor/action/target text objects')
-            elif field in SHOT_NAMES:
-                if not isinstance(value, list) or any(not isinstance(v, str) or not v.strip() for v in value):
-                    raise RepairArgumentError(f'{path}.{field} must be a list of nonempty names')
-            elif field == 'wears':
-                if value is not None and (not isinstance(value, dict) or any(
-                        not isinstance(name, str) or not name.strip()
-                        or (prop is not None and (not isinstance(prop, str) or not prop.strip()))
-                        for name, prop in value.items())):
-                    raise RepairArgumentError(f'{path}.wears must map character names to worn prop names, '
-                        'for example {"Character":"Armor"}; use {} or null to clear. '
-                        'Put ordinary clothing in phases.characters.<name>.base_costume and body traits in appearance.')
-            elif field in {'props','scene_objects'}:
-                if value is not None and (not isinstance(value,list) or any(not isinstance(v,str) for v in value)):
-                    raise RepairArgumentError(f'{path}.{field} must be a list of names; use [] or null to clear')
-            elif field != 'index' and not isinstance(value, str):
-                raise RepairArgumentError(f'{path}.{field} must be text; use an empty string to clear it')
-    phases = row.get('phases')
-    if phases is not None:
-        if not isinstance(phases,dict) or set(phases)-{'characters'} or not isinstance(phases.get('characters',{}),dict):
-            raise RepairArgumentError('phases must contain a characters object; put scene descriptions in locations')
-        row['phases'] = _phase_groups(row)
-        for name, entries in row['phases'].get('characters',{}).items():
-            if not isinstance(entries,list) or len(entries)!=1 or not isinstance(entries[0],dict):
-                raise RepairArgumentError(f'phases.characters.{name} must be one phase object or a one-item list of phase objects')
-            phase = entries[0]
-            if extra := set(phase)-set(LOOK_FIELDS)-{'from','to','asset_id','label','wears','closed','reuse_asset_id'}:
-                raise RepairArgumentError(f'phases.characters.{name} unsupported appearance fields: {sorted(extra)}')
-            if 'reuse_asset_id' in phase:
-                if (not isinstance(phase['reuse_asset_id'], str) or not phase['reuse_asset_id'].strip()
-                        or set(phase)-{'reuse_asset_id','from','to'}):
-                    raise RepairArgumentError(f'phases.characters.{name}.reuse_asset_id must select an existing '
-                        'state without new appearance/clothing fields; reuse its saved design or describe a new state')
-            if phase.get('wears') is not None and not isinstance(phase['wears'],str):
-                raise RepairArgumentError(f'phases.characters.{name}.wears must be a registered worn prop name')
-    locations = row.get('locations')
-    if locations is not None and (not isinstance(locations,dict) or any(
-            not isinstance(name,str) or not isinstance(value,str) for name,value in locations.items())):
-        raise RepairArgumentError('locations must map selected location names to empty-setting descriptions')
-    if 'characters' in row:
-        from novel_manga.models.bible import Character
-        characters = row['characters']
-        if not isinstance(characters, dict) or not characters:
-            raise RepairArgumentError('characters must map missing source actors to appearance/wardrobe designs')
-        for name, design in characters.items():
-            if (not isinstance(name, str) or not name.strip() or not isinstance(design, dict)
-                    or set(design)-{'gender', 'age', 'appearance', 'wardrobe'}):
-                raise RepairArgumentError('characters must describe named source actors using gender, age, appearance, wardrobe')
-            try:
-                Character(name=name, **design)
-            except ValueError as error:
-                raise RepairArgumentError(f'characters.{name}: {error}') from error
-        if set(characters) & set((row.get('phases') or {}).get('characters', {})):
-            raise RepairArgumentError('request a missing character with its intended design, or an existing phase, not both')
-    return row
 
 
 def repair_status(ctx):
@@ -309,13 +196,7 @@ def refresh_inputs(ctx, plan, script):
 
 
 def repair(ctx, row, *, check_only=False):
-    from novel_manga.application.repair.flow import rebuild_clips
     from novel_manga.application.repair.publication import publish_candidate
-    from novel_manga.application.rendering.h3 import convert
-    from novel_manga.application.preparation.request_check import request_consistency
-    from novel_manga.application.preparation.readiness import render_risks, worn_reference_pairs
-    from novel_manga.application.preparation.wearer_cards import check_references
-    from novel_manga.story.h3 import request_issues
 
     directory = ctx.episode_dir
     validate_resume(row)
@@ -376,113 +257,22 @@ def repair(ctx, row, *, check_only=False):
             addresses.update(clip.get('shot_indexes') or [])
     if scope is not None:
         addresses = {i for clip in plan['clips'] if clip['clip_id'] in scope for i in clip.get('shot_indexes', [])}
-    candidate_script = copy.deepcopy(script)
-    shots = {s.get('index', i): s for i, s in enumerate(candidate_script['shots'], 1)}
-    card_names = {c['name'] for c in read_json(ctx.novel_dir/'story_bible.json')['characters']}
-    card_names.update(row.get('characters') or {})
-    patches = row.get('shots') or []
-    seen = set()
-    for patch in patches:
-        index = patch.get('index')
-        if index not in addresses or index in seen:
-            raise RepairArgumentError(f'input shot index {index} is outside the allowed scope or repeated; '
-                                      f'allowed indexes: {sorted(addresses)}; fields: {sorted(SHOT_FIELDS)}')
-        seen.add(index)
-        speaker_map = patch.get('speaker_map') or {}
-        owners = {t.get('speaker_name') for t in shots[index].get('turns', [])}
-        if set(speaker_map)-owners:
-            raise RepairArgumentError(f'speaker_map names must be current shot speakers: {sorted(owners)}')
-        if 'turn_texts' in patch:
-            from .speech_budget import compress_turns
-            dependent = [c for c in plan['clips'] if index in c.get('shot_indexes', [])]
-            shots[index]['turns'] = compress_turns(ctx.input_mode, shots[index], patch['turn_texts'], dependent)
-        shots[index].update({k: copy.deepcopy(v) for k, v in patch.items() if k not in {'index', 'speaker_map', 'turn_texts'}})
-        for turn in shots[index].get('turns', []):
-            if turn.get('speaker_name') in speaker_map:
-                turn['speaker_name'] = speaker_map[turn['speaker_name']]
-        if set(patch) & SHOT_NAMES or speaker_map or 'turns' in patch:
-            # Extras remain described people, not registered portrait identities.
-            # A source-described offscreen speaker keeps its identity in turns;
-            # it does not acquire a portrait requirement merely by being named.
-            shots[index]['characters'] = list(dict.fromkeys([
-                *shots[index].get('in_frame', []),
-                *(t['speaker_name'] for t in shots[index].get('turns', []) if t.get('speaker_name')
-                  and (t['speaker_name'] in card_names or t.get('delivery_mode') == 'visible_dialogue'))]))
-    if scope is not None:
-        shared = {c['clip_id'] for c in plan['clips'] if seen.intersection(c.get('shot_indexes',[]))}
-        if missing := shared-set(scope):
-            raise RepairArgumentError('source shot edits also affect clips '+', '.join(sorted(missing))+
-                '; include the required shared-shot clips in clip_ids and preserve their existing cuts')
-    phases = copy.deepcopy(raw_phases.get('characters', {}))
-    locations = copy.deepcopy(row.get('locations') or {})
-    selected_locations = {str(shots[i].get('location') or '') for i in addresses}
-    if (not isinstance(locations, dict) or any(not isinstance(name, str) or not name.strip()
-            or '：' in name or not isinstance(description, str) or not description.strip()
-            or name not in selected_locations for name, description in locations.items())):
-        raise ValueError('locations must map this clip selected location names to nonempty descriptions')
-    required_names = {name for i in addresses for name in shots[i].get('characters', [])}
-    names = required_names | {r['name'] for r in target.get('references', []) if r.get('role') == 'character'}
-    chapter = chapter_of(directory)
-    bible = read_json(ctx.novel_dir/'story_bible.json')
-    base_ids = {c['name']: f'character_{i:03d}' for i, c in enumerate(bible['characters'], 1)}
-    submitted_row = copy.deepcopy(row)
-    characters = copy.deepcopy(row.get('characters') or {})
-    for name in list(characters):
-        if name not in required_names:
-            raise RepairArgumentError(f'characters.{name} is not a named visible actor or speech owner in the affected shots; '
-                                      'correct in_frame/listeners/extras first; unnamed crowds stay extras')
-        existing_card = (name in base_ids and
-            (ctx.novel_dir/'series_assets/characters'/base_ids[name]/'turnaround.jpeg').is_file()) or any(
-                ref.get('role') == 'character' and ref.get('name') == name
-                and (ctx.novel_dir/ref['path']).is_file()
-                for clip in plan['clips'] for ref in clip.get('references', []))
-        retained_candidate_card = bool(matching and matching[1].get('assets')
-            and name in (matching[1]['decision'].get('characters') or {}))
-        if existing_card and not retained_candidate_card:
-            # The requested design belongs to this existing actor. Route it to
-            # a scoped phase instead of forcing another model turn for spelling.
-            design = characters.pop(name)
-            phases.setdefault(name, [{**design, 'label': str(row.get('reason') or 'Source-backed repaired appearance')[:180]}])
-    if characters != (row.get('characters') or {}):
-        row = {**row, 'characters': characters, 'phases': {'characters': phases}}
-        if not characters:
-            row.pop('characters')
-    registered = read_json(ctx.novel_dir/'series_assets/phases.json', {}).get('characters', {})
-    reused = {}
-    for name, entries in phases.items():
-        if name not in names:
-            raise RepairArgumentError(f'input phase {name} must describe one selected character state; '
-                                      f'characters selected by {cid}: {sorted(names)}')
-        if name not in base_ids:
-            raise RepairArgumentError(f'missing source actor {name}; use characters to request its card, '
-                                      'or extras for an unpictured crowd, instead of phases for an unregistered actor')
-        phase = entries[0]
-        if phase.get('from', chapter) != chapter or phase.get('to', chapter) != chapter:
-            raise RepairArgumentError(f'input phase scope must be the current chapter {chapter}; omit from/to or use that number')
-        if asset_id := phase.get('reuse_asset_id'):
-            saved = next((p for p in registered.get(name, []) if p.get('asset_id') == asset_id), None)
-            card = ctx.novel_dir/'series_assets/characters'/asset_id/'turnaround.jpeg'
-            if not saved or not card.is_file():
-                choices = [p.get('asset_id') for p in registered.get(name, [])]
-                raise RepairArgumentError(f'phases.characters.{name}.reuse_asset_id must select a registered '
-                    f'state with an existing image for this character; available: {choices}. '
-                    'Use resume for unfinished asset generation.')
-            entries[0] = {**copy.deepcopy(saved), 'from': chapter, 'to': chapter}
-            reused[name] = asset_id
-    targets = {c['clip_id'] for c in plan['clips'] if c['clip_id'] == cid
-               or seen.intersection(c.get('shot_indexes', []))
-               or any((r.get('role') == 'character' and r.get('name') in phases)
-                      or (r.get('role') == 'location' and r.get('name') in locations)
-                      for r in c.get('references', []))}
-    if scope is not None:
-        targets &= set(scope)
-    from .arguments import first_pass_scope
-    first_pass_scope(ctx,targets)
-    counts = history.generation_counts(directory)
-    exhausted = sorted(key for key in targets if counts.get(key, 0) >= history.preparation_limit(directory, key))
-    if exhausted:
-        raise ValueError('input repair cannot render affected clips within remaining video budget: '
-                         + ', '.join(exhausted) + '. If the new state starts later, provide source-supported clip_ids for that state.')
+    prepared = prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching)
+    case = prepared.compilation
+    row = case.row
+    candidate_script = case.candidate_script
+    shots = case.shots
+    patches = case.patches
+    targets = case.targets
+    counts = case.counts
+    phases = case.phases
+    locations = case.locations
+    characters = case.characters
+    submitted_row = prepared.submitted_row
+    chapter = prepared.chapter
+    bible = prepared.bible
+    base_ids = prepared.base_ids
+    reused = prepared.reused
     if check_only:
         input_receipt(ctx,cid,row,check_only=True)
         return {'valid':True,'clip_ids':sorted(targets),'allowed_shot_indexes':sorted(addresses)}
@@ -564,120 +354,11 @@ def repair(ctx, row, *, check_only=False):
                 from .input_assets import build_locations
                 build_locations(ctx, set(locations))
         copy_registered_assets(ctx, {str(shots[i].get('location') or '') for i in addresses})
-        progress('compile')
-        structural = {'_source_lines':{}} if any('turns' in p for p in patches) else {}
-        source_checked_turns={p['index'] for p in patches if 'turns' in p or p.get('speaker_map')}
-        candidate, changed = rebuild_clips(directory, ctx.novel_dir/'story_bible.json', candidate_script, plan, targets,
-                                          repack_report=structural, preserve_timing=True,
-                                          **({'source_checked_turns':source_checked_turns} if source_checked_turns else {}))
-        if not changed:
-            if phases or locations or candidate_script != script:
-                raise ValueError('input correction did not reach the compiled request')
-            check_references(ctx.novel_dir, worn_reference_pairs({'clips': [target]}))
-            remaining, _ = render_risks(target, ctx.novel_dir)
-            checked = request_consistency(target, ctx.novel_dir)
-            if remaining or checked.get('consistent') is not True or checked.get('problems'):
-                raise ValueError('existing inputs remain blocked: ' + '; '.join(remaining + (checked.get('problems') or [])))
-            record.update(status='checked_existing_wearing', step='complete')
-            atomic_write_json(receipt, record)
+        compiled = compile_input(case, receipt, record, progress)
+        if compiled.proposal is None:
             published = True
             return {'changed': [], 'accepted': [], 'input_repaired': [cid], 'blocked': {}}
-        old_ids=[c['clip_id'] for c in plan['clips']]
-        new_ids=[c['clip_id'] for c in candidate['clips']]
-        if old_ids!=new_ids:
-            raise CompileConflict(f'input repair changed clip grouping; before={old_ids}; after={new_ids}',
-                                  {'kind':'recut','before':old_ids,'after':new_ids})
-        extra=sorted(set(changed)-targets)
-        verified_dependencies=set(structural.pop('_posture_dependent_clips', []))
-        if extra and set(extra) <= verified_dependencies:
-            first_pass_scope(ctx, set(extra))
-            exhausted = [key for key in extra if counts.get(key,0) >= history.preparation_limit(directory,key)]
-            if exhausted:
-                raise ValueError('dependent input repair exceeds remaining video budget: '+', '.join(exhausted))
-            if (phases or locations or characters) and scope is not None and not set(extra) <= set(scope):
-                raise CompileConflict('source state scope excludes dependent clips: '+', '.join(extra),
-                    {'kind':'dependency_scope','requested_clips':sorted(targets),'extra_clips':extra})
-            targets.update(extra)
-            record['dependent_clips']=extra
-            atomic_write_json(receipt, record)
-            extra=[]
-        if extra:
-            old={c['clip_id']:c for c in plan['clips']};new={c['clip_id']:c for c in candidate['clips']}
-            fields={cid:sorted(k for k in set(old[cid])|set(new[cid]) if old[cid].get(k)!=new[cid].get(k)) for cid in extra}
-            details={'kind':'dependency_scope','requested_clips':sorted(targets),'extra_clips':extra,'changed_fields':fields,
-                     'code':'novel_manga/application/repair/flow.py:rebuild_clips'}
-            raise CompileConflict(f'compiler changed dependent clips outside requested scope: {fields}; '
-                                  'clip grouping stayed unchanged; inspect the dependency scope before retrying',details)
-        old_clips = {c['clip_id']: c for c in plan['clips']}
-        notes = {key: value for key, value in read_json(directory/'review_feedback.json', {}).items()
-                 if key not in changed}
-        cache_path = receipt.with_suffix('')/'requests.json'
-        translations = read_json(cache_path, {})
-        for clip in candidate['clips']:
-            key = clip['clip_id']
-            if key not in changed:
-                continue
-            before = old_clips[key]
-            if any(clip.get(field) != before.get(field) for field in ('request_seconds', 'shot_indexes', 'shot_timing')):
-                raise ValueError('input repair changed protected timing or shot addresses')
-            from novel_manga.story.dialogue import dialogue_punctuation
-            from .speech_budget import capacity_issue, expected_lines
-            old_shots = {s.get('index', i): s for i, s in enumerate(script['shots'], 1)}
-            old_lines = expected_lines(before, old_shots, shots, patches)
-            rewritten_turns=any('turns' in p and p['index'] in before.get('shot_indexes',[]) for p in patches)
-            if rewritten_turns:
-                old_lines=structural.get('_source_lines',{}).get(key)
-                if old_lines is None:
-                    raise ValueError('source dialogue compilation evidence missing')
-            new_lines = clip.get('lines', [])
-            if rewritten_turns or any('turn_texts' in p and p['index'] in before.get('shot_indexes', []) for p in patches):
-                if problem := capacity_issue(clip):
-                    raise ValueError(problem)
-            approved_owners = {pair for patch in patches if patch['index'] in before.get('shot_indexes', [])
-                               for pair in (patch.get('speaker_map') or {}).items()}
-            if (len(old_lines) != len(new_lines) or any(
-                    (old.get('delivery_mode'), bool(old.get('inner_monologue')), dialogue_punctuation(old.get('text', ''))) !=
-                    (new.get('delivery_mode'), bool(new.get('inner_monologue')), dialogue_punctuation(new.get('text', '')))
-                    or (old.get('speaker_name') != new.get('speaker_name') and
-                        (old.get('speaker_name'), new.get('speaker_name')) not in approved_owners)
-                    for old, new in zip(old_lines, new_lines))):
-                raise ValueError('input repair changed protected dialogue or owners')
-            if 'generation_seed' in before:
-                clip['generation_seed'] = before['generation_seed']
-            clip['repair_take'] = int(before.get('repair_take', 0)) + 1
-            progress('translate:'+key)
-            from novel_manga.application.profiles import h3_stamp
-            cached = translations.get(key) or {}
-            translation_errors = []
-            if cached.get('prompt_h3_of') == h3_stamp(clip, '') and cached.get('prompt_h3'):
-                clip.update(cached)
-            else:
-                convert(clip, note='', episode_dir=directory, source_script=candidate_script,
-                        problems=translation_errors)
-            if translation_errors:
-                raise ValueError(f'input repair H3 translation rejected {key}: ' + '; '.join(translation_errors))
-            if not str(clip.get('prompt_h3') or '').strip():
-                raise ValueError('input repair translation produced no English H3 request; retain current plan')
-            if clip.get('prompt_h3_of') != h3_stamp(clip, ''):
-                raise ValueError(f'input repair H3 translation is stale for {key}; retain current plan')
-            if request_issues(clip):
-                raise ValueError('repaired request format failed: ' + '; '.join(request_issues(clip)))
-            translations[key] = {field: clip.get(field) for field in ('prompt_h3', 'prompt_h3_of')}
-            atomic_write_json(cache_path, translations)
-            progress('check:'+key)
-            checked = request_consistency(clip, ctx.novel_dir)
-            if checked.get('consistent') is not True or checked.get('problems'):
-                raise ValueError('repaired inputs still conflict: ' + '; '.join(checked.get('problems') or []))
-        check_references(ctx.novel_dir, worn_reference_pairs(candidate))
-        for clip in candidate['clips']:
-            for ref in clip.get('references', []):
-                if clip['clip_id'] in changed and not (ctx.novel_dir/ref['path']).is_file():
-                    raise ValueError(f'repaired reference missing: {ref["path"]}')
-        structural.pop('_source_lines',None)
-        proposal = RepairProposal(result={'changed': changed}, script=candidate_script, plan=candidate,
-            notes=notes, changes={cid: row}, posture_states=structural.pop('_posture_states', None),
-            source_speaker_contract=structural.pop('_speaker_facts', None),
-            visor_states=structural.pop('_visor_states', None), structural_repair=structural)
+        proposal, candidate, changed = compiled.proposal, compiled.plan, compiled.changed
         progress('publish')
         publish_candidate(directory, proposal, 'episode_agent_input', changed)
         published = True

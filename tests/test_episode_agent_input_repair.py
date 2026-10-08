@@ -1,3 +1,4 @@
+from novel_manga.application.agents.episode import input_contracts
 """Source input repair routing; generation is simulated, budgets/publication are real."""
 import copy
 from pathlib import Path
@@ -309,7 +310,7 @@ def test_existing_actor_conversion_retains_a_resumable_canonical_decision(setup,
     row=decision(characters={'甲':{'appearance':'source appearance','wardrobe':'black cloak'}})
     with pytest.raises(TimeoutError):input_repair.repair(ctx,row)
     record=read_json(next((ctx.episode_dir/'work/input_repairs').glob('*.json')))
-    parsed=input_repair.normalize_arguments(record['decision'])
+    parsed=input_contracts.normalize_arguments(record['decision'])
     assert 'characters' not in parsed and '甲' in parsed['phases']['characters']
 
 
@@ -317,13 +318,13 @@ def test_adopted_input_accepts_source_cast_and_missing_character_requests(setup)
     row = decision(shots=[{'index': 1, 'in_frame': ['甲'], 'extras': ['访客'], 'listeners': [],
                           'sfx': 'Wind outside.'}],
                    characters={'甲': {'appearance': '成年男子', 'wardrobe': '黑色披风'}})
-    assert input_repair.normalize_arguments(row) == row
+    assert input_contracts.normalize_arguments(row) == row
 
 
 @pytest.mark.parametrize('field,value', [('in_frame', '甲'), ('extras', [None]), ('listeners', [''])])
 def test_cast_argument_errors_precede_models_and_receipts(setup, field, value):
     with pytest.raises(input_repair.RepairArgumentError, match=field):
-        input_repair.normalize_arguments(decision(shots=[{'index': 1, field: value}]))
+        input_contracts.normalize_arguments(decision(shots=[{'index': 1, field: value}]))
 
 
 def test_explicit_speaker_and_action_correction_preserves_the_words(setup, monkeypatch):
@@ -364,7 +365,7 @@ def test_unrelated_blocked_shots_do_not_veto_local_source_correction(setup,monke
 def test_dialogue_correction_argument_retains_inner_voice_and_new_words(setup):
     row=decision(shots=[{'index':1,'turns':[{'speaker_name':'甲',
         'delivery_mode':'offscreen_dialogue','text':'我得先查清缘由。','inner_monologue':True}]}])
-    assert input_repair.normalize_arguments(row)==row
+    assert input_contracts.normalize_arguments(row)==row
 
 
 @pytest.mark.parametrize('correct_owner',[False,True])

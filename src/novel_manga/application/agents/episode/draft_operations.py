@@ -89,7 +89,7 @@ class DraftOperations:
         from novel_manga.story.h3 import positive_direction_issues
         draft = input_file(self.ctx, payload, draft_file(self.ctx))
         if isinstance(draft, dict) and isinstance(draft.get('decisions'), list):
-            from .input_repair import normalize_arguments
+            from .input_contracts import normalize_arguments
             from .requests import compose_repair
             from .contracts import validate_patch
             clips = {c['clip_id']: c for c in read_json(self.ctx.episode_dir/'clip_plan.json', {}).get('clips', [])}
