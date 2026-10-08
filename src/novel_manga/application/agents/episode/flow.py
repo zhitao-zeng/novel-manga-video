@@ -911,7 +911,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                 from novel_manga.application.agents.episode import pipeline_preparation as native_episode
                 _wait_for_idle(bridge)
                 bridge.update_state(phase='pipeline_preparation',waiting_for='native_pipeline')
-                ready=native_episode.prepare(ctx,bridge.tools)
+                ready=native_episode.prepare(ctx,bridge.tools.drafts,bridge.tools.repairs)
                 account_resources()
                 if ready.get('status')=='waiting_assets':
                     native_wait=ready

@@ -118,7 +118,7 @@ def test_soundscape_cannot_add_or_duplicate_native_speech(sound):
 def test_prepared_script_accepts_structured_directions_without_changing_plan(tmp_path, monkeypatch):
     ctx, old, prompts = prepared(tmp_path, monkeypatch)
     prompts['clip_01'] = {'shots': ['<Subject 2> lifts the cup. <DIALOGUE_1> The cup settles.']}
-    errors, script, plan = EpisodeTools(ctx)._validate_requests({'prompts': prompts})
+    errors, script, plan = EpisodeTools(ctx).drafts.validate_requests({'prompts': prompts})
     assert errors == []
     first = plan['clips'][0]
     assert first['generation_seed'] == old['clips'][0]['generation_seed']

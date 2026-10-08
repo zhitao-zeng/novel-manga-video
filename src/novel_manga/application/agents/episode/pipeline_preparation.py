@@ -92,7 +92,7 @@ def ensure_cards(ctx, plan):
     actions.ensure_cards(ctx.episode_dir,plan)
 
 
-def patch_inputs(ctx, tools, failure):
+def patch_inputs(ctx, drafts, repairs, failure):
     """A bounded translation repair; the model cannot rewrite source dialogue."""
     if semantic_failure(failure):
         return {'ok':False,'needs_semantic_repair':True}
@@ -122,11 +122,11 @@ def patch_inputs(ctx, tools, failure):
     decisions=[{'clip_id':cid,'action':'edit','reason':'Repair the existing English request structure',
                 'h3':body} for cid,body in answer['prompts'].items()]
     atomic_write_json(ctx.work_dir/path,{'decisions':decisions})
-    checked=tools.check({'file':path})
-    return tools.apply({'file':path}) if checked.get('valid') is True else checked
+    checked=drafts.check({'file':path})
+    return repairs.apply({'file':path}) if checked.get('valid') is True else checked
 
 
-def prepare(ctx, tools):
+def prepare(ctx, drafts, repairs):
     """Keep filmed work intact; use bounded native stages for unfilmed inputs."""
     path=ctx.run_dir/'pipeline-production.json'
     prior=read_json(path,{})
@@ -147,8 +147,8 @@ def prepare(ctx, tools):
     # Adopt a valid existing author draft without asking a new writer to redo it.
     if not (ctx.episode_dir/'clip_plan.json').exists() and (ctx.work_dir/'output/episode.json').exists():
         try:
-            if tools.check({}).get('valid') is True:
-                tools.adopt({})
+            if drafts.check({}).get('valid') is True:
+                drafts.adopt({})
         except (ValueError,KeyError,TypeError):
             pass  # Retain the candidate; the normal planner still owns missing plans.
     try:
@@ -163,7 +163,7 @@ def prepare(ctx, tools):
                 prior['correction_attempted']=True
                 prior['correction_policy']=CORRECTION_POLICY
                 save('correcting',failure=failure)
-                correction=patch_inputs(ctx,tools,failure)
+                correction=patch_inputs(ctx,drafts,repairs,failure)
                 save('correcting',failure=failure,correction_result=correction)
                 if correction.get('ok'):
                     failure=prepare_one(ctx.episode_dir,card_builder=lambda plan:ensure_cards(ctx,plan))
@@ -213,7 +213,7 @@ def begin_semantic_repair(ctx):
     return True
 
 
-def validate_editorial_request(ctx, tools, row):
+def validate_editorial_request(ctx, row):
     if media_started(ctx.episode_dir):
         raise ValueError('existing takes retain their cuts and budgets; use scoped input/turns repair')
     if not semantic_pending(ctx):
@@ -227,8 +227,8 @@ def validate_editorial_request(ctx, tools, row):
         raise ValueError('replan needs the Agent concrete correction instructions')
 
 
-def editorial_request(ctx, tools, row):
-    validate_editorial_request(ctx,tools,row)
+def editorial_request(ctx, row):
+    validate_editorial_request(ctx,row)
     if row['action']=='replan':
         path=ctx.run_dir/'pipeline-replan-request.json'
         if path.exists():

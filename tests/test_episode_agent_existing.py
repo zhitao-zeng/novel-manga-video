@@ -1,3 +1,4 @@
+from novel_manga.application.agents.episode.media_operations import MediaOperations
 """Existing script integration: only final requests cross the agent boundary."""
 import copy
 
@@ -81,7 +82,7 @@ def _retained_asr_assembly(tmp_path, monkeypatch, cache_state='current'):
         return {'thin_passed':True, 'subtitle_events':len(subtitles)}
 
     runner.assemble = encode
-    monkeypatch.setattr(EpisodeTools, '_runner', lambda self:runner)
+    monkeypatch.setattr(MediaOperations, 'runner', lambda self:runner)
     history.save(ctx.episode_dir, {'trials':[], 'prior_generation_counts':{'clips':{'clip_01':2}}})
     report = {'status':'clips_ready', 'clip_plan_fingerprint':plan_fingerprint(plan),
               'prompt_h3_fingerprint':h3_prompt_fingerprint(plan), 'review_feedback':{},
@@ -98,7 +99,7 @@ def test_assembly_restores_selected_take_asr_at_real_subtitle_boundary(tmp_path,
         tmp_path, monkeypatch, cache_state)
     counts = history.generation_counts(ctx.episode_dir)
     movie = video.read_bytes()
-    result = EpisodeTools(ctx)._assemble(report)
+    result = EpisodeTools(ctx).media.assemble(report)
     selected = result['clips'][0]['selected']
     assert analysed == [video]
     assert len(asr_calls) == (1 if cache_state == 'missing' else 0)
@@ -118,7 +119,7 @@ def test_assembly_restores_selected_take_asr_at_real_subtitle_boundary(tmp_path,
 def test_assembly_keeps_complete_analysis_without_repeating_asr(tmp_path, monkeypatch):
     ctx, report, video, analysed, asr_calls, subtitles, cached = _retained_asr_assembly(tmp_path, monkeypatch)
     report['clips'][0]['selected'].update(cached, video=str(video), clip_id='clip_01')
-    EpisodeTools(ctx)._assemble(report)
+    EpisodeTools(ctx).media.assemble(report)
     assert analysed == [] and asr_calls == [] and subtitles
 
 
@@ -126,7 +127,7 @@ def test_restored_asr_failure_still_blocks_content_acceptance(tmp_path, monkeypa
     from novel_manga.application.review.execution import save_result
     ctx, report, video, _, _, _, _ = _retained_asr_assembly(tmp_path, monkeypatch, 'speech_failed')
     counts = history.generation_counts(ctx.episode_dir)
-    result = EpisodeTools(ctx)._assemble(report)
+    result = EpisodeTools(ctx).media.assemble(report)
     assert result['clips'][0]['selected']['passed'] is False
     assert result['gate_failed_clips'] == ['clip_01']
     accepted = save_result(ctx.episode_dir, result, {'clips':{'clip_01':{'severity':'pass'}}, 'feedback':{}})
@@ -136,7 +137,7 @@ def test_restored_asr_failure_still_blocks_content_acceptance(tmp_path, monkeypa
 
 def test_adopt_validates_and_saves_without_rendering_or_spending_a_take(tmp_path, monkeypatch):
     ctx, before, _ = prepared(tmp_path, monkeypatch)
-    monkeypatch.setattr(EpisodeTools, '_runner', lambda *a: pytest.fail('adoption started video'))
+    monkeypatch.setattr(MediaOperations, 'runner', lambda *a: pytest.fail('adoption started video'))
     result = EpisodeTools(ctx).dispatch('adopt', {})
     assert result['ok'] and result['adopted']
     assert read_json(ctx.run_dir/'prepared.json')['ready']
@@ -331,7 +332,7 @@ def test_render_runs_independent_acceptance_and_delivers_its_current_evidence(tm
                 'video': str(video), 'passed': False, 'hypothesis': '修正识别'}}],
                 'quality_review': {'passed': False}, 'assembly': {'thin_passed': True}}
 
-    monkeypatch.setattr(EpisodeTools, '_runner', lambda self: Runner())
+    monkeypatch.setattr(MediaOperations, 'runner', lambda self: Runner())
 
     def frames(episode_dir, cid, video, destination):
         assert video.read_bytes() == b'current selected take'

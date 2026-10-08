@@ -1,3 +1,5 @@
+from novel_manga.application.agents.episode.media_operations import MediaOperations
+from novel_manga.application.agents.episode.evidence import EpisodeEvidence
 """Review precedes expensive assembly; delivery still requires full technical QC."""
 import copy
 from pathlib import Path
@@ -87,8 +89,8 @@ def host(tmp_path, monkeypatch):
         atomic_write_json(directory/'episode_review.json',value)
         return value
 
-    monkeypatch.setattr(EpisodeTools,'_runner',lambda self:Runner())
-    monkeypatch.setattr(EpisodeTools,'_review_evidence',lambda self,review,report,**kwargs:{'feedback':review.get('feedback',{})})
+    monkeypatch.setattr(MediaOperations, 'runner',lambda self:Runner())
+    monkeypatch.setattr(EpisodeEvidence, 'review_evidence',lambda self,review,report,**kwargs:{'feedback':review.get('feedback',{})})
     monkeypatch.setattr('novel_manga.application.review.execution.review_saved',review)
     return ctx,EpisodeTools(ctx),events,state
 
@@ -361,7 +363,7 @@ def test_finish_rechecks_existing_movie_when_book_qc_policy_changes(host, monkey
         if other_failure:result[other_failure]['passed']=False
         return {'passed':all(v['passed'] for v in result.values()),'checks':result}
     monkeypatch.setattr('novel_manga.qc.inspect_media',inspect)
-    monkeypatch.setattr(EpisodeTools,'_runner',lambda *a:pytest.fail('QC re-evaluation cannot render/re-encode'))
+    monkeypatch.setattr(MediaOperations, 'runner',lambda *a:pytest.fail('QC re-evaluation cannot render/re-encode'))
     before_counts=history.generation_counts(ctx.episode_dir)
     result=tools.dispatch('finish')
     assert result['ok'] and result['passed'] is expected

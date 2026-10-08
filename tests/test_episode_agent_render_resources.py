@@ -33,7 +33,7 @@ def runner_arguments(tmp_path, monkeypatch):
 
 def test_standalone_retains_two_workers_and_existing_retry_profile(runner_arguments):
     tools, calls = runner_arguments
-    runner = tools._runner()
+    runner = tools.media.runner()
     assert calls[0]['workers'] == 2 and calls[0]['inflight'] == 0
     assert calls[0]['max_attempts'] == 1
     assert calls[0]['profile'] == {'speech_gate': 'enforce', 'frame': 'portrait'}
@@ -46,7 +46,7 @@ def test_conductor_settings_pass_shared_cap_and_zero_means_per_clip_workers(runn
     monkeypatch.setenv('NOVEL_RENDER_WORKERS', '0')
     monkeypatch.setenv('NOVEL_RENDER_INFLIGHT', '24')
     monkeypatch.setenv('NOVEL_INFLIGHT_DIR', '/configured/shared/slots')
-    tools._runner()
+    tools.media.runner()
     assert calls[0]['workers'] == 0 and calls[0]['inflight'] == 24
     assert calls[0]['max_attempts'] == 1
     import os
@@ -60,5 +60,5 @@ def test_managed_missing_or_zero_inflight_refuses_before_runner(runner_arguments
     if value is not None:
         monkeypatch.setenv('NOVEL_RENDER_INFLIGHT', value)
     with pytest.raises(ValueError, match='NOVEL_RENDER_INFLIGHT'):
-        tools._runner()
+        tools.media.runner()
     assert not calls

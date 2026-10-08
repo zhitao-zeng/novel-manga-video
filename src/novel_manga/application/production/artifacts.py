@@ -28,4 +28,3 @@ def archive_adoption(episode_dir, run_dir):
     if (run_dir / 'final-candidate').is_dir():
         shutil.copytree(run_dir / 'final-candidate', directory / 'final-candidate')
     return directory
-

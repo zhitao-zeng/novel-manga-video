@@ -1,3 +1,4 @@
+from novel_manga.application.agents.episode.media_operations import MediaOperations
 """Prepared-script fixture shared by episode agent integration tests."""
 from pathlib import Path
 from types import SimpleNamespace
@@ -47,7 +48,7 @@ def prepared(tmp_path, monkeypatch, *, old_english=True):
             return {'status': 'assembled', 'clips': [], 'failed_clips': [],
                     'gate_failed_clips': [], 'assembly': {'thin_passed': True}}
 
-    monkeypatch.setattr(EpisodeTools, '_runner', lambda self: Runner())
+    monkeypatch.setattr(MediaOperations, 'runner', lambda self: Runner())
     monkeypatch.setattr('novel_manga.application.review.execution.review_saved',
                         lambda directory, **kw: read_json(directory/'episode_review.json', {}))
     return ctx, plan, prompts

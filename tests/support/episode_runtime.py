@@ -36,6 +36,8 @@ def install_fake_runtime(monkeypatch, ctx):
     class FakeTools:
         def __init__(self, context):
             self.context = context
+            self.drafts = self
+            self.repairs = self
 
 
         def dispatch(self, action, payload):

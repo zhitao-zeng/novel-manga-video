@@ -90,7 +90,7 @@ def test_keep_without_a_video_does_not_spend_an_independent_video_recheck(blocke
     ctx, _, _ = blocked
     monkeypatch.setattr('novel_manga.application.review.execution.recheck_current_clip',
                         lambda *a: pytest.fail('There is no video to review'))
-    result = EpisodeTools(ctx).apply_decisions({'decisions': [
+    result = EpisodeTools(ctx).repairs.apply_decisions({'decisions': [
         {'clip_id': 'clip_01', 'action': 'keep', 'reason': 'Mistaken input-risk request'}]}, {'clip_01'})
     assert 'no current video' in result['blocked']['clip_01']
     assert not result.get('keep_checks')

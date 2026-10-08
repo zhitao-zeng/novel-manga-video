@@ -1,3 +1,4 @@
+from novel_manga.application.agents.episode.media_operations import MediaOperations
 import copy
 from pathlib import Path
 
@@ -33,7 +34,7 @@ def test_source_conflict_cannot_submit_video_or_trigger_asset_work(tmp_path, mon
         {'kind':'location','stage':1,'problem':'bedroom was bound to lobby','source_quote':'the original room'}]})
     monkeypatch.setattr(local_preparation,'inputs',lambda directory:{'revision':1})
     monkeypatch.setattr(local_preparation,'ensure_assets',lambda *a:pytest.fail('assets before source repair'))
-    monkeypatch.setattr(EpisodeTools,'_runner',lambda *a:pytest.fail('video before source repair'))
+    monkeypatch.setattr(MediaOperations, 'runner',lambda *a:pytest.fail('video before source repair'))
     result=EpisodeTools(ctx).dispatch('render',{})
     assert not result['ok'] and 'clip_01' in result['blocked']
     assert read_json(ctx.episode_dir/'thin_media_report.json')['blocked_clips']['clip_01']

@@ -1,3 +1,4 @@
+from novel_manga.application.agents.episode.media_operations import MediaOperations
 """Standard batch production reuses isolated episode books and their original leases."""
 import json
 from pathlib import Path
@@ -284,7 +285,7 @@ def test_corrected_first_inputs_return_to_standard_before_agent_render(tmp_path,
     workspaces.save(row,'blocked',error='old input defect')
     plan['repair_note']='source-checked correction'
     atomic_write_json(ctx.episode_dir/'clip_plan.json',plan)
-    monkeypatch.setattr(EpisodeTools,'_runner',lambda *a:pytest.fail('Agent stole standard first production'))
+    monkeypatch.setattr(MediaOperations, 'runner',lambda *a:pytest.fail('Agent stole standard first production'))
     result=EpisodeTools(ctx).render({})
     assert result['ok'] and result['pipeline_pending']
     assert workspaces.current(row) is None

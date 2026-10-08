@@ -1,3 +1,4 @@
+from novel_manga.application.agents.episode.media_operations import MediaOperations
 """Automatic repair context stays focused without hiding unresolved media."""
 import copy
 from types import SimpleNamespace
@@ -52,7 +53,7 @@ def evidence_case(tmp_path, monkeypatch):
         atomic_write_json(destination/'frame-evidence.json', {'frames': [{'path': str(frame)}]})
         return [frame], 'test current frame'
 
-    monkeypatch.setattr(EpisodeTools, '_runner', lambda self: Runner())
+    monkeypatch.setattr(MediaOperations, 'runner', lambda self: Runner())
     monkeypatch.setattr('novel_manga.application.review.execution.review_saved', independent_review)
     monkeypatch.setattr('novel_manga.application.repair.agent.provided_frames', frames)
     return ctx, plan, report, review, frame_calls
@@ -84,7 +85,7 @@ def test_failed_final_technical_gate_keeps_its_inspection_evidence(evidence_case
     report['status']='assembled'
     report['assembly']={'thin_passed':False,'media_qc':{'checks':{
         'silence_ratio':{'passed':False,'detail':{'ratio':0.42}}}}}
-    evidence=EpisodeTools(ctx)._review_evidence(review,report,pending_only=True)
+    evidence=EpisodeTools(ctx).evidence.review_evidence(review,report,pending_only=True)
     saved=read_json(ctx.work_dir/evidence['evidence'])
     assert saved['episode_technical_issues']['silence_ratio']['detail']['ratio']==0.42
     assert set(evidence['attention_clips'])=={c['clip_id'] for c in plan['clips'] if c['kind']=='video'}
