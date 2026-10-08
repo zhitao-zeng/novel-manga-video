@@ -13,8 +13,10 @@ def _archive_stale(path: Path, old_hash: str) -> None:
     if not path.exists():
         return
     archived = path.with_name(f"{path.stem}.stale-{old_hash[:8]}{path.suffix}")
-    if archived.exists():
-        archived = path.with_name(f"{path.stem}.stale-{old_hash[:12]}{path.suffix}")
+    index = 1
+    while archived.exists():
+        archived = path.with_name(f"{path.stem}.stale-{old_hash[:8]}-{index}{path.suffix}")
+        index += 1
     shutil.move(path, archived)
 
 
@@ -75,38 +77,18 @@ def ensure_image(
     meta = output.with_suffix(output.suffix + ".request.json")
     if output.is_file() and meta.is_file():
         saved = json.loads(meta.read_text(encoding="utf-8"))
-        if saved.get("request_sha256") == identity_hash:
-            if "provider_reference" in saved:
-                saved.pop("provider_reference", None)
-                atomic_write_json(meta, saved)
+        if (saved.get("request_sha256") == identity_hash
+                and saved.get("origin") != "locked-existing-asset"):
             return ImageResult(path=output)
         if settings.reuse_existing_assets:
-            atomic_write_json(
-                meta,
-                {
-                    **identity,
-                    "request_sha256": identity_hash,
-                    "artifact_sha256": sha256_file(output),
-                    "origin": "locked-existing-asset",
-                    "previous_request_sha256": saved.get("request_sha256"),
-                },
-            )
-            return ImageResult(path=output)
+            # The record belongs to the image actually generated. Keeping its
+            # pixels must not turn this new desired request into their origin.
+            return ImageResult(path=output, request_current=False)
         _archive_stale(output, str(saved.get("request_sha256", "unknown")))
         _archive_stale(meta, str(saved.get("request_sha256", "unknown")))
         output.with_suffix(output.suffix + ".task.json").unlink(missing_ok=True)
     elif output.is_file() and settings.reuse_existing_assets:
-        atomic_write_json(
-            meta,
-            {
-                **identity,
-                "request_sha256": identity_hash,
-                "artifact_sha256": sha256_file(output),
-                "origin": "locked-existing-asset",
-                "previous_request_sha256": None,
-            },
-        )
-        return ImageResult(path=output)
+        return ImageResult(path=output, request_current=False)
     options = {"aspect_ratio": aspect_ratio} if aspect_ratio else {}
     if seed is not None:
         options["seed"] = seed
@@ -136,5 +118,4 @@ def ensure_image(
         },
     )
     return result
-
 

@@ -10,6 +10,8 @@ from pathlib import Path
 class ImageResult:
     path: Path
     public_url: str | None = None
+    # A locked historical image can be returned without representing this request.
+    request_current: bool = True
 
 
 def image_dimensions(aspect_ratio: str) -> tuple[int, int]:

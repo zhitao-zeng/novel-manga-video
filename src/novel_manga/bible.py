@@ -17,6 +17,7 @@ from .llm.responses import bible_object
 from .llm.transport import send_json
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.models.source import NovelDocument
+from novel_manga.story.reading_facts import apply_known_facts, facts_for_name, facts_prompt
 
 ValidatedT = TypeVar("ValidatedT")
 
@@ -93,7 +94,12 @@ def _bounded_validate(
         f"{max_revisions + 1} attempt(s): {details}"
     ) from last_error
 
-def _validate_story_bible(data: dict, novel: NovelDocument, cast: list[str] | None = None) -> StoryBible:
+def _validate_story_bible(data: dict, novel: NovelDocument, cast: list[str] | None = None,
+                          character_facts: dict | None = None) -> StoryBible:
+    if character_facts and isinstance(data.get("characters"), list):
+        data = {**data, "characters": [
+            apply_known_facts(row, facts_for_name(character_facts, row.get("name", "")))
+            if isinstance(row, dict) else row for row in data["characters"]]}
     bible = StoryBible.model_validate(data)
     issues: list[dict[str, object]] = []
     if re.sub(r"\s+", "", bible.novel_title) != re.sub(r"\s+", "", novel.title):
@@ -297,7 +303,8 @@ class BibleBuilder:
         return bible_object(content)
 
 
-    def build_bible(self, novel: NovelDocument, cast: list[str] | None = None) -> StoryBible:
+    def build_bible(self, novel: NovelDocument, cast: list[str] | None = None,
+                    *, character_facts: dict | None = None) -> StoryBible:
         """Design the bible.  With `cast`, who belongs in it has already been decided by the reading.
 
         Deciding that from the seed chapters is what puts a one-scene driver in the bible with a card
@@ -305,6 +312,15 @@ class BibleBuilder:
         chapter at once and answers it properly, so when it has, the build is only asked to design.
         """
         schema = StoryBible.model_json_schema()
+        if cast and character_facts:
+            character_schema = schema["properties"]["characters"]["items"]
+            variants = []
+            for name in cast:
+                fixed = {"name": name, **apply_known_facts({}, facts_for_name(character_facts, name))}
+                variants.append({"allOf": [character_schema, {
+                    "type": "object", "properties": {key: {"const": value} for key, value in fixed.items()},
+                    "required": list(fixed)}]})
+            schema["properties"]["characters"]["items"] = {"oneOf": variants}
         system = (
             "你是漫剧总美术和小说事实核验员。只提取原文可支持的信息；外貌未写明时可做克制设计。"
             "每名主要角色还要建立可跨集复用的选角档案：visual_archetype写社会与戏剧类型，"
@@ -314,7 +330,7 @@ class BibleBuilder:
             "场景locations每条写成「地点名：一句空场描写」：冒号前是全书唯一的地点名，冒号后写这个地方的"
             "建筑结构、空间布局、关键物品与材质、时段与主光源方向。整条会原样用作空场卡的提示词——只写名字，"
             "模型就只能自己编。不把人物和人物动作写进地点。"
-            "所有角色必须是健康、非色情、非血腥的统一国漫画风。严格输出 JSON。"
+            "采用非色情、不渲染伤口血腥的统一国漫画风；原文明示的固定身体、非人形态、永久毁容、疤痕和残肢仍是人物事实，不能为了健康形象删去。严格输出 JSON。"
         )
         roster = ""
         if cast:
@@ -324,7 +340,8 @@ class BibleBuilder:
                       "原文没写外貌的，按这个人的身份和戏份做克制设计，不要留空。\n")
         user = (
             f"小说名：{novel.title}\n文本：{_compact_excerpt(novel.text)}\n{roster}"
-            f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}\n"
+            + facts_prompt(character_facts or {}, cast or list(character_facts or {}))
+            + f"JSON Schema：{json.dumps(schema, ensure_ascii=False)}\n"
             f"visual_style 必须包含：{STYLE}。style_fingerprint 暂填空字符串。"
         )
         return _bounded_validate(
@@ -335,6 +352,6 @@ class BibleBuilder:
                 token_budget=max(DIAGNOSIS_TOKEN_BUDGET,
                                  2000 + CHARACTER_TOKENS * len(cast)) if cast else DIAGNOSIS_TOKEN_BUDGET
             ),
-            lambda data: _validate_story_bible(data, novel, cast),
+            lambda data: _validate_story_bible(data, novel, cast, character_facts),
         )
 

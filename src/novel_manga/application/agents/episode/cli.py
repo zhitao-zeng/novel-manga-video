@@ -11,7 +11,7 @@ from novel_manga.application.agents.sandbox import load_config
 
 from .context import create_context
 from .flow import process_environment, read_status, run_episode
-from .inputs import prepare_inputs
+from .inputs import prepare_inputs, refresh_character_inputs
 
 
 def parser():
@@ -31,6 +31,9 @@ def parser():
                              help='Runtime project containing .env, configuration and media helpers.')
         command.add_argument('--target-seconds', type=float, nargs='+', metavar='SECONDS',
                              help='Source episode duration or minimum and maximum duration.')
+        if name == 'prepare':
+            command.add_argument('--refresh-character', action='append', metavar='ASSET_ID',
+                                 help='Refresh only this character in an existing input snapshot; repeat to select more.')
         if name == 'run':
             command.add_argument('--config', type=Path, help='Task-specific sandbox configuration.')
             command.add_argument('--retry-issues', action='store_true',
@@ -61,9 +64,15 @@ def main(argv=None):
                         output_root=arguments.output_root, input_mode=arguments.input_mode,
                         target_seconds=target)
                     if arguments.command == 'prepare':
-                        prepare_inputs(context)
-                        result = {'episode': context.source_episode_dir.name, 'status': 'prepared',
+                        refreshed = (refresh_character_inputs(context, arguments.refresh_character)
+                                     if arguments.refresh_character else None)
+                        if refreshed is None:
+                            prepare_inputs(context)
+                        result = {'episode': context.source_episode_dir.name,
+                                  'status': 'refreshed' if refreshed else 'prepared',
                                   'input_mode': context.input_mode, 'run_dir': str(context.run_dir), 'exit_code': 0}
+                        if refreshed:
+                            result.update(refreshed)
                     elif arguments.command == 'status':
                         result = read_status(context)
                     else:

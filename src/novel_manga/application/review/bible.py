@@ -1,5 +1,6 @@
 """Existing book scanning, bounded bible growth and volume recap workflow."""
 from __future__ import annotations
+from novel_manga.story.source_context import excerpts
 
 import fcntl
 import json
@@ -13,6 +14,8 @@ import novel_manga.story.name_rules as name_rules
 import novel_manga.review.contracts as review_contracts
 from novel_manga.util import atomic_write_json
 from novel_manga.review.endpoints import judge_settings
+from novel_manga.story.reading_facts import apply_known_facts, facts_for_name, facts_prompt
+from .character_updates import reconcile_characters
 
 
 def bible_settings():
@@ -46,9 +49,15 @@ def extract_names(chapter_text: str) -> list[dict]:
     return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.NAME_SCHEMA, name="names", max_tokens=1500, settings=bible_settings()).get("characters", [])
 
 
-def excerpts(text: str, name: str, limit: int = 12) -> str:
-    sentences = [s for s in re.split(r"(?<=[。！？])", text) if name in s]
-    return "".join(sentences[:limit])[:1600]
+
+
+def reading_character_facts(novel_dir: Path) -> dict:
+    """The same confirmed reading facts used by setup, without redesigning existing people."""
+    path = Path(novel_dir) / "reading_cast.json"
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return data.get("character_facts") or {}
 
 
 def reading_decisions(novel_dir: Path) -> dict:
@@ -166,10 +175,16 @@ def review_bible(novel_dir: Path, source: Path, fill: bool, chapters: int | None
 
 
 def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: dict, text: str,
-                    cast: list[str] | None = None) -> tuple[review_models_StoryBible, list[str], dict, dict]:
+                    cast: list[str] | None = None, *, character_facts: dict | None = None,
+                    aliases: dict | None = None, chapter: int | None = None
+                    ) -> tuple[review_models_StoryBible, list[str], dict, dict]:
     """Ask for casting entries for the missing names; add the confident proper
     names, keep appellations and vague entries as suggestions for a human."""
     known = [c.name for c in bible.characters]
+    if character_facts is None:
+        character_facts = reading_character_facts(bible_path.parent)
+    if aliases is None:
+        aliases = load_aliases(bible_path.parent)
     filled: list[str] = []
     needs_human: dict[str, str] = {}
     suggestions: dict[str, dict] = {}
@@ -180,7 +195,8 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
         # names, then the earliest entries (ids are positions, appended only, so the opening cast
         # is the recurring one), inside EXISTING_BUDGET.  role cannot rank them - in 诸天 only 8 of
         # 1310 entries say 配角 and many hold a whole appearance paragraph instead.
-        lines = [(c.name, f"- {c.name}：{c.gender}，{c.age}，{c.appearance[:60]}") for c in bible.characters]
+        # These are identity candidates, not appearance examples for new designs.
+        lines = [(c.name, f"- {c.name}：{c.role}，{c.gender}") for c in bible.characters]
         plausible = {name for name, _ in lines if len(name) >= 2 and (
             name in text or any(len(wanted) >= 2 and (wanted in name or name in wanted) for wanted in missing))}
         ordered = [line for name, line in lines if name in plausible]
@@ -195,16 +211,35 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
         prompt = (
             "圣经里已有这些角色：\n" + existing + "\n\n下面是原文里反复出现但圣经缺失的人物及其原文摘录。为每个人物判断：same_as 填写它其实是哪个已有角色（或本列表中另一个人物）的另一种叫法，不是则填空字符串；"
             "confidence 是你对“这是一个需要单独定妆的独立人物”的把握（0到1）。然后写一条可跨集复用的选角条目（性别、年龄段、外貌、服装、发型、配色、基础服装、识别物），"
-            "只写原文能支持的信息，外貌和服装必须是具体可画的描述，原文没写的做克制设计，不要写“未详”。"
-            "外貌只写稳定特征（体型、脸型、肤色、发型、年龄感），不写当下的状态：受伤、流血、伤痕、表情、哭泣、脏污、正在做的事都不算外貌。只输出JSON。\n\n"
-            + "\n\n".join(f"【{name}】（出现 {info['mentions']} 次，章 {sorted(set(info['chapters']))}）\n{excerpts(text, name)}" for name, info in missing.items())
+            "已确认读书事实是人物设计的依据，外貌、物种、外观年龄和服装须完整保留；"
+            "hair、palette、base_costume与这些事实保持一致。原文未写的部分可以做克制设计，并注明设计推断。"
+            "外貌记录稳定特征，包括原文确认的持久毁容、残肢、非人身体；"
+            "临时伤势、表情和当下动作留在章节状态。寿龄、职务与外观年龄分别表达，"
+            "阶段性的变身或换身体按已有阶段证据处理。"
+            "只为本批请求的名字各返回一条，不输出上方已有角色，不扩展名单。只输出JSON。\n\n"
         )
-        rows = model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.FILL_SCHEMA, name="fill", max_tokens=3000, settings=bible_settings()).get("characters", [])
+        vouched_names = [name for name in missing if cast and story_names.name_matches(name, cast)]
+        if vouched_names:
+            prompt += ("全书通读已经确认以下名字是需要定妆的独立人物："
+                       + "、".join(vouched_names)
+                       + "。这不是根据本章猜测是否会再出现；请据原文完成这些人物的具体设计，"
+                         "不要因敬称后缀或本章没有复述外貌就拒绝设计。\n\n")
+        rows = []
+        requested = list(missing)
+        for offset in range(0, len(requested), 4):
+            batch = requested[offset:offset + 4]
+            question = prompt + facts_prompt(character_facts or {}, batch, aliases=aliases, chapter=chapter) + "\n\n".join(
+                f"【{name}】（出现 {missing[name]['mentions']} 次，章 {sorted(set(missing[name]['chapters']))}）\n{excerpts(text, name)}"
+                for name in batch)
+            rows.extend(model_client.ask_json([{"type": "text", "text": question}],
+                review_contracts.fill_schema(batch), name="fill", max_tokens=3000,
+                settings=bible_settings()).get("characters", []))
         added: list[Character] = []
         for row in rows:
             name = re.sub(r"\s+", "", str(row.get("name", "")))
             if name not in missing:
                 continue
+            row = apply_known_facts(row, facts_for_name(character_facts or {}, name, aliases=aliases, chapter=chapter))
             reason = ""
             # The reading read the whole book; this question is asked from inside one chapter.  When
             # the two disagree about whether somebody exists, the reading wins - otherwise 伊文斯 is
@@ -214,11 +249,11 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
                 reason = f"疑为 {row['same_as']} 的别称"
             elif float(row.get("confidence", 0)) < 0.6:
                 reason = f"把握不足（{row.get('confidence')}）"
-            elif VAGUE.search(row.get("appearance", "")) or VAGUE.search(row.get("wardrobe", "")) or not row.get("appearance") or not row.get("wardrobe"):
+            elif VAGUE.fullmatch(row.get("appearance", "").strip()) or VAGUE.fullmatch(row.get("wardrobe", "").strip()) or not row.get("appearance") or not row.get("wardrobe"):
                 reason = "外貌或服装描述不具体"
             elif story_names.name_matches(name, known):
                 reason = "与已有角色重名"
-            if not reason and name_rules.APPELLATION.search(name):
+            if not reason and not vouched and name_rules.APPELLATION.search(name):
                 reason = "称呼类人物，可能是已有角色的另一叫法；条目已生成，需人工确认后加入"
             if reason:
                 needs_human[name] = reason
@@ -521,7 +556,9 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     suggestions: dict = {}
     if missing:
         cast = reading_decisions(novel_dir)["cast"]
-        bible, filled, needs_human, suggestions = fill_characters(bible, bible_path, missing, chapter_text, cast)
+        facts = reading_character_facts(novel_dir)
+        fact_options = {"character_facts": facts, "aliases": aliases, "chapter": chapter_index} if facts else {}
+        bible, filled, needs_human, suggestions = fill_characters(bible, bible_path, missing, chapter_text, cast, **fact_options)
         for name, entry in suggestions.items():
             target = str(entry.get("same_as") or "")
             if cast and story_names.name_matches(name, cast):

@@ -58,3 +58,39 @@ def merge_manifest(root, style_fingerprint, characters, locations, voices, props
             payload.pop("props", None)  # a prop-less book's manifest stays byte-identical
         atomic_write_json(manifest_path, payload)
     return manifest
+
+
+def replace_card_verdict(root: Path, asset_id: str, old_request: str,
+                         candidate: dict | None = None) -> None:
+    """Archive the old verdict, then install an already accepted candidate's review."""
+    path = root / "cards_review.json"
+    if not path.is_file() and candidate is None:
+        return
+    from .asset_images import _archive_stale
+    section = "characters" if asset_id.startswith("character_") else "locations"
+    with (root / ".cards_review.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        report = (json.loads(path.read_text(encoding="utf-8")) if path.is_file()
+                  else {"characters": {}, "locations": {}, "flags": [], "missing_cards": []})
+        previous = (report.get(section) or {}).pop(asset_id, None)
+        if previous is not None:
+            directory = root / section / asset_id
+            evidence = directory / "card_review.json"
+            atomic_write_json(evidence, previous)
+            _archive_stale(evidence, old_request)
+        report["flags"] = [row for row in report.get("flags", [])
+                           if not str(row).startswith(asset_id + " ")]
+        report["missing_cards"] = [row for row in report.get("missing_cards", [])
+                                   if not str(row).startswith(asset_id + " ")]
+        missing_summary = "待重建的卡（所属章节建卡时生成）："
+        report["flags"] = [row for row in report["flags"]
+                           if not str(row).startswith(missing_summary)]
+        if report["missing_cards"]:
+            report["flags"].append(missing_summary + "、".join(report["missing_cards"]))
+        if candidate is not None:
+            entry = (candidate.get(section) or {}).get(asset_id)
+            if entry is not None:
+                report.setdefault(section, {})[asset_id] = entry
+            if "policy" in candidate:
+                report["policy"] = candidate["policy"]
+        atomic_write_json(path, report)

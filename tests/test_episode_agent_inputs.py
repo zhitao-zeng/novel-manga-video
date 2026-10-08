@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from support.episode_inputs import book, saved_script
 
 from novel_manga.application.agents.episode import context
 from novel_manga.application.agents.episode.inputs import prepare_inputs
@@ -18,40 +19,6 @@ def read(path):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-@pytest.fixture
-def book(tmp_path, monkeypatch):
-    monkeypatch.setattr(context, 'configured_root', lambda: tmp_path / 'project')
-    source = tmp_path / 'originals/another-book'
-    episode = source / 'another-book_2'
-    episode.mkdir(parents=True)
-    raw = '第一章 过去\n旧事。\n\n第二章 相逢\n林舟在书房说：“快走。”'
-    text = tmp_path / 'novel.txt'
-    text.write_text(raw, encoding='utf-8')
-    start = raw.index('第二章')
-    write(source / 'novel.json', {'novel_id': source.name, 'title': '另一本书', 'source': str(text),
-        'chapters': [{'index': 1, 'title': '第一章 过去', 'start': 0, 'end': start},
-                     {'index': 2, 'title': '第二章 相逢', 'start': start, 'end': len(raw)}]})
-    profile = {'frame': '9:16', 'resolution': '1080p', 'speech_gate': 'enforce',
-               'inner_voice_delivery': 'native', 'qc_ignore': [], 'asr_threshold': .15}
-    write(source / 'profile.json', profile)
-    write(source / 'story_bible.json', {'novel_title': '另一本书', 'genre': '现代',
-        'visual_style': '2D', 'palette': '蓝', 'style_fingerprint': 'existing',
-        'characters': [{'name': '林舟', 'appearance': '黑发', 'wardrobe': '白衬衫'}],
-        'locations': ['书房：旧窗']})
-    write(source / 'bible_aliases.json', {'小林': '林舟'})
-    character = 'series_assets/characters/character_009/turnaround.jpeg'
-    setting = 'series_assets/locations/location_006/establishing.jpeg'
-    for name in (character, setting, 'series_assets/voices/林舟.wav'):
-        p = source / name
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b'original asset ' + name.encode())
-    write(source / 'series_assets/manifest.json', {'characters': [{'asset_id': 'character_009',
-        'name': '林舟', 'primary_image': character}], 'locations': [{'asset_id': 'location_006',
-        'name': '书房：旧窗', 'primary_image': setting}]})
-    write(source / 'series_assets/voices/voices.json', {'林舟': {'seconds': 12}})
-    write(episode / 'segments.json', [{'segment_id': 'original-2-1', 'text': '林舟在书房说：“快走。”'}])
-    write(episode / 'identity_source_reading.json', {'actors': [{'name': '林舟', 'quote': '林舟'}]})
-    return source, episode, tmp_path
 
 
 def test_preparation_carries_the_book_asr_aliases_into_the_isolated_runtime(book):
@@ -225,21 +192,6 @@ def test_source_catalog_never_offers_rejected_folder_images_as_extra_views(book)
     assert any(r['path'].endswith('expressions.jpeg') for r in catalog)
 
 
-def saved_script(source, episode, *, count=1, seconds=12):
-    script = {'video_title': '已定稿', 'shots': [{'index': i, 'characters': ['林舟'],
-        'visual_prompt': '林舟坐在书房。', 'motion_prompt': '林舟转头。',
-        'turns': [{'speaker_name': '林舟', 'text': '快走。', 'delivery_mode': 'visible_dialogue'}]}
-        for i in range(1, count + 1)]}
-    refs = [{'tag': '@图片1', 'role': 'location', 'name': '书房', 'asset_id': 'location_006',
-             'path': 'series_assets/locations/location_006/establishing.jpeg'},
-            {'tag': '@图片2', 'role': 'character', 'name': '林舟', 'asset_id': 'character_009',
-             'path': 'series_assets/characters/character_009/turnaround.jpeg'}]
-    plan = {'limits': {'max_clip_seconds': 15}, 'clips': [{'clip_id': f'clip_{i:02d}',
-        'kind': 'video', 'shot_indexes': [i], 'request_seconds': seconds, 'references': refs,
-        'prompt_h3': 'Existing final English.'} for i in range(1, count + 1)]}
-    write(episode / 'chapter_script.json', script)
-    write(episode / 'clip_plan.json', plan)
-    return script, plan
 
 
 def test_source_reads_registered_offsets_and_preserves_source_and_profile(book):
@@ -256,7 +208,8 @@ def test_source_reads_registered_offsets_and_preserves_source_and_profile(book):
     assert result['reading'] == ['input/reading/identity_source_reading.json']
     assert before == {str(p): p.read_bytes() for p in source.rglob('*') if p.is_file()}
     assert ctx.novel_dir != source and ctx.episode_dir.parent == ctx.novel_dir
-    assert (ctx.novel_dir / 'series_assets').resolve() == ctx.asset_snapshot_dir / 'series_assets'
+    assert not (ctx.novel_dir / 'series_assets').is_symlink()
+    assert (ctx.novel_dir / 'series_assets/characters/character_009/turnaround.jpeg').is_file()
 
 
 def test_manifest_resources_are_readable_in_the_episode_mount_and_use_current_code_skill(book):
@@ -326,7 +279,7 @@ def test_explicit_source_excludes_old_script_and_requests(book):
     assert all('prompt_h3' not in row for row in read(ctx.run_dir / 'catalog.json'))
 
 
-def test_shared_assets_copied_once_and_resume_does_not_reset_budget(book):
+def test_new_runs_copy_their_selected_assets_and_resume_does_not_reset_budget(book):
     source, episode, _ = book
     ctx = context.create_context(source, 2)
     import shutil
@@ -340,7 +293,7 @@ def test_shared_assets_copied_once_and_resume_does_not_reset_budget(book):
         prepare_inputs(other)
         prepare_inputs(ctx)
     original = source / 'series_assets/characters/character_009/turnaround.jpeg'
-    assert sum(Path(call.args[0]) == original for call in copies.call_args_list) == 1
+    assert sum(Path(call.args[0]) == original for call in copies.call_args_list) == 2
     assert other.work_dir != ctx.work_dir and other.novel_dir != ctx.novel_dir
     assert other.asset_snapshot_dir == ctx.asset_snapshot_dir
     assert read(ctx.episode_dir / 'repair_history/history.json') == {'trials': [{'id': 1, 'managed': True}]}

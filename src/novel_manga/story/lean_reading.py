@@ -14,6 +14,9 @@ against a 262k window, and exited with an API error having written nothing.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from copy import deepcopy
+
+from novel_manga.story.reading_facts import facts_for_name, facts_from_export
 
 STR = {"type": "string"}
 
@@ -115,9 +118,29 @@ def aggregate(extracts: dict[int, dict], chapter_texts: dict[int, str]) -> dict:
             form["gender"][person["gender"]] += 1
             if len(form["evidence"]) < 2:
                 form["evidence"].append({"chapter": n, "quote": person["evidence"]})
+        # Only this chapter's explicit refers_to may bind a descriptive look.  A nearby
+        # proper name, or a name contained in a descriptor, is not an identity decision.
+        targets: dict[str, set[str]] = defaultdict(set)
+        for person in answer.get("people", []):
+            target = str(person.get("refers_to") or "").strip()
+            if target and target != "未定":
+                targets[person["form"].strip()].add(target)
+            elif person.get("kind") == "专名":
+                targets[person["form"].strip()].add(person["form"].strip())
         for look in answer.get("looks", []):
-            looks[look["form"].strip()].append(
-                {"chapter": n, "text": look["text"], "lasting": look["lasting"]})
+            form = look["form"].strip()
+            bound = targets.get(form, set())
+            source = chapter_texts[n]
+            quote = look["text"]
+            position = source.find(quote)
+            context = ""
+            if position >= 0:
+                before = source.rfind("\n\n", 0, position)
+                after = source.find("\n\n", position + len(quote))
+                context = source[before + 2 if before >= 0 else 0:after if after >= 0 else len(source)]
+            looks[form].append({"chapter": n, "text": quote, "lasting": look["lasting"],
+                                "refers_to": next(iter(bound)) if len(bound) == 1 else "",
+                                "context": context})
         for change in answer.get("changes", []):
             changes.append({"chapter": n, **change})
         for place in answer.get("locations", []):
@@ -166,6 +189,14 @@ def candidate_table(title: str, candidates: dict, last_chapter: int) -> str:
     for form, items in sorted(candidates["looks"].items(), key=lambda kv: -len(kv[1])):
         out.append(f"- **{form}**：" + "；".join(
             f"第{i['chapter']}章（{i['lasting']}）「{i['text']}」" for i in items[:8]))
+    out += ["", "## 外貌归属（逐条保留，描述性称谓不得丢掉）", ""]
+    for form, items in candidates["looks"].items():
+        for item in items:
+            if item.get("refers_to"):
+                continue
+            out.append(f"- 第{item['chapter']}章 **{form}** → 待本次归并确认（{item['lasting']}）：「{item['text']}」")
+            if item.get("context"):
+                out.append("  同段原文：" + item["context"])
     out += ["", "## 持久变化", ""]
     out += [f"- 第{c['chapter']}章 {c['form']}：{c['what']}（「{c['evidence']}」）"
             for c in candidates["changes"]]
@@ -181,9 +212,61 @@ def candidate_table(title: str, candidates: dict, last_chapter: int) -> str:
     return "\n".join(out) + "\n"
 
 
+def missing_look_bindings(export: dict, candidates: dict) -> list[dict]:
+    """Return omitted attribution work, not a guess at what the attribution should be."""
+    facts = facts_from_export(export)
+    answered = {(item["chapter"], item["form"], item["text"])
+                for item in export.get("look_bindings", [])}
+    missing = []
+    for form, items in candidates.get("looks", {}).items():
+        for item in items:
+            if item.get("refers_to") or facts_for_name(facts, form):
+                continue
+            if (item["chapter"], form, item["text"]) not in answered:
+                missing.append({"form": form, **item})
+    return missing
+
+
+def bind_export_looks(export: dict, candidates: dict) -> dict:
+    """Preserve every supported look under the identity the extraction/merge actually confirmed."""
+    result = deepcopy(export)
+    people = {person["name"]: person for person in result.get("characters", [])}
+    facts = facts_from_export(result)
+    answers: dict[tuple, set[str]] = defaultdict(set)
+    for answer in result.get("look_bindings", []):
+        answers[(answer["chapter"], answer["form"], answer["text"])].add(answer["name"])
+    unresolved = []
+    for form, items in candidates.get("looks", {}).items():
+        for item in items:
+            targets = answers.get((item["chapter"], form, item["text"]), set())
+            target = item.get("refers_to") or (
+                next(iter(targets)) if len(targets) == 1 else "未定" if targets else form)
+            fact = facts_for_name(facts, target) if target != "未定" else {}
+            if not fact or ("context" in item and not item["context"]):
+                unresolved.append({"form": form, **item})
+                continue
+            person = people[fact["name"]]
+            look = {key: item[key] for key in ("chapter", "text", "lasting")}
+            if look not in person.setdefault("looks", []):
+                person["looks"].append(look)
+            quote = {"chapter": item["chapter"], "quote": item["text"]}
+            if quote not in person.setdefault("evidence", []):
+                person["evidence"].append(quote)
+    for person in people.values():
+        if not person.get("appearance", "").strip():
+            person["appearance"] = "；".join(
+                look["text"] for look in person.get("looks", []) if look["lasting"] == "持久")
+    result["unresolved_looks"] = unresolved
+    return result
+
+
 MERGE_SCHEMA = {
-    "type": "object", "additionalProperties": False, "required": ["characters"],
+    "type": "object", "additionalProperties": False, "required": ["characters", "look_bindings"],
     "properties": {
+        "look_bindings": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False,
+            "required": ["chapter", "form", "text", "name"],
+            "properties": {"chapter": {"type": "integer"}, "form": STR, "text": STR, "name": STR}}},
         "characters": {"type": "array", "items": {
             "type": "object", "additionalProperties": False,
             "required": ["name", "name_source", "aliases", "tier", "gender", "age", "identity",
@@ -240,6 +323,13 @@ MERGE_PROMPT = """前一步已经把《{title}》第 1–{last} 章逐章读过�
 
 ## 证据
 
+外貌归属一节尚待确认的每一条都必须在 `look_bindings` 返回：照抄 chapter/form/text，name 写本次导出的正名；
+只有同章同指证据或已确认别名允许归名。无把握则 name 写“未定”，不要取最近的人名。
+描述性称谓的外貌不能因为不单独建角色就丢掉：例如“白金长发的俊美青年”随后被点名为云森，
+应把该描写和服装归入云森；只有寿龄/头衔不能把青年或孩童外观改成老人。
+同段原文和称谓表应一起判断。有明确外貌归属时，人物 appearance/wardrobe 要保留这些事实；
+持久的毁容、疤痕、残肢是外貌，不得因“不要写临时伤势”而删去。
+
 `quote` 必须是从标注的那一章原文里连续复制的一段，不得改写、概括、拼接，也不要用省略号把两处接起来。情节复述不是引文。复制不出连续原句时，换一章能直接复制的，或者把这条证据删掉——宁可少一条证据，不要一条对不上原文的证据。
 
 ## 未成年人
@@ -274,6 +364,9 @@ MERGE_BRIEF_TAIL = """
 
 **1. `story_bible.json`**
 
+同文件增加 `look_bindings`，尚待归属的每条外貌原句均写 `{chapter, form, text, name}`；未决的 name 为“未定”。
+在对应人物条目中保留已归名的 `looks` 数组，每条为 `{chapter, text, lasting}`，不把临时状态覆盖进常态。
+
 ```json
 {"characters": [
   {"name": "正名", "name_source": "原文|描述", "aliases": ["有同指证据的别名"],
@@ -285,7 +378,7 @@ MERGE_BRIEF_TAIL = """
    "first_chapter": 1, "chapters": [1, 2, 5],
    "evidence": [{"chapter": 1, "quote": "不超过 30 字的原文"}],
    "unresolved": ["未决的指代或矛盾"]}],
- "locations": [
+"locations": [
   {"name": "地点名", "description": "原文有据的空场描写", "first_chapter": 1, "chapters": [1, 3]}]}
 ```
 

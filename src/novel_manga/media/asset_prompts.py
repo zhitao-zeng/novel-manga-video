@@ -1,7 +1,7 @@
 """Shared character and location prompt rules, without IO."""
 from __future__ import annotations
 
-from novel_manga.models.bible import StoryBible
+from novel_manga.models.bible import Character, StoryBible
 
 DIRECTION_2D = (
     "二维国风卡通动画人物资产，清晰且有粗细变化的手绘线稿，"
@@ -76,6 +76,8 @@ def character_prompt(
     appearance: str,
     wardrobe: str,
     *,
+    age: str = "",
+    gender: str = "",
     visual_archetype: str = "",
     face_anchors: list[str] | None = None,
     silhouette: str = "",
@@ -92,6 +94,9 @@ def character_prompt(
     identity = "；".join(
         item
         for item in (
+            f"性别：{trim(gender)}" if gender else "",
+            (f"年龄说明：{trim(age)}；寿龄与外观年龄分开，外观按明确的年龄说明与固定外貌描写，"
+             "不把寿龄自动画成衰老面容") if age else "",
             f"戏剧类型：{trim(visual_archetype)}" if visual_archetype else "",
             f"五官锚点：{'、'.join(trim(a) for a in (face_anchors or []))}" if face_anchors else "",
             f"轮廓：{trim(silhouette)}" if silhouette else "",
@@ -121,13 +126,24 @@ def expression_prompt(
     name: str,
     expression_profile: str = "",
     *,
+    character: Character | None = None,
     family: str = "",
     direction: str = "",
     fingerprint: bool = True,
     tidy: bool = False,
 ) -> str:
+    identity = ""
+    if character is not None:
+        identity = (
+            f"角色资产：{character.name}；性别：{character.gender}；年龄说明：{character.age}；"
+            "寿龄与外观年龄分开，外观按明确的年龄说明与固定外貌描写，不把寿龄自动画成衰老面容。"
+            + "固定外貌：" + _end(character.appearance, tidy)
+            + "固定服装：" + _end(character.base_costume or character.wardrobe, tidy)
+            + "发型结构：" + _end(character.hair, tidy)
+            + "角色专属配色：" + _end(character.palette, tidy)
+        )
     return (
-        f"保持参考图中{ name }的脸型、年龄、发型、服装和"
+        identity + f"保持参考图中{ name }的脸型、年龄、发型、服装和"
         + (f"{bible.style_fingerprint}风格完全一致。" if fingerprint else "画风完全一致。")
         + "只画这个人物且只出现一次，生成四分之三正面单人胸像身份与表情锚点；"
         + "角色表情幅度：" + _end(expression_profile or "克制自然、以眼神和眉形为主", tidy)
@@ -185,5 +201,3 @@ def prop_prompt(bible: StoryBible, prop, *, family: str = "", direction: str = "
         "比例尺稳定、结构清晰可读；不得出现人物、手、人体部位或使用场景，不要文字、Logo或水印。"
         + f"{rendering_direction(bible, family=family, direction=direction)}。"
     )
-
-

@@ -10,6 +10,7 @@ import novel_manga.review.prompts as review_prompts
 import novel_manga.review.policy as review_policy
 import novel_manga.application.review.evidence as review_evidence
 import novel_manga.application.review.cast_video as cast_video
+from novel_manga.review.endpoints import judge_settings
 
 
 def judge_character_cards(character: Character, views: list[Path]) -> dict:
@@ -20,7 +21,7 @@ def judge_character_cards(character: Character, views: list[Path]) -> dict:
         "matches_description 只看性别、年龄段、发型、服装款式和主色是否符合设定，识别物、道具、姿势和表情不计入（定妆卡不必手持道具），不符合时在 mismatch 写出具体哪项；"
         "same_person 是各张是否同一人；text_or_extra_people 是画面里是否有文字、水印、Logo 或多余的人物。只输出JSON。"
     )})
-    return model_client.ask_json(parts, review_contracts.CHARACTER_CARD_SCHEMA, name="character_card")
+    return model_client.ask_json(parts, review_contracts.CHARACTER_CARD_SCHEMA, name="character_card", settings=judge_settings())
 
 
 def judge_location_card(location: str, expected_time: str, view: Path, *, location_policy: str = "empty") -> dict:
@@ -31,7 +32,7 @@ def judge_location_card(location: str, expected_time: str, view: Path, *, locati
         + f"回答：{people_question}；time_of_day 画面表现的时间；text 是否有可读文字、牌匾字样、水印；"
         "matches_description 场景内容是否符合设定。只输出JSON。"
     )}]
-    return model_client.ask_json(parts, review_contracts.LOCATION_CARD_SCHEMA, name="location_card")
+    return model_client.ask_json(parts, review_contracts.LOCATION_CARD_SCHEMA, name="location_card", settings=judge_settings())
 
 
 def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path,

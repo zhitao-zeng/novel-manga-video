@@ -40,6 +40,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from novel_manga.llm.client import ask_json  # noqa: E402
 from novel_manga.review.endpoints import judge_settings  # noqa: E402
 from novel_manga.story import lean_reading as lean  # noqa: E402
+from novel_manga.story.reading_facts import FACTS_FIELD, facts_from_export, merge_character_facts  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
 
 PER_ENDPOINT = 3  # max-num-seqs is 6 on these instances; leave room for everything else
@@ -211,6 +212,13 @@ def fold_into_bible(novel_dir: Path, export: dict, add_locations: bool = False) 
 
     atomic_write_json(path, bible)
     atomic_write_json(aliases_path, aliases)
+    reading_path = novel_dir / "reading_cast.json"
+    reading = json.loads(reading_path.read_text(encoding="utf-8")) if reading_path.is_file() else {}
+    reading["characters"] = list(dict.fromkeys([
+        *(reading.get("characters") or []), *(person["name"] for person in export.get("characters", []))]))
+    reading["aliases"] = {**aliases, **(reading.get("aliases") or {})}
+    reading[FACTS_FIELD] = merge_character_facts(reading.get(FACTS_FIELD) or {}, facts_from_export(export))
+    atomic_write_json(reading_path, reading)
     if add_locations:
         from novel_manga.application.identity.reading_locations import adopt
         added_locations = adopt(novel_dir, export)
@@ -227,6 +235,7 @@ def main() -> int:
     parser.add_argument("--endpoints", help="逐章提取用的端点，逗号分隔；默认读 .env 的 Qwen 列表")
     parser.add_argument("--out", type=Path, help="中间结果目录，默认 <novel-dir>/lean")
     parser.add_argument("--into-bible", action="store_true", help="把读到的人物和别名并进 story_bible.json")
+    parser.add_argument("--update-characters", default="", help="显式按本次读书证据纠正已有角色，逗号分隔名字；不改其他角色或重画")
     parser.add_argument("--add-missing-locations", action="store_true",
                         help="圣经没有的地方按名字加进去，再用 fill_locations_thin 补描写")
     parser.add_argument("--demote-extras", action="store_true",
@@ -285,6 +294,23 @@ def main() -> int:
     export = ask_json([{"type": "text", "text": lean.MERGE_PROMPT.format(
         title=title, last=wanted[-1], table=table)}], lean.MERGE_SCHEMA, name="lean_merge",
         max_tokens=32000, timeout=1800, settings=settings)
+    missing_looks = lean.missing_look_bindings(export, candidates)
+    if missing_looks:
+        # Complete the same merge's omitted attributions; keep the Agent's existing flow.
+        binding_schema = {"type": "object", "additionalProperties": False,
+                          "required": ["look_bindings"],
+                          "properties": {"look_bindings": lean.MERGE_SCHEMA["properties"]["look_bindings"]}}
+        completion = ask_json([{"type": "text", "text": (
+            "补完本次归并遗漏的外貌归属，人物名单和身份已经决定，不得新增或合并人物。"
+            "对下面每条原文描写返回chapter/form/text/name；name只能是给定正名或未定。"
+            "按同段原文和已确认同指证据判断，不按最近人名猜。\n人物：\n"
+            + json.dumps([{key: person.get(key) for key in ("name", "aliases", "identity", "evidence")}
+                          for person in export.get("characters", [])], ensure_ascii=False)
+            + "\n尚待归属：\n" + json.dumps(missing_looks, ensure_ascii=False))}],
+            binding_schema, name="lean_merge_looks", max_tokens=8000, timeout=1800, settings=settings)
+        export["look_bindings"] = [*(export.get("look_bindings") or []),
+                                   *(completion.get("look_bindings") or [])]
+    export = lean.bind_export_looks(export, candidates)
     export["locations"] = ask_json([{"type": "text", "text": lean.MERGE_LOCATIONS_PROMPT.format(
         title=title, last=wanted[-1], table=table)}], lean.MERGE_LOCATIONS_SCHEMA,
         name="lean_merge_locations", max_tokens=32000, timeout=1800,
@@ -330,6 +356,12 @@ def main() -> int:
         print(f"并进圣经：新增人物 {result['characters'] or '无'}；新增地点 {result['locations'] or '无'}")
         if result["skipped"]:
             print(f"  没并进去：{'、'.join(result['skipped'])}")
+    if args.update_characters:
+        from novel_manga.application.review.bible import reconcile_characters
+        names = [name.strip() for name in args.update_characters.split(",") if name.strip()]
+        updates = reconcile_characters(novel_dir, names, character_facts=facts_from_export(export),
+                                       source=Path(novel["source"]))
+        print(json.dumps({"character_updates": updates}, ensure_ascii=False))
     return 0
 
 

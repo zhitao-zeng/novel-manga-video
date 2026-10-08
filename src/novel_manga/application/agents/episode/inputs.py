@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
 import shutil
+import tempfile
 
 from novel_manga.episodes import chapter_of
 from novel_manga.util import atomic_write_json, read_json
@@ -56,6 +58,43 @@ def _copy(source, target):
     return True
 
 
+def _local_directory(path):
+    """Detach this run's directory, retaining links to unchanged shared files."""
+    if path.is_symlink():
+        shared = path.resolve()
+        path.unlink()
+        path.mkdir()
+        for child in shared.iterdir():
+            (path / child.name).symlink_to(child, target_is_directory=child.is_dir())
+    else:
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def _snapshot_file(ctx, source, relative):
+    """Replace a local snapshot file without writing through a shared link."""
+    source = Path(source)
+    if not source.is_file():
+        return False
+    target = ctx.novel_dir / relative
+    current = ctx.novel_dir
+    for part in Path(relative).parent.parts:
+        current /= part
+        _local_directory(current)
+    _replace_file(source, target)
+    return True
+
+
+def _replace_file(source, target):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as temporary:
+        path = Path(temporary.name)
+    try:
+        shutil.copy2(source, path)
+        os.replace(path, target)
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def _source(ctx, segments):
     metadata = read_json(ctx.source_novel_dir / 'novel.json', {})
     chapter = chapter_of(ctx.source_episode_dir.name)
@@ -89,7 +128,7 @@ def _references(plan):
             yield from (clip.get('inner_voice') or {}).get(key) or []
 
 
-def _candidate_references(ctx, text, plan, script, *, bound_plan=False):
+def _candidate_references(ctx, text, plan, script, *, bound_plan=False, fresh=False):
     from novel_manga.application.identity.phases import load_phases, phase_for
     existing=ctx.input_mode=='script' or bound_plan
     phases = load_phases(ctx.novel_dir) if not existing else {}
@@ -102,8 +141,8 @@ def _candidate_references(ctx, text, plan, script, *, bound_plan=False):
         folder = Path('series_assets/characters')/str(phase['asset_id'])
         paths = [folder/'turnaround.jpeg']
         expressions = folder/'expressions.jpeg'
-        if any((root/expressions).is_file() for root in
-               (ctx.novel_dir, ctx.asset_snapshot_dir, ctx.source_novel_dir)):
+        roots = (ctx.source_novel_dir,) if fresh else (ctx.novel_dir, ctx.asset_snapshot_dir)
+        if any((root/expressions).is_file() for root in roots):
             paths.append(expressions)
         # A missing required phase must be reported by the normal input check;
         # silently supplying the base face would change the current character.
@@ -119,7 +158,8 @@ def _candidate_references(ctx, text, plan, script, *, bound_plan=False):
         names.update(n for shot in script.get('shots', []) for n in shot.get('characters', []))
     aliases = read_json(ctx.novel_dir / 'bible_aliases.json', {})
     names.update(name for alias, name in aliases.items() if alias and alias in text)
-    manifest = read_json(ctx.source_novel_dir / 'series_assets/manifest.json', {})
+    metadata_root = ctx.source_novel_dir if fresh else ctx.novel_dir
+    manifest = read_json(metadata_root / 'series_assets/manifest.json', {})
     for group, role in (('characters', 'character'), ('locations', 'location'), ('props', 'prop')):
         for row in manifest.get(group, []):
             name = str(row.get('name') or '')
@@ -132,17 +172,17 @@ def _candidate_references(ctx, text, plan, script, *, bound_plan=False):
                 continue
             paths = [row[field] for field in ('primary_image', 'secondary_image') if row.get(field)]
             if paths:
-                folder = ctx.source_novel_dir / Path(paths[0]).parent
+                folder = metadata_root / Path(paths[0]).parent
                 # The folder also holds rejected generations and backups. Only
                 # the published views are candidates; manifest paths already
                 # cover explicitly registered nonstandard filenames.
-                paths.extend(str(p.relative_to(ctx.source_novel_dir)) for p in
+                paths.extend(str(p.relative_to(metadata_root)) for p in
                              (folder/name for name in ('turnaround.jpeg', 'expressions.jpeg',
                                                         'establishing.jpeg', 'detail.jpeg')) if p.is_file())
             for path in dict.fromkeys(paths):
                 references.append({'asset_id': row['asset_id'], 'role': role,
                     'name': short if role == 'location' else name, 'path': path})
-    voices = read_json(ctx.source_novel_dir / 'series_assets/voices/voices.json', {})
+    voices = read_json(metadata_root / 'series_assets/voices/voices.json', {})
     for name in voices:
         if name in names or name in text:
             references.append({'asset_id': f'voice_{name}', 'role': 'voice', 'name': name,
@@ -150,7 +190,7 @@ def _candidate_references(ctx, text, plan, script, *, bound_plan=False):
     return references
 
 
-def _catalog(ctx, references):
+def _catalog(ctx, references, *, fresh=False):
     assets, missing, by_reference, ids = [], [], {}, set()
     for ref in references:
         if ref.get('role') not in {'character', 'location', 'prop', 'voice', 'scene_state'} or not ref.get('path'):
@@ -165,15 +205,24 @@ def _catalog(ctx, references):
             relative = logical
         else:
             relative = Path('series_assets/episode_refs') / f'{ctx.source_episode_dir.name}-{ctx.input_mode}' / f'asset_{len(assets)+1:03d}{source.suffix}'
-        target = ctx.asset_snapshot_dir / relative
+        local_target = ctx.novel_dir / relative
+        target = local_target if local_target.is_file() else ctx.asset_snapshot_dir / relative
         if not source.is_file() and not original.is_absolute():
             local = ctx.novel_dir/original
             if local.is_file():
                 source = local
-        if not _copy(source, target):
+        copied = _snapshot_file(ctx, source, relative) if fresh else _copy(source, target)
+        if not copied:
             missing.append({'role': ref['role'], 'name': ref.get('name'), 'path': str(original),
                             'asset_id': ref.get('asset_id')})
             continue
+        if fresh:
+            target = local_target
+            for suffix in ('.request.json', '.task.json'):
+                sidecar = source.with_name(source.name + suffix)
+                _snapshot_file(ctx, sidecar, relative.with_name(relative.name + suffix))
+            if ref['role'] == 'character':
+                _snapshot_file(ctx, source.parent / 'spec.json', relative.parent / 'spec.json')
         ident = str(ref.get('id') or ref.get('asset_id') or source.stem)
         if ident in ids:
             ident = f'{ident}_{source.stem}'
@@ -181,7 +230,10 @@ def _catalog(ctx, references):
             ident = f'{ident}_{len(assets)+1}'
         ids.add(ident)
         picture = ctx.work_dir / 'input/refs' / f'{ident}{source.suffix}'
-        _copy(target, picture)
+        if fresh:
+            _replace_file(target, picture)
+        else:
+            _copy(target, picture)
         entry = {**copy.deepcopy(ref), 'id': ident, 'asset_id': ref.get('asset_id') or ident,
                  'path': str(relative), 'image': str(picture.relative_to(ctx.work_dir))}
         assets.append(entry)
@@ -284,6 +336,7 @@ def _preparation_exception(ctx, chapter):
 
 
 def prepare_inputs(ctx: EpisodeContext):
+    fresh = not (ctx.run_dir / 'inputs.json').is_file()
     for directory in (ctx.run_dir, ctx.novel_dir, ctx.episode_dir, ctx.work_dir / 'input/refs',
                       ctx.work_dir / 'output', ctx.asset_snapshot_dir / 'series_assets'):
         directory.mkdir(parents=True, exist_ok=True)
@@ -297,6 +350,9 @@ def prepare_inputs(ctx: EpisodeContext):
         atomic_write_json(ctx.novel_dir / 'profile.json', read_json(ctx.novel_dir / 'novel.json', {}).get('profile', {}))
     for name in ('manifest.json', 'phases.json', 'voices/voices.json'):
         _copy(ctx.source_novel_dir / 'series_assets' / name, ctx.asset_snapshot_dir / 'series_assets' / name)
+        if fresh:
+            _snapshot_file(ctx, ctx.source_novel_dir / 'series_assets' / name,
+                           Path('series_assets') / name)
     _copy(ctx.source_episode_dir / 'segments.json', ctx.episode_dir / 'segments.json')
     segments = read_json(ctx.episode_dir / 'segments.json', [])
     source_path = ctx.run_dir / 'source.txt'
@@ -361,7 +417,7 @@ def prepare_inputs(ctx: EpisodeContext):
             identity['inputs'] = current_inputs
             atomic_write_json(ctx.episode_dir / 'identity_context.json', identity)
     if ctx.input_mode == 'script' and not plan:
-        _catalog(ctx, _candidate_references(ctx, text, {}, script))
+        _catalog(ctx, _candidate_references(ctx, text, {}, script, fresh=fresh), fresh=fresh)
         plan = _pack_existing(ctx, script)
     too_long = [c.get('clip_id') for c in plan.get('clips', []) if c.get('kind', 'video') == 'video'
                 and float(c.get('request_seconds') or 0) > ctx.clip_seconds_max]
@@ -369,7 +425,7 @@ def prepare_inputs(ctx: EpisodeContext):
         raise ValueError(f'H3 requires repacking this existing clip plan to {ctx.clip_seconds_max:g}s clips: '
                          + ', '.join(map(str, too_long)) + '; the Agent input step does not change saved timing')
     selected = plan if bound else read_json(ctx.source_episode_dir / 'clip_plan.json', {})
-    refs = _candidate_references(ctx, text, selected, script, bound_plan=batch_adopted)
+    refs = _candidate_references(ctx, text, selected, script, bound_plan=batch_adopted, fresh=fresh)
     extras = {r['id']: r for r in read_json(ctx.run_dir/'draft-assets.json', [])}
     library = ctx.asset_snapshot_dir/'series_assets/draft-assets'
     library_rows = read_json(library/'index.json', [])
@@ -386,7 +442,7 @@ def prepare_inputs(ctx: EpisodeContext):
     if extras:
         from .input_assets import register_metadata
         register_metadata(ctx, list(extras.values()))
-    assets, missing, mapping = _catalog(ctx, [*refs, *extras.values()])
+    assets, missing, mapping = _catalog(ctx, [*refs, *extras.values()], fresh=fresh)
     atomic_write_json(ctx.run_dir / 'catalog.json', assets)
     atomic_write_json(ctx.work_dir / 'input/catalog.json', {'assets': assets})
     for name in ('story_bible.json', 'bible_aliases.json', 'reading_cast.json', 'profile.json'):
@@ -430,3 +486,97 @@ def prepare_inputs(ctx: EpisodeContext):
     atomic_write_json(ctx.work_dir / 'input/manifest.json', manifest)
     atomic_write_json(ctx.run_dir / 'inputs.json', manifest)
     return manifest
+
+
+def refresh_character_inputs(ctx: EpisodeContext, asset_ids):
+    """Explicitly refresh selected actors in one existing run; never replan it."""
+    selected = list(dict.fromkeys(asset_ids))
+    if not selected:
+        raise ValueError('choose at least one character asset_id to refresh')
+    if not (ctx.run_dir / 'inputs.json').is_file():
+        raise ValueError('prepare the episode inputs before refreshing selected characters')
+    source_manifest = read_json(ctx.source_novel_dir / 'series_assets/manifest.json', {})
+    source_rows = {row['asset_id']: row for row in source_manifest.get('characters', [])}
+    unknown = [ident for ident in selected if ident not in source_rows]
+    if unknown:
+        raise ValueError('unknown source character asset_id: ' + ', '.join(unknown))
+    source_bible = read_json(ctx.source_novel_dir / 'story_bible.json')
+    source_characters = {row['name']: row for row in source_bible.get('characters', [])}
+    catalog = read_json(ctx.run_dir / 'catalog.json', [])
+    references = []
+    for ident in selected:
+        row = source_rows[ident]
+        name = row['name']
+        if name not in source_characters:
+            raise ValueError(f'{ident}: source story_bible.json has no character {name}')
+        paths = [row[key] for key in ('primary_image', 'secondary_image') if row.get(key)]
+        if not paths:
+            raise ValueError(f'{ident}: source manifest has no published character image')
+        folder = Path(paths[0]).parent
+        paths.extend(str(folder / filename) for filename in ('turnaround.jpeg', 'expressions.jpeg')
+                     if (ctx.source_novel_dir / folder / filename).is_file())
+        prior = {asset['path']: asset for asset in catalog
+                 if asset.get('role') == 'character' and asset.get('asset_id') == ident}
+        for path in dict.fromkeys(paths):
+            if not (ctx.source_novel_dir / path).is_file():
+                raise ValueError(f'{ident}: source character image is missing: {path}')
+            references.append({**prior.get(path, {}), 'asset_id': ident,
+                               'role': 'character', 'name': name, 'path': path})
+        if any(path not in paths for path in prior):
+            raise ValueError(f'{ident}: published image paths changed; preserve or repair the saved references first')
+
+    # The source selection is valid before any copy. Detach only this run's
+    # character directories; linked files belonging to other actors stay frozen.
+    refreshed, missing, _ = _catalog(ctx, references, fresh=True)
+    if missing:
+        raise ValueError('selected character images could not be copied')
+    local_manifest = read_json(ctx.novel_dir / 'series_assets/manifest.json', {})
+    old_names = {row['asset_id']: row.get('name')
+                 for row in local_manifest.get('characters', [])}
+    remaining = set(selected)
+    rows = []
+    for row in local_manifest.get('characters', []):
+        ident = row.get('asset_id')
+        rows.append(copy.deepcopy(source_rows[ident]) if ident in remaining else row)
+        remaining.discard(ident)
+    rows.extend(copy.deepcopy(source_rows[ident]) for ident in selected if ident in remaining)
+    local_manifest['characters'] = rows
+    atomic_write_json(ctx.novel_dir / 'series_assets/manifest.json', local_manifest)
+
+    replacements = {old_names.get(ident) or source_rows[ident]['name']:
+                    copy.deepcopy(source_characters[source_rows[ident]['name']]) for ident in selected}
+    bible = read_json(ctx.novel_dir / 'story_bible.json')
+    characters = []
+    for row in bible.get('characters', []):
+        characters.append(replacements.pop(row['name'], row))
+    characters.extend(replacements.values())
+    bible['characters'] = characters
+    atomic_write_json(ctx.novel_dir / 'story_bible.json', bible)
+    atomic_write_json(ctx.work_dir / 'input/story_bible.json', bible)
+
+    replacements = {row['path']: row for row in refreshed}
+    merged, used = [], set()
+    for row in catalog:
+        if row.get('role') == 'character' and row.get('asset_id') in selected:
+            current = {**row, **replacements[row['path']]}
+            # Separate catalog entries can share a picture (for example an
+            # authored alias). Retain their ids and sandbox paths individually.
+            for key in ('id', 'image', 'tag', 'phase'):
+                if key in row:
+                    current[key] = row[key]
+            _replace_file(ctx.novel_dir / current['path'], ctx.work_dir / current['image'])
+            merged.append(current)
+            used.add(row['path'])
+        else:
+            merged.append(row)
+    merged.extend(row for path, row in replacements.items() if path not in used)
+    atomic_write_json(ctx.run_dir / 'catalog.json', merged)
+    offered = read_json(ctx.work_dir / 'input/catalog.json', {})
+    atomic_write_json(ctx.work_dir / 'input/catalog.json', {**offered, 'assets': merged})
+    for path in (ctx.run_dir / 'inputs.json', ctx.work_dir / 'input/manifest.json'):
+        manifest = read_json(path)
+        manifest['missing_assets'] = [row for row in manifest.get('missing_assets', [])
+                                      if row.get('asset_id') not in selected]
+        manifest['ready'] = not manifest['missing_assets'] and not manifest.get('missing_inputs')
+        atomic_write_json(path, manifest)
+    return {'refreshed_characters': selected, 'names': [source_rows[ident]['name'] for ident in selected]}

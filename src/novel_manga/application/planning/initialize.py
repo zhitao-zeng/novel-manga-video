@@ -35,6 +35,7 @@ from novel_manga.config import Settings  # noqa: E402
 from novel_manga.ingest import read_novel, chapter_table  # noqa: E402
 from novel_manga.bible import BibleBuilder, _fingerprint as fingerprint
 from novel_manga.models.bible import StoryBible
+from novel_manga.story.reading_facts import FACTS_FIELD, facts_from_export
 from novel_manga.util import atomic_write_json  # noqa: E402
 
 ROOT = project_root()
@@ -53,13 +54,14 @@ def load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip().removeprefix("export ").strip(), value.strip().strip("'\""))
 
 
-def build_bible(novel, style: str, cast: list[str] | None = None) -> StoryBible:
+def build_bible(novel, style: str, cast: list[str] | None = None,
+                character_facts: dict | None = None) -> StoryBible:
     os.environ["NOVEL_PLANNER_BACKEND"] = "openai-compatible"
     settings = Settings.from_env(provider="phanrouter", output_root="outputs", admission_mode="preview")
     if not (settings.llm_base_url and settings.llm_api_key):
         raise SystemExit("NOVEL_LLM_BASE_URL / NOVEL_LLM_API_KEY are not set; run `set -a; source .env; set +a` first")
     print(json.dumps({"bible_model": settings.llm_model, "base_url": settings.llm_base_url}, ensure_ascii=False), flush=True)
-    bible = BibleBuilder(settings).build_bible(novel, cast)
+    bible = BibleBuilder(settings).build_bible(novel, cast, character_facts=character_facts)
     style_text = load_style({"style": style})["visual_style"]
     return bible.model_copy(update={"visual_style": style_text, "style_fingerprint": fingerprint(novel.title, style_text, bible.characters)})
 
@@ -107,9 +109,8 @@ def seed_cast(path: Path, chapters: int) -> list[str]:
 def read_cast(path: Path) -> tuple[list[str], dict[str, str]]:
     """The cast and aliases the reading settled, from its exported story_bible.json.
 
-    Only the names and the alias map cross over.  The reading quotes the source and is forbidden to
-    invent, so its appearance lines are things like 「一米八几的个子」 - true, and not a face.  Designing
-    the face is the build's job, and it is the half the seed chapters can actually do.
+    Keep the established two-value interface.  read_cast_facts() carries the same export's
+    source descriptions separately, so a roster caller does not have to change its contract.
     """
     data = json.loads(path.read_text(encoding="utf-8"))
     cast = [str(person["name"]).strip() for person in data.get("characters", [])
@@ -120,6 +121,14 @@ def read_cast(path: Path) -> tuple[list[str], dict[str, str]]:
             if str(alias).strip():
                 aliases.setdefault(str(alias).strip(), str(person["name"]).strip())
     return cast, aliases
+
+
+def read_cast_facts(path: Path) -> dict[str, dict]:
+    """Read facts and the existing phase export alongside the roster, without redesigning them."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    phase_path = path.with_name("phases.json")
+    phases = json.loads(phase_path.read_text(encoding="utf-8")) if phase_path.is_file() else None
+    return facts_from_export(data, phases)
 
 
 def reading_verdicts(novel_dir: Path, cast: list[str], aliases: dict) -> dict:
@@ -183,12 +192,13 @@ def main() -> int:
         started = time.monotonic()
         seed = novel.model_copy(update={"text": "\n\n".join(e.source_text for e in novel.episodes[:max(1, args.bible_chapters)])})
         cast, aliases = read_cast(args.cast) if args.cast else (None, {})
+        character_facts = read_cast_facts(args.cast) if args.cast else {}
         design = seed_cast(args.cast, args.bible_chapters) if args.cast else None
         if cast:
             print(json.dumps({"cast": "from reading", "characters": len(cast), "aliases": len(aliases),
                               "designed_now": len(design or []), "rest": "grown chapter by chapter"},
                              ensure_ascii=False), flush=True)
-        bible = build_bible(seed, args.style, design)
+        bible = build_bible(seed, args.style, design, character_facts=character_facts)
         if aliases:
             atomic_write_json(novel_dir / "bible_aliases.json", aliases)
         if cast:
@@ -197,7 +207,8 @@ def main() -> int:
             # The declined names and the coverage come along because later, from inside one chapter,
             # "left out on purpose" and "never read" are indistinguishable without them.
             atomic_write_json(novel_dir / "reading_cast.json",
-                              {"characters": cast, "aliases": aliases, **reading_verdicts(novel_dir, cast, aliases)})
+                              {"characters": cast, "aliases": aliases,
+                               FACTS_FIELD: character_facts, **reading_verdicts(novel_dir, cast, aliases)})
         atomic_write_json(bible_path, bible.model_dump(mode="json"))
         print(json.dumps({"bible": "built", "seconds": round(time.monotonic() - started, 1), "characters": [c.name for c in bible.characters], "locations": [l.split("：", 1)[0] for l in bible.locations]}, ensure_ascii=False), flush=True)
 

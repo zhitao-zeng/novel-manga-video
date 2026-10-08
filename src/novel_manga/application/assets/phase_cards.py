@@ -198,6 +198,8 @@ def main() -> int:
             # when the style master is the picture sent, never over the wearer's face or the armour.
             prompt = lead + character_prompt(
                 bible, look.name, look.appearance, look.base_costume or look.wardrobe,
+                age=look.age,
+                gender=look.gender,
                 visual_archetype=look.visual_archetype, face_anchors=look.face_anchors, silhouette=look.silhouette,
                 hair=look.hair, palette=look.palette, motion_signature=look.motion_signature,
                 family=asset_style.render_family, direction=asset_style.render_direction,
@@ -289,8 +291,10 @@ def main() -> int:
                 look = phased(character, phase)
                 started = time.monotonic()
                 try:
-                    factory.ensure_card(expression_prompt(bible, look.name, look.expression_profile,
-                                                               family=asset_style.render_family, direction=asset_style.render_direction), sheet, reference=primary)
+                    factory.ensure_card(expression_prompt(bible, look.name, look.expression_profile, character=look,
+                        family=asset_style.render_family, direction=asset_style.render_direction,
+                        fingerprint=asset_style.prompt_fingerprint, tidy=asset_style.tidy_prompts),
+                        sheet, reference=primary)
                     status = "expressions built"
                 except Exception as error:  # noqa: BLE001
                     status = f"expressions error: {type(error).__name__}: {str(error)[:120]}"

@@ -5,8 +5,9 @@ import json
 import time
 from pathlib import Path
 import novel_manga.llm.client as model_client
-from novel_manga.models.bible import StoryBible as review_models_StoryBible
+from novel_manga.models.bible import Character, StoryBible as review_models_StoryBible
 import novel_manga.review.contracts as review_contracts
+import novel_manga.review.prompts as review_prompts
 from novel_manga.util import atomic_write_json
 from novel_manga.application.profiles import load_genre, load_profile
 import novel_manga.application.review.judges as review_judges
@@ -47,7 +48,8 @@ def review_cards(novel_dir: Path, include_backups: bool = False, only_ids: set[s
             actions.append("redraw_stylized")
         if not verdict.get("same_person", True) or not verdict.get("matches_description", True) or verdict.get("text_or_extra_people"):
             actions.append("regenerate")
-        report["characters"][asset_id] = {"name": character.name, "views": [v.name for v in views], **verdict, "actions": actions}
+        report["characters"][asset_id] = {"name": character.name, "views": [v.name for v in views], **verdict,
+                                          "expected_description": review_prompts.describe(character), "actions": actions}
         if actions:
             report["flags"].append(f"{asset_id} {character.name}: {', '.join(actions)} ({verdict.get('mismatch') or verdict.get('note', '')})")
         model_client.log(f"cards: {asset_id} {character.name} photoreal={verdict.get('photoreal')} match={verdict.get('matches_description')} same={verdict.get('same_person')} {'FLAG ' + ','.join(actions) if actions else 'ok'}")
@@ -130,6 +132,31 @@ def card_verdict_current(novel_dir: Path, asset_id: str) -> dict | None:
     images = [p for p in card_dir.glob("*.jpeg") if not p.name.endswith("-rejected.jpeg")]
     if not images or max(p.stat().st_mtime for p in images) > float(entry["judged_at"]):
         return None
+    if section == "characters":
+        try:
+            bible = review_models_StoryBible.model_validate_json(
+                (novel_dir / "story_bible.json").read_text(encoding="utf-8"))
+            current = next((character for index, character in enumerate(bible.characters, 1)
+                            if f"character_{index:03d}" == asset_id), None)
+            if current is None:
+                return None
+            if "expected_description" in entry:
+                expected = entry["expected_description"]
+            else:
+                spec_path = card_dir / "spec.json"
+                if spec_path.stat().st_mtime > float(entry["judged_at"]):
+                    return None
+                saved = json.loads(spec_path.read_text(encoding="utf-8"))
+                # Older verdicts did not freeze their input text. Only a complete
+                # saved description can support their compatibility with this Bible.
+                fields = {"name", "gender", "age", "appearance", "hair", "wardrobe", "signature_prop"}
+                if not isinstance(saved, dict) or not fields <= saved.keys():
+                    return None
+                expected = review_prompts.describe(Character.model_validate(saved))
+            if expected != review_prompts.describe(current):
+                return None
+        except (OSError, ValueError):
+            return None
     return {"policy": report.get("policy"), "characters": {}, "locations": {}, "missing_cards": [],
             section: {asset_id: entry}, "flags": [card_flag(asset_id, entry)] if entry.get("actions") else []}
 
