@@ -42,6 +42,7 @@ import novel_manga.planning.prompts as pc_prompts
 import novel_manga.planning.text as pc_text
 import novel_manga.planning.validation as pc_validation
 import novel_manga.planning.decisions as pc_decisions
+import novel_manga.planning.gate_stats as pc_gate_stats
 import novel_manga.application.planning.context as planner_context
 import novel_manga.application.planning.requests as planner_requests
 from novel_manga.planning.methods import get_method
@@ -459,6 +460,7 @@ def run(args, ctx: PlannerContext) -> int:
 
     started = time.monotonic()
     attempts: list[dict] = []
+    last_issues: list = []  # the latest validation's issues; re-recorded as fatal if the chapter fails
     repair: dict | None = None
     final_errors: list[str] = []
     result = None
@@ -469,7 +471,7 @@ def run(args, ctx: PlannerContext) -> int:
     compression_rounds = 0
     compression_seconds_left = compression.TOTAL_SECONDS
     def validate_draft(draft):
-        nonlocal posture_states
+        nonlocal posture_states, last_issues
         checked = pc_validation.validate_and_normalize(draft, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
         if not args.replay and all(issue.code == PlanningCode.DURATION_BELOW_MINIMUM for issue in checked.issues):
             from novel_manga.application.planning.posture import check_draft
@@ -481,6 +483,9 @@ def run(args, ctx: PlannerContext) -> int:
                                     roster={c.name: c.appearance for c in full_bible.characters},
                                     source=episode.source_text)
             checked.issues.extend(issues_for_grades(checked.shots, grades, everyone))
+        last_issues = checked.issues
+        for issue in checked.issues:
+            pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=False)
         return checked
 
     def compress_duration(draft, checked, attempt):
@@ -689,10 +694,13 @@ def run(args, ctx: PlannerContext) -> int:
         if not errors and ctx.strict_plan:
             strict = pc_validation.strict_plan_issues(shots, episode.source_text, segments, raw, ctx=ctx)
             strict_decision = pc_decisions.decide_strict(strict, final_attempt=attempt == args.max_redo + 1)
+            for issue in strict:
+                pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=False)
             if strict_decision.strict_waived:
                 warnings = [*warnings, *strict_decision.warnings]
                 attempts[-1]["strict_waived"] = strict_decision.strict_waived
             elif strict_decision.issues:
+                last_issues = strict_decision.issues
                 errors = strict_decision.errors
                 attempts[-1]["errors"] = errors
                 print(json.dumps({"attempt": attempt, "strict_errors": errors}, ensure_ascii=False), flush=True)
@@ -728,6 +736,8 @@ def run(args, ctx: PlannerContext) -> int:
                     # one draft grew past the length cap adding what it asked for - and the rendered video's
                     # defects (a suit apart from its wearer, the visor, lips during an inner voice) were none of
                     # the kinds it checks.  What it finds is for a person to read, in the report.
+                    for issue in retained_issues:
+                        pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=False)
                     reported = [issue.message for issue in retained_issues]
                     warnings = [*warnings, *('report only (保留内容审查): ' + m for m in reported)]
                     attempts[-1]["retention_reported"] = reported
@@ -742,6 +752,8 @@ def run(args, ctx: PlannerContext) -> int:
         break
 
     if result is None:
+        for issue in last_issues:
+            pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=True)
         failure = {
             "status": "planning_failed",
             "policy": ctx.policy,
