@@ -209,6 +209,7 @@ class EpisodeTools:
             workers=workers, inflight=inflight, max_attempts=1,
             profile=read_json(self.ctx.novel_dir / 'profile.json'))
         runner.context.asr_helper = self.ctx.project_root / 'scripts/thin_asr_segments.py'
+        runner.context.source_novel_dir = getattr(self.ctx, 'source_novel_dir', None) or self.ctx.novel_dir
         runner.context.first_pass_only = os.environ.get('NOVEL_FIRST_PASS_ONLY') == '1'
         return runner
 
@@ -266,6 +267,27 @@ class EpisodeTools:
         if runner is None:
             runner = self._runner()
             _load_current(runner)
+        clips = {clip['clip_id']: clip for clip in plan['clips']}
+        hydrated = False
+        for row in report['clips']:
+            selected = row.get('selected')
+            if not selected or isinstance(selected.get('chunks'), list):
+                continue
+            # First-pass reports can retain only video/passed. The ordinary
+            # analyser reads ASR beside this selected take and refreshes it for
+            # the current dialogue; another take's cached path is never used.
+            analysis = runner.analyse_clip(clips[row['clip_id']], Path(selected['video']))
+            row['selected'] = {**selected, **analysis}
+            failed = report.setdefault('gate_failed_clips', [])
+            if analysis.get('passed') is False:
+                if row['clip_id'] not in failed:
+                    failed.append(row['clip_id'])
+            elif analysis.get('passed') is True:
+                report['gate_failed_clips'] = [cid for cid in failed if cid != row['clip_id']]
+            hydrated = True
+        if hydrated:
+            # Keep restored evidence even if a later encoding/QC step fails.
+            atomic_write_json(self.ctx.episode_dir/'thin_media_report.json', report)
         self.state('assembling', owner='episode_agent_tools')
         started = time.monotonic()
         assembly = runner.assemble(report['clips'])
@@ -504,15 +526,6 @@ class EpisodeTools:
                     'voice_recording_blocked': voice_blocked, 'blocked': voice_blocked,
                     'can_adopt_draft': not self._main_media_started(),
                     'generation_counts': history.generation_counts(self.ctx.episode_dir)}
-        from . import probe
-        try:
-            verdict = probe.maybe_probe(self.ctx)
-        except Exception as error:  # noqa: BLE001 - a probe failure never blocks filming
-            probe.record_probe_error(self.ctx, error)
-            verdict = None
-        if verdict and verdict.get('match') is False:
-            return {'ok': False, 'error': 'resolution_mismatch',
-                    'requested': verdict.get('requested'), 'actual': verdict.get('actual')}
         history.adopt_reviewed_run(self.ctx.episode_dir)
         history.begin_trial(self.ctx.episode_dir, {c['clip_id'] for c in plan['clips']},
             'episode_agent_tool_render', after_plan=plan,

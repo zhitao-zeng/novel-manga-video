@@ -19,7 +19,7 @@ from support.posture import unspecified_reply
 MISSED = '提纲承诺「6. 席勒：好吧，这次免费」未落实：没有台词；按原文和提纲补进观众能听见或看见的表达'
 
 
-def run(tmp_path, monkeypatch, max_redo, review):
+def run(tmp_path, monkeypatch, max_redo, review, *, validation_issues=()):
     source = tmp_path / 'novel.txt'
     source.write_text('第一章 庭院\n' + '甲先生来到院内，乙先生在门口等他。\n' * 20)
     bible = tmp_path / 'bible.json'
@@ -35,7 +35,7 @@ def run(tmp_path, monkeypatch, max_redo, review):
     raw = {'video_title': '庭院', 'hook': '见面', 'summary': '两人见面', 'clips': []}
     drafts = []
     monkeypatch.setattr(requests, 'call_model', lambda **kw: (drafts.append(kw), (json.dumps(raw), {}))[1])
-    monkeypatch.setattr(validation, 'validate_and_normalize', lambda *a, **kw: ValidationResult([], [], [dict(shot)]))
+    monkeypatch.setattr(validation, 'validate_and_normalize', lambda *a, **kw: ValidationResult(list(validation_issues), [], [dict(shot)]))
     monkeypatch.setattr(identity, 'resolve_chapter', lambda *a, **kw: {})
     monkeypatch.setattr(presence, 'grade_presence', lambda *a, **kw: {})
     monkeypatch.setattr(retention, 'section_of', lambda outline: '6. 席勒：好吧，这次免费')

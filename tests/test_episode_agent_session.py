@@ -55,6 +55,17 @@ def test_cli_turn_limit_is_recorded_as_resumable_without_claiming_success(tmp_pa
     assert calls[0][0][calls[0][0].index('--resume')+1] == first_id
 
 
+def test_loopback_provider_network_and_extra_body_reach_real_container_arguments(tmp_path,monkeypatch,config):
+    work=tmp_path/'episode';calls=fake_cli(monkeypatch,work)
+    session.run_session(work,'Connectivity check',config={**config,'docker_network':'host',
+        'extra_body':{'reasoning_effort':'low','max_tokens':1024}})
+    command,env=calls[0]
+    assert command[command.index('--network')+1]=='host'
+    body=next(v for v in command if v.startswith('CLAUDE_CODE_EXTRA_BODY='))
+    assert json.loads(body.split('=',1)[1])=={'reasoning_effort':'low','max_tokens':1024}
+    assert 'private-test-token' not in ' '.join(command)
+
+
 def test_summary_completion_is_recorded_without_treating_it_as_work(tmp_path,monkeypatch,config):
     work=tmp_path/'episode'
     fake_cli(monkeypatch,work,result={'type':'result','subtype':'success',

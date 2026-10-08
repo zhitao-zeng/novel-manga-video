@@ -183,6 +183,26 @@ def test_one_named_instance_still_renders_as_before(tmp_path):
     assert sidecar["endpoint"] == "http://10.0.0.7:7/v1/videos" and "instance" not in sidecar
 
 
+def test_before_submit_hook_has_no_pool_slot_and_is_not_called_on_resume(tmp_path,monkeypatch):
+    def handler(request):
+        if request.method=='POST':return httpx.Response(200,json={'id':'main'})
+        if request.url.path.endswith('/content'):return httpx.Response(200,content=b'mp4')
+        return httpx.Response(200,json={'status':'completed'})
+    provider,card=make_provider(tmp_path,handler,resident=[{'name':'one','url':'http://10.0.0.1:1'}])
+    monkeypatch.setattr(provider.pool,'problem',lambda _:None)
+    calls=[]
+    def hook():
+        # With one slot, acquiring here would fail if the main request held it.
+        _,slot=provider.pool.acquire(timeout=.1)
+        h3_pool.release(slot);calls.append(1)
+    provider.before_video_submit=hook
+    output=tmp_path/'clip.mp4'
+    provider.create_video('prompt',None,output,5,additional_images=(card,))
+    output.unlink()
+    provider.create_video('prompt',None,output,5,additional_images=(card,))
+    assert calls==[1]
+
+
 @pytest.mark.parametrize('resumed', [False, True])
 def test_polling_502_moves_both_new_and_resumed_tasks(tmp_path, monkeypatch, resumed):
     status = {'broken': not resumed}

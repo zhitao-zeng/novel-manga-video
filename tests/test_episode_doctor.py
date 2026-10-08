@@ -240,3 +240,35 @@ def test_dispatch_accepts_the_doctor_action(tmp_path, monkeypatch):
     assert calls == [ctx.novel_dir]
     record = read_json(run / "execution.json")
     assert record["phase"] == "doctor" and record["ok"] is False
+
+
+def test_asset_library_404_is_not_ready(tmp_path):
+    env = base_env(make_model_dir(tmp_path), PHANROUTER_REFERENCE_ASSETS="1", PHANROUTER_ASSET_GROUP_ID="grp")
+    routes = {**alive_routes(), ("HEAD", "cloud.phanthy.com:443", "/phanrouter/open/CreateAsset"): 404}
+    assert by_name(doctor.run_doctor(tmp_path, client=client_for(routes), environ=env))["assets:phanrouter_library"]["ok"] is False
+
+
+def test_active_planner_configuration_is_not_deprecated(tmp_path):
+    path = tmp_path/'.env'
+    path.write_text('NOVEL_LLM_BASE_URL=http://127.0.0.1:11434/v1\nNOVEL_LLM_API_KEY=fake-test-key\nNOVEL_LLM_MODEL=local-model\n')
+    assert doctor._env_manifest_check(path)['ok'] is True
+
+
+def test_example_values_match_the_projects_dotenv_readers(tmp_path, monkeypatch):
+    from pathlib import Path
+    from novel_manga.application.configuration import environment
+    from novel_manga.application.production.conductor_common import load_dotenv as load_conductor
+    from novel_manga.util import load_dotenv
+    from unittest.mock import patch
+    import os
+    example = Path(__file__).parents[1]/'.env.example'
+    path = tmp_path/'.env';path.write_text(example.read_text())
+    values = environment(tmp_path, base={})
+    expected = {'PHANROUTER_BASE_URL':'https://cloud.phanthy.com/phanrouter',
+                'PHANROUTER_API_KEY':'','PHANROUTER_VIDEO_MODEL':'sd2.5',
+                'NOVEL_PROVIDER':'phanrouter','NOVEL_ASR_COMMAND':''}
+    assert {k:values[k] for k in expected} == expected
+    for loader in (load_dotenv, load_conductor):
+        with patch.dict(os.environ, {}, clear=True):
+            loader(path)
+            assert {k:os.environ[k] for k in expected} == expected

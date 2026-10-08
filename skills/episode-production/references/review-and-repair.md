@@ -30,6 +30,9 @@ fields instead of repeatedly submitting the same operation.
 Use `/work/tools/episode.py --help` for current arguments. `check` validates the
 mode's output, or validates repair arguments with `python3 /work/tools/episode.py check output/repair.json`.
 Run that quick check before apply; it uses no model, image or input attempt.
+`doctor` requests host service diagnostics after an endpoint error. It is a host
+job: yield and read its result on resumption. Service readiness is not content
+acceptance, and the report does not change repair or generation allowances.
 `adopt` validates and saves an unfilmed draft without starting media. Use it when
 an existing actor needs a source-backed phase or a scene correction before first
 generation; then `apply` may repair those unfilmed inputs, and `render` uses the

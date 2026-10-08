@@ -46,6 +46,7 @@ def main(argv=None):
     apply = commands.add_parser('apply', help='Apply the agent-authored repair file.')
     apply.add_argument('file', nargs='?', default='output/repair.json', help='default: output/repair.json')
     commands.add_parser('status', help='Read current state, generation budget and the latest job result.')
+    commands.add_parser('doctor', help='Ask the host to check configured services; yields like other host jobs.')
     commands.add_parser('finish', help='Run the existing final acceptance and delivery step.')
     args = parser.parse_args(argv)
     payload = {'file': args.file} if getattr(args, 'file', None) is not None else {}

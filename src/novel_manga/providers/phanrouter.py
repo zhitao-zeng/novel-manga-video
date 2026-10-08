@@ -76,4 +76,5 @@ class PhanRouterMediaProvider(MediaProvider):
             additional_image_urls,
             tuple(video.audio_data_url(path) for path in reference_audios),
         )
-        return video.generate_video(self.settings, self.client, self.video_headers, payload, output, additional_images, reference_audios)
+        return video.generate_video(self.settings, self.client, self.video_headers, payload, output, additional_images, reference_audios,
+                                    before_submit=getattr(self, 'before_video_submit', None))

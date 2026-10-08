@@ -1,8 +1,9 @@
 """挂起看门狗:巡检各 run 目录的 execution.json,把疑似挂起的集追加到告警流水。
 
-判定:execution.json 的 mtime 超过 --stale-minutes(默认 20)且记录的 pid 已死
-(读 /proc/<pid> 不存在)。只读 execution.json,只写 <runtime>/watchdog-alerts.jsonl
-(追加,不覆盖)。--once 跑一次退出,默认每 120 秒循环。
+判定:最近的 execution.json/agent-run.json 超过 --stale-minutes(默认 20),
+当前运行的 pid 已死(读 /proc/<pid> 不存在)。已停止或完成的运行不告警。
+只读运行记录和最终候选回执,只追加 <runtime>/watchdog-alerts.jsonl。
+--once 跑一次退出,默认每 120 秒循环。
 """
 import argparse
 import datetime
@@ -11,6 +12,14 @@ import time
 from pathlib import Path
 
 ALERTS_FILE = 'watchdog-alerts.jsonl'
+STOPPED = {'finished', 'finished_with_issues', 'blocked', 'paused', 'deferred'}
+
+
+def _read_record(path):
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def _pid_dead(pid):
@@ -27,15 +36,27 @@ def scan(runtime, stale_minutes=20, *, now=None):
             record = json.loads(record_path.read_text(encoding='utf-8'))
         except (OSError, json.JSONDecodeError):
             continue
-        idle_minutes = (now - record_path.stat().st_mtime) / 60
-        pid = record.get('pid')
+        state_path = record_path.parent/'agent-run.json'
+        state = _read_record(state_path)
+        status = state.get('status')
+        if status in STOPPED or (not status and record.get('phase') in STOPPED):
+            continue
+        changed = record_path.stat().st_mtime
+        if state:
+            changed = max(changed, state_path.stat().st_mtime)
+        elif not status:
+            final = record_path.parent/'final-candidate/manifest.json'
+            if _read_record(final).get('passed') is True and final.stat().st_mtime >= changed:
+                continue
+        idle_minutes = (now - changed) / 60
+        pid = state.get('pid', record.get('pid'))
         if idle_minutes <= stale_minutes or not _pid_dead(pid):
             continue
         episode = record.get('episode')
         alerts.append({'at': datetime.datetime.now().isoformat(),
                        'episode': Path(episode).name if episode else record_path.parent.name,
                        'run': record_path.parent.name,
-                       'phase': record.get('phase'),
+                       'phase': state.get('phase', record.get('phase')),
                        'pid': pid,
                        'idle_minutes': round(idle_minutes, 1)})
     if alerts:

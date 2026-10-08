@@ -36,6 +36,7 @@ class RenderContext:
     max_attempts: int = 2
     moderation_repair: bool = True
     novel_dir: Path | None = None
+    source_novel_dir: Path | None = None
     prescreen: bool = False
     profile: dict = field(default_factory=dict)
     protected_terms: list = field(default_factory=list)

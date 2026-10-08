@@ -125,6 +125,7 @@ def local_batch(parent, chapter):
         child.rows = parent.rows
         child.env.update(parent.env)
         child.env['NOVEL_RESOURCE_WAIT_FILE'] = str(Path(row['run_dir'])/'resource-waits.jsonl')
+        child.env['NOVEL_SOURCE_NOVEL_DIR'] = row['source_novel_dir']
         child.lock_directory = Path(row['source_episode_dir'])
         child.workspace = row
         parent._local_batches[chapter] = child

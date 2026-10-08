@@ -1,12 +1,12 @@
-"""Pre-flight liveness for one episode run: measured now, never a listing.
+"""Pre-flight endpoint/credential checks for one episode run.
 
 QWEN38_LOCAL_BASE_URL lists instances that stay in the list after they die
 (test_endpoint_liveness.py records the bill), and PhanRouter's model listing
 returned an empty table for a valid sd2.5 key (docs/shiri-sd25-pilot-20260929.md)
 - so the two PhanRouter keys are probed with one real but minimal submission
-each: the model is named, the content is empty, and the service's validation
-refusal (400/422) proves the key passed authentication and routing before
-anything could be billed.  A 401/403 is the key being refused.
+each: the model is named and the content is empty. A validation response
+(400/422) confirms that the route answered, but is not proof of generation
+capability or of authentication order. A 401/403 is an explicit key refusal.
 
 Every probe answers within two seconds, and a detail names only the variable
 and the host:port - never a key.
@@ -29,9 +29,6 @@ ASR_MODEL_FILES = ("model.int8.onnx", "tokens.txt")  # what thin_asr_segments.py
 DEPRECATED_ENV_VARS = {
     "NOVEL_TTS_COMMAND": "old TTS backend; final audio is native dialogue",
     "NOVEL_VOICE_MAP_JSON": "old TTS voice map; died with NOVEL_TTS_COMMAND",
-    "NOVEL_LLM_BASE_URL": "retired endpoint 127.0.0.1:18012",
-    "NOVEL_LLM_API_KEY": "paired with the retired NOVEL_LLM_BASE_URL",
-    "NOVEL_LLM_MODEL": "paired with the retired NOVEL_LLM_BASE_URL",
     "PHANROUTER_SD25_KEY": "sd2.5 pilot key slot; PHANROUTER_API_KEY is the live one",
 }
 
@@ -76,7 +73,7 @@ def check_endpoint(base, name, *, key="", client=None, timeout=TIMEOUT_SECONDS, 
 
 
 def _permission_probe(client, url, name, detail, key, payload, timeout):
-    """A submission the service must refuse on validation proves the key passed auth."""
+    """Check the response of a minimal invalid request, without claiming inference."""
     if not key:
         return {"name": name, "ok": False, "detail": f"{detail} key not set"}
     try:
@@ -85,7 +82,9 @@ def _permission_probe(client, url, name, detail, key, payload, timeout):
     except httpx.HTTPError as error:
         return {"name": name, "ok": False, "detail": f"{detail} {type(error).__name__}"}
     status = response.status_code
-    if status in (400, 422) or 200 <= status < 300:
+    if status in (400, 422):
+        return {"name": name, "ok": True, "detail": f"{detail} HTTP {status}; validation response only"}
+    if 200 <= status < 300:
         return {"name": name, "ok": True, "detail": f"{detail} HTTP {status}"}
     refused = " key refused" if status in (401, 403) else ""
     return {"name": name, "ok": False, "detail": f"{detail} HTTP {status}{refused}"}
@@ -98,7 +97,8 @@ def _text_checks(env, client, timeout):
         checks.append(check_endpoint(
             base, f"text:qwen38_local[{index}]", key=current.key, client=client, timeout=timeout,
             detail=f"QWEN38_LOCAL_BASE_URL[{index}] {_host(base)}"))
-    for preset in ("flashnext", "deepseek"):
+    presets = ['flashnext', 'deepseek'] + (['phanthy'] if env.get('PHANTHY_API_KEY') else [])
+    for preset in presets:
         endpoint = JsonEndpoint.from_env({**env, **ENDPOINTS[preset]})
         base = endpoint.endpoints[0]
         checks.append(check_endpoint(
@@ -121,7 +121,7 @@ def _asset_check(env, client, base, key, timeout):
                 "detail": f"PHANROUTER_REFERENCE_ASSETS {host} {type(error).__name__}"}
     status = response.status_code
     # 405 is the expected answer to HEAD on a POST route: the library answered.
-    ok = status < 500 and status not in (401, 403)
+    ok = 200 <= status < 300 or status == 405
     return {"name": name, "ok": ok, "detail": f"PHANROUTER_REFERENCE_ASSETS {host} HTTP {status}"}
 
 

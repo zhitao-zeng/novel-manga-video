@@ -278,9 +278,16 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                     timing['pool_wait_s'] += round(waited, 3)
             while time.monotonic() < deadline:
                 if not task_id:
+                    release_slot(slot)
+                    slot = None
+                    before_submit = getattr(self, 'before_video_submit', None)
+                    if before_submit is not None:
+                        probing = time.monotonic()
+                        before_submit()
+                        # No main task has been submitted; its polling allowance
+                        # starts after the probe, which acquires its own pool slot.
+                        deadline += time.monotonic()-probing
                     if self.pool:
-                        release_slot(slot)
-                        slot = None
                         # Unavailable capacity is queue time. Only a submitted
                         # generation consumes the task's polling allowance.
                         from novel_manga.resource_waits import QueueWait
