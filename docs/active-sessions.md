@@ -9,6 +9,7 @@
 |---|---|---|---|---|---|
 | kimi(本会话) | 十日终焉接入+验收(分镜300/300待ch221,渲染2-11待额度) | main 直接改动(历史原因)+ 已过审 | outputs/shiri、configs/pipeline.json 的 shiri 段 | 2026-09-28 | 进行中 |
 | kimi(本会话) | 光明纪元资产盘点:声线库已建(91人),圣经分诊表已出,最小档修正因子代理被杀(额度)中断 | main | outputs/guangming-ds-100 | 2026-10-08 | 待续 |
+| 未知会话 | 主工作区有未提交改动(pipeline.json/cards.py/bible.py/asset_builder.py 等 10+ 文件),导致 tests/test_production_runtime.py::test_locked_series_asset_survives_prompt_revision_without_image_call 在工作区红(干净 HEAD 上绿) | 未登记 | src/novel_manga/application/{assets,review}/ 等 | 2026-10-08 | ⚠ 未登记在途,认领请补登记 |
 | codex(历史会话) | episode-agent 整集制作线 | worktrees/episode-agent + episode-agent-minimal + episode-scheduling | application/agents/episode/ 等 | 2026-10-02 | 在产(光明纪元),未合并 |
 | codex(历史会话) | LLM 缓存顺序工作 | episode-agent worktree 内 | scripts/llm_cache_order_*、docs/superpowers/plans/ | 2026-10-08 | 状态未知 |
 
