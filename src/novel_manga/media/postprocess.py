@@ -10,7 +10,7 @@ from ..util import media_duration, run
 from .common import cover_title, log
 
 from concurrent.futures import ThreadPoolExecutor
-from ..render import Renderer, _fit_cover
+from novel_manga.media.renderer import Renderer, _fit_cover
 from . import subtitles, chat_card
 
 CHAT_CONTEXT_MESSAGES = 2

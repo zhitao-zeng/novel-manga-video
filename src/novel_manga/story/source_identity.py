@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import json
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 from novel_manga.story.identity import canonical_entity, resolved_aliases
 
 POLICY = 'story-identity-v6-catalogue-bindings'

@@ -64,7 +64,7 @@ class EpisodeEvidence:
 
 
     def voice_recording_blocks(self, plan):
-        from novel_manga.runtime_backends import normalize_text
+        from novel_manga.media.evidence_backends import normalize_text
         blocked = {}
         for clip in plan.get('clips', []):
             if clip.get('audio_delivery') != 'postmix':

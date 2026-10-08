@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 
 from novel_manga.util import atomic_write_json, media_duration, run
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 from novel_manga.media import generation
 from novel_manga.media.common import reference_digests, log
 from novel_manga.media import analysis

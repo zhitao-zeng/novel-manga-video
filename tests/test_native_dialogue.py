@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 import experiments.legacy.production_runtime as runtime_module
-import novel_manga.render as render_module
+import novel_manga.media.renderer as render_module
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
 from novel_manga.models.episode import EpisodePlan, Shot
 from novel_manga.models.directing import SceneAudioPlan, SpeechStrategy
@@ -17,8 +17,8 @@ from experiments.legacy.production_runtime import (
     native_dialogue_quality_route,
 )
 from novel_manga.providers.phanrouter import PhanRouterMediaProvider
-from novel_manga.render import Renderer
-from novel_manga.runtime_backends import correct_protected_lexicon
+from novel_manga.media.renderer import Renderer
+from novel_manga.media.evidence_backends import correct_protected_lexicon
 
 
 def _unit(

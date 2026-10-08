@@ -90,7 +90,7 @@ class MediaOperations:
         from novel_manga.application.profiles import frame_spec, load_profile, media_qc_ignores, MAX_HOLD_SECONDS
         from novel_manga.application.review.execution import media_matches
         from novel_manga.config import Settings
-        from novel_manga.qc import apply_check_policy, inspect_media
+        from novel_manga.media.quality import apply_check_policy, inspect_media
         assembly = report.get('assembly') or {}
         checks = (assembly.get('media_qc') or {}).get('checks') or {}
         ignored = set(media_qc_ignores(self.ctx.novel_dir, self.ctx.episode_dir))

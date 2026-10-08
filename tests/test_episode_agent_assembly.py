@@ -363,7 +363,7 @@ def test_finish_rechecks_existing_movie_when_book_qc_policy_changes(host, monkey
             result[key].update(passed=True,waived=True)
         if other_failure:result[other_failure]['passed']=False
         return {'passed':all(v['passed'] for v in result.values()),'checks':result}
-    monkeypatch.setattr('novel_manga.qc.inspect_media',inspect)
+    monkeypatch.setattr('novel_manga.media.quality.inspect_media',inspect)
     monkeypatch.setattr(MediaOperations, 'runner',lambda *a:pytest.fail('QC re-evaluation cannot render/re-encode'))
     before_counts=history.generation_counts(ctx.episode_dir)
     result=tools.dispatch('finish')

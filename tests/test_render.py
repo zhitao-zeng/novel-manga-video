@@ -1,9 +1,9 @@
 from pathlib import Path
 
-import novel_manga.render as render_module
+import novel_manga.media.renderer as render_module
 from PIL import Image
 from novel_manga.config import Settings
-from novel_manga.render import Renderer, TimedSubtitle
+from novel_manga.media.renderer import Renderer, TimedSubtitle
 
 
 def test_cover_uses_text_free_plate_and_writes_exact_submission_jpeg(

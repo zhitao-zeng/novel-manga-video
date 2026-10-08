@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import copy
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 
 class IdentityCatalog:
     def __init__(self, bible: dict, ledger: list, aliases: dict, index: dict, claims: list, phases: dict):

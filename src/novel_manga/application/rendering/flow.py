@@ -18,7 +18,7 @@ from novel_manga.media.asset_records import record_privacy_ok
 from novel_manga.media import assets as media_assets
 from novel_manga.media.results import ClipResult, AssemblyResult
 from novel_manga.media import cache, postprocess
-from novel_manga.qc import inspect_media
+from novel_manga.media.quality import inspect_media
 from novel_manga.util import atomic_write_json
 import novel_manga.application.rendering.moderation as moderation_repair
 

@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 from novel_manga.models.runtime import ProductionPlan, RuntimeScene, RuntimeShot, RuntimeUnit, RuntimeVisualGroup
-from novel_manga.video_quality import evaluate_generated_video_quality
+from novel_manga.media.video_quality import evaluate_generated_video_quality
 
 
 def _plan() -> ProductionPlan:

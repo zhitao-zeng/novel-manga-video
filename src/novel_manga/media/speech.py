@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pypinyin import lazy_pinyin
-from ..runtime_backends import correct_protected_lexicon, edit_distance
+from novel_manga.media.evidence_backends import correct_protected_lexicon, edit_distance
 from .subtitles import match_key, subsequence_overlap, align_chunks
 from .issues import QualityIssue, missing_dialogue, replaced_by_speech_recheck
 

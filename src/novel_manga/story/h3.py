@@ -1,7 +1,7 @@
 """Pure H3 request expression and checks, sharing picture and dialogue bindings."""
 from __future__ import annotations
 import re
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 from .dialogue import BOUND_SPEECH, character_pictures, indexed_pictures, speech_is_offscreen, subject_map
 
 # One subject can be shown by more than one picture, so the declaration names them all.  The pattern

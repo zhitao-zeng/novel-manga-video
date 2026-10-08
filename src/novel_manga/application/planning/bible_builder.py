@@ -11,10 +11,10 @@ from typing import TypeVar
 import httpx
 from pydantic import ValidationError
 
-from .config import Settings
-from .llm.resources import model_slot
-from .llm.responses import bible_object
-from .llm.transport import send_json
+from novel_manga.config import Settings
+from novel_manga.llm.resources import model_slot
+from novel_manga.llm.responses import bible_object
+from novel_manga.llm.transport import send_json
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.models.source import NovelDocument
 from novel_manga.story.reading_facts import apply_known_facts, facts_for_name, facts_prompt

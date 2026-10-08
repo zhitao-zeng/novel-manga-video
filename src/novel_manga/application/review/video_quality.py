@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from novel_manga.models.runtime import ProductionPlan
-from novel_manga.video_quality import evaluate_generated_video_quality
+from novel_manga.media.video_quality import evaluate_generated_video_quality
 
 
 def main() -> int:

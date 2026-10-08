@@ -70,7 +70,7 @@ def snapshot_block(clip: dict, episode_dir: Path) -> str:
 
 def source_contract_block(clip: dict, episode_dir: Path) -> str:
     """Carry verified attribution into subsequent video reviews, not just repair."""
-    from novel_manga.runtime_backends import normalize_text
+    from novel_manga.media.evidence_backends import normalize_text
     try:
         facts = json.loads((episode_dir/'source_speaker_contract.json').read_text())
         source = normalize_text('\n'.join(segment_texts(episode_dir).values()))

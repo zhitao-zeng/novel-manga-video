@@ -8,8 +8,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from .config import Settings
-from .util import atomic_write_json
+from novel_manga.config import Settings
+from novel_manga.util import atomic_write_json
 
 
 def _rate(value: str) -> float:

@@ -20,9 +20,7 @@ import httpx
 from pydantic import ValidationError
 
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
-from novel_manga.bible import (
-    _bounded_validate, _compact_excerpt, _fingerprint, _validate_story_bible, _validation_feedback, _validation_retry
-)
+from novel_manga.application.planning.bible_builder import _bounded_validate, _compact_excerpt, _fingerprint, _validate_story_bible, _validation_feedback, _validation_retry
 from experiments.legacy.creative_direction import (
     SHORT_DRAMA_PROFILE,
     apply_creative_direction,
@@ -35,7 +33,7 @@ from novel_manga.models.bible import Character, StoryBible
 from novel_manga.models.source import Episode, NovelDocument
 from novel_manga.models.drama import EpisodeDramaturgy, EpisodeMode, EpisodeOpposition, EpisodeContract, RetentionBeat, ShowrunnerPlan
 from novel_manga.models.dialogue import ScriptTurn, TurnDelivery, TurnDerivation, TurnDevice
-from novel_manga.safety import safe_visual_prompt
+from novel_manga.story.safety import safe_visual_prompt
 from experiments.legacy.script_planning import (
     SHORT_DRAMA_TURN_HARD_MAX,
     _narration_body,

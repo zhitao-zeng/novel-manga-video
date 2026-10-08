@@ -5,8 +5,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
-from .config import Settings
-from .util import media_duration, run
+from novel_manga.config import Settings
+from novel_manga.util import media_duration, run
 
 
 @dataclass(frozen=True)

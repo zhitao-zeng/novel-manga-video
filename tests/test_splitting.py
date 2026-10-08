@@ -1,4 +1,4 @@
-from novel_manga.splitting import split_episodes, visible_count
+from novel_manga.source.splitting import split_episodes, visible_count
 
 
 def test_existing_chapters_are_one_episode_each_and_keep_order():

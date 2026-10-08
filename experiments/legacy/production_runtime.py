@@ -28,14 +28,9 @@ from experiments.legacy.preflight import evaluate_production_preflight
 from novel_manga.models.runtime import EpisodeSequenceContract, ImagePromptContract, ProductionPlan, ProviderPromptAdapter, ReferenceScope, RuntimeUnit, RuntimeVisualGroup, ShotContract, ShotContractBeat
 from novel_manga.models.assets import SeriesAssetManifest
 from novel_manga.providers.base import ImageResult, MediaProvider
-from novel_manga.qc import inspect_media
-from novel_manga.render import Renderer
-from novel_manga.runtime_backends import (
-    RuntimeEvidenceBackends,
-    aggregate_asr,
-    correct_protected_lexicon,
-    measured_speech_bounds,
-)
+from novel_manga.media.quality import inspect_media
+from novel_manga.media.renderer import Renderer
+from novel_manga.media.evidence_backends import RuntimeEvidenceBackends, aggregate_asr, correct_protected_lexicon, measured_speech_bounds
 from novel_manga.media.pagination import timed_subtitle_pages
 from experiments.legacy.sd_dialogue import build_sd_prompt, compile_performance_prompt, performance_action_only
 from novel_manga.util import atomic_write_json, media_duration, run

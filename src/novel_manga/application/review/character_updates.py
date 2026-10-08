@@ -34,7 +34,7 @@ def reconcile_characters(novel_dir: Path, names: list[str], *, character_facts: 
     if not selected:
         raise ValueError('select at least one character to update')
     if source is None:
-        from novel_manga.ingest import read_source_text, recorded_episodes
+        from novel_manga.source.ingest import read_source_text, recorded_episodes
         metadata = read_json(novel_dir / 'novel.json', {})
         source = read_source_text(metadata['source'])
         if chapter is not None:

@@ -48,7 +48,7 @@ from novel_manga.application.identity.bible_growth import grow_bible
 from novel_manga.application.review.entity_extraction import scan_chapter
 from novel_manga.application.identity.volume_context import summarize_volume
 
-from novel_manga.ingest import read_novel  # noqa: E402
+from novel_manga.source.ingest import read_novel  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402
 
 SUMMARY_SCHEMA = {

@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from novel_manga.config import Settings
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from experiments.legacy.planner import CommandPlanner
 from experiments.legacy.script_planning import evaluate_script_quality
 

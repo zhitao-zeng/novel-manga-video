@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from novel_manga.media import analysis, speech
-from novel_manga.runtime_backends import correct_protected_lexicon
+from novel_manga.media.evidence_backends import correct_protected_lexicon
 
 
 @pytest.mark.parametrize('reference,heard,level,issues', [

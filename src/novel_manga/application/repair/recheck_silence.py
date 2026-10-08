@@ -17,7 +17,7 @@ import shlex
 import time
 from pathlib import Path
 
-from novel_manga.qc import inspect_silence
+from novel_manga.media.quality import inspect_silence
 from novel_manga.util import atomic_write_json, media_duration
 from novel_manga.application.production.common import pid_alive
 from novel_manga.application.production.runs import episode_status

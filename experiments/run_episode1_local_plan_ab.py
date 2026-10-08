@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from novel_manga.models.bible import StoryBible
 from experiments.legacy.planner import CommandPlanner
 from novel_manga.util import atomic_write_json

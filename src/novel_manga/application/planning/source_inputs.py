@@ -5,7 +5,7 @@ from novel_manga.planning.context import PlannerContext
 
 
 
-from novel_manga.ingest import read_novel, chapter_table
+from novel_manga.source.ingest import read_novel, chapter_table
 from novel_manga.models.bible import StoryBible
 from novel_manga.util import atomic_write_json
 from pathlib import Path

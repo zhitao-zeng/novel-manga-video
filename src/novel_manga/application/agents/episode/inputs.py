@@ -101,7 +101,7 @@ def _source(ctx, segments):
     reason = None
     if metadata.get('source'):
         try:
-            from novel_manga.ingest import read_novel
+            from novel_manga.source.ingest import read_novel
             path = Path(metadata['source']).expanduser()
             if not path.is_absolute():
                 project = ctx.project_root / path

@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 ROOT = project_root()
 from novel_manga.config import Settings
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 from novel_manga.models.bible import StoryBible
 from novel_manga.media.asset_inspection import cards_sheet
 from novel_manga.application.profiles import load_profile, style_names

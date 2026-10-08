@@ -14,7 +14,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from experiments.legacy.models import ChapterDiagnosis
 from novel_manga.models.episode import EpisodePlan
 from novel_manga.models.bible import StoryBible

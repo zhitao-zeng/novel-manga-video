@@ -1,9 +1,4 @@
-from novel_manga.av_quality import (
-    STATUS_FAILED,
-    STATUS_PASSED,
-    _band_difference,
-    evaluate_asr,
-)
+from novel_manga.media.av_quality import STATUS_FAILED, STATUS_PASSED, _band_difference, evaluate_asr
 
 
 def _plan() -> dict:

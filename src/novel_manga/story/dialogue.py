@@ -10,7 +10,7 @@ def dialogue_punctuation(text: str) -> str:
     return text
 import re
 import copy
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 from .identity import canonical_entity
 
 # Delivery modifiers and punctuation do not change the explicitly bound speaker.

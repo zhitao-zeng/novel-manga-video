@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from novel_manga.av_quality import STATUS_FAILED, STATUS_PASSED, ass_layout, evaluate_asr, evaluate_delivered_audio_energy, evaluate_subtitle_burn_in
+from novel_manga.media.av_quality import STATUS_FAILED, STATUS_PASSED, ass_layout, evaluate_asr, evaluate_delivered_audio_energy, evaluate_subtitle_burn_in
 from novel_manga.config import NATIVE_DIALOGUE_POLICY, Settings
 from novel_manga.models.runtime import ProductionPlan
 from novel_manga.media.pagination import PUNCTUATION

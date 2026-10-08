@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re
-from ..runtime_backends import edit_distance, normalize_text
+from novel_manga.media.evidence_backends import edit_distance, normalize_text
 
 from novel_manga.media.pagination import timed_subtitle_pages
 

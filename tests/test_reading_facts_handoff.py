@@ -3,9 +3,9 @@ import novel_manga.application.review.character_updates as cast_character_update
 import json
 
 from novel_manga.application.planning.initialize import read_cast, read_cast_facts
-from novel_manga.bible import BibleBuilder
+from novel_manga.application.planning.bible_builder import BibleBuilder
 from novel_manga.config import Settings
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from novel_manga.story import lean_reading as lean
 from novel_manga.story.reading_facts import (
     apply_known_facts, facts_for_name, facts_from_export, merge_character_facts,

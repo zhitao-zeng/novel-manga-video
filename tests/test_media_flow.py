@@ -165,7 +165,7 @@ def test_media_modules_do_not_import_production_scripts_or_schedule_work():
             modules = [a.name for a in node.names] if isinstance(node, ast.Import) else (
                 [node.module or ''] if isinstance(node, ast.ImportFrom) and node.level == 0 else [])
             assert not any(m.split('.')[0] in scripts or m.startswith('experiments') for m in modules), path
-    for path in [root / 'src/novel_manga/media/analysis.py', root / 'src/novel_manga/qc.py']:
+    for path in [root / 'src/novel_manga/media/analysis.py', root / 'src/novel_manga/media/quality.py']:
         assert 'create_video' not in path.read_text() and 'managed_repair_thin' not in path.read_text()
 
 

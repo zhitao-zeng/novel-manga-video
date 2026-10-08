@@ -65,7 +65,7 @@ def chapter_texts(novel: dict, wanted: list[int]) -> dict[int, str]:
     Chapters recorded with source offsets (long chapters split into parts get synthetic
     titles that never appear in the text) slice by offset; older novel.json without
     offsets falls back to matching title lines exactly."""
-    from novel_manga.ingest import read_source_text, recorded_episodes
+    from novel_manga.source.ingest import read_source_text, recorded_episodes
     episodes = recorded_episodes(read_source_text(novel["source"]), novel.get("chapters", []))
     texts = {ep.index: ep.source_text for ep in episodes}
     return {chapter: texts[chapter] for chapter in wanted}
