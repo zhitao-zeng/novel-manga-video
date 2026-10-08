@@ -148,7 +148,7 @@ class ThinMediaRunner:
         local = self.context.settings.local_h3_base_url
         self.context.provider = (FramedLocalH3(self.context.settings, self.context.frame_spec, local, resolution=resolution)
                          if local else FramedPhanRouter(self.context.settings, self.context.frame_spec, resolution=resolution))
-        from novel_manga.application.agents.episode import probe
+        from novel_manga.application.rendering import probe
         self.context.provider.before_video_submit = lambda: probe.check_before_submit(self.context)
         self.context.provider.prompt_aliases = {str(k): str(v) for k, v in (self.context.profile.get("prompt_aliases") or {}).items()}
         self.context.renderer = BatchRenderer(self.context.settings)

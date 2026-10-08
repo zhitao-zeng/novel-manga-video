@@ -37,8 +37,6 @@ def install_fake_runtime(monkeypatch, ctx):
         def __init__(self, context):
             self.context = context
 
-        def _main_media_started(self):
-            return False
 
         def dispatch(self, action, payload):
             calls.append(action)

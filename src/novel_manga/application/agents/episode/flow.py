@@ -20,6 +20,7 @@ from .bridge import EpisodeBridge, install_client
 from .inputs import prepare_inputs
 from .session import SESSION_FILE, run_session
 from .tools import EpisodeTools
+from novel_manga.application.production.artifacts import media_started
 
 MAX_INVOCATIONS = 3
 DEFAULT_OPERATION_SECONDS = 5400
@@ -851,7 +852,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
             if job.get('status') == 'accepted' and not _paused():
                 if (job['action'] == 'render' and previous_job.get('status') == 'running'
                         and (ctx.run_dir / 'prepared.json').is_file()
-                        and bridge.tools._main_media_started()):
+                        and media_started(ctx.episode_dir)):
                     bridge._job['payload'] = {}
                 bridge.end_turn()
             continued_inputs = False
@@ -864,12 +865,12 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                 applied = (continuation.get('job') or {}).get('result') or {}
                 continued_inputs = True
                 if (time.monotonic() < deadline and (applied.get('changed') or applied.get('input_repaired'))
-                        and (not native_mode or bridge.tools._main_media_started())):
+                        and (not native_mode or media_started(ctx.episode_dir))):
                     bridge.handle('render', {})
                     bridge.update_state(phase='tool_running')
             if (not continued_inputs and (bridge.handle('status', {}).get('job') or {}).get('status')
                     not in {'accepted', 'running'} and not _paused() and time.monotonic() < deadline):
-                if _stale_request_blocks(ctx) and (not native_mode or bridge.tools._main_media_started()):
+                if _stale_request_blocks(ctx) and (not native_mode or media_started(ctx.episode_dir)):
                     bridge.handle('render', {})
                     bridge.update_state(phase='tool_running')
                     continued_inputs = True
@@ -888,7 +889,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     from .local_preparation import active
                     checked = {'valid':True} if active(ctx) else bridge.handle('check', {})
                     if checked.get('valid') is True:
-                        payload = {} if bridge.tools._main_media_started() or active(ctx) else {'file': 'output/requests.json'}
+                        payload = {} if media_started(ctx.episode_dir) or active(ctx) else {'file': 'output/requests.json'}
                         bridge.handle('render', payload)
                         bridge.update_state(phase='tool_running')
             if (not native_mode and not continued_inputs and ctx.input_mode == 'source' and not _paused()
@@ -906,8 +907,8 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
             native_block = None
             native_wait = None
             if (native_mode and not external_pipeline and not _paused() and (first_pass_only or not (ctx.run_dir/'pipeline-review-started.json').exists())
-                    and (not continued_inputs or not bridge.tools._main_media_started())):
-                from novel_manga.application.production import native_episode
+                    and (not continued_inputs or not media_started(ctx.episode_dir))):
+                from novel_manga.application.agents.episode import pipeline_preparation as native_episode
                 _wait_for_idle(bridge)
                 bridge.update_state(phase='pipeline_preparation',waiting_for='native_pipeline')
                 ready=native_episode.prepare(ctx,bridge.tools)
@@ -985,7 +986,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     defer('Agent slice completed; resume this session after other production work')
                     break
                 if native_mode:
-                    from novel_manga.application.production.native_episode import (
+                    from novel_manga.application.agents.episode.pipeline_preparation import (
                         reviewable, semantic_pending, semantic_prompt, begin_semantic_repair, review_prompt, begin_review)
                     batch_failure=external_pipeline and read_json(ctx.episode_dir/'batch-production.json',{}).get('status')=='blocked'
                     semantic=(batch_failure and first_pass_only) or (

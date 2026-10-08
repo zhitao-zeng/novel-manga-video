@@ -11,6 +11,8 @@ from novel_manga.application.agents.episode.input_repair import refresh_inputs
 from novel_manga.llm.client import ask_json, obj
 from novel_manga.util import atomic_write_json, read_json
 
+from novel_manga.application.production.artifacts import media_started, archive_adoption
+
 CORRECTION_POLICY = 3
 
 
@@ -21,7 +23,7 @@ class AssetsPending(Exception):
 
 
 def wait_for_shared_assets(ctx,plan):
-    from .asset_preparation import queued_asset_paths
+    from novel_manga.application.production.asset_preparation import queued_asset_paths
     manifest=os.environ.get('NOVEL_ASSET_PREPARATION_MANIFEST')
     if manifest:
         paths=queued_asset_paths(read_json(Path(manifest),[]),plan,ctx.source_episode_dir.parent,ctx.novel_dir,
@@ -128,7 +130,7 @@ def prepare(ctx, tools):
     """Keep filmed work intact; use bounded native stages for unfilmed inputs."""
     path=ctx.run_dir/'pipeline-production.json'
     prior=read_json(path,{})
-    if tools._main_media_started():
+    if media_started(ctx.episode_dir):
         return {'ready':True,'existing_media':True}
     def save(status, **details):
         prior.update(status=status,at=time.time(),**details)
@@ -212,7 +214,7 @@ def begin_semantic_repair(ctx):
 
 
 def validate_editorial_request(ctx, tools, row):
-    if tools._main_media_started():
+    if media_started(ctx.episode_dir):
         raise ValueError('existing takes retain their cuts and budgets; use scoped input/turns repair')
     if not semantic_pending(ctx):
         raise ValueError('editorial operations require a current recorded semantic input problem')
@@ -231,7 +233,7 @@ def editorial_request(ctx, tools, row):
         path=ctx.run_dir/'pipeline-replan-request.json'
         if path.exists():
             raise ValueError('the single requested whole-plan revision has already been used; continue scoped repair')
-        tools._archive_adoption()
+        archive_adoption(ctx.episode_dir, ctx.run_dir)
         atomic_write_json(path,{'status':'running','decision':row,'at':time.time()})
         from novel_manga.application.preparation.actions import replan
         replan(ctx.episode_dir,[{'agent_reason':row['reason'],'source_quote':row['source_quote'],

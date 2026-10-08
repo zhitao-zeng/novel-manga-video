@@ -13,6 +13,7 @@ import time
 
 from novel_manga.util import atomic_write_json, read_json
 from .arguments import RepairArgumentError
+from novel_manga.application.production.artifacts import media_started, archive_adoption
 
 
 class EpisodeTools:
@@ -122,7 +123,7 @@ class EpisodeTools:
         from .requests import compose_request, compose_repair
         from .contracts import validate_existing_request, validate_patch
         pending=read_json(self.ctx.run_dir/'prepared.json',{}).get('native_preparation_pending')
-        if pending and not self._main_media_started():
+        if pending and not media_started(self.ctx.episode_dir):
             try:
                 validate_existing_request(clip,clip.get('prompt_h3') or '')
             except (ValueError,KeyError):
@@ -142,7 +143,7 @@ class EpisodeTools:
             from .contracts import validate_patch
             clips = {c['clip_id']: c for c in read_json(self.ctx.episode_dir/'clip_plan.json', {}).get('clips', [])}
             provisional = (self.ctx.input_mode == 'source' and not (self.ctx.run_dir/'prepared.json').exists()
-                           and not self._main_media_started())
+                           and not media_started(self.ctx.episode_dir))
             errors, seen = {}, set()
             for number, row in enumerate(draft['decisions']):
                 cid = row.get('clip_id') if isinstance(row, dict) else None
@@ -160,7 +161,7 @@ class EpisodeTools:
                             spent=spent_video_budget(self.ctx,[cid])
                             if spent:raise RepairArgumentError(spent[cid])
                     if action in {'replan','recheck_input'}:
-                        from novel_manga.application.production.native_episode import validate_editorial_request
+                        from novel_manga.application.agents.episode.pipeline_preparation import validate_editorial_request
                         validate_editorial_request(self.ctx,self,row)
                     elif provisional:
                         from .draft_assets import validate_request
@@ -379,13 +380,6 @@ class EpisodeTools:
                     break
         return blocked
 
-    def _main_media_started(self):
-        from novel_manga.application.repair import history
-        if any(history.generation_counts(self.ctx.episode_dir).values()):
-            return True
-        clips = self.ctx.episode_dir / 'work/clips'
-        return (any(p.stat().st_size > 0 for p in clips.glob('*/attempt_*/clip.mp4'))
-                or any(read_json(p, {}).get('task_id') for p in clips.glob('*/attempt_*/clip.mp4.task.json')))
 
     def _unfilmed_clips(self, plan, report):
         selected = {r['clip_id']: r.get('selected') or {} for r in report.get('clips', [])}
@@ -401,27 +395,12 @@ class EpisodeTools:
             result.add(cid)
         return result
 
-    def _archive_adoption(self):
-        root = self.ctx.run_dir / 'adoption-history'
-        directory = root / f'{sum(p.is_dir() for p in root.glob("*")) + 1:03d}'
-        directory.mkdir(parents=True)
-        for path in (self.ctx.episode_dir / 'chapter_script.json', self.ctx.episode_dir / 'clip_plan.json',
-                     self.ctx.episode_dir / 'episode_review.json', self.ctx.episode_dir / 'review_feedback.json',
-                     self.ctx.episode_dir / 'thin_media_report.json', self.ctx.episode_dir / 'episode_execution.json',
-                     self.ctx.run_dir / 'prepared.json', self.ctx.run_dir / 'adopted-episode.json',
-                     self.ctx.run_dir / 'adopted-requests.json',
-                     self.ctx.run_dir / 'tool-repair-decisions.json', self.ctx.run_dir / 'result.json'):
-            if path.is_file():
-                shutil.copy2(path, directory / path.name)
-        if (self.ctx.run_dir / 'final-candidate').is_dir():
-            shutil.copytree(self.ctx.run_dir / 'final-candidate', directory / 'final-candidate')
-        return directory
 
     def adopt(self, payload):
         """Accept a validated draft for input repair without submitting any media."""
         from novel_manga.application.profiles import h3_stamp
         from novel_manga.application.repair import history
-        if self._main_media_started():
+        if media_started(self.ctx.episode_dir):
             raise ValueError('main video has started; apply repair decisions, then render without file')
         manifest=read_json(self.ctx.work_dir/'input/manifest.json',{})
         if (manifest.get('production_mode') in {'pipeline_review','batch_review'}
@@ -439,7 +418,7 @@ class EpisodeTools:
         if issues:
             return {'ok': False, 'valid': False, 'errors': issues}
         if path.is_file():
-            self._archive_adoption()
+            archive_adoption(self.ctx.episode_dir, self.ctx.run_dir)
         if self.ctx.input_mode == 'source':
             for clip in plan['clips']:
                 clip['prompt_h3_of'] = h3_stamp(clip, '')
@@ -478,7 +457,7 @@ class EpisodeTools:
         from novel_manga.application.repair import history
         from novel_manga.application.rendering.reviewed import _load_current
         from .local_preparation import active, stage, before_render
-        local_inputs = active(self.ctx) and not self._main_media_started()
+        local_inputs = active(self.ctx) and not media_started(self.ctx.episode_dir)
         if local_inputs:
             stage(self.ctx)
         path = self.ctx.episode_dir/'clip_plan.json'
@@ -497,14 +476,14 @@ class EpisodeTools:
             if blocked is not None:
                 return blocked
         if (read_json(self.ctx.work_dir/'input/manifest.json',{}).get('production_mode') == 'pipeline_review'
-                and not self._main_media_started()):
+                and not media_started(self.ctx.episode_dir)):
             from novel_manga.application.preparation.store import inputs
             native=read_json(self.ctx.run_dir/'pipeline-production.json',{})
             prepared=read_json(self.ctx.run_dir/'prepared.json',{})
             if (native.get('status')!='ready' or not prepared.get('ready')
                     or prepared.get('native_preparation_pending') or native.get('inputs')!=inputs(self.ctx.episode_dir)):
                 if read_json(self.ctx.work_dir/'input/manifest.json',{}).get('agent_phase')=='input_repair':
-                    from novel_manga.application.production.native_episode import prepare
+                    from novel_manga.application.agents.episode.pipeline_preparation import prepare
                     result=prepare(self.ctx,self)
                     if result.get('ready'):
                         native=result
@@ -524,7 +503,7 @@ class EpisodeTools:
         if voice_blocked:
             return {'ok': False, 'error': 'voice_recording_blocked',
                     'voice_recording_blocked': voice_blocked, 'blocked': voice_blocked,
-                    'can_adopt_draft': not self._main_media_started(),
+                    'can_adopt_draft': not media_started(self.ctx.episode_dir),
                     'generation_counts': history.generation_counts(self.ctx.episode_dir)}
         history.adopt_reviewed_run(self.ctx.episode_dir)
         history.begin_trial(self.ctx.episode_dir, {c['clip_id'] for c in plan['clips']},
@@ -682,10 +661,10 @@ class EpisodeTools:
         if any(row.get('action') in {'replan','recheck_input'} for row in answer['decisions']):
             if len(answer['decisions'])!=1:
                 raise ValueError('submit one editorial operation separately from clip patches')
-            from novel_manga.application.production.native_episode import editorial_request
+            from novel_manga.application.agents.episode.pipeline_preparation import editorial_request
             return editorial_request(self.ctx,self,answer['decisions'][0])
         if (self.ctx.input_mode == 'source' and not (self.ctx.run_dir/'prepared.json').exists()
-                and not self._main_media_started()):
+                and not media_started(self.ctx.episode_dir)):
             from .draft_assets import repair
             if any(row.get('action') != 'input' for row in answer['decisions']):
                 raise ValueError('edit the provisional draft directly; apply accepts asset input requests before adoption')
@@ -1083,8 +1062,8 @@ class EpisodeTools:
                     or input_states.get(cid, {}).get('revision_available')):
                 allowed.append('input')
             actions[cid] = allowed
-        from novel_manga.application.production.native_episode import semantic_pending
-        editorial = semantic_pending(self.ctx) and not self._main_media_started()
+        from novel_manga.application.agents.episode.pipeline_preparation import semantic_pending
+        editorial = semantic_pending(self.ctx) and not media_started(self.ctx.episode_dir)
         if editorial:
             for cid in eligible:
                 if cid in actions:
@@ -1107,7 +1086,7 @@ class EpisodeTools:
                     'phases': 'existing character appearance or registered phase reuse',
                     'locations': 'source-supported empty scene cards'}, 'source_review_required': True},
                 'adopted': bool(plan.get('clips')), 'clip_count': len(plan.get('clips', [])),
-                'can_adopt_draft': not self._main_media_started() and not scoped_editor,
+                'can_adopt_draft': not media_started(self.ctx.episode_dir) and not scoped_editor,
                 'review_required': bool(unreviewed) or (bool(review.get('clips')) and not self._current_review(review)),
                 'unreviewed_clips': unreviewed,
                 'review_command': 'review before finish when current video reviews are missing or stale',

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 import pytest
 
-from novel_manga.application.production import native_episode
+from novel_manga.application.agents.episode import pipeline_preparation as native_episode
 from novel_manga.util import atomic_write_json, read_json
 
 
@@ -18,7 +18,9 @@ def context(tmp_path):
 
 def test_existing_takes_bypass_preparation_and_replanning(tmp_path,monkeypatch):
     ctx=context(tmp_path)
-    tools=SimpleNamespace(_main_media_started=lambda:True)
+    tools=SimpleNamespace()
+    video=ctx.episode_dir/'work/clips/c/attempt_01/clip.mp4'
+    video.parent.mkdir(parents=True);video.write_bytes(b'existing take')
     monkeypatch.setattr(native_episode,'prepare_one',lambda *a,**k: (_ for _ in ()).throw(AssertionError('replanned filmed episode')))
     result=native_episode.prepare(ctx,tools)
     assert result['ready'] and result['existing_media']
@@ -26,7 +28,7 @@ def test_existing_takes_bypass_preparation_and_replanning(tmp_path,monkeypatch):
 
 def test_native_preparation_failure_never_becomes_agent_authoring(tmp_path,monkeypatch):
     ctx=context(tmp_path);calls=[]
-    tools=SimpleNamespace(_main_media_started=lambda:False)
+    tools=SimpleNamespace()
     monkeypatch.setattr(native_episode,'prepare_one',lambda *a,**k:{'status':'needs_repair','reason':'missing scene'})
     monkeypatch.setattr(native_episode,'patch_inputs',lambda *a:calls.append('native_patch') or {'ok':False})
     result=native_episode.prepare(ctx,tools)
@@ -37,7 +39,7 @@ def test_native_preparation_failure_never_becomes_agent_authoring(tmp_path,monke
 
 def test_native_ready_marks_inputs_without_video_or_agent(tmp_path,monkeypatch):
     ctx=context(tmp_path)
-    tools=SimpleNamespace(_main_media_started=lambda:False)
+    tools=SimpleNamespace()
     atomic_write_json(ctx.episode_dir/'clip_plan.json',{'clips':[{'clip_id':'clip_01'}]})
     atomic_write_json(ctx.episode_dir/'chapter_script.json',{'shots':[{'index':1}]})
     monkeypatch.setattr(native_episode,'prepare_one',lambda *a,**k:{'status':'ready'})
@@ -115,7 +117,7 @@ def test_semantic_failure_goes_to_targeted_agent_not_ordinary_replanner(tmp_path
     monkeypatch.setattr(native_episode,'prepare_one',lambda *a,**k:failure)
     monkeypatch.setattr(native_episode,'patch_inputs',lambda *a:pytest.fail('ordinary model rewriting dialogue'))
     monkeypatch.setattr('novel_manga.application.preparation.actions.replan',lambda *a:pytest.fail('automatic whole replan'))
-    result=native_episode.prepare(ctx,SimpleNamespace(_main_media_started=lambda:False))
+    result=native_episode.prepare(ctx,SimpleNamespace())
     assert result['needs_semantic_repair'] and not result['ready']
     assert native_episode.semantic_pending(ctx)
 
@@ -148,7 +150,7 @@ def editorial_case(tmp_path):
     ctx=context(tmp_path)
     atomic_write_json(ctx.run_dir/'pipeline-production.json',{'status':'semantic_repair','failure':{
         'audit':{'issues':[{'kind':'speaker','stage':1,'problem':'wrong delivery'}]}}})
-    return ctx,SimpleNamespace(_main_media_started=lambda:False,_archive_adoption=lambda:None)
+    return ctx,SimpleNamespace()
 
 
 def test_only_explicit_agent_brief_invokes_one_whole_replan(tmp_path,monkeypatch):

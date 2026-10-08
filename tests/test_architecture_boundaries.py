@@ -52,3 +52,13 @@ def test_tests_use_support_fixtures_instead_of_other_test_modules():
             targets = [a.name for a in node.names] if isinstance(node, ast.Import) else (
                 [node.module or ''] if isinstance(node, ast.ImportFrom) else [])
             assert not any(name.startswith('test_') for name in targets), path
+
+
+def test_shared_rendering_and_artifact_services_do_not_depend_on_episode_agent():
+    root = Path(__file__).resolve().parents[1] / 'src/novel_manga/application'
+    for relative in ('rendering/flow.py', 'rendering/probe.py', 'production/artifacts.py'):
+        path = root / relative
+        for node in ast.walk(ast.parse(path.read_text())):
+            targets = [a.name for a in node.names] if isinstance(node, ast.Import) else (
+                [node.module or ''] if isinstance(node, ast.ImportFrom) else [])
+            assert not any(name.startswith('novel_manga.application.agents.episode') for name in targets), path

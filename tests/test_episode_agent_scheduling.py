@@ -16,14 +16,12 @@ from support.episode_runtime import episode_context as ctx, sandbox_config as co
 
 @pytest.mark.parametrize('production_only',[False,True])
 def test_pipeline_review_invokes_agent_only_after_native_generation(ctx,config,monkeypatch,production_only):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls=install_fake_runtime(monkeypatch,ctx)
     if production_only:monkeypatch.setenv('NOVEL_PRODUCTION_ONLY','1')
     bridges=capture_bridge(monkeypatch)
     original=flow.EpisodeTools
     class Tools(original):
-        def _main_media_started(self):
-            return 'render' in calls
         def dispatch(self,action,payload):
             result=super().dispatch(action,payload)
             if action=='render':
@@ -53,7 +51,7 @@ def test_pipeline_review_invokes_agent_only_after_native_generation(ctx,config,m
 
 
 def test_pipeline_failure_is_recorded_without_agent_authoring(ctx,config,monkeypatch):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls=install_fake_runtime(monkeypatch,ctx)
     monkeypatch.setattr(native_episode,'prepare',lambda *a:{'ready':False,'stage':'preparation','error':'missing card'})
     monkeypatch.setattr(flow,'run_session',lambda *a,**kw:pytest.fail('Agent before video'))
@@ -63,7 +61,7 @@ def test_pipeline_failure_is_recorded_without_agent_authoring(ctx,config,monkeyp
 
 
 def test_resumed_unfilmed_input_correction_returns_to_native_preparation(ctx,config,monkeypatch):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls=install_fake_runtime(monkeypatch,ctx);original=flow.EpisodeTools
     class Tools(original):
         def dispatch(self,action,payload):
@@ -81,7 +79,7 @@ def test_resumed_unfilmed_input_correction_returns_to_native_preparation(ctx,con
 
 @pytest.mark.parametrize('production_only',[False,True])
 def test_confirmed_semantic_exception_can_start_repair_agent_before_video(ctx,config,monkeypatch,production_only):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls=install_fake_runtime(monkeypatch,ctx)
     if production_only:monkeypatch.setenv('NOVEL_PRODUCTION_ONLY','1')
     def prepare(*unused):
@@ -106,7 +104,7 @@ def test_confirmed_semantic_exception_can_start_repair_agent_before_video(ctx,co
 
 
 def test_bulk_asset_wait_defers_without_agent_or_generation(ctx,config,monkeypatch):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls=install_fake_runtime(monkeypatch,ctx)
     monkeypatch.setattr(native_episode,'prepare',lambda *a:{'ready':False,'status':'waiting_assets',
         'waiting_assets':['/book/series_assets/locations/location_001/establishing.jpeg']})
@@ -118,7 +116,7 @@ def test_bulk_asset_wait_defers_without_agent_or_generation(ctx,config,monkeypat
 
 
 def test_first_pass_semantic_exception_can_repair_inputs_in_production_host(ctx, config, monkeypatch):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     install_fake_runtime(monkeypatch, ctx)
     monkeypatch.setenv('NOVEL_FIRST_PASS_ONLY', '1')
     monkeypatch.setenv('NOVEL_PRODUCTION_ONLY', '1')
@@ -140,7 +138,7 @@ def test_first_pass_semantic_exception_can_repair_inputs_in_production_host(ctx,
 
 
 def test_mixed_first_pass_renders_before_review_and_hands_off_without_agent(ctx, config, monkeypatch):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls = install_fake_runtime(monkeypatch, ctx)
     monkeypatch.setenv('NOVEL_FIRST_PASS_ONLY', '1')
     monkeypatch.setenv('NOVEL_PRODUCTION_ONLY', '1')
@@ -163,7 +161,7 @@ def test_mixed_first_pass_renders_before_review_and_hands_off_without_agent(ctx,
 
 
 def test_external_batch_review_starts_at_agent_without_native_production(ctx, config, monkeypatch):
-    from novel_manga.application.production import native_episode
+    from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls=install_fake_runtime(monkeypatch,ctx)
     video=ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4';video.parent.mkdir(parents=True);video.write_bytes(b'pipeline video')
     atomic_write_json(ctx.episode_dir/'clip_plan.json',{'clips':[{'clip_id':'clip_01','kind':'video'}]})
@@ -815,9 +813,9 @@ def test_retry_of_started_episode_renders_current_plan_without_readopting_a_draf
                                                    'deadline': time.time()-1})
     original = flow.EpisodeTools
     payloads = []
+    video=ctx.episode_dir/'work/clips/c/attempt_01/clip.mp4'
+    video.parent.mkdir(parents=True);video.write_bytes(b'existing take')
     class Tools(original):
-        def _main_media_started(self):
-            return True
         def dispatch(self, action, payload):
             if action == 'render':
                 payloads.append(payload)
@@ -1022,10 +1020,12 @@ def test_restored_render_distinguishes_new_draft_from_submitted_media(ctx, confi
                 'status': 'running' if started else 'accepted'}})
     original = flow.EpisodeTools
     rendered = []
+    if started:
+        receipt=ctx.episode_dir/'work/clips/c/attempt_01/clip.mp4.task.json'
+        receipt.parent.mkdir(parents=True)
+        atomic_write_json(receipt,{'task_id':'already submitted'})
 
     class Tools(original):
-        def _main_media_started(self):
-            return started
 
         def dispatch(self, action, payload):
             if action == 'render':

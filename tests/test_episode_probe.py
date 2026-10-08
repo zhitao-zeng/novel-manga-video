@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from novel_manga.application.agents.episode import probe
+from novel_manga.application.rendering import probe
 from novel_manga.application.agents.episode.tools import EpisodeTools
 
 
