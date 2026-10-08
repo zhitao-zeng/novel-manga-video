@@ -32,7 +32,7 @@ class EpisodeTools:
         try:
             if not isinstance(payload, dict) and payload is not None:
                 raise ValueError('tool payload requires an object')
-            if action not in {'check', 'adopt', 'render', 'review', 'apply', 'finish', 'status'}:
+            if action not in {'check', 'adopt', 'render', 'review', 'apply', 'finish', 'status', 'doctor'}:
                 raise ValueError('unknown episode tool action')
             result = getattr(self, action)(payload or {})
             if action in {'apply', 'finish'}:
@@ -998,6 +998,12 @@ class EpisodeTools:
                 'technical_passed': manifest['technical_passed'], 'movie': manifest['movie'],
                 'artifact': 'input/latest-finish.json', 'manifest': str(final / 'manifest.json'),
                 'generation_counts': manifest['actual_video_counts']}
+
+    def doctor(self, payload):
+        from .doctor import run_doctor
+        report = run_doctor(self.ctx.novel_dir)
+        self.state('doctor', ok=report['ok'])
+        return {'ok': True, 'report': report}
 
     def status(self, payload):
         from collections import Counter
