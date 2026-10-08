@@ -27,6 +27,7 @@ SKILL_REFERENCES = {
     'h3_format': 'references/h3-format.md',
     'official_h3_guide': 'references/official/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md',
     'review_and_repair': 'references/review-and-repair.md',
+    'repair_playbook': 'references/repair-playbook.md',
     'case_lessons': 'references/case-lessons.md',
 }
 

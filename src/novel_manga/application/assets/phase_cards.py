@@ -33,17 +33,7 @@ from novel_manga.application.identity.phases import load_phases, phase_for, phas
 from novel_manga.application.profiles import frame_spec, load_genre, load_profile, load_style, style_names, styled_bible
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models.bible import StoryBible
-
-def load_dotenv(path: Path) -> None:
-    """As thin_batch.py does.  build_cards_thin.py relies on the conductor's environment; a hand-run has none."""
-    if not path.is_file():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip().removeprefix("export ").strip(), value.strip().strip("'\""))
+from novel_manga.util import load_dotenv
 
 
 def worn_reference(phase: dict, bible: StoryBible, root: Path):
@@ -159,6 +149,7 @@ def main() -> int:
         bible = styled_bible(bible, profile, novel_dir)
     provider = FramedPhanRouter(settings, frame)
     factory = FramedAssetFactory(settings, provider, style=asset_style)
+    character_route = {'route_local': False} if asset_style.dialect_routes_subset else {}
     style_master = settings.style_master_path
     guard = STYLE_MASTER_GUARD if style_master is not None else ""
     index = {character.name: position for position, character in enumerate(bible.characters, start=1)}
@@ -234,7 +225,7 @@ def main() -> int:
             started = time.monotonic()
             try:
                 factory.ensure_card(prompt, output, reference=references[0] if references else style_master,
-                                    additional_references=tuple(references[1:]))
+                                    additional_references=tuple(references[1:]), **character_route)
                 status = "built"
             except ModerationRejected as error:
                 status = f"moderation: {str(error)[:120]}"
@@ -270,7 +261,7 @@ def main() -> int:
                         old.rename(directory / f"closed.superseded-{stamp}.jpeg{suffix}")
             started = time.monotonic()
             try:
-                factory.ensure_card(prompt, closed, reference=primary, additional_references=(worn_card,))
+                factory.ensure_card(prompt, closed, reference=primary, additional_references=(worn_card,), **character_route)
                 status = "closed built"
             except Exception as error:  # noqa: BLE001 - the open card still stands without it
                 status = f"closed error: {type(error).__name__}: {str(error)[:120]}"
@@ -294,7 +285,7 @@ def main() -> int:
                     factory.ensure_card(expression_prompt(bible, look.name, look.expression_profile, character=look,
                         family=asset_style.render_family, direction=asset_style.render_direction,
                         fingerprint=asset_style.prompt_fingerprint, tidy=asset_style.tidy_prompts),
-                        sheet, reference=primary)
+                        sheet, reference=primary, **character_route)
                     status = "expressions built"
                 except Exception as error:  # noqa: BLE001
                     status = f"expressions error: {type(error).__name__}: {str(error)[:120]}"

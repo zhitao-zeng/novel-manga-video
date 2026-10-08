@@ -140,6 +140,16 @@ def document_memory(path, record):
            f"证据：{record['evidence']}",'','问题与证据：','']
     for issue in record['issues']:
         lines.append(f"- {issue['kind']} / {','.join(issue.get('clips') or [])}: {issue.get('detail','')}")
+    from .memory_summary import summarize_case
+    summary = summarize_case(record)
+    lines += ['', '修法摘要（changed仅证明操作生效，accepted_clip证明该片段复核通过）：', '']
+    for operation in summary['effective_operations']:
+        lines.append('- '+json.dumps(operation, ensure_ascii=False))
+    if not summary['effective_operations']:
+        lines.append('- 保留记录没有可还原的具体生效修法，不能从整集finish通过推断修法。')
+    lines += ['', '失败尝试（不得当成成功修法）：', '']
+    for failure in summary['failed_operations']:
+        lines.append('- '+json.dumps(failure, ensure_ascii=False))
     lines+=['','已执行的修法与结果：','']
     for attempt in record['attempts']:
         lines.append('- '+json.dumps(attempt,ensure_ascii=False))
@@ -163,6 +173,14 @@ def recall(ctx, diagnosis):
     if not kinds:
         return []
     rows = []
+    notes = {}
+    for summary_path in sorted(_memory_dir(ctx).glob('summaries/*/summary.json')):
+        for case in read_json(summary_path, {}).get('cases') or []:
+            if case.get('source_memory'):
+                notes[Path(case['source_memory']).name] = {
+                    'source': str(summary_path),
+                    'case_summary': str(case.get('case_summary') or '')[:400],
+                    'lesson_and_limits': str(case.get('lesson_and_limits') or '')[:400]}
     review_scope = read_json(ctx.work_dir/'input/manifest.json',{}).get('memory_scope') in {'post_render_repair','repair_only'}
     for path in _memory_dir(ctx).glob('*.json'):
         record = read_json(path, {})
@@ -171,7 +189,10 @@ def recall(ctx, diagnosis):
         shared = kinds & {i['kind'] for i in record.get('issues') or []}
         if shared:
             rows.append({'episode': record.get('episode'), 'kinds': sorted(shared),
-                         'outcome': record.get('outcome'), 'attempts': (record.get('attempts') or [])[-2:],
+                         'outcome': record.get('outcome'),
+                         'issues': [i for i in record.get('issues') or [] if i['kind'] in shared],
+                         'attempts': record.get('attempts') or [],
+                         'retrospective': notes.get(path.name),
                          'updated_at': record.get('updated_at', 0)})
     rows.sort(key=lambda r: (r['outcome'] == 'accepted', r['updated_at']), reverse=True)
     return rows[:4]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from novel_manga.util import atomic_write_json,read_json
+from .memory_summary import summarize_case
 
 
 def prepare(ctx,status,diagnosis,memories):
@@ -35,10 +36,7 @@ def prepare(ctx,status,diagnosis,memories):
         'preparation/exception.json','source-draft-check.json','request-draft.json','manifest.json')
         if (ctx.work_dir/'input'/name).is_file()]
     if not adopted and (ctx.work_dir/'output/episode.json').is_file():files.append('output/episode.json')
-    recent=[]
-    for memory in memories[:2]:
-        recent.append({k:memory[k] for k in ('episode','kinds','outcome') if k in memory})
-        recent[-1]['last_result']=str((memory.get('attempts') or [{}])[-1])[:500]
+    recent=[summarize_case(memory) for memory in memories[:2]]
     job=status.get('job') or {}
     outcome=job.get('result') or {}
     last={k:job.get(k) for k in ('id','action','status','error')}
@@ -59,7 +57,15 @@ def prepare(ctx,status,diagnosis,memories):
             'resume:true executes the saved decision unchanged; do not combine it with new shots/assets/source_quote.',
             'remaining_attempts does not renew a spent revision of the same pending candidate.',
             'Use exact risk_choices values. Accepted tool job means submitted; inspect its completed result.',
+            'Related history distinguishes changed operations, independently accepted clips and failed attempts. '
+            'An accepted episode does not prove every attempted remedy worked. Match the concrete issue to current evidence; '
+            'not_recorded means no repair recipe was retained, and unresolved cases are not verified recipes.',
             'For deterministic tool bugs, inspect the read-only source and report the concrete failing field; do not repeat the same rejected operation.']}
+    playbook=read_json(ctx.work_dir/'input/manifest.json',{}).get('skill_references',{}).get('repair_playbook')
+    if playbook:
+        brief['repair_playbook']=playbook
+        brief['execution_rules'].append('For review/input repair, read repair_playbook if it is new to this session; '
+            'then use the section matching current evidence and capabilities. A resumed old conversation also receives this route.')
     atomic_write_json(ctx.work_dir/'input/current-status.json',status)
     atomic_write_json(ctx.work_dir/'input/current-task.json',brief)
     return brief

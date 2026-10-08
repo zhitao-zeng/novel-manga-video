@@ -16,6 +16,7 @@ from .arguments import RepairArgumentError, UnsupportedInput, CompileConflict, v
 from .input_records import (INPUT_LIMIT, SOURCE_REVIEW_POLICY, _phase_groups, effects,
                            remaining_input_attempts, input_receipt, source_review_recoverable,
                            latest_input_records)
+from .input_records import asset_configuration_recoverable
 
 from .input_contracts import normalize_arguments, expand_shared_scope, SHOT_NAMES, SHOT_FIELDS
 from .input_compilation import compile_input
@@ -74,6 +75,11 @@ def repair_status(ctx):
                 row['revision_available'] = int(previous.get('revision_count',len(previous.get('previous_decisions',[])))) < 1
             if remaining > 0 or row.get('revision_available'):
                 row['next_action'] += ' Submit a complete source-backed input proposal; the host will reuse the existing allowance or its one revision.'
+        record=next(r for _,r in reversed(records) if r.get('clip_id')==cid)
+        if asset_configuration_recoverable(ctx,record):
+            row['resume_action']={'clip_id':cid,'action':'input','resume':True,
+                'reason':'Continue the unchanged saved candidate after the image configuration fix'}
+            row['next_action']='The image configuration failure was fixed. Resume this exact candidate once; preserve source, completed assets and all input/video counts.'
     return states
 
 

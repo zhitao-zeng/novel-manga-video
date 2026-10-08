@@ -1,5 +1,6 @@
 """Run the actual phase CLI with a simulated image supplier, including expressions."""
 import json
+import pytest
 from types import SimpleNamespace
 
 from novel_manga.application.assets import phase_cards
@@ -28,7 +29,8 @@ def test_shared_missing_worn_prop_is_generated_once_before_character_builds(tmp_
     assert calls==[{'prop_001'}]
 
 
-def test_phase_cli_builds_expressions_and_reuses_completed_identical_cards(tmp_path, monkeypatch):
+@pytest.mark.parametrize('local_images', [False, True])
+def test_phase_cli_builds_expressions_and_reuses_completed_identical_cards(tmp_path, monkeypatch, local_images):
     atomic_write_json(tmp_path/'story_bible.json', {
         'novel_title': '测试', 'genre': 'fantasy', 'visual_style': '3D', 'palette': '暖色',
         'style_fingerprint': '唯美3D', 'characters': [{'name': '甲', 'appearance': '黑发青年', 'wardrobe': '黑袍'}]})
@@ -41,7 +43,8 @@ def test_phase_cli_builds_expressions_and_reuses_completed_identical_cards(tmp_p
     monkeypatch.setattr(phase_cards, 'load_style', lambda *a: {})
     monkeypatch.setattr(phase_cards.Settings, 'from_env', lambda **k: Settings())
     monkeypatch.setattr(phase_cards.AssetStyle, 'for_genre', lambda *a, **k: SimpleNamespace(
-        render_family='3D', render_direction='唯美3D', prompt_fingerprint=False, tidy_prompts=True, card_brief=''))
+        render_family='3D', render_direction='唯美3D', prompt_fingerprint=False, tidy_prompts=True, card_brief='',
+        dialect_routes_subset=local_images, local_kinds=('location','prop')))
     monkeypatch.setattr(phase_cards, 'style_card_suffix', lambda *a: '')
     monkeypatch.setattr(phase_cards, 'wants_3d_card', lambda *a: True)
     monkeypatch.setattr(phase_cards, 'FramedPhanRouter', lambda *a: None)
@@ -50,13 +53,14 @@ def test_phase_cli_builds_expressions_and_reuses_completed_identical_cards(tmp_p
         def __init__(self, *a, **k):
             pass
         def ensure_card(self, prompt, output, **kwargs):
-            calls.append((prompt, output.name))
+            calls.append((prompt, output.name, kwargs))
             output.write_bytes(b'simulated image')
     monkeypatch.setattr(phase_cards, 'FramedAssetFactory', Supplier)
     argv = ['phase-cards', '--novel-dir', str(tmp_path), '--only', '甲', '--chapter', '1', '--expressions']
     monkeypatch.setattr(phase_cards.sys, 'argv', argv)
     assert phase_cards.main() == 0
-    assert [name for _, name in calls] == ['turnaround.jpeg', 'expressions.jpeg']
+    assert [name for _, name, _ in calls] == ['turnaround.jpeg', 'expressions.jpeg']
+    assert all(kw.get('route_local') is (False if local_images else None) for _,_,kw in calls)
     # A later step failed previously: a new phase ID must reuse its completed images.
     phase['asset_id'] = 'character_001-p2'
     atomic_write_json(phase_path, {'characters': {'甲': [phase]}})

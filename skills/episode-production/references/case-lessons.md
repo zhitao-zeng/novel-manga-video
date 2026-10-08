@@ -42,6 +42,17 @@ each turn. An unresolved prior attempt is evidence of what failed, not a recipe.
 Use new failures to choose a different supported remedy. Do not wait for a human
 to restate these lessons or to tell you which evidence files to inspect.
 
+The 2026-10-08 memory audit found 154 references to31 distinct cases, all reduced
+by the old context handoff to an empty successful finish. Current related_history
+now includes the concrete issue, changed/accepted clip receipts, failed choices,
+and any source-linked retrospective. A changed operation is not proof that the
+next video passed; an accepted episode does not validate every earlier attempt.
+If repair_details is not_recorded, no remedy can be inferred from finish alone.
+Retrospective conclusions are bounded to their recorded inputs and evidence,
+and never replace current permissions or outcome. Preserve partial successes,
+correct the first source/card/request mismatch, and do not regenerate good audio
+for homophone spelling or request a new take merely because a stale gate is red.
+
 Source records maintained by the project:
 `docs/authored-binding-prompt-simplification-20260929.md`,
 `docs/production-lessons.md`, `docs/prompt-production-repair-20260930.md`,

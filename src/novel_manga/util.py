@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -62,5 +64,11 @@ def load_dotenv(path: Path) -> None:
             continue
         key, value = line.split("=", 1)
         key = key.strip().removeprefix("export ").strip()
-        value = value.strip().strip("'\"")
+        value = value.strip()
+        if value[:1] in {"'", '"'}:
+            tokens = shlex.split(value, comments=True)
+            value = tokens[0] if tokens else ''
+        else:
+            # A literal hash in an unquoted token is data; whitespace + # is a note.
+            value = re.split(r'\s+#', value, maxsplit=1)[0].rstrip()
         os.environ.setdefault(key, value)

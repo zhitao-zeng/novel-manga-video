@@ -89,7 +89,9 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
                          ((old.get('verify') or {}).get('cast_video') or {}).get('policy') == cast_video.POLICY))
             source_changed = bool(old and (clip.get('source_trace_repaired') or 'source_segment_ids' in old)
                                   and old.get('source_segment_ids') != (clip.get('segment_ids') or []))
-            if same_take and not source_changed:
+            speech_recovered = bool(old and (old.get('speech_gate') or {}).get('passed') is False
+                                    and selected.get(clip_id, {}).get('passed') is True)
+            if same_take and not source_changed and not speech_recovered:
                 verdict = {key: value for key, value in old.items() if key not in ("video", "take")}
                 from novel_manga.application.review import adjudication
                 if cast_video.enabled() and adjudication.outdated(verdict):
@@ -104,7 +106,8 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
                         verdict = adjudication.check_inputs(checked_clip, episode_dir / 'work' / 'review' / clip_id,
                                                            verdict, video=video, bible=bible)
             else:
-                cached = ((old.get('verify') or {}).get('cast_video') if same_take and source_changed else None)
+                cached = ((old.get('verify') or {}).get('cast_video')
+                          if same_take and (source_changed or speech_recovered) else None)
                 options = {'cached_cast': cached} if cached and cast_video.enabled() else {}
                 verdict = review_judges.judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id, **options)
         except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
