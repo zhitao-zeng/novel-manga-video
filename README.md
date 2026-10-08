@@ -108,6 +108,7 @@ NOVEL_PLANNER_ENDPOINT=deepseek .venv/bin/python scripts/plan_chapter_thin.py \
 主调度器支持 `pipeline.py start --novel BOOK_ID --executor episode_agent`，复用公共模型槽、H3 池和暂停恢复。每集仍归同一个 Agent；耗时工具交接后释放模型槽，由宿主执行并续接原会话。默认小说配置继续使用标准执行方式，详见[共享调度与验证边界](docs/episode-agent-scheduling.md)。
 
 正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
+31 个 `*_thin.py` 均是启动入口。原文读取/切章在 `source/`，基础渲染、音频证据和质检在 `media/`，初始人物库构建在 `application/planning/`；旧包路径已移除，具体映射见[当前架构](docs/architecture.md)。
 
 - [产线全景图](docs/pipeline-overview.md)：六层流水线、瓶颈与人工闸门、本周变更——新人/新会话先读这份。
 - [当前架构与修改位置](docs/architecture.md)：职责、依赖、配置来源和产物写入者。

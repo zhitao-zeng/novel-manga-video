@@ -29,7 +29,7 @@ ROOT = Path("/mnt/disk1/zengzhitao/novel-manga-video")
 sys.path.insert(0, str(ROOT / "src"))
 
 from novel_manga.config import Settings
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from experiments.legacy.models import ChapterDiagnosis, SeriesState
 from novel_manga.models.episode import EpisodePlan
 from novel_manga.models.bible import StoryBible

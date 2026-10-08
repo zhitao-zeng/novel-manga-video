@@ -1,6 +1,7 @@
 """Regressions from the 2026-09-11 review of the Seedance lines and the packer (issues 16-21), and the
 cache-only rebuild that puts the dropped title cards back into finished episodes."""
 from __future__ import annotations
+import novel_manga.media.cache as owner_cache
 from novel_manga.story.compilation import ClipCompiler
 from novel_manga.application.packing.context import compiler_options
 from novel_manga.media import postprocess
@@ -27,7 +28,6 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from novel_manga.story.compilation import ClipCompiler  # noqa: E402
 import novel_manga.application.production.conductor_flow as conductor_flow
 import novel_manga.application.planning.context as planner_context
 import novel_manga.application.rendering.flow as rc
@@ -181,14 +181,14 @@ def test_cache_only_never_generates_a_clip(tmp_path):
     r = uninitialized_runner()
     r.context.novel_dir, r.context.work = tmp_path / NOVEL, tmp_path / NOVEL / "work"
     r.context.settings = types.SimpleNamespace(local_h3_base_url=None)
-    r.context.feedback, r.context.prescreen, r.context.cache_only = {}, False, True
+    r.context.feedback, r.context.options.prescreen, r.context.options.cache_only = {}, False, True
 
     class Provider:
         def create_video(self, *args, **kwargs):
             raise AssertionError("cache-only generated a clip")
     r.context.provider = Provider()
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": "【阶段1】林凡走进大殿。", "request_seconds": 10, "references": []}
-    with pytest.raises(rc.CacheMiss):
+    with pytest.raises(owner_cache.CacheMiss):
         r.generate_clip(clip, 1)
 
 

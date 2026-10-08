@@ -28,7 +28,7 @@ def volume_checkpoint(batch, chapter: int, chapters: list[int]) -> None:
     # story itself in front of the planner once the five-chapter recap has
     # scrolled past it.
     try:
-        from novel_manga.application.review.bible import summarize_volume
+        from novel_manga.application.identity.volume_context import summarize_volume
         arc = summarize_volume(batch.novel_dir, first, chapter)
         if arc:
             lines += ["", f"## 主线（第 {first}–{chapter} 章）", "", arc.get("summary", ""), "",

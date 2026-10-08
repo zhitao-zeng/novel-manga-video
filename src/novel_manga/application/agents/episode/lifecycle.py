@@ -2,7 +2,9 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from .context import EpisodeContext
-from . import runtime as runtime_rules, progress as progress_rules
+from . import runtime as runtime_rules
+from novel_manga.application.resolved_settings import resolve_agent_environment
+from . import progress as progress_rules
 
 from contextlib import contextmanager
 import os
@@ -19,8 +21,6 @@ from .limits import DEFAULT_OPERATION_SECONDS, DEFAULT_REPAIR_TURN_SECONDS
 from novel_manga.application.agents.sandbox import load_config
 
 
-from . import runtime as runtime_rules
-from . import progress as progress_rules
 
 
 def wait_for_idle(bridge):
@@ -175,7 +175,7 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
     seconds = int(timeout if timeout is not None else config.get('timeout_seconds', DEFAULT_OPERATION_SECONDS))
     if seconds <= 0:
         raise ValueError('timeout must be positive')
-    runtime = runtime_rules.runtime_environment(ctx, config)
+    runtime = resolve_agent_environment(ctx, config)
     runtime['NOVEL_RESOURCE_WAIT_FILE']=str(ctx.run_dir/'resource-waits.jsonl')
     if config.get('refusal_fallback'):
         runtime['NOVEL_REFUSAL_FALLBACK'] = config['refusal_fallback'].get('endpoint', 'flashnext')

@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""Batch media command; generation, cache, analysis and postprocessing have shared owners."""
 from __future__ import annotations
 from novel_manga.application.configuration import project_root
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
 ROOT = project_root()
 from novel_manga.config import Settings
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 from novel_manga.models.bible import StoryBible
 from novel_manga.media.asset_inspection import cards_sheet
 from novel_manga.application.profiles import load_profile, style_names
@@ -60,9 +58,9 @@ def main() -> int:
         record['trials'][-1]['managed'] = True
         history.save(episode_dir, record)
     runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair, cache_only=args.cache_only, retake_failed=args.retake_failed)
-    runner.context.first_pass_only = args.first_pass
-    runner.context.first_pass_clips = selected
-    runner.context.prepared_requests_only = selected is not None
+    runner.context.options.first_pass_only = args.first_pass
+    runner.context.options.first_pass_clips = selected
+    runner.context.options.prepared_requests_only = selected is not None
     runner.context.asr_helper = Path(__file__).resolve().parents[4]/'scripts/thin_asr_segments.py'
     clips = [c for c in runner.context.clip_plan["clips"] if c["kind"] == "video"]
     summary = {

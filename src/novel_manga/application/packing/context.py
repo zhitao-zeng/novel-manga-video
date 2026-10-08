@@ -13,6 +13,7 @@ from novel_manga.application.planning.context import load_entity_index
 from novel_manga.application.identity.store import load_chapter
 from novel_manga.application.identity.phases import chapter_of
 from novel_manga.application.profiles import frame_spec, load_genre, load_profile, load_style
+from novel_manga.application.resolved_settings import resolve_book_settings, recorded_plan_settings
 
 POLICY = "thin-clip-plan-v12-six-stages" + ("-15s" if os.environ.get("NOVEL_CLIP_SECONDS_MAX", "").strip() in {"15", "15.0"} else "")
 
@@ -128,19 +129,12 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     chat_screen = load_chat_screen(episode_dir.parent)
     voices = load_voices(episode_dir.parent)
     load_entity_index(episode_dir.parent, chapter_of(episode_dir), ctx=planner_ctx, identity_data=identity_data)
-    profile = load_profile(episode_dir.parent, style=style, frame=frame, tier=tier)
-    # The method is frozen with the screenplay, not retroactively applied to old
-    # chapters when a book changes its default method.
     script_path = episode_dir / 'chapter_script.json'
     script = json.loads(script_path.read_text()) if script_path.is_file() else {}
     method = script.get('story_method') or {}
-    if method:
-        profile.update(script.get('profile') or {})
-        profile.update({k: v for k, v in {'style': style, 'frame': frame, 'tier': tier}.items() if v})
-        profile['story_method'] = method['id']
-    else:
-        profile.pop('story_method', None)
-    genre = load_genre(profile)
+    resolved = resolve_book_settings(episode_dir.parent,
+        overrides={'style':style,'frame':frame,'tier':tier},script=script)
+    profile, genre = resolved.profile, resolved.genre
     # two_view_cast_limit follows the profile's own two_views choice; the old
     # fast tier forced it to 0, which is why two_views never worked on fast books.
     two_views = str(profile.get('two_views', TWO_VIEWS))
@@ -160,7 +154,7 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     #排线 in every Chinese prompt, the clean h3_style_line in every English request - the same clip
     # asking for two aesthetics, audit #7).  The live style wins for the style line; the grammar's
     # other axes (light, lens, composition) are not the style package's to speak of and stay.
-    style_now = load_style(profile, episode_dir.parent)
+    style_now = resolved.style
     if (grammar or {}).get("style_line") and style_now.get("h3_style_line"):
         grammar = {**grammar, "style_line": style_now["h3_style_line"]}
     return {
@@ -170,8 +164,8 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
         # compared it to the literal "3d", so every package whose name is not that word - 唯美 and 3D国漫,
         # both render_family 3d, and 真人, which is photographed - asked H3 for 2D animation while its
         # reference cards were drawn in something else.
-        "render_family": str(load_style(profile, episode_dir.parent).get("render_family") or ""),
-        "h3_style_line": str(load_style(profile, episode_dir.parent).get("h3_style_line") or ""),
+        "render_family": str(resolved.style.get("render_family") or ""),
+        "h3_style_line": str(resolved.style.get("h3_style_line") or ""),
         "compiler_options": options, "identity_data": identity_data,
         "location_map": {full.split("：", 1)[0].strip(): full for full in bible.locations},
         "overrides": json.loads(overrides_path.read_text(encoding="utf-8")) if overrides_path.is_file() else {},
@@ -180,18 +174,9 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
 
 def context_for_plan(episode_dir: Path, bible_path: Path, plan: dict) -> dict:
     """Rebuild with the plan's recorded frame, style, tier and clip limits, not today's profile defaults."""
-    profile = (plan.get("totals") or {}).get("profile") or {}
-    saved = plan.get("limits") or {}
-    cap = float(saved.get("max_clip_seconds") or (15 if "-15s" in plan.get("policy", "") else 30))
-    limits = {"max_clip_seconds": cap,
-              "max_stages": int(saved.get("max_stages") or (3 if cap <= 15 else 6)),
-              "soft_cut_seconds": float(saved.get("soft_cut_seconds") or cap * 0.6),
-              "camera_policy": saved.get('camera_policy', 'fixed')}
-    # A plan snapshot's own two_views (and, once books carry it, resolution/shape)
-    # travels with the plan; the disk profile only fills what the snapshot omits.
-    extra = {k: v for k, v in (("two_views", profile.get("two_views")),) if v}
-    ctx = load_context(episode_dir, bible_path, style=profile.get("style"), frame=profile.get("frame"),
-                       tier=profile.get("tier"), limits=limits)
+    recorded = recorded_plan_settings(plan)
+    ctx = load_context(episode_dir, bible_path, **recorded.overrides, limits=recorded.limits)
+    extra = {'two_views':recorded.two_views} if recorded.two_views else {}
     if extra:
         options = ctx["compiler_options"]
         ctx["compiler_options"] = replace(options, two_view_cast_limit=0 if extra["two_views"] == 'off' else 2,

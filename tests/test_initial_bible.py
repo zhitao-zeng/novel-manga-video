@@ -3,9 +3,9 @@ import json
 import httpx
 import pytest
 
-from novel_manga.bible import BibleBuilder
+from novel_manga.application.planning.bible_builder import BibleBuilder
 from novel_manga.config import Settings
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 
 
 def test_initial_bible_repairs_invalid_response_with_original_source(tmp_path):

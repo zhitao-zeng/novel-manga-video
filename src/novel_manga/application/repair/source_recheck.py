@@ -12,7 +12,7 @@ import time
 from novel_manga.repair.proposal import RepairProposal
 from novel_manga.application.repair.publication import publish_candidate, publish_source_review
 from novel_manga.util import atomic_write_json
-from novel_manga.runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 from novel_manga.application.review.verify import CurrentVerifier
 from novel_manga.application.review.store import current_takes
 from novel_manga.review.policy import verify_to_verdict

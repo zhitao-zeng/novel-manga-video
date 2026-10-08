@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from novel_manga import qc
+from novel_manga.media import quality as qc
 
 
 def test_silence_locations_distinguish_measurement_end_from_actual_gap(monkeypatch):

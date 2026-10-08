@@ -36,8 +36,8 @@ def prepare_cast(args, ctx: PlannerContext, source: ChapterSource) -> ChapterCas
         # now, then read the chapter again against the larger catalogue.  Re-reading costs no model call
         # (resolve_chapter reuses the saved source actors while the segments are unchanged) and it is the
         # only way the new entries can be bound, because the binding was computed before they existed.
-        from novel_manga.application.review.bible import (decided_extras, grow_unbound_roster,
-                                                           judge_unknown, reading_decisions)
+        from novel_manga.application.identity.reading_roster import decided_extras, reading_decisions
+        from novel_manga.application.identity.bible_growth import grow_unbound_roster, judge_unknown
         # Rule on anyone the whole-book reading never registered BEFORE growth runs, so a verdict of
         # "character" reaches the same pass that builds them - otherwise the chapter is lost once and
         # only works on the retry.
@@ -95,7 +95,7 @@ def prepare_cast(args, ctx: PlannerContext, source: ChapterSource) -> ChapterCas
         # MISSED looks like, and what everyone in a chapter the reading never reached looks like.  So the
         # decision has to be one the reading actually recorded: a form it saw and declined, or any form
         # in a chapter it read, where not promoting someone to a character is itself the verdict.
-        from novel_manga.application.review.bible import decided_extras, reading_decisions
+        from novel_manga.application.identity.reading_roster import decided_extras, reading_decisions
         reading = reading_decisions(novel_dir)
         # Only the people the reading actually ruled on play as extras.  Anyone it never ruled on was
         # put to it above; if that produced no verdict, they are still unaccounted for and the binding

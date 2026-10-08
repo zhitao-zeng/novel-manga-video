@@ -8,8 +8,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .config import Settings
-from .util import media_duration
+from novel_manga.config import Settings
+from novel_manga.util import media_duration
 
 
 SILENCE_EVENT = re.compile(r"silence_(start|end):\s*([0-9.]+)")

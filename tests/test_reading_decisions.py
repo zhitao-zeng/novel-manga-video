@@ -6,6 +6,8 @@ somebody it never had in front of it.  Every test here is a chapter that used to
 person who used to be lost, because two of the three were treated as one.
 """
 from __future__ import annotations
+import novel_manga.application.identity.bible_growth as cast_bible_growth
+import novel_manga.application.assets.character_design as cast_character_design
 
 import json
 from pathlib import Path
@@ -14,7 +16,7 @@ import pytest
 
 from novel_manga.application.identity.store import data_files, data_signature
 from novel_manga.application.planning.initialize import reading_verdicts
-from novel_manga.application.review.bible import decided_extras, reading_decisions, reading_roster
+from novel_manga.application.identity.reading_roster import decided_extras, reading_decisions, reading_roster
 from novel_manga.story.source_identity import active_cast_names
 
 
@@ -128,9 +130,9 @@ def growth_candidates(tmp_path, monkeypatch, rows, *, aliases=None, cast=None, b
     def fill(bible_obj, bible_path, missing, text, cast=None):
         built.extend(missing)
         return bible_obj, [], {}, {}
-    monkeypatch.setattr(review_bible, "fill_characters", fill)
+    monkeypatch.setattr(cast_character_design, "fill_characters", fill)
     monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
-    review_bible._grow_bible_unlocked(novel, "原文", 6, scan={"names": rows, "locations": []})
+    cast_bible_growth._grow_bible_unlocked(novel, "原文", 6, scan={"names": rows, "locations": []})
     return built
 
 
@@ -195,9 +197,9 @@ def unbound_growth(tmp_path, monkeypatch, actors, *, aliases=None, cast=None, bi
     def fill(bible_obj, bible_path, missing, text, cast=None):
         asked.extend(missing)
         return bible_obj, list(missing), {}, {}
-    monkeypatch.setattr(review_bible, "fill_characters", fill)
+    monkeypatch.setattr(cast_character_design, "fill_characters", fill)
     monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
-    review_bible.grow_unbound_roster(novel, {"unmatched_actors": actors}, "原文", 39)
+    cast_bible_growth.grow_unbound_roster(novel, {"unmatched_actors": actors}, "原文", 39)
     return asked
 
 
@@ -265,9 +267,9 @@ def test_a_character_the_reading_listed_never_becomes_somebody_elses_nickname(tm
         vouched = {n for n in rows if cast and review_bible.story_names.name_matches(n, cast)}
         return bible_obj, sorted(vouched), {}, {n: r for n, r in rows.items() if n not in vouched}
 
-    monkeypatch.setattr(review_bible, "fill_characters", fill)
+    monkeypatch.setattr(cast_character_design, "fill_characters", fill)
     monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
-    review_bible._grow_bible_unlocked(novel, "原文", 2, scan={"names": [row("伊文斯")], "locations": []})
+    cast_bible_growth._grow_bible_unlocked(novel, "原文", 2, scan={"names": [row("伊文斯")], "locations": []})
     aliases = json.loads((novel / "bible_aliases.json").read_text(encoding="utf-8"))
     assert "伊文斯" not in aliases
 
@@ -280,7 +282,7 @@ def judged(tmp_path, monkeypatch, answer, names=("前台的姑娘", "猎犬")):
     write_reading(novel, declined=["乞丐"], chapters=[1, 2])
     monkeypatch.setattr(review_bible.model_client, "ask_json", lambda *a, **k: answer)
     monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
-    verdicts = review_bible.judge_unknown(novel, list(names), "第 2 章的原文。", 2)
+    verdicts = cast_bible_growth.judge_unknown(novel, list(names), "第 2 章的原文。", 2)
     return novel, verdicts, reading_decisions(novel)
 
 
@@ -316,7 +318,7 @@ def test_no_verdict_is_not_a_verdict(tmp_path, monkeypatch):
         raise RuntimeError("endpoint down")
     monkeypatch.setattr(review_bible.model_client, "ask_json", boom)
     monkeypatch.setattr(review_bible.model_client, "log", lambda *a, **k: None)
-    assert review_bible.judge_unknown(novel, ["猎犬"], "原文", 2) == {}
+    assert cast_bible_growth.judge_unknown(novel, ["猎犬"], "原文", 2) == {}
     assert "猎犬" not in reading_decisions(novel)["declined"]
 
 

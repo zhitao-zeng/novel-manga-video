@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """Minimal media flow for focused tests that intentionally skip provider construction."""
 from novel_manga.application.rendering.flow import ThinMediaRunner
 from novel_manga.media.context import RenderContext

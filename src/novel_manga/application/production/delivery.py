@@ -21,6 +21,7 @@ but does not block (shadow mode) until its false-positive rate has been measured
 Writes outputs/X/delivery.json - the counts, the reason combinations and one row per
 episode - for the status board and for anyone asking "is this novel done".
 """
+from novel_manga.media.results import selected_video
 import novel_manga.episodes as ep_names
 from novel_manga.application.configuration import project_root
 import argparse
@@ -114,7 +115,7 @@ def selected_takes_reviewed(media: dict, review: dict, expected: set[str]) -> bo
     selected = {row['clip_id']: row.get('selected') or {} for row in media.get('clips') or []}
     for cid in expected:
         current, verdict = selected.get(cid, {}), (review.get('clips') or {}).get(cid, {})
-        video = current.get('postmix_video') or current.get('video')
+        video = selected_video(current)
         if (not video or not Path(video).is_file() or verdict.get('video') != video
                 or verdict.get('take') != take_identity(Path(video))):
             return False
@@ -139,9 +140,8 @@ def main() -> int:
     for d in dirs:
         plan = load(d / "clip_plan.json")
         if plan is not None:
-            n = ep_names.chapter_of(d.name)
-            plans[n] = (plan, cast_of(plan))
-            onscreen.update(plans[n][1])
+            plans[d.name] = (plan, cast_of(plan))
+            onscreen.update(plans[d.name][1])
     forms = surface_forms(novel_dir)
     real = {name for name, count in onscreen.items() if count >= args.recent_min} & set(forms)
     measurable = {name for name in real if forms[name]}
@@ -156,7 +156,7 @@ def main() -> int:
             status = episode_status(d, h3_lane)
         except Exception:  # noqa: BLE001 - a broken state file is a finding, not a crash
             status = "unreadable"
-        plan, cast = plans.get(n, ({}, set()))
+        plan, cast = plans.get(d.name, ({}, set()))
 
         review = load(d / "episode_review.json") or {}
         clips = review.get("clips") or {}

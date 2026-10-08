@@ -10,7 +10,7 @@ from novel_manga.repair.execution import repair_prompt
 def source_appearance_check(passage: str, shots: list[dict], context: dict) -> dict:
     """Check rewritten pictures only when the reading found local body evidence."""
     from novel_manga.llm.client import obj
-    from novel_manga.runtime_backends import normalize_text
+    from novel_manga.media.evidence_backends import normalize_text
     active = {n for s in shots for n in [*s.get('characters', []), *s.get('in_frame', [])]}
     relevant = [a for a in context.get('appearances', [])
                 if context.get('entities', {}).get(a['entity_id']) in active
@@ -67,7 +67,7 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
         grounded = [name for name in names if name in passage]
     if not grounded:
         return {}
-    from novel_manga.runtime_backends import normalize_text
+    from novel_manga.media.evidence_backends import normalize_text
     def adapted_text(text):
         # These two homophones occur in the source files (754 / 1722), while
         # the adapted dialogue uses normal spelling. Quotes remain unmodified.

@@ -70,7 +70,7 @@ def retry_suffix(ctx, clip: dict, attempt: int) -> str:
 
 def clip_prompt(ctx, clip: dict) -> str:
         prompt = clip_base(ctx, clip)
-        return soften_prompt(prompt) if clip.get("_softened") else prompt
+        return soften_prompt(prompt) if ctx.state.clip(clip['clip_id']).softened else prompt
 
 def chosen_voices(ctx, clip: dict) -> tuple[list[tuple[int, Path]], list[str], float]:
         """The clip's reference voices kept under the service's budget, as (position among the plan's voice
@@ -87,7 +87,7 @@ def chosen_voices(ctx, clip: dict) -> tuple[list[tuple[int, Path]], list[str], f
         voices = [ref for ref in clip.get("references", []) if ref.get("role") == "voice"]
         candidates = [(position, ref) for position, ref in enumerate(voices, 1) if (ctx.novel_dir / ref["path"]).is_file()]
         candidates.sort(key=lambda item: -spoken.get(item[1].get("name", ""), 0))
-        budget = getattr(ctx, "voice_budget", None) or voice_budget_seconds()
+        budget = ctx.options.voice_budget or voice_budget_seconds()
         # A tight budget (the 15 s lane) is shared by the two main speakers as
         # trimmed samples rather than spent on one of them.
         share = budget if budget >= VOICE_BUDGET_SECONDS or len(candidates) < 2 else round(budget / 2, 1)
@@ -130,7 +130,7 @@ def h3_sampling(ctx) -> dict | None:
 
 def build_request(ctx, clip, attempt):
     retry = retry_suffix(ctx, clip, attempt)
-    prompt = clip_prompt(ctx, clip) + retry + (COMPLIANCE_SUFFIX if clip.get('_compliance') else '')
+    prompt = clip_prompt(ctx, clip) + retry + (COMPLIANCE_SUFFIX if ctx.state.clip(clip['clip_id']).compliance else '')
     references = tuple(ctx.novel_dir / ref['path'] for ref in clip.get('references', []) if ref.get('role') != 'voice')
     digests = reference_digests(references)
     request = {'clip_id': clip['clip_id'], 'attempt': attempt, 'duration': clip['request_seconds'],

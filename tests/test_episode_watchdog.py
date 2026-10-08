@@ -80,3 +80,30 @@ def test_old_finished_receipt_does_not_hide_a_new_dead_run(tmp_path):
     old=time.time()-1800;os.utime(state,(old,old))
     result=scan(tmp_path)
     assert len(result)==1 and result[0]['pid']==99999998
+
+
+@pytest.mark.parametrize('authority_age,event_age,expected', [
+    (3600, 60, 0), (60, 3600, 0), (3600, 3600, 1),
+])
+def test_diagnostic_activity_cannot_replace_newer_authority(tmp_path, authority_age, event_age, expected):
+    run = tmp_path / 'run'
+    _write_execution(run, {'phase': 'rendering', 'pid': 99999999}, authority_age)
+    (run / 'episode_state.jsonl').write_text(json.dumps({
+        'ts': time.time() - event_age, 'stage': 'job', 'job_status': 'running'}) + '\n')
+    alerts = scan(tmp_path)
+    assert len(alerts) == expected
+    if alerts:
+        assert alerts[0]['last_stage'] == 'job' and alerts[0]['phase'] == 'rendering'
+
+
+def test_diagnostic_finish_does_not_certify_a_new_running_attempt(tmp_path):
+    run = tmp_path / 'run'
+    _write_execution(run, {'phase': 'rendering', 'pid': 99999999}, 3600)
+    state = run / 'agent-run.json'
+    state.write_text(json.dumps({'status': 'running', 'phase': 'tool_running', 'pid': 99999998}))
+    old = time.time() - 3600
+    os.utime(state, (old, old))
+    (run / 'episode_state.jsonl').write_text(json.dumps({
+        'ts': old, 'stage': 'acceptance_saved', 'passed': True}) + '\n')
+    alerts = scan(tmp_path)
+    assert len(alerts) == 1 and alerts[0]['pid'] == 99999998

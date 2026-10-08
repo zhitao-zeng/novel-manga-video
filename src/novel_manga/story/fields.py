@@ -1,6 +1,10 @@
 """One definition of scene fields; preserve the existing prompt renderings."""
 from copy import deepcopy
 
+ACTION_KEYS = ("actor", "action", "target")
+TURN_REQUIRED_TEXT = ("speaker_name", "delivery_mode", "text")
+TURN_KEYS = (*TURN_REQUIRED_TEXT, "emotion", "chat_target", "inner_monologue")
+
 
 def cast_field(names):
     return {"type": "array", "maxItems": 6 if names else 0,
@@ -15,7 +19,7 @@ ACTION_FIELD = {'type': 'array',
  'maxItems': 3,
  'items': {'type': 'object',
            'additionalProperties': False,
-           'required': ['actor', 'action', 'target'],
+           'required': list(ACTION_KEYS),
            'properties': {'actor': {'type': 'string', 'maxLength': 80},
                           'action': {'type': 'string'},
                           'target': {'type': 'string', 'maxLength': 80}}}}

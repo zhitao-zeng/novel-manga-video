@@ -5,7 +5,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from novel_manga.application.review.bible import grow_bible, review_bible, summarize_volume
+from novel_manga.application.identity.bible_growth import grow_bible
+from novel_manga.application.review.bible import review_bible
+from novel_manga.application.identity.volume_context import summarize_volume
 from novel_manga.application.review.cards import review_cards
 from novel_manga.application.review.execution import review_only
 from novel_manga.util import read_json
@@ -20,7 +22,7 @@ def main() -> int:
     p = sub.add_parser("grow"); p.add_argument("--novel-dir", type=Path, required=True); p.add_argument("--source", type=Path); p.add_argument("--chapter", type=int, required=True)
     args = parser.parse_args()
     if args.command == "grow":
-        from novel_manga.ingest import read_novel, chapter_table
+        from novel_manga.source.ingest import read_novel, chapter_table
         novel_dir = args.novel_dir.resolve()
         source = args.source or Path(json.loads((novel_dir / "novel.json").read_text(encoding="utf-8"))["source"])
         novel = read_novel(Path(source).resolve(), novel_id=novel_dir.name, chapters=chapter_table(novel_dir))

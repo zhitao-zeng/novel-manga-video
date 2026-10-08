@@ -1,4 +1,4 @@
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from experiments.legacy.planner import DeterministicPlanner
 
 

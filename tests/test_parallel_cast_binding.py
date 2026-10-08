@@ -1,3 +1,4 @@
+import novel_manga.application.identity.bible_growth as cast_bible_growth
 """A sibling chapter's new design must invalidate this chapter's UNKNOWN binding."""
 import json
 import sys
@@ -31,7 +32,7 @@ def test_catalogue_is_reloaded_even_when_growth_added_nothing_locally(tmp_path, 
         current['characters'].append({'name': '新客', 'appearance': '灰发', 'wardrobe': '长外套'})
         path.write_text(json.dumps(current))
         return []
-    monkeypatch.setattr(bible, 'grow_unbound_roster', sibling_added_the_person)
+    monkeypatch.setattr(cast_bible_growth, 'grow_unbound_roster', sibling_added_the_person)
     offered = []
     class BoundEnough(RuntimeError):
         pass

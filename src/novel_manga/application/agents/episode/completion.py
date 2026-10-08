@@ -9,6 +9,7 @@ from novel_manga.util import atomic_write_json, read_json
 
 
 from .tool_state import record_state
+from novel_manga.application.production import episode_state
 
 
 class EpisodeCompletion:
@@ -50,6 +51,10 @@ class EpisodeCompletion:
             blocked.update(row.get('blocked') or {})
         report = save_result(self.ctx.episode_dir, report, review, plan=plan, rounds=rounds,
             corrections=[cid for row in rounds for cid in row.get('changed', [])], blocked=blocked)
+        quality = report.get('quality_review') or {}
+        episode_state.record(self.ctx.run_dir, 'acceptance_saved',
+                             result='passed' if quality.get('passed') else 'needs_review',
+                             passed=quality.get('passed') is True, remaining=quality.get('remaining', []))
         if (review.get('review_mode') == 'verify'
                 and (report.get('quality_review') or {}).get('passed') is True
                 and (report.get('assembly') or {}).get('pending_publish')):
@@ -67,6 +72,8 @@ class EpisodeCompletion:
                                    'and use a bounded keep check or repair; a source exception alone does not clear '
                                    'an unresolved precise verdict.'}
             report = read_json(self.ctx.episode_dir / 'thin_media_report.json')
+            episode_state.record(self.ctx.run_dir, 'published', result='published',
+                                 video=(report.get('assembly') or {}).get('final_video'))
         atomic_write_json(self.ctx.run_dir / 'result.json', report)
         final = self.ctx.run_dir / 'final-candidate'
         final.mkdir(exist_ok=True)

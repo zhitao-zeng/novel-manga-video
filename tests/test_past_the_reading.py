@@ -13,6 +13,8 @@ for the people it was asked about.  Two of the first five chapters died on "sour
 catalogue bindings" while a sibling chapter built the same person seconds later.
 """
 from __future__ import annotations
+import novel_manga.application.identity.bible_growth as cast_bible_growth
+import novel_manga.application.assets.character_design as cast_character_design
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
@@ -52,8 +54,8 @@ def grown(novel, monkeypatch, chapter, rows):
     def fill(bible_obj, bible_path, missing, text, cast=None):
         asked.extend(missing)
         return bible_obj, [], {}, {}
-    monkeypatch.setattr(review_bible, "fill_characters", fill)
-    review_bible._grow_bible_unlocked(novel, "原文", chapter, scan={"names": rows, "locations": []})
+    monkeypatch.setattr(cast_character_design, "fill_characters", fill)
+    cast_bible_growth._grow_bible_unlocked(novel, "原文", chapter, scan={"names": rows, "locations": []})
     return asked
 
 
@@ -107,8 +109,8 @@ def test_the_rescue_tells_the_fill_that_the_reading_vouched_for_them(book, monke
     def fill(bible_obj, bible_path, missing, text, cast=None):
         told["cast"] = cast
         return bible_obj, [], {}, {}
-    monkeypatch.setattr(review_bible, "fill_characters", fill)
-    review_bible.grow_unbound_roster(novel, {"unmatched_actors": [on_stage("布鲁斯·韦恩")]}, "原文", 102)
+    monkeypatch.setattr(cast_character_design, "fill_characters", fill)
+    cast_bible_growth.grow_unbound_roster(novel, {"unmatched_actors": [on_stage("布鲁斯·韦恩")]}, "原文", 102)
     assert told["cast"] == ["席勒", "布鲁斯·韦恩"]
 
 
@@ -117,8 +119,8 @@ def test_a_rescue_that_did_not_take_says_why(book, monkeypatch):
     novel, said = book
     def fill(bible_obj, bible_path, missing, text, cast=None):
         return bible_obj, [], {"布鲁斯·韦恩": "把握不足（0.4）"}, {}
-    monkeypatch.setattr(review_bible, "fill_characters", fill)
-    assert review_bible.grow_unbound_roster(novel, {"unmatched_actors": [on_stage("布鲁斯·韦恩")]}, "原文", 102) == []
+    monkeypatch.setattr(cast_character_design, "fill_characters", fill)
+    assert cast_bible_growth.grow_unbound_roster(novel, {"unmatched_actors": [on_stage("布鲁斯·韦恩")]}, "原文", 102) == []
     assert any("补建没建成" in line and "把握不足（0.4）" in line for line in said)
 
 
@@ -126,8 +128,8 @@ def test_a_rescue_that_took_has_nothing_to_explain(book, monkeypatch):
     novel, said = book
     def fill(bible_obj, bible_path, missing, text, cast=None):
         return bible_obj, list(missing), {}, {}
-    monkeypatch.setattr(review_bible, "fill_characters", fill)
-    review_bible.grow_unbound_roster(novel, {"unmatched_actors": [on_stage("布鲁斯·韦恩")]}, "原文", 102)
+    monkeypatch.setattr(cast_character_design, "fill_characters", fill)
+    cast_bible_growth.grow_unbound_roster(novel, {"unmatched_actors": [on_stage("布鲁斯·韦恩")]}, "原文", 102)
     assert not any("补建没建成" in line for line in said)
 
 

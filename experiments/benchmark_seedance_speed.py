@@ -33,7 +33,7 @@ from novel_manga.media.common import audio_levels
 from novel_manga.util import atomic_write_json
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from novel_manga.media.speech import MIN_PEAK_DB, MAX_MISSING
-from novel_manga.runtime_backends import edit_distance
+from novel_manga.media.evidence_backends import edit_distance
 from novel_manga.media.subtitles import match_key, subsequence_overlap
 
 

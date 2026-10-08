@@ -1,7 +1,9 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from novel_manga.application.agents.episode.media_operations import MediaOperations
 from novel_manga.application.agents.episode.evidence import EpisodeEvidence
 """Review precedes expensive assembly; delivery still requires full technical QC."""
 import copy
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,6 +15,7 @@ from novel_manga.application.repair import history
 from novel_manga.review.contracts import REVIEW_POLICY
 from novel_manga.review.storage import take_identity
 from novel_manga.util import atomic_write_json, read_json
+from novel_manga.application.production.episode_state import FILE as STATE_EVENTS
 from support.episode_existing import prepared
 
 
@@ -36,7 +39,7 @@ def host(tmp_path, monkeypatch):
 
     class Runner:
         def __init__(self):
-            self.context = SimpleNamespace(episode_dir=ctx.episode_dir)
+            self.context = RenderContext(episode_dir=ctx.episode_dir)
 
         def run(self, *, assemble=True):
             events.append('render')
@@ -103,6 +106,10 @@ def test_accepted_render_assembles_after_independent_review_and_finish_reuses_it
     counts = history.generation_counts(ctx.episode_dir)
     assert counts and set(counts.values()) == {1}
     assert tools.dispatch('finish')['passed']
+    observations = [json.loads(line) for line in (ctx.run_dir / STATE_EVENTS).read_text().splitlines()]
+    assert any(row['stage'] == 'review_saved' for row in observations)
+    assert any(row['stage'] == 'acceptance_saved' and row['passed'] for row in observations)
+    assert not (ctx.episode_dir / STATE_EVENTS).exists()
     assert events == ['render','review','assemble']
     assert history.generation_counts(ctx.episode_dir) == counts
 
@@ -168,6 +175,8 @@ def test_precise_finish_honors_existing_publication_gate(host,monkeypatch,verdic
     monkeypatch.setattr('novel_manga.application.production.runs.episode_status',lambda *args:'done')
     counts=history.generation_counts(ctx.episode_dir)
     result=tools.dispatch('finish')
+    observations = [json.loads(line) for line in (ctx.run_dir / STATE_EVENTS).read_text().splitlines()]
+    assert any(row['stage'] == 'published' for row in observations) is accepted
     if accepted:
         assert result['ok'] and result['passed']
         assert final.read_bytes()==b'current assembled candidate'
@@ -362,7 +371,7 @@ def test_finish_rechecks_existing_movie_when_book_qc_policy_changes(host, monkey
             result[key].update(passed=True,waived=True)
         if other_failure:result[other_failure]['passed']=False
         return {'passed':all(v['passed'] for v in result.values()),'checks':result}
-    monkeypatch.setattr('novel_manga.qc.inspect_media',inspect)
+    monkeypatch.setattr('novel_manga.media.quality.inspect_media',inspect)
     monkeypatch.setattr(MediaOperations, 'runner',lambda *a:pytest.fail('QC re-evaluation cannot render/re-encode'))
     before_counts=history.generation_counts(ctx.episode_dir)
     result=tools.dispatch('finish')

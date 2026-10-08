@@ -1,6 +1,8 @@
 """ledger_store_thin responsibilities; existing evidence and identity policy."""
 from __future__ import annotations
 from pathlib import Path
+from contextlib import contextmanager
+import fcntl
 import json
 import threading
 
@@ -12,6 +14,17 @@ def store(novel_dir: Path) -> Path:
     for sub in ("mentions", "raw", "relations"):
         (path / sub).mkdir(parents=True, exist_ok=True)
     return path
+
+
+@contextmanager
+def ledger_lock(novel_dir: Path):
+    """Serialize a book's writes, from loading current state through saving it."""
+    with (store(novel_dir) / 'ledger.lock').open('a') as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def read_json(path: Path, default):
@@ -55,7 +68,7 @@ def novel_texts(novel_dir: Path) -> dict[int, str]:
     novel_dir = Path(novel_dir)
     meta = read_json(novel_dir / "novel.json", {})
     try:
-        from novel_manga.ingest import read_novel
+        from novel_manga.source.ingest import read_novel
         novel = read_novel(Path(meta["source"]).resolve(), novel_id=novel_dir.name, chapters=meta.get("chapters"))
         return {ep.index: ep.source_text for ep in novel.episodes}
     except Exception:  # noqa: BLE001 - no novel.json or source file: fall back to what was planned
@@ -109,8 +122,14 @@ class Ledger:
         self.by_name: dict[str, dict] = {}
         self.forms: dict[str, set[str]] = {e["id"]: {e["canonical"]} for e in self.entities}
         self.recent: dict[str, int] = {}  # entity -> last chapter it was on stage or a voice
+        self.mentions_by_chapter: dict[int, list[dict]] = {}
+        self.relations_by_chapter: dict[int, list[dict]] = {}
         for path in sorted((self.base / "mentions").glob("ch_*.json")):
-            for m in read_json(path, []):
+            chapter = int(path.stem[3:])
+            rows = read_json(path, [])
+            self.mentions_by_chapter[chapter] = rows
+            self.relations_by_chapter[chapter] = read_json(self.relations_path(chapter), [])
+            for m in rows:
                 if m.get("kind") == "proper" and m.get("entity") in self.forms:
                     self.forms[m["entity"]].add(m["form"])
                 if m.get("presence") != "mentioned" and str(m.get("entity", "")).startswith("e"):
@@ -146,7 +165,17 @@ class Ledger:
         return self.mentions_path(chapter).is_file()
 
     def chapters_read(self) -> list[int]:
-        return sorted(int(p.stem[3:]) for p in (self.base / "mentions").glob("ch_*.json") if p.stem[3:].isdigit())
+        return sorted(self.mentions_by_chapter)
+
+    def entity_chapters(self) -> dict[str, list[int]]:
+        """A survivor owns the appearances of all records already merged into it."""
+        index: dict[str, set[int]] = {}
+        for chapter, rows in self.mentions_by_chapter.items():
+            for row in rows:
+                eid = self.canonical(row.get('entity', ''))
+                if eid in self.by_id:
+                    index.setdefault(eid, set()).add(chapter)
+        return {eid: sorted(chapters) for eid, chapters in index.items()}
 
     def link_cards(self) -> None:
         cards = card_ids(self.novel_dir)
@@ -185,7 +214,7 @@ class Ledger:
         for c in self.chapters_read():
             if c > chapter:
                 break
-            for r in read_json(self.relations_path(c), []):
+            for r in self.relations_by_chapter.get(c, []):
                 rows.append({**r, "from": self.canonical(r["from"]), "to": self.canonical(r["to"])})
         return rows
 
@@ -193,7 +222,7 @@ class Ledger:
     def scan_rows(self, chapter: int) -> list[dict]:
         """The chapter's people in the shape grow_bible reads (name, kind, mentions, speaks_or_close_up)."""
         rows: dict[str, dict] = {}
-        for m in read_json(self.mentions_path(chapter), []):
+        for m in self.mentions_by_chapter.get(chapter, []):
             if not str(m.get("entity", "")).startswith("e"):
                 continue
             eid = self.canonical(m["entity"])

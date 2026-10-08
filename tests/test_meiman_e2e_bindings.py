@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 import copy
 import wave
 from types import SimpleNamespace
@@ -132,8 +133,7 @@ def test_same_reference_path_with_new_voice_invalidates_cached_video(tmp_path):
             f.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
             f.writeframes(sample * 16000)
     write_voice(b'\x00\x01')
-    ctx = SimpleNamespace(novel_dir=tmp_path, voice_budget=15, feedback={},
-                          settings=SimpleNamespace(local_h3_base_url='pool'))
+    ctx = RenderContext(novel_dir=tmp_path, feedback={}, settings=SimpleNamespace(local_h3_base_url='pool'), options=RenderOptions(voice_budget=15))
     clip = {'clip_id': 'c', 'request_seconds': 5, 'prompt_h3': '<Audio 1> is a reference.',
             'references': [{'role': 'voice', 'name': '席勒', 'path': 'voice.wav'}],
             'lines': [{'speaker_name': '席勒', 'text': '这次免费。'}]}

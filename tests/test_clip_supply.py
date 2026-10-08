@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -174,8 +175,8 @@ def test_preflight_uses_final_audio_order_and_renderer_resolved_paths(tmp_path,m
     monkeypatch.setattr(request_check,'request_consistency',lambda *a,**k:calls.append(k['request']) or
                         {'consistent':True,'problems':[]})
     clip_preparation.preflight(alias/'book_1',clip)
-    ctx=SimpleNamespace(novel_dir=book.resolve(),work=directory/'work',feedback={},_blocked_clips={},
-                        settings=SimpleNamespace(local_h3_base_url='pool'),prepared_requests_only=True)
+    ctx=RenderContext(novel_dir=book.resolve(),work=directory/'work',feedback={},
+                        settings=SimpleNamespace(local_h3_base_url='pool'),options=RenderOptions(prepared_requests_only=True))
     request=build_request(ctx,clip,1)[0]
     assert request_check.before_generation(ctx,clip,request)['consistent']
     assert len(calls)==1

@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -12,9 +13,7 @@ from novel_manga.util import atomic_write_json, read_json
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
     run = tmp_path/'run'
-    ctx = SimpleNamespace(input_mode='source', run_dir=run, work_dir=run/'sandbox',
-        novel_dir=run/'book', episode_dir=run/'book/book_1', source_novel_dir=tmp_path/'original',
-        asset_snapshot_dir=tmp_path/'shared')
+    ctx = SimpleNamespace(input_mode='source', run_dir=run, work_dir=run / 'sandbox', novel_dir=run / 'book', episode_dir=run / 'book/book_1', source_novel_dir=tmp_path / 'original', asset_snapshot_dir=tmp_path / 'shared')
     atomic_write_json(ctx.novel_dir/'story_bible.json', {'characters': [], 'locations': []})
     shared = ctx.asset_snapshot_dir/'series_assets'; shared.mkdir(parents=True)
     (ctx.novel_dir/'series_assets').symlink_to(shared, target_is_directory=True)

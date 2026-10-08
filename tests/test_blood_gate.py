@@ -91,12 +91,8 @@ def test_the_context_learns_from_the_video_model_whether_the_service_moderates(m
 # ---- the trace, on split lines ----------------------------------------------------------------------
 
 def load_trace():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "authored_trace_thin.py"
-    spec = importlib.util.spec_from_file_location("authored_trace_thin", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+    from novel_manga.application.planning import authored_trace
+    return authored_trace
 
 
 def turn(text, speaker="席勒", emotion="平静", mode="visible_dialogue"):

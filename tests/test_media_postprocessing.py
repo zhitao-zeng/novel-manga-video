@@ -3,7 +3,7 @@ import subprocess
 
 from novel_manga.config import Settings
 from novel_manga.media.postprocess import BatchRenderer
-from novel_manga.render import TimedSubtitle
+from novel_manga.media.renderer import TimedSubtitle
 
 
 def test_batch_join_preserves_order_canvas_fps_and_audio(tmp_path):

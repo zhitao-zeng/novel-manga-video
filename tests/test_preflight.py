@@ -14,7 +14,7 @@ from experiments.legacy.preflight import evaluate_production_preflight
 from experiments.legacy.production_plan import compile_production_plan
 from novel_manga.models.assets import AssetRecord, SeriesAssetManifest
 from experiments.legacy.production_runtime import EpisodeProductionRuntime, build_visual_groups
-from novel_manga.render import Renderer
+from novel_manga.media.renderer import Renderer
 from experiments.legacy.script_planning import (
     abridged_clause_subsequence,
     evaluate_script_quality,

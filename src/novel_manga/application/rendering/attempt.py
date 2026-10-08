@@ -20,15 +20,15 @@ def apply_recovery(runner, clip, state: RetryState, step: Recovery) -> bool:
         log(f"{clip['clip_id']}: reference rejected as a real person (image {index or '?'}); fixed {repaired or 'nothing'}; retrying")
         return bool(repaired)
     if step.action == 'soften':
-        clip['_softened'] = True
+        runner.context.state.clip(clip['clip_id']).softened = True
         log(f"{clip['clip_id']}: prompt text refused by input moderation; retrying once with softened wording")
         return True
     if step.action == 'rewrite':
-        clip['_repaired'] = True
+        runner.context.state.clip(clip['clip_id']).repaired = True
         log(f"{clip['clip_id']}: still refused after softening; repairing the wording against the filter")
         return bool(runner.repair_refused_prompt(clip, state.attempt))
     if step.action == 'compliance':
-        clip['_compliance'] = True
+        runner.context.state.clip(clip['clip_id']).compliance = True
         log(f"{clip['clip_id']}: generated video rejected by output moderation; retrying once with a compliance line")
         return True
     raise ValueError(f'unknown recovery action: {step.action}')

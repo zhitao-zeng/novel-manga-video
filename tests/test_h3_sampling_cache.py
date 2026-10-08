@@ -1,5 +1,8 @@
 """Native H3 sampling compatibility without submitting or generating video."""
 from __future__ import annotations
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
+from novel_manga.application.rendering import clip_analysis as render_clip_analysis
+from novel_manga.application.rendering import submission as render_submission
 
 import copy
 from pathlib import Path
@@ -26,11 +29,7 @@ def case(tmp_path):
     clip = {'clip_id': 'c', 'kind': 'video', 'request_seconds': 5, 'prompt': 'existing words',
             'references': [], 'lines': [], 'prompt_h3_skip': True}
     target = dict(SAMPLING)
-    ctx = SimpleNamespace(settings=SimpleNamespace(local_h3_base_url='http://local-h3'),
-        provider=SimpleNamespace(sampling_parameters=lambda: dict(target)), feedback={},
-        novel_dir=episode.parent, episode_dir=episode, work=episode / 'work', cache_only=False,
-        max_attempts=1, _managed_remaining={'c': 0}, black_checks=set(), speech_checks=set(),
-        moderation_repair=False)
+    ctx = RenderContext(settings=SimpleNamespace(local_h3_base_url='http://local-h3'), provider=SimpleNamespace(sampling_parameters=lambda: dict(target)), feedback={}, novel_dir=episode.parent, episode_dir=episode, work=episode / 'work', options=RenderOptions(cache_only=False, max_attempts=1, moderation_repair=False), state=RenderState(remaining={'c': 0}, black_checks=set(), speech_checks=set()))
     saved = {'clip_id': 'c', 'duration': 5, 'prompt': 'existing words', 'references': [],
              'reference_sha256': [], 'repair_take': 0,
              'h3_sampling': {**SAMPLING, 'short_edge': 768}}
@@ -62,7 +61,7 @@ def test_passed_768_cache_satisfies_544_without_submission_or_record_rewrite(cas
     assert runner.generate_clip(clip, 1) == video
     assert (directory / 'request.json').read_bytes() == before
     assert read_json(directory / 'request.json')['h3_sampling']['short_edge'] == 768
-    assert ctx._managed_remaining == {'c': 0}
+    assert ctx.state.remaining == {'c': 0}
     assert history.generation_counts(ctx.episode_dir) == {}
 
 
@@ -71,7 +70,7 @@ def test_544_cache_does_not_satisfy_explicit_768_and_cache_only_preserves_files(
     target['short_edge'] = 768
     saved['h3_sampling']['short_edge'] = 544
     atomic_write_json(directory / 'request.json', saved)
-    ctx.cache_only = True
+    ctx.options.cache_only = True
     before = {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file()}
     assert not cache.cached_take(ctx, clip, 1)
     assert cache.current_video(ctx, clip, 1, directory, (), [], history) is None
@@ -136,7 +135,7 @@ def test_source_accepted_take_still_checks_sampling_before_reuse(case, monkeypat
     monkeypatch.setattr(flow.clip_retries, 'recovery_steps', lambda *a, **kw: [])
     result = runner.process_clip(clip)
     assert result['selected'] is None and 'new request required' in result['error']
-    assert ctx._managed_remaining == {'c': 0}
+    assert ctx.state.remaining == {'c': 0}
 
 
 def test_resume_updates_only_current_request_sampling_and_keeps_generation_owner(case, monkeypatch):
@@ -157,7 +156,7 @@ def test_analysis_reports_selected_native_sampling_separately_from_target(case, 
     ctx, clip, directory, video, _, _ = case
     runner = uninitialized_runner()
     runner.context = ctx
-    monkeypatch.setattr(flow.media_analysis, 'analyse_clip', lambda *a:
+    monkeypatch.setattr(render_clip_analysis.media_analysis, 'analyse_clip', lambda *a:
                         {'passed': True, 'video': str(video), 'issues': []})
     monkeypatch.setattr('novel_manga.application.profiles.speech_gate_result', lambda novel, result, episode: result)
     before = (directory / 'request.json').read_bytes()
@@ -231,8 +230,9 @@ def test_resumed_sampler_is_written_before_completion_without_spending_new_take(
     clip['prompt_h3'] = clip['prompt']
     clip.pop('prompt_h3_skip')
     ctx.clip_plan = {'clips': [clip]}
-    ctx.inflight = 0
-    ctx._managed_remaining['c'] = 1
+    ctx.options.inflight = 0
+    ctx.options.prescreen = False
+    ctx.state.remaining['c'] = 1
     actual = {**SAMPLING, 'short_edge': 768}
     atomic_write_json(video.with_suffix('.mp4.task.json'), {'task_id': 'old-task', 'h3_sampling': actual})
 
@@ -248,10 +248,10 @@ def test_resumed_sampler_is_written_before_completion_without_spending_new_take(
     monkeypatch.setattr('novel_manga.application.profiles.h3_prompt_outdated', lambda *a, **kw: False)
     monkeypatch.setattr('novel_manga.story.h3.request_issues', lambda *a: [])
     monkeypatch.setattr('novel_manga.application.preparation.request_check.before_generation', lambda *a: None)
-    monkeypatch.setattr(flow, 'media_duration', lambda *a: 5.0)
+    monkeypatch.setattr(render_submission, 'media_duration', lambda *a: 5.0)
     assert runner.generate_clip(clip, 1) == video
     record = read_json(directory / 'request.json')
     assert record['h3_sampling'] == actual and record['h3_sampling_target'] == target
     assert record['seed_variant'] == 0 and record['repair_take'] == 0
-    assert clip['_generated'] is False and ctx._managed_remaining == {'c': 1}
+    assert ctx.state.clip(clip['clip_id']).generated is False and ctx.state.remaining == {'c': 1}
     assert history.generation_counts(ctx.episode_dir) == {}

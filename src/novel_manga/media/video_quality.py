@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from novel_manga.models.runtime import ProductionPlan
-from .util import atomic_write_json, media_duration
+from novel_manga.util import atomic_write_json, media_duration
 
 
 def _stream_contract(path: Path) -> dict:

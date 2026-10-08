@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from types import SimpleNamespace
 import json
 
@@ -172,8 +173,7 @@ def test_host_allocates_duration_inside_the_existing_episode_and_clip_limits():
 
 @pytest.fixture
 def context(tmp_path):
-    ctx = SimpleNamespace(input_mode='source', run_dir=tmp_path, work_dir=tmp_path/'sandbox',
-                          novel_dir=tmp_path/'book', episode_dir=tmp_path/'book/book_1')
+    ctx = SimpleNamespace(input_mode='source', run_dir=tmp_path, work_dir=tmp_path / 'sandbox', novel_dir=tmp_path / 'book', episode_dir=tmp_path / 'book/book_1')
     atomic_write_json(ctx.work_dir/'input/manifest.json', {'ready': True, 'title': '相逢',
                      'target_seconds': [90, 120], 'clip_seconds_max': 15})
     (ctx.work_dir/'input/source.txt').write_text('完整原文头。'+'甲乙交谈。'*2000+'完整原文尾。')

@@ -15,23 +15,21 @@ from novel_manga.application.repair.agent import sections, validate_prompt
 from novel_manga.story.dialogue import BOUND_SPEECH as SPEECH, character_pictures, dialogue_punctuation, speech_is_offscreen, subject_map
 from novel_manga.story.h3 import CJK, NEGATIVE_DIRECTION, asset_subjects, request_issues
 from novel_manga.story.scene import wears_bindings
+from novel_manga.story.fields import ACTION_KEYS
+from novel_manga.story.field_validation import require_text, require_action, require_wears, delivery_issue
 from novel_manga.story.voice_delivery import visual_request
 
 POLICY = "episode-agent-authored-v1"
 DELIVERY_MODES = {"visible_dialogue", "offscreen_dialogue", "chat_message", "singing"}
 
 
-def _text(value, field, *, empty=True):
-    if not isinstance(value, str) or (not empty and not value.strip()):
-        raise ValueError(f"{field} requires {'a' if empty else 'a nonempty'} string")
-    return value
 
 
 def _strings(value, field, *, empty=True):
     if not isinstance(value, list) or (not empty and not value):
         raise ValueError(f"{field} requires {'an' if empty else 'a nonempty'} array")
     for item in value:
-        _text(item, field, empty=False)
+        require_text(item, field, empty=False)
     if len(set(value)) != len(value):
         raise ValueError(f"{field} repeats an entry")
     return value
@@ -52,7 +50,7 @@ def _catalog(catalog):
         if not isinstance(row, dict):
             raise ValueError("catalog asset requires an object")
         for key in ("id", "name", "path"):
-            _text(row.get(key), f"catalog.{key}", empty=False)
+            require_text(row.get(key), f"catalog.{key}", empty=False)
         path = PurePosixPath(row["path"])
         if path.is_absolute() or ".." in path.parts or path == PurePosixPath("."):
             raise ValueError("catalog.path must be book-relative")
@@ -76,17 +74,17 @@ def _shot(row, expected, sources):
         if key not in shot and alias in shot:
             shot[key] = shot[alias]
     for key in ("location", "start_state", "event", "end_state", "camera"):
-        _text(shot.get(key), f"shot {expected}.{key}")
+        require_text(shot.get(key), f"shot {expected}.{key}")
     if isinstance(shot.get("sfx"), list):
         for sound in shot["sfx"]:
-            _text(sound, f"shot {expected}.sfx item")
+            require_text(sound, f"shot {expected}.sfx item")
         shot["authored_sfx"] = copy.deepcopy(shot["sfx"])
         shot["sfx"] = "; ".join(shot["sfx"])
     for key in ("light", "sfx", "shot_scale"):
-        _text(shot.setdefault(key, ""), f"shot {expected}.{key}")
+        require_text(shot.setdefault(key, ""), f"shot {expected}.{key}")
     for key in ("scene_id", "shot_id", "scene_time", "cut"):
         if key in shot:
-            _text(shot[key], f"shot {expected}.{key}")
+            require_text(shot[key], f"shot {expected}.{key}")
     for key in ("extras", "props", "independent_props", "scene_objects", "listeners"):
         if key == "extras" and isinstance(shot.get(key), str):
             shot[key] = [shot[key]] if shot[key] else []
@@ -101,27 +99,21 @@ def _shot(row, expected, sources):
         # text. Bind that unambiguous spelling without changing actor or target.
         if 'action' not in action and isinstance(action.get('description'), str):
             action['action'] = action.pop('description')
-        for key in ("actor", "action", "target"):
-            _text(action.get(key), f"action.{key}")
-    if not isinstance(shot.setdefault("wears", {}), dict):
-        raise ValueError("wears requires an object")
-    for wearer, prop in shot["wears"].items():
-        _text(wearer, "wears wearer", empty=False)
-        if prop is not None:
-            _text(prop, "wears prop", empty=False)
+        require_action(action)
+    require_wears(shot.setdefault("wears", {}))
     if not isinstance(shot.get("turns"), list):
         raise ValueError(f"shot {expected}.turns requires an array")
     for turn in shot["turns"]:
         if not isinstance(turn, dict) or turn.get("delivery_mode") not in DELIVERY_MODES:
             raise ValueError("turn requires an object and current delivery_mode")
         for key in ("speaker_name", "text"):
-            _text(turn.get(key), f"turn.{key}", empty=False)
+            require_text(turn.get(key), f"turn.{key}", empty=False)
         for key in ("emotion", "chat_target"):
-            _text(turn.setdefault(key, ""), f"turn.{key}")
+            require_text(turn.setdefault(key, ""), f"turn.{key}")
         if "inner_monologue" in turn and type(turn["inner_monologue"]) is not bool:
             raise ValueError("inner_monologue requires a boolean")
-        if turn.get("inner_monologue") and turn["delivery_mode"] != "offscreen_dialogue":
-            raise ValueError("inner_monologue requires offscreen_dialogue")
+        if issue := delivery_issue(turn):
+            raise ValueError(issue)
         if turn["delivery_mode"] == "visible_dialogue" and turn["speaker_name"] not in shot["in_frame"]:
             raise ValueError(f"shot {expected}: visible speaker must belong to the authored in_frame: "
                              f"{turn['speaker_name']}; in_frame={shot['in_frame']}")
@@ -225,14 +217,14 @@ def _adopt(draft, *, catalog, source_segments, profile, target_seconds=(120, 150
            clip_seconds_max=15, format_rows=None):
     if not isinstance(draft, dict) or not isinstance(draft.get("chapter_script"), dict):
         raise ValueError("episode requires an object with chapter_script")
-    title = _text(draft.get("title"), "title", empty=False)
+    title = require_text(draft.get("title"), "title", empty=False)
     notes = draft.get("adaptation_notes")
     if isinstance(notes, list):
         for note in notes:
-            _text(note, "adaptation_notes item")
+            require_text(note, "adaptation_notes item")
         notes = copy.deepcopy(notes)
     else:
-        notes = _text(notes, "adaptation_notes")
+        notes = require_text(notes, "adaptation_notes")
     minimum, maximum = target_seconds
     _seconds(minimum, "target_seconds minimum")
     _seconds(maximum, "target_seconds maximum")
@@ -244,8 +236,8 @@ def _adopt(draft, *, catalog, source_segments, profile, target_seconds=(120, 150
     for row in source_segments:
         if not isinstance(row, dict):
             raise ValueError("source segment requires an object")
-        sid = _text(row.get("segment_id"), "segment_id", empty=False)
-        _text(row.get("text"), "source text")
+        sid = require_text(row.get("segment_id"), "segment_id", empty=False)
+        require_text(row.get("text"), "source text")
         if sid in sources:
             raise ValueError("source segments repeat an id")
         sources[sid] = row
@@ -464,7 +456,7 @@ def validate_existing_request(clip, prompt):
 
 def validate_patch(old_clip, new_prompt):
     """Validate an English-only repair while retaining the existing clip identity."""
-    _text(new_prompt, "prompt_h3", empty=False)
+    require_text(new_prompt, "prompt_h3", empty=False)
     # Input recompilation can invalidate the English without changing the
     # adopted plan. With no prior English, that plan is the binding authority.
     if old_clip.get('prompt_h3'):

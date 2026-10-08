@@ -1,7 +1,7 @@
 """Existing pre-render audit contract, grounding and rewrite scope rules."""
 from __future__ import annotations
 
-from ..runtime_backends import normalize_text
+from novel_manga.media.evidence_backends import normalize_text
 
 POLICY = 'h3-book-preparation-v5-source-wear-bindings'
 TERMINAL = {'ready', 'needs_source', 'needs_replan', 'needs_repair', 'error', 'existing_video', 'production_owned'}

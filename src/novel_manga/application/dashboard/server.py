@@ -125,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'episodes':
             return _json_body(workbench.episodes(config.ROOT, parts[2]))
         if len(parts) == 5 and parts[:2] == ['api', 'book'] and parts[3] == 'episode':
-            return _json_body(workbench.episode(config.ROOT, parts[2], int(parts[4])))
+            return _json_body(workbench.episode(config.ROOT, parts[2], parts[4]))
         if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'assets':
             return _json_body(workbench.assets(config.ROOT, parts[2]))
         if len(parts) == 4 and parts[:2] == ['api', 'book'] and parts[3] == 'health':

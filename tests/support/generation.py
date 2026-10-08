@@ -105,11 +105,11 @@ def runner(tmp_path: Path, local: str | None = None, **fields) -> rc.ThinMediaRu
     r.context.novel_dir = tmp_path / NOVEL
     r.context.novel_dir.mkdir(parents=True, exist_ok=True)
     r.context.settings = types.SimpleNamespace(local_h3_base_url=local)
-    r.context.feedback, r.context.max_attempts, r.context.free_retries = {}, 2, bool(local)
+    r.context.feedback, r.context.options.max_attempts, r.context.options.free_retries = {}, 2, bool(local)
     r.context.work = r.context.novel_dir / f"{NOVEL}_1" / "work"
-    r.context.prescreen, r.context.inflight, r.context.moderation_repair, r.context.cache_only = False, 0, True, False
+    r.context.options.prescreen, r.context.options.inflight, r.context.options.moderation_repair, r.context.options.cache_only = False, 0, True, False
     for key, value in fields.items():
-        setattr(r.context, key, value)
+        setattr(r.context.options if hasattr(r.context.options, key) else r.context, key, value)
     return r
 
 
@@ -137,4 +137,3 @@ def review_with(tmp_path, monkeypatch, verdict) -> dict:
     monkeypatch.setattr(review_policy, "compose_feedback", lambda *args, **kwargs: "修正")
     review_episode.review_episode(directory)
     return json.loads((directory / "episode_review.json").read_text(encoding="utf-8"))
-

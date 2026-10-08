@@ -1,3 +1,4 @@
+import novel_manga.application.rendering.submission as owner_submission
 """A user-approved extra take is usable only after a validated repair and H3 preflight."""
 from concurrent.futures import ThreadPoolExecutor
 import pytest
@@ -104,8 +105,8 @@ def test_renderer_checks_actual_inputs_before_activating_extra(budget,monkeypatc
     r=uninitialized_runner();ctx=r.context
     ctx.novel_dir=budget;ctx.episode_dir=budget;ctx.work=budget/'work'
     ctx.settings=SimpleNamespace(local_h3_base_url='pool')
-    ctx.cache_only=False;ctx.prescreen=False;ctx.feedback={};ctx.inflight=0
-    ctx.clip_plan=read_json(budget/'clip_plan.json');ctx._blocked_clips={};ctx._managed_remaining={'clip_01':0}
+    ctx.options.cache_only=False;ctx.options.prescreen=False;ctx.feedback={};ctx.options.inflight=0
+    ctx.clip_plan=read_json(budget/'clip_plan.json');ctx.state.blocked_clips={};ctx.state.remaining={'clip_01':0}
     clip={'clip_id':'clip_01','kind':'video','request_seconds':4,'prompt':'current source',
           'prompt_h3':'current request','references':[]}
     history.mark_extra_prepared(budget,['clip_01'])
@@ -118,7 +119,7 @@ def test_renderer_checks_actual_inputs_before_activating_extra(budget,monkeypatc
     monkeypatch.setattr(generation,'uses_h3_prompt',lambda *a:True)
     monkeypatch.setattr('novel_manga.application.profiles.h3_prompt_outdated',lambda *a,**k:False)
     monkeypatch.setattr('novel_manga.story.h3.request_issues',lambda *a:[])
-    monkeypatch.setattr(rendering,'wait_for_inflight_redraws',lambda *a:None)
+    monkeypatch.setattr(owner_submission,'wait_for_inflight_redraws',lambda *a:None)
     def check(*args):
         events.append('preflight')
         assert history.generation_limit(budget,'clip_01')==2

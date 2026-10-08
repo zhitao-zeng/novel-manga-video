@@ -2,6 +2,9 @@
 missed their own takes, English (H3) prompts that carried Chinese the model read out, split parts that lost their
 cast, the render-run count, pool waits, and verdicts reused for the wrong take."""
 from __future__ import annotations
+import novel_manga.media.policy as owner_policy
+import novel_manga.media.cache as owner_cache
+import novel_manga.application.rendering.submission as owner_submission
 from support.generation import quiet, provider_with, episode, long_stage, batch_stub, paid_episode, runner, saved, analysis, review_with
 from novel_manga.story.compilation import ClipCompiler
 from novel_manga.application.packing.context import compiler_options
@@ -160,15 +163,15 @@ def test_a_held_submission_can_be_released_past_the_run_limit(tmp_path, monkeypa
 def test_every_wording_a_run_can_choose_is_the_same_clip(tmp_path):
     seedance = runner(tmp_path)
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": "【阶段1】林凡擦去嘴角的血。", "request_seconds": 10, "references": []}
-    base, soft, compliance = clip["prompt"], rc.soften_prompt(clip["prompt"]), rc.COMPLIANCE_SUFFIX
-    for prompt in (base, base + rc.RETRY_SUFFIX, base + rc.RETRY_SUFFIX + compliance, base + compliance,
-                   soft, soft + rc.RETRY_SUFFIX, soft + rc.RETRY_SUFFIX + compliance, soft + compliance):
+    base, soft, compliance = clip["prompt"], owner_policy.soften_prompt(clip["prompt"]), owner_policy.COMPLIANCE_SUFFIX
+    for prompt in (base, base + owner_policy.RETRY_SUFFIX, base + owner_policy.RETRY_SUFFIX + compliance, base + compliance,
+                   soft, soft + owner_policy.RETRY_SUFFIX, soft + owner_policy.RETRY_SUFFIX + compliance, soft + compliance):
         assert cache.request_matches(seedance.context, clip, saved(prompt), (), []), prompt[-40:]  # softened + compliance was paid again
     assert not cache.request_matches(seedance.context, clip, saved('【阶段1】另一段戏。'), (), [])
     h3 = runner(tmp_path, local="pool")
     english = {**clip, "prompt_h3": "subject_definitions:\nNone.\n\ndetailed_description:\n[Shot 1] A man wipes his mouth."}
-    assert cache.request_matches(h3.context, english, saved(english['prompt_h3'] + rc.RETRY_SUFFIX_H3 + ' This is take 3.'), (), [])
-    for prompt in (rc.soften_prompt(english["prompt_h3"]), english["prompt_h3"] + rc.RETRY_SUFFIX, english["prompt_h3"] + compliance):
+    assert cache.request_matches(h3.context, english, saved(english['prompt_h3'] + owner_policy.RETRY_SUFFIX_H3 + ' This is take 3.'), (), [])
+    for prompt in (owner_policy.soften_prompt(english["prompt_h3"]), english["prompt_h3"] + owner_policy.RETRY_SUFFIX, english["prompt_h3"] + compliance):
         assert not cache.request_matches(h3.context, english, saved(prompt), (), [])  # Chinese H3 reads out: not this clip
 
 
@@ -184,7 +187,7 @@ def test_a_run_without_fresh_takes_looks_past_take_two_at_the_takes_already_made
     r = runner(tmp_path, cache_only=True)
 
     def generate(clip, attempt):
-        clip["_generated"] = False
+        r.context.state.clip(clip['clip_id']).generated = False
         return tmp_path / f"take{attempt}.mp4"
     monkeypatch.setattr(r, "generate_clip", generate)
     monkeypatch.setattr(r, "analyse_clip", lambda clip, video: analysis(video, video.name == "take3.mp4"))
@@ -199,7 +202,7 @@ def test_a_further_take_that_fails_leaves_the_clip_with_the_takes_it_has(tmp_pat
     def generate(clip, attempt):
         if attempt >= 3:
             raise PoolUnavailable("no H3 pool instance has a free slot")
-        clip["_generated"] = False
+        free.context.state.clip(clip['clip_id']).generated = False
         return tmp_path / f"take{attempt}.mp4"
     monkeypatch.setattr(free, "generate_clip", generate)
     monkeypatch.setattr(free, "analyse_clip", lambda clip, video: analysis(video, False))
@@ -209,8 +212,8 @@ def test_a_further_take_that_fails_leaves_the_clip_with_the_takes_it_has(tmp_pat
 
     def missing(clip, attempt):
         if attempt == 2:
-            raise rc.CacheMiss("clip_01 attempt 2: not in the cache")
-        clip["_generated"] = False
+            raise owner_cache.CacheMiss("clip_01 attempt 2: not in the cache")
+        rebuild.context.state.clip(clip['clip_id']).generated = False
         return tmp_path / "take1.mp4"
     monkeypatch.setattr(rebuild, "generate_clip", missing)
     monkeypatch.setattr(rebuild, "analyse_clip", lambda clip, video: analysis(video, False))
@@ -219,10 +222,10 @@ def test_a_further_take_that_fails_leaves_the_clip_with_the_takes_it_has(tmp_pat
 
 def test_a_full_pool_is_waited_out_like_a_throttled_service():
     assert issubclass(PoolUnavailable, RuntimeError)  # generate_clip's submission loop catches RuntimeError
-    assert rc.resubmittable(PoolUnavailable("no H3 pool instance has a free slot"))
-    assert rc.resubmittable(RuntimeError("Seedance task submission returned HTTP 429: busy"))
-    assert not rc.resubmittable(SubmissionUncertain("task submission unconfirmed (HTTP 502)"))
-    assert not rc.resubmittable(RuntimeError("OutputVideoSensitiveContentDetected HTTP 429"))
+    assert owner_submission.resubmittable(PoolUnavailable("no H3 pool instance has a free slot"))
+    assert owner_submission.resubmittable(RuntimeError("Seedance task submission returned HTTP 429: busy"))
+    assert not owner_submission.resubmittable(SubmissionUncertain("task submission unconfirmed (HTTP 502)"))
+    assert not owner_submission.resubmittable(RuntimeError("OutputVideoSensitiveContentDetected HTTP 429"))
 
 
 # ---------------------------------------------------------------- a correction on an English prompt (9)

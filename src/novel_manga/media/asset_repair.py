@@ -88,7 +88,7 @@ def repair_rejected_reference(ctx, clip: dict, index: int) -> list[str]:
         return []  # a refused reference voice has no card to repair
     path = ctx.novel_dir / ref["path"]
     label = f"{ref['asset_id']}/{path.name}"
-    if ref["path"] in (set(getattr(ctx, "_ok_assets", set())) | load_privacy_ok(ctx.novel_dir)):
+    if ref["path"] in (set(ctx.state.ok_assets) | load_privacy_ok(ctx.novel_dir)):
         log(f"privacy repair: {label} has rendered fine before; not redrawn, the rejection stands")
         return []
     with REPAIR_LOCK:
@@ -146,7 +146,7 @@ def repair_privacy_cards(ctx, clip: dict) -> list[str]:
     redrawn at most once: one already stylized (by this run, a parallel
     thread or another process) just earns the clip its retry.
     """
-    exempt = set(getattr(ctx, "_ok_assets", set())) | load_privacy_ok(ctx.novel_dir)
+    exempt = set(ctx.state.ok_assets) | load_privacy_ok(ctx.novel_dir)
     cards = [ref for ref in clip.get("references", []) if ref["role"] == "character"]
     candidates = [ref for ref in cards if ref["path"] not in exempt]
     if cards and not candidates:
@@ -174,5 +174,3 @@ def repair_privacy_cards(ctx, clip: dict) -> list[str]:
             stylize_card(ctx.provider, path)
             repaired.append(label)
     return repaired
-
-

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from novel_manga.qc import inspect_silence  # noqa: E402
+from novel_manga.media.quality import inspect_silence  # noqa: E402
 from novel_manga.application.profiles import plan_fingerprint
 from novel_manga.application.production.runs import episode_status
 from novel_manga.application.repair.recheck_silence import recorded_outro, recheck_episode

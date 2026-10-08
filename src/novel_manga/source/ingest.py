@@ -8,7 +8,7 @@ from docx import Document
 from pypdf import PdfReader
 
 from novel_manga.models.source import NovelDocument, Episode
-from .splitting import split_episodes, visible_count
+from novel_manga.source.splitting import split_episodes, visible_count
 
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".markdown", ".docx", ".pdf"}

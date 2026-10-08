@@ -10,6 +10,8 @@ from novel_manga.application.production.artifacts import media_started
 
 
 from .tool_state import record_state
+from novel_manga.application.production import episode_state
+from novel_manga.media.results import has_analysis
 
 
 class MediaOperations:
@@ -36,7 +38,7 @@ class MediaOperations:
             profile=read_json(self.ctx.novel_dir / 'profile.json'))
         runner.context.asr_helper = self.ctx.project_root / 'scripts/thin_asr_segments.py'
         runner.context.source_novel_dir = getattr(self.ctx, 'source_novel_dir', None) or self.ctx.novel_dir
-        runner.context.first_pass_only = os.environ.get('NOVEL_FIRST_PASS_ONLY') == '1'
+        runner.context.options.first_pass_only = os.environ.get('NOVEL_FIRST_PASS_ONLY') == '1'
         return runner
 
 
@@ -55,7 +57,7 @@ class MediaOperations:
         hydrated = False
         for row in report['clips']:
             selected = row.get('selected')
-            if not selected or isinstance(selected.get('chunks'), list):
+            if not selected or has_analysis(selected):
                 continue
             # First-pass reports can retain only video/passed. The ordinary
             # analyser reads ASR beside this selected take and refreshes it for
@@ -89,7 +91,7 @@ class MediaOperations:
         from novel_manga.application.profiles import frame_spec, load_profile, media_qc_ignores, MAX_HOLD_SECONDS
         from novel_manga.application.review.execution import media_matches
         from novel_manga.config import Settings
-        from novel_manga.qc import apply_check_policy, inspect_media
+        from novel_manga.media.quality import apply_check_policy, inspect_media
         assembly = report.get('assembly') or {}
         checks = (assembly.get('media_qc') or {}).get('checks') or {}
         ignored = set(media_qc_ignores(self.ctx.novel_dir, self.ctx.episode_dir))
@@ -203,6 +205,8 @@ class MediaOperations:
         from novel_manga.application.review.execution import review_saved, save_result
         started = time.monotonic()
         verdicts = review_saved(self.ctx.episode_dir, fresh=False)
+        episode_state.record(self.ctx.run_dir, 'review_saved',
+                             checked=len(verdicts.get('clips') or {}), remaining=len(verdicts.get('feedback') or {}))
         report.setdefault('timing', {})['review_s'] = round(time.monotonic()-started, 3)
         report = save_result(self.ctx.episode_dir, report, verdicts, plan=read_json(path))
         if report.get('status') == 'clips_ready' and report['quality_review']['content_passed']:
@@ -224,5 +228,7 @@ class MediaOperations:
             raise ValueError('review requires an adopted episode')
         record_state(self.ctx, 'reviewing', owner='episode_agent_tools')
         review = review_saved(self.ctx.episode_dir, fresh=False)
+        episode_state.record(self.ctx.run_dir, 'review_saved',
+                             checked=len(review.get('clips') or {}), remaining=len(review.get('feedback') or {}))
         report = read_json(self.ctx.episode_dir / 'thin_media_report.json', {})
         return self.evidence.review_evidence(review, report)

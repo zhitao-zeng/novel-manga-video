@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from experiments.legacy.models import ChapterDiagnosis, ChapterEvent, SeriesState
 from novel_manga.models.source import Episode
 from novel_manga.models.episode import EpisodePlan, Shot

@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext
 import copy
 import json
 from pathlib import Path
@@ -42,7 +43,7 @@ def fixture(tmp_path):
                            {'role': 'character', 'name': '托尼', 'path': 'closed.jpeg', 'view': 'closed'},
                            {'role': 'prop', 'name': '独立空甲', 'path': 'empty-suit.jpeg'},
                            {'role': 'voice', 'name': '席勒', 'path': 'voice.wav'}]}
-    ctx = SimpleNamespace(novel_dir=tmp_path, work=tmp_path / 'work', _blocked_clips={})
+    ctx = RenderContext(novel_dir=tmp_path, work=tmp_path / 'work')
     request = {'prompt': clip['prompt_h3'], 'references': [str(tmp_path / r['path']) for r in clip['references'][:-1]],
                'reference_sha256': ['actual-card-1', 'actual-card-2', 'actual-card-3'], 'seed_variant': 0}
     return ctx, clip, request
@@ -50,15 +51,15 @@ def fixture(tmp_path):
 
 def test_prepared_renderer_never_calls_a_model_on_a_missing_or_changed_cache(tmp_path,monkeypatch):
     ctx,clip,request=fixture(tmp_path)
-    ctx.prepared_requests_only=True
+    ctx.options.prepared_requests_only=True
     monkeypatch.setattr(request_check,'request_consistency',lambda *a,**k:pytest.fail('model called by submission'))
     with pytest.raises(ValueError,match='prepared request is stale'):
         request_check.before_generation(ctx,clip,request)
     from novel_manga.util import atomic_write_json
-    ctx.prepared_requests_only=False
+    ctx.options.prepared_requests_only=False
     monkeypatch.setattr(request_check,'request_consistency',lambda *a,**k:{'consistent':True,'problems':[]})
     request_check.before_generation(ctx,clip,request)
-    ctx.prepared_requests_only=True
+    ctx.options.prepared_requests_only=True
     monkeypatch.setattr(request_check,'request_consistency',lambda *a,**k:pytest.fail('model called by submission'))
     assert request_check.before_generation(ctx,clip,request)['consistent']
     request['reference_sha256'][0]='changed image'
@@ -82,7 +83,7 @@ def test_request_check_receives_exact_cards_in_request_order_with_binding_legend
     with pytest.raises(ValueError, match='reference mismatch'):
         request_check.before_generation(ctx, clip, request)
     assert seen == [Path(p) for p in request['references']]
-    assert ctx._blocked_clips['c1'][0].startswith('request: 请求深色便装与图1衣着矛盾')
+    assert ctx.state.blocked_clips['c1'][0].startswith('request: 请求深色便装与图1衣着矛盾')
     assert not (tmp_path / 'repair_history/history.json').exists()
 
 
@@ -176,7 +177,7 @@ def test_generic_attire_or_omitted_layers_do_not_block_generation(tmp_path, monk
     monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k:
                         {'observations': ['图1白衬衫灰马甲'], 'findings': [finding]})
     result = request_check.before_generation(ctx, clip, request)
-    assert result['consistent'] and not result['problems'] and not ctx._blocked_clips
+    assert result['consistent'] and not result['problems'] and not ctx.state.blocked_clips
     assert result['findings'] == [finding] and (clip, request) == original
 
 

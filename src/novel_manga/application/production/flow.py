@@ -88,7 +88,7 @@ class Batch:
     # ---- helpers ----
     def novel(self):
         if self._novel is None:
-            from novel_manga.ingest import read_novel
+            from novel_manga.source.ingest import read_novel
             self._novel = read_novel(self.source, novel_id=self.novel_id, title=self.title, chapters=self.meta.get("chapters"))
         return self._novel
 
@@ -110,7 +110,7 @@ class Batch:
             return
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             return
-        from novel_manga.application.review.bible import grow_bible
+        from novel_manga.application.identity.bible_growth import grow_bible
         try:
             with self.grow_lock:  # parallel planners must not append to the bible at once
                 before = json.loads(self.bible.read_text(encoding="utf-8"))

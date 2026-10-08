@@ -5,7 +5,7 @@ import pytest
 
 from novel_manga import __version__
 from experiments.legacy.models import EpisodeStatus, SubmissionManifest, VideoRecord
-from novel_manga.safety import safe_visual_prompt, scan_source
+from novel_manga.story.safety import safe_visual_prompt, scan_source
 
 
 def _record() -> VideoRecord:

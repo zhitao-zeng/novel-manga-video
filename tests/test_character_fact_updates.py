@@ -1,3 +1,6 @@
+from novel_manga.story.character_evidence import excerpts
+import novel_manga.application.review.character_updates as cast_character_updates
+import novel_manga.application.assets.character_design as cast_character_design
 """Source facts survive design; explicit corrections preserve unrelated production data."""
 import json
 
@@ -36,7 +39,7 @@ def test_growth_receives_confirmed_reading_appearance_and_keeps_permanent_featur
                                 'hair': '按原文记录', 'palette': '与原文服色一致'}]}
 
     monkeypatch.setattr(bible.model_client, 'ask_json', reply)
-    result, added, refused, _ = bible.fill_characters(book(), tmp_path / 'story_bible.json',
+    result, added, refused, _ = cast_character_design.fill_characters(book(), tmp_path / 'story_bible.json',
         {name: {'mentions': 3, 'chapters': [1]}}, source, [name])
     assert added == [name] and refused == {}
     assert result.characters[0].appearance == appearance
@@ -51,7 +54,7 @@ def test_design_context_is_identity_information_not_other_peoples_appearance(tmp
     monkeypatch.setattr(bible.model_client, 'ask_json', lambda parts, *a, **k: seen.append(parts[0]['text']) or {
         'characters': [{'name': '沃图', 'same_as': '', 'confidence': 1,
                         'appearance': '高大中年军官', 'wardrobe': '银甲'}]})
-    bible.fill_characters(book([existing]), tmp_path / 'story_bible.json',
+    cast_character_design.fill_characters(book([existing]), tmp_path / 'story_bible.json',
                           {'沃图': {'mentions': 3, 'chapters': [66]}}, '沃图身材高大，相貌堂堂。', ['沃图'])
     assert '豪森' in seen[0] and '少将' in seen[0]
     assert '豪森独有的杀气死气模板' not in seen[0]
@@ -72,7 +75,7 @@ def test_new_fill_keeps_explicit_male_gender_when_the_model_replies_female(tmp_p
                                 'appearance': '瘦削毁容的秘药大师', 'wardrobe': '破洞黑袍'}]}
 
     monkeypatch.setattr(bible.model_client, 'ask_json', reply)
-    result, added, refused, _ = bible.fill_characters(book(), tmp_path / 'story_bible.json',
+    result, added, refused, _ = cast_character_design.fill_characters(book(), tmp_path / 'story_bible.json',
         {'科查': {'mentions': 3, 'chapters': [13]}}, '科查的面孔整个被毁掉了。', ['科查'])
     assert added == ['科查'] and refused == {}
     assert result.characters[0].gender == '男'
@@ -84,7 +87,7 @@ def test_marked_design_for_an_unwritten_look_is_not_rejected_as_a_placeholder(tm
     monkeypatch.setattr(bible.model_client, 'ask_json', lambda *a, **k: {'characters': [{
         'name': '布朗侯爵', 'same_as': '', 'confidence': 1,
         'appearance': appearance, 'wardrobe': '校长礼服'}]})
-    result, added, refused, _ = bible.fill_characters(book(), tmp_path / 'story_bible.json',
+    result, added, refused, _ = cast_character_design.fill_characters(book(), tmp_path / 'story_bible.json',
         {'布朗侯爵': {'mentions': 3, 'chapters': [34]}}, '布朗侯爵是校长。', ['布朗侯爵'])
     assert added == ['布朗侯爵'] and not refused
     assert result.characters[0].appearance == appearance
@@ -92,7 +95,7 @@ def test_marked_design_for_an_unwritten_look_is_not_rejected_as_a_placeholder(tm
 
 def test_excerpts_keep_described_then_named_subject_and_later_reply():
     text = '一名白金长发、黑蓝眸的俊美青年走入大殿。他穿着淡金长袍。云森浅浅一笑。林齐看向他。'
-    assert text == bible.excerpts(text, '云森')
+    assert text == excerpts(text, '云森')
 
 
 def test_explicit_update_writes_only_source_supported_selected_fields(tmp_path, monkeypatch):
@@ -107,7 +110,7 @@ def test_explicit_update_writes_only_source_supported_selected_fields(tmp_path, 
     monkeypatch.setattr(character_updates, 'ask_json', lambda *a, **k: {'characters': [{
         'name': '科查', 'changes': {'appearance': '满面斑驳疤痕，鼻耳毁损只剩黑洞'},
         'evidence': [source], 'reason': '永久毁容'}]})
-    result = bible.reconcile_characters(tmp_path, ['科查'], source=source)
+    result = cast_character_updates.reconcile_characters(tmp_path, ['科查'], source=source)
     after = json.loads(path.read_text())
     assert result['updated'] == ['科查'] and not result['rejected']
     assert after['characters'][0]['appearance'] == '满面斑驳疤痕，鼻耳毁损只剩黑洞'
@@ -126,7 +129,7 @@ def test_failed_or_unsupported_patch_does_not_block_other_selected_character(tmp
          'evidence': ['坐在妙闻身边骨瘦如柴的多闻尊者站起。'], 'reason': '独立人物'},
         {'name': '妙闻', 'changes': {'name': '多闻尊者'}, 'evidence': [source], 'reason': '合并'},
     ]})
-    result = bible.reconcile_characters(tmp_path, ['多闻尊者', '妙闻'], source=source)
+    result = cast_character_updates.reconcile_characters(tmp_path, ['多闻尊者', '妙闻'], source=source)
     after = json.loads((tmp_path / 'story_bible.json').read_text())
     assert result['updated'] == ['多闻尊者'] and '妙闻' in result['rejected']
     assert after['characters'][1] == initial['characters'][1]
@@ -144,7 +147,7 @@ def test_rejected_update_keeps_original_file_bytes(tmp_path, monkeypatch, change
     before = path.read_bytes()
     monkeypatch.setattr(character_updates, 'ask_json', lambda *a, **k: {'characters': [{
         'name': '云帝', 'changes': changes, 'evidence': evidence, 'reason': 'test'}]})
-    result = bible.reconcile_characters(tmp_path, ['云帝'], source='云帝是孩童。')
+    result = cast_character_updates.reconcile_characters(tmp_path, ['云帝'], source='云帝是孩童。')
     assert result['rejected'] and path.read_bytes() == before
 
 
@@ -156,7 +159,7 @@ def test_no_change_update_preserves_confirmed_manual_design_without_redraw(tmp_p
     seen = []
     monkeypatch.setattr(character_updates, 'ask_json', lambda parts, *a, **k: seen.append(parts[0]['text']) or {
         'characters': [{'name': '云帝', 'changes': {}, 'evidence': [], 'reason': '现设定符合原文'}]})
-    result = bible.reconcile_characters(tmp_path, ['云帝'], source='形如七八岁孩童的云帝。')
+    result = cast_character_updates.reconcile_characters(tmp_path, ['云帝'], source='形如七八岁孩童的云帝。')
     assert result['unchanged'] == ['云帝'] and path.read_bytes() == before
     assert '已确认的人工修正' in seen[0] and '阶段状态' in seen[0]
 
@@ -170,7 +173,7 @@ def test_malformed_model_rows_do_not_abort_valid_selected_updates(tmp_path, monk
     source = '科查满脸疤痕。'
     valid = {'name': '科查', 'changes': {'appearance': '满脸疤痕'}, 'evidence': [source], 'reason': '永久外貌'}
     monkeypatch.setattr(character_updates, 'ask_json', lambda *a, **k: {'characters': [malformed, valid]})
-    result = bible.reconcile_characters(tmp_path, ['科查', '云帝'], source=source)
+    result = cast_character_updates.reconcile_characters(tmp_path, ['科查', '云帝'], source=source)
     assert result['updated'] == ['科查'] and '云帝' in result['rejected']
     assert json.loads(path.read_text())['characters'][1] == initial['characters'][1]
 
@@ -180,5 +183,5 @@ def test_null_model_character_list_is_reported_without_touching_bible(tmp_path, 
     path.write_text(book([Character(name='科查', appearance='疤痕', wardrobe='黑袍')]).model_dump_json())
     before = path.read_bytes()
     monkeypatch.setattr(character_updates, 'ask_json', lambda *a, **k: {'characters': None})
-    result = bible.reconcile_characters(tmp_path, ['科查'], source='科查满脸疤痕。')
+    result = cast_character_updates.reconcile_characters(tmp_path, ['科查'], source='科查满脸疤痕。')
     assert '科查' in result['rejected'] and path.read_bytes() == before

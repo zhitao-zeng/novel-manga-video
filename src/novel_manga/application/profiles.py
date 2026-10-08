@@ -8,6 +8,7 @@ text is what the asset factory routes on, so it must contain a 2D token for
 """
 from __future__ import annotations
 from novel_manga.application.configuration import project_root
+from novel_manga.episodes import parse_episode
 from novel_manga.media.issues import apply_speech_policy, speech_qc_ignores
 
 import hashlib
@@ -111,10 +112,10 @@ def speech_gate_policy(novel_dir: Path, episode_dir: Path | None = None) -> str:
     policy=load_profile(novel_dir).get('speech_gate','enforce')
     if episode_dir is not None:
         scope_path=novel_dir/'repair_manager/state.json'
-        number=episode_dir.name.rsplit('_',1)[-1]
-        if number.isdigit() and scope_path.is_file():
+        parsed=parse_episode(episode_dir.name)
+        if parsed and scope_path.is_file():
             scoped,episodes=_scope_speech_policy(str(scope_path))
-            if scoped and int(number) in episodes:
+            if scoped and parsed[0] in episodes:
                 return scoped
     return policy
 

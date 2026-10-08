@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """The same affirmative-direction contract applies at preparation and actual H3 submission."""
 import copy
 import json
@@ -104,9 +105,6 @@ def test_separate_thought_recording_also_stops_before_provider_for_invalid_final
     monkeypatch.setenv('NOVEL_DEMUCS_COMMAND', str(demucs))
     monkeypatch.setattr(inner_voice, 'cached_recording', lambda *a: None)
     monkeypatch.setattr(inner_voice, 'compose', lambda *a, **k: POSITIVE + '\n额外制作说明。')
-    context = SimpleNamespace(novel_dir=tmp_path, work=tmp_path/'work', cache_only=False,
-                              max_attempts=1, feedback={}, voice_budget=29,
-                              settings=SimpleNamespace(local_h3_base_url='pool'),
-                              provider=SimpleNamespace(create_video=lambda *a, **k: pytest.fail('invalid recording submitted')))
+    context = RenderContext(novel_dir=tmp_path, work=tmp_path / 'work', feedback={}, settings=SimpleNamespace(local_h3_base_url='pool'), provider=SimpleNamespace(create_video=lambda *a, **k: pytest.fail('invalid recording submitted')), options=RenderOptions(cache_only=False, max_attempts=1, voice_budget=29))
     with pytest.raises(ValueError, match='Chinese outside bound dialogue'):
         inner_voice.prepare(context, clip)

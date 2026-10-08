@@ -1,3 +1,5 @@
+import novel_manga.media.asset_builder as owner_asset_builder
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from novel_manga.story.compilation import ClipCompiler
 from novel_manga.application.packing.context import compiler_options
 from novel_manga.media import asset_inspection
@@ -246,7 +248,7 @@ def test_batch_restores_ranges_before_translating_h3_prompts(split_episode, monk
     (episode / "chapter_script.json").write_text(json.dumps(script))
     batch = production_flow.Batch.__new__(production_flow.Batch)
     batch.rows, batch.expressions = {1: {}}, False
-    batch.args = SimpleNamespace(no_render=False, rerender=False, dry_run=False, cache_only=False, retake_failed=False)
+    batch.args = SimpleNamespace(no_render=False, rerender=False, dry_run=False, retake_failed=False, cache_only=False)
     batch.episode_dir = lambda chapter: episode
     batch.render_status = lambda chapter: "stale"
     monkeypatch.setenv("NOVEL_LOCAL_H3_URL", "pool")
@@ -271,7 +273,7 @@ def test_build_assets_checks_only_used_images_and_rebuilds_a_bad_used_card(tmp_p
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"broken")
     runner = uninitialized_runner()
-    runner.context.novel_dir, runner.context.expressions = tmp_path, False
+    runner.context.novel_dir, runner.context.options.expressions = tmp_path, False
     runner.context.settings, runner.context.provider, runner.context.bible = Settings(), object(), object()
     runner.context.profile = {"style": "2d", "frame": "16:9"}
     runner.context.frame_spec = {"text": "横屏"}
@@ -285,7 +287,7 @@ def test_build_assets_checks_only_used_images_and_rebuilds_a_bad_used_card(tmp_p
         assert not selected.exists()
         Image.new("RGB", (2048, 1024), "white").save(selected)
         return manifest
-    monkeypatch.setattr(renderer.FramedAssetFactory, "build_selected", build)
+    monkeypatch.setattr(owner_asset_builder.FramedAssetFactory, "build_selected", build)
     waits, opened = [], []
     monkeypatch.setattr('novel_manga.media.asset_repair.wait_for_inflight_redraws', lambda paths: waits.extend(paths))
     original_open = Image.open
@@ -312,13 +314,13 @@ def test_quality_phase_card_does_not_require_an_unreferenced_expression_sheet(tm
     card.parent.mkdir(parents=True)
     Image.new("RGB", (2048, 1024), "white").save(card)
     runner = uninitialized_runner()
-    runner.context.novel_dir, runner.context.expressions = tmp_path, True
+    runner.context.novel_dir, runner.context.options.expressions = tmp_path, True
     runner.context.settings, runner.context.provider = Settings(), object()
     runner.context.bible = StoryBible(novel_title="测试", genre="generic", visual_style="2d", palette="蓝", style_fingerprint="test",
                              characters=[Character(name="林凡", appearance="黑发", wardrobe="白衣")], locations=[])
     runner.context.profile, runner.context.frame_spec = {"style": "2d", "frame": "16:9"}, {"text": "横屏"}
     runner.context.clip_plan = {"clips": [{"references": [{"role": "character", "asset_id": asset,
                                                   "path": str(card.relative_to(tmp_path))}]}]}
-    monkeypatch.setattr(renderer.FramedAssetFactory, "ensure_card", lambda *a, **kw: pytest.fail("phase card already exists"))
+    monkeypatch.setattr(owner_asset_builder.FramedAssetFactory, "ensure_card", lambda *a, **kw: pytest.fail("phase card already exists"))
     runner.build_assets()
     assert card.exists() and not card.with_name("expressions.jpeg").exists()

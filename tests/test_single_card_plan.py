@@ -1,3 +1,5 @@
+import novel_manga.media.asset_inspection as owner_asset_inspection
+import novel_manga.media.asset_builder as owner_asset_builder
 import novel_manga.application.packing.assets as packing_assets
 import novel_manga.application.packing.context as packing_context
 """Legacy clips use one card per actor with correct picture tags and fresh H3 bindings."""
@@ -62,7 +64,7 @@ def test_picture_ten_is_remapped_once_not_as_picture_one():
 
 
 def test_fast_factory_does_not_build_or_reuse_expression_sheet(tmp_path, monkeypatch):
-    factory = rc.FramedAssetFactory(Settings(reuse_existing_assets=True), object())
+    factory = owner_asset_builder.FramedAssetFactory(Settings(reuse_existing_assets=True), object())
     bible = StoryBible(novel_title="测试", genre="奇幻", visual_style="2D", palette="蓝",
                        style_fingerprint="test", locations=[], characters=[Character(name="甲", appearance="黑发", wardrobe="白衣")])
     root = tmp_path / "series_assets"
@@ -76,7 +78,7 @@ def test_fast_factory_does_not_build_or_reuse_expression_sheet(tmp_path, monkeyp
         Image.new("RGB", (30, 60), "white").save(output)
         return ImageResult(path=output)
 
-    monkeypatch.setattr(rc.FramedAssetFactory, "ensure_card", ensure_card)
+    monkeypatch.setattr(owner_asset_builder.FramedAssetFactory, "ensure_card", ensure_card)
     manifest = factory.build_selected(root, bible, {"character_001"}, set(), expressions=False)
     assert built == ["turnaround.jpeg"]
     assert manifest.characters[0].secondary_image is None
@@ -103,7 +105,7 @@ def test_chapter_preview_does_not_stack_the_whole_long_book(tmp_path):
         card = root / "characters" / f"character_{n:03d}" / "turnaround.jpeg"
         card.parent.mkdir(parents=True)
         Image.new("RGB", (30, 60), "white").save(card)
-    output = rc.cards_sheet(tmp_path, root / "cards_sheet.jpg", asset_ids={"character_001"})
+    output = owner_asset_inspection.cards_sheet(tmp_path, root / "cards_sheet.jpg", asset_ids={"character_001"})
     with Image.open(output) as preview:
         preview.load()
         assert preview.height == 300 + 16

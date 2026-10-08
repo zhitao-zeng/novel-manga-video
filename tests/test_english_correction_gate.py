@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 import novel_manga.application.rendering.flow as render
+from novel_manga.application.rendering import requests as render_requests
 from novel_manga.application.profiles import h3_source_digest, h3_prompt_outdated
 
 
@@ -15,7 +16,8 @@ def runner():
     return r
 
 
-def test_corrected_new_take_leaves_old_chinese_mode_only_with_matching_english():
+def test_corrected_new_take_leaves_old_chinese_mode_only_with_matching_english(monkeypatch):
+    monkeypatch.setattr(render_requests, "save_clip_plan", lambda ctx: None)
     r=runner()
     c={'clip_id':'c','prompt':'原分镜','prompt_h3_skip':True,'prompt_h3':'English picture and direction',
        'prompt_h3_of':h3_source_digest('原分镜',r.context.feedback['c'])}

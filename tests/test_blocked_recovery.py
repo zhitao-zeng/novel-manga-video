@@ -90,7 +90,7 @@ def test_approved_existing_video_does_not_require_its_old_wrong_request(tmp_path
     assert history.source_accepted_take(d,clip,'')==video
     assert history.source_accepted_take(d,{**clip,'prompt':'new scene'},'') is None
     assert history.source_accepted_take(d,clip,'new correction') is None
-    r=uninitialized_runner();r.context.work=d/'work';r.context.feedback={};r.context.cache_only=False;r.context.max_attempts=2
+    r=uninitialized_runner();r.context.work=d/'work';r.context.feedback={};r.context.options.cache_only=False;r.context.options.max_attempts=2
     r.analyse_clip=lambda *a:{'passed':True,'video':str(video)}
     r.generate_clip=lambda *a:(_ for _ in ()).throw(AssertionError('must not regenerate an approved take'))
     assert r.process_clip(clip)['selected']['generated_this_run'] is False

@@ -10,6 +10,7 @@ import threading
 import time
 
 from novel_manga.util import atomic_write_json, read_json
+from novel_manga.application.production import episode_state
 
 ACTIONS = {'check', 'adopt', 'render', 'review', 'apply', 'status', 'finish', 'doctor'}
 SLOW_ACTIONS = {'adopt', 'render', 'review', 'apply', 'finish', 'doctor'}
@@ -40,6 +41,12 @@ def install_client(work):
 
 def log(event, **details):
     print(json.dumps({'event': event, **details}, ensure_ascii=False), flush=True)
+
+
+def diagnostic_state(state):
+    job = state.get('job') or {}
+    return {**{key: state.get(key) for key in ('status', 'phase', 'pid', 'passed')},
+            'job_id': job.get('id'), 'action': job.get('action'), 'job_status': job.get('status')}
 
 
 class EpisodeBridge:
@@ -76,9 +83,15 @@ class EpisodeBridge:
         with self._lock:
             if self.state_path is not None:
                 state = read_json(self.state_path, {})
+                before = diagnostic_state(state)
                 state.update(values)
                 state['updated_at'] = time.strftime('%F %T')
                 atomic_write_json(self.state_path, state)
+                current = diagnostic_state(state)
+                if current != before:
+                    stage = 'job' if any(current[key] != before[key] for key in
+                                         ('job_id', 'action', 'job_status')) else 'lifecycle'
+                    episode_state.record(self.state_path.parent, stage, **current)
 
     def _save_job(self):
         self.update_state(job=self._job_status())

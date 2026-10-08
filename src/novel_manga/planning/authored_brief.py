@@ -264,7 +264,7 @@ def chapter_text(novel: dict, chapter: int) -> str:
     source: a title may repeat later as an ordinary line, so the first line that matches
     a chapter title wins and the chapter runs to whichever start comes next.
     """
-    from novel_manga.ingest import registered_chapter_text
+    from novel_manga.source.ingest import registered_chapter_text
     return registered_chapter_text(novel, chapter) + "\n"
 
 

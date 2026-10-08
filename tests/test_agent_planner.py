@@ -7,7 +7,7 @@ import pytest
 
 import experiments.legacy.planner as planner_module
 from novel_manga.config import Settings
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.models.drama import EpisodeDramaturgy
 from novel_manga.models.episode import EpisodePlan

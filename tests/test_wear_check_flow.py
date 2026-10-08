@@ -53,7 +53,7 @@ def runner_for(directory, script, plan, monkeypatch):
     runner.context.work = directory / 'work'
     runner.context.clip_plan, runner.context.script = plan, script
     runner.context.settings = SimpleNamespace(local_h3_base_url='')
-    runner.context.max_attempts, runner.context.workers = 1, 1
+    runner.context.options.max_attempts, runner.context.options.workers = 1, 1
     generated = []
     monkeypatch.setattr(runner, 'build_assets', lambda **kwargs: None)
 

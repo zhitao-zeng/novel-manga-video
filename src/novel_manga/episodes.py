@@ -52,3 +52,9 @@ def episode_order(name: str) -> tuple[int, int]:
         return (10 ** 9, 0)
     chapter, part = parsed
     return (chapter, part or 0)
+
+
+def episode_selector(name: str) -> int | str:
+    """Preserve chapter integers and identify a part without discarding its suffix."""
+    chapter, part = parse_episode(name)
+    return chapter if part is None else f'{chapter}-{part}'

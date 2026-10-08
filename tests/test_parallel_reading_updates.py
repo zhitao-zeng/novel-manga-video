@@ -1,3 +1,4 @@
+import novel_manga.application.identity.bible_growth as cast_bible_growth
 """Parallel chapter replies must not discard another chapter's roster verdict."""
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -19,7 +20,7 @@ def test_parallel_unknown_actor_verdicts_both_survive(tmp_path, monkeypatch):
 
     monkeypatch.setattr(bible.model_client, 'ask_json', reply)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda name: bible.judge_unknown(tmp_path, [name], '原文中客人出现。', 1),
+        results = list(pool.map(lambda name: cast_bible_growth.judge_unknown(tmp_path, [name], '原文中客人出现。', 1),
                                 ['甲新客', '乙新客']))
     assert all(results)
     final = json.loads(path.read_text())

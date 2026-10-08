@@ -1,5 +1,7 @@
 """Episode entrypoint tests without Docker, models or production services."""
 from __future__ import annotations
+import novel_manga.application.agents.episode.lifecycle as episode_lifecycle
+from novel_manga.application import resolved_settings
 from novel_manga.application.agents.episode import turns as episode_turns
 from novel_manga.application.agents.episode import runtime as episode_runtime
 from novel_manga.application.agents.episode import resume_inputs as episode_resume_inputs
@@ -20,6 +22,14 @@ from novel_manga.application.agents.episode import cli, flow
 from novel_manga.application.agents.episode.context import create_context
 from novel_manga.util import atomic_write_json, read_json
 from support.episode_runtime import episode_context as ctx, sandbox_config as config, fake_attempt, install_fake_runtime
+
+
+@pytest.fixture(autouse=True)
+def isolated_agent_endpoint(monkeypatch):
+    """Endpoint scenarios supply their own overrides, independent of the live .env."""
+    for name in ('QWEN38_LOCAL_BASE_URL', 'QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_API_KEY_VAR',
+                 'QWEN38_LOCAL_STREAM', 'SECOND_REVIEW_JUDGE', 'NOVEL_REVIEW_VIDEO_JUDGE'):
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_refused_episode_switches_model_and_finishes_without_resetting_budget(ctx, monkeypatch, config):
@@ -116,8 +126,8 @@ def test_ds_qa_preset_is_available_without_private_worker(ctx, monkeypatch):
     for key in ('QWEN38_LOCAL_BASE_URL', 'QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_API_KEY_VAR',
                 'SECOND_REVIEW_JUDGE', 'NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
-    env = episode_runtime.runtime_environment(ctx, {'base_url': 'http://172.28.4.52:8831',
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
+    env = resolved_settings.resolve_agent_environment(ctx, {'base_url': 'http://172.28.4.52:8831',
                                        'model': 'DeepSeek-V4.1-Flash', 'key_var': 'GPU52_DEEPSEEK_API_KEY'})
     assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'deepseek'
 
@@ -127,8 +137,8 @@ def test_phanthy_transport_is_kept_for_agent_host_tools(ctx,monkeypatch):
                 'SECOND_REVIEW_JUDGE','NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key,raising=False)
     monkeypatch.setenv('QWEN38_LOCAL_STREAM','0')
-    monkeypatch.setattr(episode_runtime,'environment',lambda root:{'NOVEL_LOCAL_H3_URL':'pool'})
-    env=episode_runtime.runtime_environment(ctx,{'base_url':'http://127.0.0.1:8789',
+    monkeypatch.setattr(resolved_settings,'environment',lambda root:{'NOVEL_LOCAL_H3_URL':'pool'})
+    env=resolved_settings.resolve_agent_environment(ctx,{'base_url':'http://127.0.0.1:8789',
         'model':'glm-5.3-flash','key_var':'PHANTHY_API_KEY'})
     assert env['SECOND_REVIEW_JUDGE']=='phanthy'
     assert env['QWEN38_LOCAL_STREAM']=='1' and env['QWEN38_LOCAL_MIN_MAX_TOKENS']=='0'
@@ -138,12 +148,12 @@ def test_secondary_translation_model_has_shared_cap_without_moving_agent_or_judg
     for key in ('QWEN38_LOCAL_BASE_URL','QWEN38_LOCAL_MODEL','QWEN38_LOCAL_API_KEY_VAR',
                 'SECOND_REVIEW_JUDGE','NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: {
         'NOVEL_LOCAL_H3_URL':'pool', 'NOVEL_MODEL_RESOURCES':json.dumps([
             {'base':'http://172.28.4.52:8831/v1','slots':8}]),
         'NOVEL_MODEL_INFLIGHT_DIR':str(ctx.run_dir/'model-slots')})
     before = dict(os.environ)
-    env = episode_runtime.runtime_environment(ctx, {'base_url':'http://172.28.4.52:8831',
+    env = resolved_settings.resolve_agent_environment(ctx, {'base_url':'http://172.28.4.52:8831',
         'model':'DeepSeek-V4.1-Flash','key_var':'GPU52_DEEPSEEK_API_KEY',
         'h3_translation_endpoint':'flashnext','h3_request_check_endpoint':'deepseek',
         'h3_preparation_parallel':2})
@@ -310,7 +320,7 @@ def test_old_finish_manifest_does_not_complete_new_invocation(ctx, monkeypatch, 
 def test_nonzero_session_stops_and_restores_process_environment(ctx, monkeypatch, config):
     install_fake_runtime(monkeypatch, ctx)
     before = dict(os.environ)
-    monkeypatch.setattr(episode_runtime, 'runtime_environment', lambda *a: {**os.environ, 'EPISODE_TEMP_SETTING': 'test'})
+    monkeypatch.setattr(episode_lifecycle, 'resolve_agent_environment', lambda *a: {**os.environ, 'EPISODE_TEMP_SETTING': 'test'})
     monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **kw: fake_attempt(ctx, 1, 125))
     result = flow.run_episode(ctx, config=config)
     assert result['status'] == 'blocked' and result['passed'] is False
@@ -339,13 +349,13 @@ def test_script_run_passes_requests_contract_and_preserves_controller(ctx, monke
 
 def test_environment_uses_configured_qa_and_respects_explicit_h3(ctx, monkeypatch):
     settings = {'base_url': 'http://qa.service:8038', 'model': 'qa-model', 'key_var': 'QA_KEY'}
-    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'known': {
+    monkeypatch.setattr(resolved_settings, 'ENDPOINTS', {'known': {
         'QWEN38_LOCAL_BASE_URL': 'http://qa.service:8038/v1', 'QWEN38_LOCAL_MODEL': 'qa-model',
         'QWEN38_LOCAL_API_KEY_VAR': 'QA_KEY'}})
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'http://explicit-h3',
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'http://explicit-h3',
                                                         'NOVEL_REVIEW_CAST_VIDEO': '0'})
-    monkeypatch.setattr(episode_runtime, 'repair_environment', lambda *a: pytest.fail('explicit H3 overwritten'))
-    env = episode_runtime.runtime_environment(ctx, settings)
+    monkeypatch.setattr(resolved_settings, 'repair_environment', lambda *a: pytest.fail('explicit H3 overwritten'))
+    env = resolved_settings.resolve_agent_environment(ctx, settings)
     assert env['NOVEL_LOCAL_H3_URL'] == 'http://explicit-h3'
     assert env['QWEN38_LOCAL_MODEL'] == 'qa-model'
     assert env['QWEN38_LOCAL_BASE_URL'] == 'http://qa.service:8038/v1'
@@ -356,15 +366,15 @@ def test_environment_uses_configured_qa_and_respects_explicit_h3(ctx, monkeypatc
 
 
 def test_environment_uses_existing_h3_pool_configuration(ctx, monkeypatch):
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {})
-    monkeypatch.setattr(episode_runtime, 'repair_environment', lambda root, legacy: ({
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: {})
+    monkeypatch.setattr(resolved_settings, 'repair_environment', lambda root, legacy: ({
         'NOVEL_LOCAL_H3_URL': 'pool', 'NOVEL_INFLIGHT_POOL': 'configured-pool'},
         {'pool': 'configured-pool', 'inflight': 7}))
     settings = {'base_url': 'http://configured-agent', 'model': 'qa-model', 'key_var': 'QA_KEY'}
-    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'configured': {
+    monkeypatch.setattr(resolved_settings, 'ENDPOINTS', {'configured': {
         'QWEN38_LOCAL_BASE_URL': 'http://configured-agent/v1', 'QWEN38_LOCAL_MODEL': 'qa-model',
         'QWEN38_LOCAL_API_KEY_VAR': 'QA_KEY'}})
-    env = episode_runtime.runtime_environment(ctx, settings)
+    env = resolved_settings.resolve_agent_environment(ctx, settings)
     assert env['NOVEL_LOCAL_H3_URL'] == 'pool' and env['NOVEL_INFLIGHT_POOL'] == 'configured-pool'
     assert env['QWEN38_LOCAL_BASE_URL'] == 'http://configured-agent/v1'
 
@@ -392,21 +402,21 @@ def test_explicit_h3_still_uses_configured_review_mode(ctx, tmp_path, monkeypatc
         atomic_write_json(ctx.novel_dir/'profile.json', {'review_mode': selected_profile})
     base = {'NOVEL_LOCAL_H3_URL': 'http://explicit-h3', 'NOVEL_RENDER_INFLIGHT': '6',
             **({'NOVEL_REVIEW_MODE': explicit} if explicit else {})}
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: base.copy())
-    monkeypatch.setattr(episode_runtime, 'repair_environment', lambda *a: pytest.fail('explicit H3 routing replaced'))
-    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'configured': {
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: base.copy())
+    monkeypatch.setattr(resolved_settings, 'repair_environment', lambda *a: pytest.fail('explicit H3 routing replaced'))
+    monkeypatch.setattr(resolved_settings, 'ENDPOINTS', {'configured': {
         'QWEN38_LOCAL_BASE_URL':'http://judge/v1','QWEN38_LOCAL_MODEL':'qa-model',
         'QWEN38_LOCAL_API_KEY_VAR':'QA_KEY'}})
-    env = episode_runtime.runtime_environment(ctx, {'base_url':'http://judge','model':'qa-model','key_var':'QA_KEY'})
+    env = resolved_settings.resolve_agent_environment(ctx, {'base_url':'http://judge','model':'qa-model','key_var':'QA_KEY'})
     assert env['NOVEL_REVIEW_MODE'] == expected
     assert env['NOVEL_LOCAL_H3_URL'] == base['NOVEL_LOCAL_H3_URL'] and env['NOVEL_RENDER_INFLIGHT'] == '6'
 
 
 def test_environment_refuses_unconfigured_judge_instead_of_localhost(ctx, monkeypatch):
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
-    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {})
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
+    monkeypatch.setattr(resolved_settings, 'ENDPOINTS', {})
     with pytest.raises(ValueError, match='no existing QA preset'):
-        episode_runtime.runtime_environment(ctx, {'base_url': 'http://new-agent', 'model': 'custom', 'key_var': 'KEY'})
+        resolved_settings.resolve_agent_environment(ctx, {'base_url': 'http://new-agent', 'model': 'custom', 'key_var': 'KEY'})
 
 
 def test_qa_defaults_replace_old_dotenv_localhost_but_preserve_process_override(ctx, monkeypatch):
@@ -414,16 +424,16 @@ def test_qa_defaults_replace_old_dotenv_localhost_but_preserve_process_override(
                 'QWEN38_LOCAL_MODEL': 'configured-qa', 'QWEN38_LOCAL_API_KEY_VAR': 'QA_KEY'}
     for key in (*defaults, 'SECOND_REVIEW_JUDGE', 'NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'configured': defaults})
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {
+    monkeypatch.setattr(resolved_settings, 'ENDPOINTS', {'configured': defaults})
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: {
         'NOVEL_LOCAL_H3_URL': 'pool', 'QWEN38_LOCAL_BASE_URL': 'http://127.0.0.1:dead/v1',
         'SECOND_REVIEW_JUDGE': 'local', 'NOVEL_REVIEW_VIDEO_JUDGE': 'local'})
     config = {'base_url': 'http://qa-configured', 'model': 'configured-qa', 'key_var': 'QA_KEY'}
-    env = episode_runtime.runtime_environment(ctx, config)
+    env = resolved_settings.resolve_agent_environment(ctx, config)
     assert env['QWEN38_LOCAL_BASE_URL'] == defaults['QWEN38_LOCAL_BASE_URL']
     assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'configured'
     monkeypatch.setenv('SECOND_REVIEW_JUDGE', 'explicit')
-    assert episode_runtime.runtime_environment(ctx, config)['SECOND_REVIEW_JUDGE'] == 'explicit'
+    assert resolved_settings.resolve_agent_environment(ctx, config)['SECOND_REVIEW_JUDGE'] == 'explicit'
 
 
 def test_operation_continuations_are_bounded_and_keep_same_session(ctx, monkeypatch, config):
@@ -544,8 +554,8 @@ def test_assigned_multi_endpoint_judge_is_resolved_from_actual_runtime(ctx, monk
         monkeypatch.setenv(key, values[key])
     monkeypatch.delenv('SECOND_REVIEW_JUDGE', raising=False)
     monkeypatch.delenv('NOVEL_REVIEW_VIDEO_JUDGE', raising=False)
-    monkeypatch.setattr(episode_runtime, 'environment', lambda root: values.copy())
-    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'group-qa': values})
+    monkeypatch.setattr(resolved_settings, 'environment', lambda root: values.copy())
+    monkeypatch.setattr(resolved_settings, 'ENDPOINTS', {'group-qa': values})
     settings = {'base_url': 'http://one.model:9000', 'model': 'qa-model', 'key_var': 'QA_KEY'}
-    env = episode_runtime.runtime_environment(ctx, settings)
+    env = resolved_settings.resolve_agent_environment(ctx, settings)
     assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'group-qa'

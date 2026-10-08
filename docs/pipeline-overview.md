@@ -1,61 +1,76 @@
-# 产线全景图(2026-10-08 实查)
+# 产线全景图（2026-10-09）
 
-新人/新会话入口。细节见各层文档;带日期的文档是时点记录。
+这是当前代码的流程入口。具体职责见[架构](architecture.md)，生产经验与真实成片结论见[生产经验](production-lessons.md)。本页不代表当前任务正在运行，资源数量以配置和运行状态为准。
 
-## 主流水线
+## 从原文到交付
 
+```mermaid
+flowchart LR
+    INPUT[小说原文] --> SETUP[新书准入与完整读书]
+    SETUP --> FACTS[人物 / 地点事实与身份台账]
+    FACTS --> PLAN[剧本 / 导演拆镜]
+    PLAN --> PACK[场景解析 / 片段编译]
+    PACK --> PREP[资产与实际请求准备]
+    PREP --> VIDEO[生成或复用素材]
+    VIDEO --> POST[分析 / 字幕 / 合成]
+    POST --> REVIEW[成片审查]
+    REVIEW -->|通过| PUBLISH[最终验收与发布]
+    REVIEW -->|需修改 / 预算内| REPAIR[现有修复路由]
+    REPAIR --> PREP
+    REPAIR -->|仍未解决| BLOCK[保存阻塞与证据]
 ```
-原文 → ①准入 → ②读书/身份 → ③规划(分镜) → ④建卡 → ⑤渲染 → ⑥审查/修复 → 成片
-```
 
-### ① 新书准入
-唯一入口 `scripts/setup_book_thin.py`(不要单跑 build_bible_thin.py——它不出 reading_cast.json,身份绑定校验会全线拦停)。四步:切章 → 逐章精读(本地 Qwen 并行)→ 沙箱归并演员表(Flash-Next)→ 按名单重建圣经 + **台账播种对账**。端点预检先查后跑。
+1. **新书接入**：`scripts/setup_book_thin.py` → `application/planning/setup_book.py`。
+   切章建工作区、逐章读书、沙箱归并、设计初始人物库，再核对台账名单。
+   单独 build_bible 是低层初始化步骤，不代替完整读书；已有书沿用注册集号与原文偏移。
+2. **身份与资产资料**：reading_cast、story_bible、entity、别名与阶段记录保留各自已有用途。
+   读书事实与外貌设计分开；身份减账的目标和实施边界见[记录](identity-convergence-20261008.md)。
+3. **规划与编译**：application 读取章节资料并调用既有模型；planning 提供请求和检查，
+   story 共用动作、身份、对白和场景规则。打包保留来源、片段编号和拆分关联。
+4. **开拍准备**：准备所需人物/场景/穿戴卡，检查实际英文请求及其参考素材。
+   输入问题沿原准备失败交接，不能因“资产文件存在”就认为素材正确。
+5. **生成与后期**：application/rendering 串联缓存、提交、分析、合成和报告；
+   media 提供独立能力，providers 承担现有 SD/H3 协议。无对白仍检查意外语音。
+6. **审查、修复和发布**：按实际成片、当前请求和历史决定保留旧片、改输入或重拍。
+   预算、计费、缓存和原有人工放行保持；素材齐全不等于内容或整集验收通过。
 
-### ② 读书与身份(三本账)
-- `reading_cast.json`(归并名单)、`story_bible.json`(定妆)、`entity/`(逐章在场证据台账)
-- same_as 合并:两审+终审+**变身证据硬护栏**(变身/乔装证据→转人工,不自动合并)
-- 对账:`scripts/reconcile_cast_ledger.py --novel-dir X [--fix]`;setup 第 5 步播种
-- 扫描并行、台账落账按章序串行
+## 两种执行方式共用调度
 
-### ③ 规划(conductor)
-- `configs/pipeline.json` 是唯一事实来源;ranges 带 `plan_mode`(15/30 秒档)+ `min_seconds`(软下限,floor waiver 是设计)
-- 块调度 63 章/块;读书领先 20 章才发块;槽位:local Qwen 3 + Flash-Next 3 + DeepSeek 8
-- 每章:分析→提纲→剧本→补丁(分批/180s 预算)→校验;长章 >6000 字自动拆集
-- 生产档键位(tier 已拆):`resolution`/`expressions`/`two_views`/`episode_shape`,见 `docs/profile-keys-20260930.md`
+| 执行方式 | 谁推进单集 | 共用能力与限制 |
+|---|---|---|
+| standard | 既有规划、准备、渲染及审修流程 | Conductor、文件记录、模型槽、生成池、锁、暂停和预算 |
+| episode_agent | 每集持续沙箱会话，自主调用宿主工具；工具完成后续接原会话 | 同一调度与宿主能力；当前只支持H3，已有读书/剧本/资产可直接接入 |
 
-### ④ 建卡
-- 画风包(`configs/styles/`)= 纯美学;模型方言层(`configs/image_models/`)= 该模型听得懂的话
-- **道具走本地 Qwen-Image(免费,`NOVEL_LOCAL_QWEN_IMAGE_URL` 开关),人物/场景走 API(保脸)**
-- 卡审查抓写实人脸/设定不符自动重画;穿戴物必须阶段卡(phases.json wears),改了必须重打包
+Agent 的生命周期、启动接续、一次模型回合、草稿、媒体、修复、证据和收尾有独立所有者。
+它与恢复、缓存、Phanthy的已验证实现均已合入 main；旧工作树或运行快照不自动更新。
+模型请求槽在宿主工具运行时释放，生成继续使用公共池，不因为多开Agent就增加实例能力。
 
-### ⑤ 渲染
-- sd25 付费(30s 档;**480p 已实测服从,720p 会被静默升档 1080p 计费**)/ h3pool 本地免费(15s 档,544P)/ sd20
-- 参考图:资产库 → 托管 URL → base64 内联
-- 声线库 `scripts/build_voices_thin.py` 从已出集 ASR 自举(≥8 秒/人);新书前几集裸跑后建库
-- ASR 校验(SenseVoice)+ 心声 postmix
+## 操作范围
 
-### ⑥ 审查/修复/发布
-- 薄 QC(ffmpeg 客观)→ 一致性审查 → 逐帧 verify(fine/subtle)→ `publish_if_ready` 全绿转正
-- 每段最多 3 take;超限要 `repair_budget_grants.json` 人工 grant;**付费重拍必须人批**
-- 流程三分:production(往前推)/ prepare / repair(修复总控)
+`scripts/pipeline.py` 统一管理 production、prepare、repair，默认只在用户执行start时启动。
+status只读取保存状态。看板和命令行消费相同的生产状态；工作台读取普通书、分集和嵌套Agent书。
 
-## 瓶颈 / 并行 / 人工闸门
+- 只规划：`thin_batch.py --stage plan`。
+- 只生成：`thin_batch.py --stage render`；默认不追加内容审修。
+- 只审查：`thin_batch.py --review-only` 或 `thin_review.py episode`。
+- 自动审修：既有 `--unattended`、`render_clips_thin.py --review/--repair`；共用单集执行器。
+- 缓存合成：`--cache-only` 不提交生成、重建资产或清空历史。
 
-- 串行:台账落账、本地生图(单线程)、H3 每实例单任务
-- 并行:规划槽位(3+3+8)、渲染车道(sd25 最多 56 在飞)、建卡、审查
-- 人工闸门:变身类合并、泛称合并、付费重拍、不确定提交放行、超预算 grant
+完整参数和初始化示例见[README](../README.md)，Agent输入模式见[Agent说明](episode-agent.md)。
 
-## 运维
+## 资源与状态从哪里看
 
-- 看板:`scripts/status_server.py` → 18900(/published/ 服务资产发布目录)
-- 日志:`/mnt/disk1/zengzhitao/tmp/conductor-<书>/conductor.log`
-- 配额停机:sd25 配额耗尽自动停,cron 每日定时再启(configs/schedules/)
-- 探活:episode 工具的 doctor 动作(在 episode-agent 分支,待合 main)
+- 小说范围、执行器和资源分配：`configs/pipeline.json`。
+- 画幅、画风及小说级质检口径：小说的 `profile.json`；本集有效配置由resolved_settings解析。
+- 端点与凭据：环境及项目.env；文档不保存凭据值。
+- 进程、在途、待处理与阻塞：pipeline status和看板；GPU利用率与可交付净增分开看。
+- 产物和修复历史：原章节目录；普通章和分集由公共episodes规则识别，不丢掉分集后缀。
+- 运维探针：已经合入main的episode工具doctor；探活通过不等于生成或内容验收通过。
 
-## 本周新增(09-28~10-08)
+## 维护与验证
 
-setup_book 唯一入口+台账对账播种、tier 拆四独立键、长章自动拆集、血迹门拆档(血迹 report-only/伤口硬拦)、归并别名规则、模型方言层与按类型路由、same_as 变身护栏、H3 默认 544P、穿戴证据视觉核对、配额停机、时长压缩(compression.py)、gate 误杀埋点、episode-agent 整集制作线(未合 main)。
-
-## 多会话协作
-
-见 AGENTS.md「多会话协作」+ `docs/active-sessions.md`(在途工作板)。
+31个thin命令只负责启动；原文读取位于source，基础渲染和技术质检位于media，人物库构建位于application/planning。
+旧API和兼容导入不恢复；历史小说、素材、计数、任务和其他会话草稿不随结构整理移动。
+固定15项结构整理的实施与验证见[固定清单](structure-debt-20261008.md)，跨层回归见[测试说明](../tests/README.md)。
+模型请求和供应商在测试中模拟，媒体验证使用固定短素材与真实FFmpeg；离线通过不代表新增成片已通过。
+多会话所有权和实际在途任务见[工作板](active-sessions.md)；代码已合并不代表后台任务已收工。

@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from novel_manga.application.agents.episode.media_operations import MediaOperations
 """Existing script integration: only final requests cross the agent boundary."""
 import copy
@@ -48,11 +49,7 @@ def _retained_asr_assembly(tmp_path, monkeypatch, cache_state='current'):
         atomic_write_json(video.parent/'asr.json', cached)
 
     runner = object.__new__(ThinMediaRunner)
-    runner.context = RenderContext(episode_dir=ctx.episode_dir, novel_dir=ctx.novel_dir,
-        work=ctx.episode_dir/'work', settings=Settings(), clip_plan=plan,
-        script=read_json(ctx.episode_dir/'chapter_script.json'),
-        asr_python='fixture-asr-python', asr_helper=tmp_path/'fixture-asr-helper.py',
-        renderer=SimpleNamespace(mux_visual_group=lambda video, wav, target:(video, 15.0)))
+    runner.context = RenderContext(episode_dir=ctx.episode_dir, novel_dir=ctx.novel_dir, work=ctx.episode_dir / 'work', settings=Settings(), clip_plan=plan, script=read_json(ctx.episode_dir / 'chapter_script.json'), asr_python='fixture-asr-python', asr_helper=tmp_path / 'fixture-asr-helper.py', renderer=SimpleNamespace(mux_visual_group=lambda video, wav, target: (video, 15.0)))
     monkeypatch.setattr(analysis, 'media_duration', lambda path:15.0)
     monkeypatch.setattr(analysis, 'audio_levels', lambda wav:(-20, -4))
     monkeypatch.setattr(analysis, 'speech_chunks', lambda wav:[[0.5, 2.5]])
@@ -316,7 +313,7 @@ def test_render_runs_independent_acceptance_and_delivers_its_current_evidence(tm
     class Runner:
         def __init__(self):
             from types import SimpleNamespace
-            self.context = SimpleNamespace(episode_dir=ctx.episode_dir)
+            self.context = RenderContext(episode_dir=ctx.episode_dir)
 
         def run(self, *, assemble=True):
             from novel_manga.review.storage import take_identity

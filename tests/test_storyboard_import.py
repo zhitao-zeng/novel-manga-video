@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """Authored edits must survive ingestion without being treated as silent video."""
 import copy
 import json
@@ -147,7 +148,7 @@ def test_unbound_draft_cannot_become_a_silent_plan_or_invalidate_old_media(tmp_p
         pytest.fail("unbound draft must be rejected before asset/identity IO")
     monkeypatch.setattr(packing_flow, "load_context", forbidden)
     for call in (lambda: service.prepared_shots(script, tmp_path),
-                 lambda: packing_flow.run(SimpleNamespace(episode_dir=tmp_path))):
+                 lambda: packing_flow.run(RenderContext(episode_dir=tmp_path))):
         with pytest.raises(ValueError, match="尚未绑定"):
             call()
     assert json.loads((tmp_path / "clip_plan.json").read_text()) == {"existing": "keep"}

@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """Episode first-take cost probe: one measured clip a day, never a real call.
 
 _submit_probe and the ffprobe read are replaced; conftest fails any test that
@@ -32,8 +33,7 @@ def make_ctx(tmp_path):
     work = run / "sandbox"
     for directory in (episode, run, work):
         directory.mkdir(parents=True, exist_ok=True)
-    return SimpleNamespace(novel_dir=novel, episode_dir=episode, run_dir=run,
-                           work_dir=work, input_mode='source')
+    return SimpleNamespace(novel_dir=novel, episode_dir=episode, run_dir=run, work_dir=work, input_mode='source')
 
 
 def log_rows(ctx):
@@ -210,7 +210,7 @@ def test_standard_provider_resumes_an_existing_task_without_probe(tmp_path,monke
 def test_cache_only_renderer_does_not_probe(tmp_path,monkeypatch):
     from support.render_context import media_runner as runner, video_clip as clip
     from novel_manga.application.rendering import flow
-    r=runner(tmp_path/'book');r.context.cache_only=True
+    r=runner(tmp_path/'book');r.context.options.cache_only=True
     cached=tmp_path/'cached.mp4';cached.write_bytes(b'video')
     monkeypatch.setattr(flow.cache,'current_video',lambda *a,**kw:cached)
     monkeypatch.setattr(probe,'_submit_probe',lambda *a,**kw:pytest.fail('cache reuse bought a probe'))

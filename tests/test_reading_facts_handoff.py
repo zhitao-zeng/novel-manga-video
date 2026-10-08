@@ -1,15 +1,16 @@
+import novel_manga.application.review.character_updates as cast_character_updates
 """Real reading failures: source appearances survive attribution and casting handoff."""
 import json
 
 from novel_manga.application.planning.initialize import read_cast, read_cast_facts
-from novel_manga.bible import BibleBuilder
+from novel_manga.application.planning.bible_builder import BibleBuilder
 from novel_manga.config import Settings
-from novel_manga.ingest import read_novel
+from novel_manga.source.ingest import read_novel
 from novel_manga.story import lean_reading as lean
 from novel_manga.story.reading_facts import (
     apply_known_facts, facts_for_name, facts_from_export, merge_character_facts,
 )
-import scripts.lean_bible_thin as thin
+from novel_manga.application.planning import lean_bible as thin
 
 
 SCAR = "他的脸一直到胸脯上都是一块斑驳的疤痕，容貌丑陋到了极点。"
@@ -185,7 +186,7 @@ def test_explicit_lean_character_update_passes_facts_to_existing_reconciler(tmp_
     monkeypatch.setattr(thin, "judge_settings", lambda *_a: None)
     monkeypatch.setattr(thin, "ask_json", lambda *_a, **k: export if k["name"] == "lean_merge" else {"locations": []})
     calls = []
-    monkeypatch.setattr(review, "reconcile_characters", lambda *a, **k: calls.append((a, k)) or {"updated": ["甲"]}, raising=False)
+    monkeypatch.setattr(cast_character_updates, "reconcile_characters", lambda *a, **k: calls.append((a, k)) or {"updated": ["甲"]}, raising=False)
     monkeypatch.setattr(sys, "argv", ["lean_bible_thin.py", "--novel-dir", str(tmp_path), "--chapters", "1",
                                     "--endpoints", "http://unused.invalid", "--update-characters", "甲"])
     assert thin.main() == 0

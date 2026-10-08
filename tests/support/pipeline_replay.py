@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """Replay 25 saved clip plans without model calls or production files."""
 import copy
 import json
@@ -18,8 +19,7 @@ def clip_requests(root: Path) -> dict:
         for original in case['clips']:
             for local in (False, True):
                 clip = copy.deepcopy(original)
-                ctx = SimpleNamespace(novel_dir=root, feedback={}, voice_budget=15,
-                                      settings=SimpleNamespace(local_h3_base_url='pool' if local else None))
+                ctx = RenderContext(novel_dir=root, feedback={}, settings=SimpleNamespace(local_h3_base_url='pool' if local else None), options=RenderOptions(voice_budget=15))
                 for ref in clip['references']:
                     if ref['role'] != 'voice':
                         path = root / ref['path']

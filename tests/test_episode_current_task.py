@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """Current repair context excludes obsolete targets but retains full evidence files."""
 from types import SimpleNamespace
 from pathlib import Path
@@ -7,7 +8,7 @@ from novel_manga.util import atomic_write_json,read_json
 
 def test_brief_contains_only_current_targets_and_exact_operation_choices(tmp_path):
     from novel_manga.application.agents.episode.current_task import prepare
-    ctx=SimpleNamespace(work_dir=tmp_path/'sandbox',episode_dir=tmp_path/'book/book_1',run_dir=tmp_path)
+    ctx=SimpleNamespace(work_dir=tmp_path / 'sandbox', episode_dir=tmp_path / 'book/book_1', run_dir=tmp_path)
     atomic_write_json(ctx.episode_dir/'clip_plan.json',{'clips':[
         {'clip_id':'clip_02','shot_indexes':[2]}, {'clip_id':'clip_07','shot_indexes':[9,10],
          'references':[{'name':'甲','role':'character','image':'input/refs/a.jpeg'}]}]})
@@ -27,7 +28,7 @@ def test_brief_contains_only_current_targets_and_exact_operation_choices(tmp_pat
 
 def test_current_task_keeps_provisional_draft_and_adoption_workflow(tmp_path):
     from novel_manga.application.agents.episode.current_task import prepare
-    ctx=SimpleNamespace(work_dir=tmp_path/'sandbox',episode_dir=tmp_path/'book/book_1',run_dir=tmp_path)
+    ctx=SimpleNamespace(work_dir=tmp_path / 'sandbox', episode_dir=tmp_path / 'book/book_1', run_dir=tmp_path)
     task=prepare(ctx,{'adopted':False,'can_adopt_draft':True},
         {'issues':[{'clips':['clip_01'],'detail':'planner failed'}]},[])
     assert task['mode']=='provisional_draft'

@@ -2,7 +2,7 @@ import json
 import time
 import httpx
 import pytest
-from novel_manga.bible import BibleBuilder
+from novel_manga.application.planning.bible_builder import BibleBuilder
 from novel_manga.config import Settings
 from novel_manga.llm.resources import model_slot
 

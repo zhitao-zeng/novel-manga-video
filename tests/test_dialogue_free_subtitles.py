@@ -1,4 +1,4 @@
-from novel_manga.qc import subtitle_check
+from novel_manga.media.quality import subtitle_check
 
 
 def test_no_dialogue_accepts_retained_empty_ass(tmp_path):

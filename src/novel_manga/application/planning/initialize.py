@@ -32,8 +32,8 @@ from pathlib import Path
 from novel_manga.application.profiles import DEFAULTS, STYLE_VISUAL, detect_genre, load_genre, load_style, style_name, style_names
 
 from novel_manga.config import Settings  # noqa: E402
-from novel_manga.ingest import read_novel, chapter_table  # noqa: E402
-from novel_manga.bible import BibleBuilder, _fingerprint as fingerprint
+from novel_manga.source.ingest import read_novel, chapter_table  # noqa: E402
+from novel_manga.application.planning.bible_builder import BibleBuilder, _fingerprint as fingerprint
 from novel_manga.models.bible import StoryBible
 from novel_manga.story.reading_facts import FACTS_FIELD, facts_from_export
 from novel_manga.util import atomic_write_json  # noqa: E402

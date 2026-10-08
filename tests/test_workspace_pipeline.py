@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from novel_manga.application.agents.episode.media_operations import MediaOperations
 """Standard batch production reuses isolated episode books and their original leases."""
 import json
@@ -104,10 +105,7 @@ def test_prepare_uses_native_steps_once_and_does_not_call_an_agent(tmp_path, mon
     atomic_write_json(d/'clip_plan.json', {'clips':[{'clip_id':'clip_01','kind':'video','references':[]}]})
     atomic_write_json(d/'chapter_script.json', {'shots':[]})
     calls=[]
-    child=SimpleNamespace(args=SimpleNamespace(dry_run=False),env={},novel_dir=book,
-        plan=lambda n:calls.append('plan'),prepare_cards=lambda n,**k:calls.append('cards'),
-        h3_ready=lambda n,**k:calls.append('h3') or True,
-        episode_dir=lambda n:d,rows={1:{}})
+    child=SimpleNamespace(args=SimpleNamespace(dry_run=False), env={}, novel_dir=book, plan=lambda n: calls.append('plan'), prepare_cards=lambda n, **k: calls.append('cards'), h3_ready=lambda n, **k: calls.append('h3') or True, episode_dir=lambda n: d, rows={1: {}})
     parent=SimpleNamespace(workspaces={'1':row},args=SimpleNamespace(dry_run=False),rows=child.rows)
     monkeypatch.setattr(workspaces,'bootstrap',lambda *a:calls.append('bootstrap'))
     monkeypatch.setattr(workspaces,'local_batch',lambda *a:child)

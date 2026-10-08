@@ -30,13 +30,18 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from novel_manga.application.episode_paths import episode_directories
+
 MIN_CHUNK_SECONDS = 1.0
 
 
-def attributed_chunks(novel_dir: Path) -> dict[str, list[tuple[float, Path, float, float, str]]]:
+def attributed_chunks(novel_dir: Path, *, source_dirs=()) -> dict[str, list[tuple[float, Path, float, float, str]]]:
     """name -> [(seconds, wav, start, end, episode)] for chunks aligned to that name's lines only."""
     found: dict[str, list[tuple[float, Path, float, float, str]]] = defaultdict(list)
-    for directory in sorted(d for d in novel_dir.iterdir() if d.is_dir() and d.name.startswith(novel_dir.name + "_")):
+    directories = sorted({p.resolve(): p for root in (novel_dir, *source_dirs)
+                          for p in episode_directories(root, novel_id=novel_dir.name)}.values())
+    seen = set()
+    for directory in directories:
         report_path, plan_path = directory / "thin_media_report.json", directory / "clip_plan.json"
         if not (report_path.is_file() and plan_path.is_file()):
             continue
@@ -68,7 +73,11 @@ def attributed_chunks(novel_dir: Path) -> dict[str, list[tuple[float, Path, floa
                     continue
                 start, end = float(chunk["start"]), float(chunk["end"])
                 if end - start >= MIN_CHUNK_SECONDS:
-                    found[owners.pop()].append((end - start, wav, start, end, directory.name))
+                    owner = owners.pop()
+                    key = (owner, video.resolve(), start, end)
+                    if key not in seen:
+                        seen.add(key)
+                        found[owner].append((end - start, wav, start, end, directory.name))
     return found
 
 
@@ -170,6 +179,8 @@ def build(name: str, pieces: list[tuple[float, Path, float, float, str]], out_di
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
+    parser.add_argument("--source-dir", type=Path, action="append", default=[],
+                        help="additional existing Agent output collections; voices are still written to novel-dir")
     parser.add_argument("--min-seconds", type=float, default=8.0, help="characters with less attributed speech get no reference")
     parser.add_argument("--target-seconds", type=float, default=12.0)
     parser.add_argument("--max-seconds", type=float, default=14.0, help="hard cap per voice; two voices must fit the service's 30 s")
@@ -186,7 +197,7 @@ def main() -> int:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     wanted = {n.strip() for n in args.only.split(",")} if args.only else None
 
-    chunks = attributed_chunks(novel_dir)
+    chunks = attributed_chunks(novel_dir, source_dirs=args.source_dir)
     built, skipped = [], []
     for name, pieces in sorted(chunks.items(), key=lambda item: -sum(p[0] for p in item[1])):
         if wanted and name not in wanted:
