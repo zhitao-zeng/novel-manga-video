@@ -11,7 +11,7 @@ from novel_manga.story.source_identity import (POLICY, usable_reading, source_sc
 from novel_manga.application.identity.store import ChapterIdentityData, load_chapter
 
 
-def reading_aliases(novel_dir) -> dict:
+def reading_aliases(novel_dir, chapter=None) -> dict:
     """Alias → canonical name, as the lean reading established them, with evidence behind each.
 
     Only these may collapse two source actors onto one catalogue row; an alias of unknown provenance
@@ -22,9 +22,70 @@ def reading_aliases(novel_dir) -> dict:
     if not path.is_file():
         return {}
     try:
-        return dict(json.loads(path.read_text(encoding="utf-8")).get("aliases") or {})
+        reading = json.loads(path.read_text(encoding="utf-8"))
+        aliases = dict(reading.get("aliases") or {})
+        if chapter is not None:
+            aliases.update((reading.get('chapter_aliases') or {}).get(str(chapter), {}))
+        return aliases
     except (OSError, ValueError, TypeError):
         return {}
+
+
+def reconcile_repeated_actors(directory, answer, segments, *, force=False):
+    """Ask whether repeated names are one person across scenes or distinct bodies."""
+    from collections import defaultdict
+    from novel_manga.llm.client import ask_json, obj
+    groups = defaultdict(list)
+    for actor in answer.get('actors', []):
+        groups[actor['name']].append(actor)
+    groups = {name: rows for name, rows in groups.items() if len(rows) > 1}
+    if not groups:
+        return answer
+    inputs = {'actors': answer['actors'], 'segments': segments}
+    path = directory / 'identity_repeated_actors.json'
+    saved = json.loads(path.read_text()) if path.is_file() else {}
+    if not force and saved.get('inputs') == inputs:
+        verdict = saved['answer']
+    else:
+        questions = [obj({'name': {'type': 'string', 'enum': [name]},
+            'same_person': {'type': 'boolean'},
+            'paragraphs': {'type': 'array', 'minItems': 1, 'maxItems': len(segments),
+                'items': {'type': 'integer', 'minimum': 1, 'maximum': len(segments)}},
+            'reason': {'type': 'string', 'maxLength': 180}}) for name in groups]
+        prompt = ('原文主体抽取把相同名字列了多次。只判断每组是否其实是同一人物。'
+            '同一人先被提及、后来出场，或在不同时段/场景出现，应合并为一个主体。'
+            '本体和分身、同名的两人、各自行动的两具身体必须保留；共享名字、灵魂或称号不能证明同一主体。'
+            '依据下面完整原文的动作、对话和时空，same_person只在确定同一人时填true；'
+            '证据不足填false。paragraphs指出判断依据，不根据旧人物库猜。\n'
+            + json.dumps({'repeated_actors': groups,
+                'source': [{'paragraph': i, **s} for i, s in enumerate(segments, 1)]}, ensure_ascii=False))
+        verdict = ask_json([{'type': 'text', 'text': prompt}], obj({'groups': {
+            'type': 'array', 'minItems': len(questions), 'maxItems': len(questions),
+            'prefixItems': questions, 'items': False}}), name='identity_repeated_actors', max_tokens=1500)
+        atomic_write_json(path, {'inputs': inputs, 'answer': verdict})
+    merge = {row['name'] for row in verdict.get('groups', []) if row.get('same_person')}
+    result, seen = [], set()
+    rank = {'mentioned': 0, 'voice': 1, 'on_stage': 2}
+    for actor in answer['actors']:
+        name = actor['name']
+        if name not in merge:
+            result.append(actor)
+        elif name not in seen:
+            rows = groups[name]
+            forms = []
+            for row in rows:
+                for form in row['forms']:
+                    existing = next((f for f in forms if (f['form'], f['kind']) == (form['form'], form['kind'])), None)
+                    if existing is None:
+                        forms.append({**form})
+                    else:
+                        existing['paragraphs'] = sorted({*existing['paragraphs'], *form['paragraphs']})
+            result.append({**actor, 'forms': forms,
+                'paragraphs': sorted({p for r in rows for p in r['paragraphs']}),
+                'presence': max((r['presence'] for r in rows), key=lambda p: rank[p]),
+                'appearance': '；'.join(dict.fromkeys(r['appearance'] for r in rows if r.get('appearance')))})
+            seen.add(name)
+    return {**answer, 'actors': result}
 
 
 def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData | None = None):
@@ -56,7 +117,9 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
         'appearance只写原文明示的当时身体/物种/外貌，没写就留空；不得自行补成人形或兽形。'
         '所有paragraphs均引用下列原文编号，由程序摘取证据；不要输出推理过程。\n'
         + json.dumps([{'paragraph': i, **r} for i, r in enumerate(segments, 1)], ensure_ascii=False))
-    if (not force and saved.get('policy') == POLICY and saved.get('inputs', {}).get('segments') == segments
+    # v6 changes catalogue binding, not the source extraction. Existing v5
+    # source actors remain evidence when the source paragraphs are unchanged.
+    if (not force and saved.get('policy') in {POLICY, 'story-identity-v5-grounded-types'} and saved.get('inputs', {}).get('segments') == segments
             and 'source_actors' in saved and usable_reading(saved)):
         answer = {'actors': saved['source_actors'], 'actorless_confirmed': saved.get('actorless_confirmed', False)}
     else:
@@ -115,11 +178,12 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
         rejected.extend(dropped)
         rejected.extend({'source_id': r['source_id'], 'form': r['name'], 'kind': 'ungrounded',
                          'why': '全章没有这个指称，且只被提及'} for r in still)
+    cleaned = reconcile_repeated_actors(directory, cleaned, segments, force=force)
     result = {'policy': POLICY, 'chapter': chapter, 'at': time.strftime('%F %T'), 'inputs': expected,
               'primary_entities': [r['id'] for r in catalog.entities.values() if r['design'].get('role') in {'主角','男主角','女主角'}],
               'entities': {r['id']: r['name'] for r in catalog.entities.values()},
               'actorless_confirmed': not cleaned['actors'] and bool(answer.get('actorless_confirmed')),
-              'discarded_mentions': rejected, **map_source_reading(cleaned, catalog, segments, reading_aliases(directory.parent))}
+              'discarded_mentions': rejected, **map_source_reading(cleaned, catalog, segments, reading_aliases(directory.parent, chapter))}
     result['relations'] = [r for r in catalog.claims if r.get('status') == 'accepted' and r.get('chapter', 0) <= chapter]
     for key in ['mentions','appearances']:
         for row in result[key]:

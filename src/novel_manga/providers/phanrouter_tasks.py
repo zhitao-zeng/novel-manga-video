@@ -10,7 +10,18 @@ from ..util import atomic_write_json
 
 SUBMIT_TIMEOUT_SECONDS = 120.0  # a task submission answers in seconds; downloads keep the long request timeout
 RESUBMIT_ENV = "NOVEL_RESUBMIT_UNCONFIRMED"  # thin_batch --resubmit-unconfirmed: its start time, once someone has checked the bill
+QUOTA_STOP_ENV = "NOVEL_QUOTA_STOP_FILE"
 PROCESS_STARTED = time.time()
+
+
+def quota_exhausted() -> bool:
+    path = os.environ.get(QUOTA_STOP_ENV, "")
+    return bool(path and Path(path).is_file())
+
+
+def check_generation_quota() -> None:
+    if quota_exhausted():
+        raise RuntimeError("quota_not_enough: generation stopped for this scheduled run")
 
 
 def resubmit_before() -> float:
@@ -72,6 +83,7 @@ def submit_once(submit, attempts: int = 3, base_delay: float = 1.0) -> httpx.Res
     to get past every retry loop and take the whole render down."""
     last: Exception | None = None
     for attempt in range(attempts):
+        check_generation_quota()
         try:
             return submit()
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as error:
@@ -80,6 +92,12 @@ def submit_once(submit, attempts: int = 3, base_delay: float = 1.0) -> httpx.Res
             raise SubmissionUncertain(f"task submission unconfirmed ({type(error).__name__}): not sent again, the service may have accepted it") from error
         except (RuntimeError, httpx.HTTPStatusError) as error:
             status = http_status(error)
+            detail = error.response.text if isinstance(error, httpx.HTTPStatusError) else str(error)
+            path = os.environ.get(QUOTA_STOP_ENV, "")
+            if path and status == 403 and "quota_not_enough" in detail:
+                marker = Path(path)
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.touch()
             if status in UNCERTAIN_STATUSES:
                 raise SubmissionUncertain(f"task submission unconfirmed (HTTP {status}): not sent again, the service may have accepted it") from error
             if status not in RETRYABLE_STATUSES:
@@ -107,5 +125,4 @@ def submit_recorded(submit, task_path: Path, record: dict) -> str | None:
     except SubmissionUncertain:
         atomic_write_json(task_path, {**record, "submit_uncertain_at": time.time()})
         raise
-
 

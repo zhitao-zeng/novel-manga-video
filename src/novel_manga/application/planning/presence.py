@@ -8,7 +8,7 @@ from __future__ import annotations
 import copy
 
 from novel_manga.llm.client import ask_json
-from novel_manga.llm.config import endpoint_settings
+from novel_manga.review.endpoints import judge_settings
 from novel_manga.planning import cast as pc_cast
 from novel_manga.planning.context import PlannerContext
 from novel_manga.planning.issues import PlanningCode, PlanningIssue
@@ -132,7 +132,7 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
     try:
         out = ask_json([{"type": "text", "text": prompt}], _SCHEMA, name="presence_grades",
                        max_tokens=max(600, min(6000, 80 * len(rows))),
-                       settings=settings or endpoint_settings('local'))
+                       settings=settings or judge_settings())
     except Exception:  # noqa: BLE001 - no grades is not a planning failure; the rules stand in
         return {}
     grades: dict[int, dict[str, str]] = {}

@@ -99,7 +99,7 @@ def test_a_preset_is_put_back_even_when_the_run_raises(monkeypatch):
     assert os.environ["QWEN38_LOCAL_BASE_URL"] == "http://was-here:1/v1"
 
 
-@pytest.mark.parametrize("value, expected", [(None, "flashnext"), ("", "flashnext"), ("  ", "flashnext"), ("local", "local")])
+@pytest.mark.parametrize("value, expected", [(None, "flashnext"), ("", "flashnext"), ("  ", "flashnext"), ("local", "local"), ("deepseek", "deepseek")])
 def test_an_empty_planner_endpoint_is_the_default_not_an_endpoint_called_nothing(value, expected):
     environ = {} if value is None else {"NOVEL_PLANNER_ENDPOINT": value}
     assert planner_endpoint_name(environ) == expected
@@ -150,3 +150,53 @@ def test_the_preflight_stops_when_the_planners_endpoint_is_the_dead_one(monkeypa
     batch = object.__new__(production_flow.Batch)
     with pytest.raises(SystemExit, match="规划"):
         batch.check_qwen()
+
+
+def test_scheduled_deepseek_reaches_the_same_endpoint_as_its_preflight(monkeypatch):
+    """A block's DS selection must survive the chapter CLI's default Flash-Next preset."""
+    import json
+    from pathlib import Path
+    from novel_manga.application.planning.cli import planner_endpoint
+    from novel_manga.application.production.conductor_workers import server_env
+    from novel_manga.application.production import flow as production_flow
+    from novel_manga.llm.config import JsonEndpoint
+
+    pipeline = json.loads((Path(__file__).parents[1] / "configs/pipeline.json").read_text())
+    server = pipeline["resources"]["planning_models"]["deepseek"]
+    monkeypatch.setenv("NOVEL_PLANNER_ENDPOINT", "flashnext")
+    monkeypatch.setenv("GPU52_DEEPSEEK_API_KEY", "test-ds-key")
+    for key, value in server_env(None, server).items():
+        monkeypatch.setenv(key, value)
+    with planner_endpoint():
+        settings = JsonEndpoint.from_env()
+    assert settings.model == server["model"]
+    assert settings.endpoints == (server["base"],)
+    assert settings.key == "test-ds-key"
+    assert not settings.stream
+
+    probed = []
+    monkeypatch.setattr(production_flow.Batch, "endpoint_answers",
+                        staticmethod(lambda base, key="": probed.append((base, key)) or True))
+    monkeypatch.setattr(production_flow.production_common, "log", lambda *a, **k: None)
+    object.__new__(production_flow.Batch).check_qwen()
+    assert (server["base"], "test-ds-key") in probed
+    assert not any(":8038/" in base for base, key in probed)
+
+
+def test_chapter_cli_loads_endpoint_credentials_without_replacing_the_callers_choice(monkeypatch, tmp_path):
+    from novel_manga.application.planning import cli
+    from novel_manga.llm.config import JsonEndpoint
+
+    (tmp_path / ".env").write_text("NOVEL_PLANNER_ENDPOINT=flashnext\nGPU52_DEEPSEEK_API_KEY=file-ds-key\n")
+    monkeypatch.setattr(cli, "project_root", lambda: tmp_path)
+    monkeypatch.setenv("NOVEL_PLANNER_ENDPOINT", "deepseek")
+    monkeypatch.delenv("GPU52_DEEPSEEK_API_KEY", raising=False)
+    # Track the key for monkeypatch teardown even though the CLI is the code that sets it.
+    monkeypatch.setenv("GPU52_DEEPSEEK_API_KEY", "")
+    monkeypatch.delenv("GPU52_DEEPSEEK_API_KEY")
+    seen = []
+    monkeypatch.setattr(cli, "_plan", lambda context: seen.append(JsonEndpoint.from_env()) or 0)
+    assert cli.main() == 0
+    assert seen[0].model == "DeepSeek-V4.1-Flash"
+    assert seen[0].key == "file-ds-key"
+    assert os.environ["NOVEL_PLANNER_ENDPOINT"] == "deepseek"

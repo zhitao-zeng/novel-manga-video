@@ -396,6 +396,9 @@ class ThinMediaRunner:
                 time.sleep(wait)
         finally:
             release_inflight_slot(slot)
+        # A resumed task may have used an older sampler than today's target.
+        # generation.submit retained the completed task's actual parameters.
+        atomic_write_json(directory / 'request.json', request)
         clip["_generated"] = True
         if remaining is not None:
             self.context._managed_remaining[clip['clip_id']]-=1
@@ -407,19 +410,21 @@ class ThinMediaRunner:
     def analyse_clip(self, clip: dict, video: Path) -> dict:
         from novel_manga.application.profiles import speech_gate_result
         from novel_manga.story.voice_delivery import postmixed, visual_request
+        sampling = cache.sampling_report(self.context, video)
         if postmixed(clip):
             visual = visual_request(clip)
             raw = media_analysis.analyse_clip(self.context, visual, video)
             raw = self.check_clip_black(visual, raw, video)
             if not raw['passed']:
-                return raw
+                return {**raw, **sampling}
             from novel_manga.media.inner_voice import mix
             mixed = mix(self.context, clip, video)
             final = media_analysis.analyse_clip(self.context, clip, mixed)
             return {**speech_gate_result(self.context.novel_dir, final, self.context.episode_dir),
-                    'video': str(video), 'postmix_video': str(mixed), 'audio_source': 'postmixed_inner_voice'}
+                    **sampling, 'video': str(video), 'postmix_video': str(mixed), 'audio_source': 'postmixed_inner_voice'}
         raw = media_analysis.analyse_clip(self.context, clip, video)
-        return speech_gate_result(self.context.novel_dir, self.check_clip_black(clip, self.recheck_speech(clip, raw, video), video), self.context.episode_dir)
+        return {**speech_gate_result(self.context.novel_dir, self.check_clip_black(clip, self.recheck_speech(clip, raw, video), video), self.context.episode_dir),
+                **sampling}
 
     def recheck_speech(self, clip: dict, analysis: dict, video: Path) -> dict:
         return media_analysis.recheck_speech(self.context, clip, analysis, video)
@@ -475,7 +480,7 @@ class ThinMediaRunner:
                 prepare(self.context, clip)
             from novel_manga.application.repair.history import source_accepted_take
             accepted = source_accepted_take(self.context.work.parent, clip, str(self.context.feedback.get(clip['clip_id']) or ''))
-            if accepted is not None:
+            if accepted is not None and cache.sampling_matches(self.context, video=accepted):
                 analysis = self.analyse_clip(clip, accepted)
                 if analysis['passed']:
                     analysis = {**analysis, 'generated_this_run': False}
@@ -566,12 +571,9 @@ class ThinMediaRunner:
         self.context._blocked_clips = {}
         self.context._approved_cached = {}
         if not self.context.cache_only:  # cached clips need no cards built (and none redrawn)
-            from novel_manga.application.preparation.readiness import plan_issues, reference_issues, render_risk_report
+            from novel_manga.application.preparation.readiness import plan_issues, reference_issues, render_risk_report, worn_reference_pairs
+            from novel_manga.application.preparation.wearer_cards import check_references
             self.context._blocked_clips = plan_issues(self.context.clip_plan, self.context.script)
-            # The request is read for known ways a video goes wrong before any slot is spent; the full list
-            # lands in pre_render_check.json and only a wearer's card that shows other clothes blocks.
-            for cid, reasons in render_risk_report(self.context.episode_dir, self.context.clip_plan).items():
-                self.context._blocked_clips.setdefault(cid, []).extend(reasons)
             for clip in clips:
                 reasons = self.context._blocked_clips.get(clip["clip_id"])
                 if reasons and all(r.startswith("duration:") for r in reasons):
@@ -591,6 +593,13 @@ class ThinMediaRunner:
                 missing = reference_issues(clip, self.context.novel_dir)
                 if missing:
                     self.context._blocked_clips[clip["clip_id"]] = missing
+            ready = [clip for clip in eligible if clip['clip_id'] not in self.context._blocked_clips]
+            # Inspect the final, available images once. Asset declarations are
+            # inputs for selection, not proof that the current picture matches.
+            check_references(self.context.novel_dir, worn_reference_pairs({'clips': ready}, self.context.script))
+            for cid, reasons in render_risk_report(self.context.episode_dir, self.context.clip_plan).items():
+                if cid not in self.context._approved_cached:
+                    self.context._blocked_clips.setdefault(cid, []).extend(reasons)
         with ThreadPoolExecutor(max_workers=self.context.workers) as pool:
             results = list(pool.map(self.process_clip, clips))
         errored = [r["clip_id"] for r in results if r.get("error") or not r.get("selected")]

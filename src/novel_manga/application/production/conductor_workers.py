@@ -42,6 +42,8 @@ def spawn(conductor, name: str, command: list[str], extra_env: dict | None = Non
         conductor.log(f"[dry] would start {name}: {' '.join(command[:8])} ...")
         return
     env = {**os.environ, **conductor_common.BASE_ENV, **(extra_env or {})}
+    if conductor.cfg.get("stop_on_quota_exhausted"):
+        env["NOVEL_QUOTA_STOP_FILE"] = str(conductor.quota_stop_file)
     env.update(reference_image_env(env))
     log_path = conductor.tmp / f"{name}.log"
     with log_path.open("ab") as handle:
@@ -79,4 +81,6 @@ def server_env(conductor, server: dict) -> dict:
     env = {"QWEN38_LOCAL_BASE_URL": server["base"], "QWEN38_LOCAL_MODEL": server["model"],
            "NOVEL_LLM_BASE_URL": server["base"].split(",")[0], "NOVEL_LLM_MODEL": server["model"]}
     env["QWEN38_LOCAL_API_KEY_VAR"] = server.get("key_var", "")  # named, never the key itself
+    if server.get("endpoint"):
+        env["NOVEL_PLANNER_ENDPOINT"] = server["endpoint"]
     return env

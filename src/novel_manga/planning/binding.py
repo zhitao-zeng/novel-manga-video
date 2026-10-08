@@ -110,7 +110,8 @@ def bind_schema(authored: dict, character_names: list[str], location_names: list
     if prop_names:
         # 这镜里出现了名单上的哪件道具（可没有）：枚举之外的名字是幻觉，不是新道具
         bound["properties"]["props"] = props_field(prop_names)
-        bound["properties"]["wears"] = wears_field(prop_names)
+        bound["properties"]["wears"] = wears_field(
+            prop_names if ctx.wearable_prop_names is None else ctx.wearable_prop_names)
     # One answer per distinct written name, not per shot: the same 秦宇 cannot be one person in shot 3
     # and another in shot 7, and a scene name cannot drift between shots of the same place.
     def naming(written: list[str], field: dict) -> dict:

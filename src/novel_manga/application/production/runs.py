@@ -53,13 +53,25 @@ def render_runs(directory: Path) -> int:
     return int(saved.get("runs", 0))
 
 
-def count_run(directory: Path) -> int:
-    runs = render_runs(directory) + 1
+def count_run(directory: Path, *, adjustment: int = 1) -> int:
+    runs = max(0, render_runs(directory) + adjustment)
     record = {"plan_mtime": runs_key(directory), "content_key": content_key(directory), "runs": runs}
     temp = directory / f"{RUNS_FILE}.{os.getpid()}.tmp"
     temp.write_text(json.dumps(record), encoding="utf-8")
     os.replace(temp, directory / RUNS_FILE)
     return runs
+
+
+def only_quota_failures(directory: Path) -> bool:
+    """A quota interruption is scheduling, not a failed generation or quality attempt."""
+    try:
+        report = json.loads((directory / "thin_media_report.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    failed = report.get("failed_clips", [])
+    clips = {c["clip_id"]: c for c in report.get("clips", [])}
+    return bool(failed) and not report.get("gate_failed_clips") and not report.get("blocked_clips") and all(
+        "quota_not_enough" in (clips.get(cid, {}).get("error") or "") for cid in failed)
 
 
 def corrections(directory: Path) -> dict:

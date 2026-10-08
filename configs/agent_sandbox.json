@@ -23,5 +23,7 @@
     "visual": "skill-visual-fn-v2",
     "dream": "skill-dream-fn-v2",
     "community": "skill-community-fn-v2"
-  }
+  },
+  "agent_slice_seconds": 600,
+  "source_agent_slice_seconds": 1200
 }

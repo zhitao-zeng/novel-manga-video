@@ -19,7 +19,7 @@ def test_eight_evaluation_lora_request_includes_terminal_sigma_point():
     provider.ratio = '16:9'
     payload = provider._payload('A person waits.', [], (), 15)
     assert payload['num_inference_steps'] == 9
-    assert payload['target']['short_edge'] == 768
+    assert payload['target']['short_edge'] == 544
     assert (payload['flow_shift'], payload['audio_flow_shift']) == (12.0, 3.0)
 
 

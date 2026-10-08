@@ -119,6 +119,14 @@
         "key_var": "GPU81_QWEN_API_KEY",
         "slots": 3,
         "note": "别人的机器；2026-09-28 用户确认可开到 3 个请求"
+      },
+      "deepseek": {
+        "endpoint": "deepseek",
+        "base": "http://172.28.4.52:8831/v1",
+        "model": "DeepSeek-V4.1-Flash",
+        "key_var": "GPU52_DEEPSEEK_API_KEY",
+        "slots": 8,
+        "note": "GPU52 六卡 H100 的 DS 服务；2026-10-02 用户确认支持并发，共享上限设为 8"
       }
     }
   },
@@ -284,9 +292,12 @@
       "id": "shiri",
       "title": "十日终焉",
       "active": true,
-      "plan_only": true,
+      "plan_only": false,
+      "stop_on_quota_exhausted": true,
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-shiri",
-      "render_keys": [],
+      "render_keys": [
+        "sd25"
+      ],
       "planning": {
         "flashnext": 3
       },
@@ -331,15 +342,12 @@
       ],
       "paused_keys": [
         "sd20",
-        "sd25",
         "h3a",
         "h3b",
         "h3c",
         "h3d"
       ],
-      "pending_render_keys": [
-        "sd25"
-      ],
+      "pending_render_keys": [],
       "display_order": 3
     }
   ]

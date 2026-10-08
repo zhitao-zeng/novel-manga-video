@@ -19,6 +19,7 @@ from PIL import Image
 
 from ..config import Settings
 from .base import ImageResult
+from .phanrouter_tasks import check_generation_quota
 
 # Recorded in each card's request.json so switching backends invalidates the cache.
 # The name, not the URL: the same service on another port draws the same picture.
@@ -52,6 +53,7 @@ class LocalQwenImageProvider:
         seed: int | None = None,
         negative_prompt: str | None = None,
     ) -> ImageResult:
+        check_generation_quota()
         width, height = NATIVE_SIZE[aspect_ratio or "9:16"]
         references = [
             Path(path) for path in (reference, *additional_references)

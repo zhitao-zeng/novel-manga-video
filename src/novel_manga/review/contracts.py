@@ -50,6 +50,22 @@ FILL_SCHEMA = model_client.obj({"characters": {"type": "array", "items": model_c
 })}})
 
 
+def fill_schema(names: list[str]) -> dict:
+    """Return one bounded design per requested name, rather than the existing cast."""
+    import copy
+    entries = []
+    for name in names:
+        entry = copy.deepcopy(FILL_SCHEMA['properties']['characters']['items'])
+        entry['properties']['name'] = {'type': 'string', 'enum': [name]}
+        entry['properties']['confidence'].update(minimum=0, maximum=1)
+        for field, definition in entry['properties'].items():
+            if definition.get('type') == 'string' and field != 'name':
+                definition['maxLength'] = 200 if field in {'appearance', 'wardrobe'} else 100
+        entries.append(entry)
+    return model_client.obj({'characters': {'type': 'array', 'minItems': len(entries),
+        'maxItems': len(entries), 'prefixItems': entries, 'items': False}})
+
+
 LOCATION_SCHEMA = model_client.obj({"locations": {"type": "array", "items": model_client.obj({
     "name": {"type": "string"}, "description": {"type": "string"}, "scene_count": {"type": "integer"},
     "time_of_day": {"type": "string", "enum": ["白天", "夜晚", "黄昏", "清晨", "不定"]},

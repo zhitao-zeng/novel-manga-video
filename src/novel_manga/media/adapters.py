@@ -54,6 +54,9 @@ class FramedLocalH3(FramedPhanRouter):
         super().__init__(settings, frame, resolution)
         self.local = LocalH3MediaProvider(settings, base_url, ratio=frame["video_ratio"])
 
+    def sampling_parameters(self) -> dict:
+        return self.local.sampling_parameters()
+
     def create_video(self, prompt, image, output, duration, additional_images=(), reference_audios=(), seed_variant=0):
         for old, new in self.prompt_aliases.items():
             prompt = prompt.replace(old, new)

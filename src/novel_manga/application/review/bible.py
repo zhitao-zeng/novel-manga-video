@@ -196,10 +196,25 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
             "圣经里已有这些角色：\n" + existing + "\n\n下面是原文里反复出现但圣经缺失的人物及其原文摘录。为每个人物判断：same_as 填写它其实是哪个已有角色（或本列表中另一个人物）的另一种叫法，不是则填空字符串；"
             "confidence 是你对“这是一个需要单独定妆的独立人物”的把握（0到1）。然后写一条可跨集复用的选角条目（性别、年龄段、外貌、服装、发型、配色、基础服装、识别物），"
             "只写原文能支持的信息，外貌和服装必须是具体可画的描述，原文没写的做克制设计，不要写“未详”。"
-            "外貌只写稳定特征（体型、脸型、肤色、发型、年龄感），不写当下的状态：受伤、流血、伤痕、表情、哭泣、脏污、正在做的事都不算外貌。只输出JSON。\n\n"
-            + "\n\n".join(f"【{name}】（出现 {info['mentions']} 次，章 {sorted(set(info['chapters']))}）\n{excerpts(text, name)}" for name, info in missing.items())
+            "外貌只写稳定特征（体型、脸型、肤色、发型、年龄感），不写当下的状态：受伤、流血、伤痕、表情、哭泣、脏污、正在做的事都不算外貌。"
+            "只为本批请求的名字各返回一条，不输出上方已有角色，不扩展名单。只输出JSON。\n\n"
         )
-        rows = model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.FILL_SCHEMA, name="fill", max_tokens=3000, settings=bible_settings()).get("characters", [])
+        vouched_names = [name for name in missing if cast and story_names.name_matches(name, cast)]
+        if vouched_names:
+            prompt += ("全书通读已经确认以下名字是需要定妆的独立人物："
+                       + "、".join(vouched_names)
+                       + "。这不是根据本章猜测是否会再出现；请据原文完成这些人物的具体设计，"
+                         "不要因敬称后缀或本章没有复述外貌就拒绝设计。\n\n")
+        rows = []
+        requested = list(missing)
+        for offset in range(0, len(requested), 4):
+            batch = requested[offset:offset + 4]
+            question = prompt + "\n\n".join(
+                f"【{name}】（出现 {missing[name]['mentions']} 次，章 {sorted(set(missing[name]['chapters']))}）\n{excerpts(text, name)}"
+                for name in batch)
+            rows.extend(model_client.ask_json([{"type": "text", "text": question}],
+                review_contracts.fill_schema(batch), name="fill", max_tokens=3000,
+                settings=bible_settings()).get("characters", []))
         added: list[Character] = []
         for row in rows:
             name = re.sub(r"\s+", "", str(row.get("name", "")))
@@ -218,7 +233,7 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
                 reason = "外貌或服装描述不具体"
             elif story_names.name_matches(name, known):
                 reason = "与已有角色重名"
-            if not reason and name_rules.APPELLATION.search(name):
+            if not reason and not vouched and name_rules.APPELLATION.search(name):
                 reason = "称呼类人物，可能是已有角色的另一叫法；条目已生成，需人工确认后加入"
             if reason:
                 needs_human[name] = reason
@@ -339,7 +354,6 @@ def judge_unknown(novel_dir: Path, names: list[str], chapter_text: str, chapter_
     path = Path(novel_dir) / "reading_cast.json"
     if not names or not path.is_file():
         return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
     prompt = ("下面是一章小说原文，以及原文里出现、但全书通读时没有收进名单的几个指称。"
               "对每一个判断它属于哪一类：\n"
               "角色——这本书的一个人物，会再出现，值得单独定妆；\n"
@@ -366,11 +380,14 @@ def judge_unknown(novel_dir: Path, names: list[str], chapter_text: str, chapter_
         return {}
     # 路人 and 不是人物 are both filmed as what the shot describes rather than as a card; the difference
     # is honesty about what they are, and a model that is offered only the wrong two answers gives none
-    data["declined"] = sorted({*(data.get("declined") or []),
-                               *(n for n, v in verdicts.items() if v in {"路人", "不是人物"})})
-    data["characters"] = sorted({*(data.get("characters") or []),
-                                 *(n for n, v in verdicts.items() if v == "角色")})
-    atomic_write_json(path, data)
+    with open(novel_dir / "reading_cast.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["declined"] = sorted({*(data.get("declined") or []),
+                                   *(n for n, v in verdicts.items() if v in {"路人", "不是人物"})})
+        data["characters"] = sorted({*(data.get("characters") or []),
+                                     *(n for n, v in verdicts.items() if v == "角色")})
+        atomic_write_json(path, data)
     model_client.log(f"bible ch{chapter_index}: 读书没见过的指称，补判并记下："
                      + "、".join(f"{n}={v}" for n, v in verdicts.items()))
     return verdicts
@@ -393,6 +410,8 @@ def grow_unbound_roster(novel_dir: Path, context: dict, chapter_text: str, chapt
     if not reading["roster"]:
         return []
     aliases = load_aliases(novel_dir)
+    from novel_manga.application.identity.flow import reading_aliases
+    aliases.update(reading_aliases(novel_dir, chapter_index))
     bible_path = novel_dir / "story_bible.json"
     with open(novel_dir / "story_bible.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

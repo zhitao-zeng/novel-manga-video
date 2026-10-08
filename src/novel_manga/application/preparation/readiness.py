@@ -13,7 +13,6 @@ import re
 from pathlib import Path
 
 from novel_manga.util import atomic_write_json
-from novel_manga.application.identity.phases import load_phases
 from novel_manga.media.card_check import people_found
 
 REPORT = "render_readiness.json"
@@ -222,7 +221,33 @@ def _worn(stage: str) -> list[tuple[str, str]]:
             for wearer, prop in re.findall(r"([^；;：。]+?)穿着([^；;。]+)", region)]
 
 
-def render_risks(clip: dict, novel_dir: Path, accepted: dict | None = None) -> tuple[list[str], list[str]]:
+def worn_pairs(clip: dict, script: dict | None = None) -> set[tuple[str, str]]:
+    """Use authored stage bindings; only older plans need the compiled text."""
+    if 'wears_bindings' in clip:
+        bindings = clip['wears_bindings'] or []
+    elif not clip.get('prompt') and script:
+        # Already saved Agent source plans have no Chinese or clip metadata.
+        # Their existing screenplay still contains the authored wardrobe.
+        from novel_manga.story.scene import wears_bindings
+        shots = {shot.get('index', i): {**shot, 'index': shot.get('index', i)}
+                 for i, shot in enumerate(script.get('shots') or [], 1)}
+        bindings = wears_bindings([shots[i] for i in clip.get('shot_indexes', []) if i in shots])
+    else:
+        return {pair for stage in _stages(clip) for pair in _worn(stage)}
+    return {(name, prop) for stage in bindings
+            for name, prop in (stage.get('wears') or {}).items()
+            if prop and name in (stage.get('in_frame') or [])}
+
+
+def worn_reference_pairs(plan, script: dict | None = None):
+    for clip in plan.get('clips', []):
+        refs = {ref['name']: ref for ref in clip.get('references', []) if ref.get('role') == 'character'}
+        for wearer, prop in sorted(worn_pairs(clip, script)):
+            if wearer in refs:
+                yield refs[wearer], prop
+
+
+def render_risks(clip: dict, novel_dir: Path, accepted: dict | None = None, *, script: dict | None = None) -> tuple[list[str], list[str]]:
     """(blocking reasons, reported risks) for one clip, read from its request - never from the video."""
     accepted = accepted or {}
     # A voice reference shares its speaker's name; keyed by name it hid the card (every clip where
@@ -230,18 +255,18 @@ def render_risks(clip: dict, novel_dir: Path, accepted: dict | None = None) -> t
     refs = {ref.get("name"): ref for ref in clip.get("references") or [] if ref.get("role") != "voice"}
     stages = _stages(clip)
     block, report = [], []
-    worn = {pair for stage in stages for pair in _worn(stage)}
-    # What each phase card was drawn wearing: the card the check asks for is one of these.
-    drawn_wearing = {str(phase.get("asset_id")): str(phase.get("wears"))
-                     for phases in load_phases(novel_dir).values() for phase in phases
-                     if phase.get("asset_id") and phase.get("wears")}
+    worn = worn_pairs(clip, script)
     for wearer, prop in sorted(worn):
         ref = refs.get(wearer)
-        if ref and ref.get("role") == "character" and drawn_wearing.get(str(ref.get("asset_id") or "")) != prop \
-                and wearer not in (accepted.get("wearer_card") or []):
-            block.append(f"risk: {wearer}的参考图不是穿着{prop}的样子，只靠一句话绑定（成片里三段人甲分离）；"
-                         f"给{wearer}画一张穿着{prop}的阶段卡（series_assets/phases.json 的 wears），"
-                         f"或在 {ACCEPTED} 里接受这个风险")
+        if ref and ref.get("role") == "character" and wearer not in (accepted.get("wearer_card") or []):
+            from novel_manga.application.preparation.wearer_cards import reviewed
+            answer = reviewed(novel_dir, ref, prop)
+            if (answer or {}).get('wearing') != 'matches':
+                detail = ({'different': '实际参考图与穿戴要求不同', 'unclear': '实际参考图中的穿戴看不清'}
+                          .get((answer or {}).get('wearing'), '尚未完成当前实际参考图的穿戴核对'))
+                block.append(f"risk: {wearer}穿着{prop}：{detail}；"
+                             '阶段登记（series_assets/phases.json 的 wears）不能代替当前图片证据；'
+                             f"请核对或修正实际参考图，或在 {ACCEPTED} 里接受这个风险")
         if _VISOR.search(prop + str((refs.get(prop) or {}).get("name") or "")) or re.search(r"机甲|装甲|战甲|盔甲", prop):
             bare = [i for i, stage in enumerate(stages, 1) if f"穿着{prop}" in stage and not _VISOR.search(stage)]
             if bare:
@@ -294,11 +319,12 @@ def render_risk_report(directory: Path, plan: dict) -> dict[str, list[str]]:
     """Write every clip's risks to pre_render_check.json and return only what blocks generation."""
     novel_dir = directory.parent
     accepted = read(novel_dir / ACCEPTED, {})
+    script = read(directory / 'chapter_script.json')
     rows, blocking = {}, {}
     for clip in plan.get("clips", []):
         if clip.get("kind") != "video":
             continue
-        block, report = render_risks(clip, novel_dir, accepted)
+        block, report = render_risks(clip, novel_dir, accepted, script=script)
         rows[clip["clip_id"]] = {"block": block, "report": report}
         if block:
             blocking[clip["clip_id"]] = block

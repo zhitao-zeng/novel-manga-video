@@ -127,6 +127,8 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
               '先根据上下文解析指代，不能选引用里最先出现的名字。'
               '按顺序填写：先选择 source_paragraphs，再从所选原文中填写实际说话人的 source_speaker_phrase（原文称谓或指代），'
               '最后才把这个说话人对应到候选资料的 speaker。'
+              '如果他/她等指代同时出现在多个候选的source_names里，它不能单独证明speaker；'
+              '选择包含上文姓名或本章唯一称谓的最小原文范围，并用该姓名或称谓作为source_speaker_phrase。'
               'source_paragraphs选择支撑该发言及归属的原文段落编号，包含必要的前后叙述；由程序原样引用，不要抄写或重写原文。'
               'relation 标明 verbatim原句、condensed压缩合并、paraphrased改写、uncertain不能对应；不能对应的不要强行指定人物。'
               'narrated 仅用于原文明写的在场行动、想法或事实被改编成简短对白，不能增加原文没有的承诺、身份、事实。'
@@ -181,6 +183,9 @@ def speaker_contract(passage: str, shots: list[dict], names: list[str], identiti
         # whole clip permanently blocked because a quote contained an ellipsis.
         retry = ask_json([{'type':'text','text':prompt+'\n只补正以下未通过核验的阶段/轮次：'+json.dumps(sorted(missing))
                           +'。上次回答：'+json.dumps([r for r in rows if (r.get('stage'),r.get('turn')) in missing],ensure_ascii=False)
+                          +'。以下回答的说话人短语未能在所选原文中唯一证明所选speaker，需选包含真实姓名/唯一称谓的上下文，不能只换speaker猜测：'
+                          +json.dumps([{'stage':r.get('stage'),'turn':r.get('turn'),'phrase':r.get('source_speaker_phrase')}
+                                      for r in rows if (r.get('stage'),r.get('turn')) in missing and not phrase_matches_speaker(r)],ensure_ascii=False)
                           +'。source_speaker_phrase中的具名人物必须与speaker是同一个人；候选里没有原文说话者时保留uncertain，不能换成另一名在场人物。'
                           +'。必须填写真实的source_paragraphs编号，程序读取连续原文，不要自己抄写。若发言跨多个段落，选择完整范围。'
                           '若原文确实无法支持改编台词，保留 uncertain，不用猜测。'

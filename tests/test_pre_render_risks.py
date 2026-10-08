@@ -37,8 +37,9 @@ def phase_card(tmp_path, wears):
                             {'role': 'prop', 'name': '马克2机甲', 'path': 'p1.jpeg'}])
 
 
-def test_a_phase_card_drawn_wearing_the_prop_clears_it(tmp_path):
-    assert readiness.render_risks(phase_card(tmp_path, {'wears': '马克2机甲'}), tmp_path)[0] == []
+def test_phase_declaration_alone_is_not_current_image_evidence(tmp_path):
+    block, _ = readiness.render_risks(phase_card(tmp_path, {'wears': '马克2机甲'}), tmp_path)
+    assert len(block) == 1 and '核对' in block[0]
 
 
 def test_a_phase_card_of_another_look_does_not(tmp_path):

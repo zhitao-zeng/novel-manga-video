@@ -45,6 +45,10 @@ uv run pytest
 
 底层执行器继续使用原锁、任务记录、缓存、并发池和重试预算。生产管理入口不会另建任务队列，也不会因启动而清空历史。
 
+《十日终焉》的每日 18:00 启动配置在 `configs/schedules/shiri-daily.cron`，使用本机 Asia/Shanghai 时区。
+该书启用 `stop_on_quota_exhausted`：收到额度不足后停止新增生成提交，已受理任务继续取回结果并完成现有审查，
+随后调度器以 `waiting_quota` 退出，等待次日定时启动。纯额度中断不扣章级重试次数，已生成素材及片段重试历史保留。
+
 ## 独立执行与自动审修
 
 规划、生成、审查仍可分别执行。批量 `thin_batch.py --stage render` 只生成，不触发整章重规划或内容审查；加 `--unattended` 才进入自动审查与修复。
@@ -67,6 +71,24 @@ uv run pytest
 ## 代码与维护
 
 章节规划有两层选择：`story_method` 选六种本地编剧/导演方法（`--story-method shanyin|community|drama|dream|leos|visual`，`scripts/plan_chapter_thin.py --list-methods` 查看用法，详见[本地剧本方法](docs/story-methods.md)）；`planning_backend` 选规划发生在本地还是沙箱 agent（在小说 `profile.json` 设置，详见[沙箱分镜](docs/authored-pipeline.md)）。沙箱后端还需在 `profile.json` 指定 `agent_skill`。
+
+本地章节规划通过 `NOVEL_PLANNER_ENDPOINT=flashnext|local|deepseek` 选模型，默认 `flashnext`。
+本地分镜、导演稿和各方法的完整分场剧本默认输出上限为 30,000 tokens，模型写完会提前结束。分镜/导演稿可用 `--max-tokens` 或 `NOVEL_PLAN_MAX_TOKENS` 覆盖，分场稿可用 `--outline-tokens` 覆盖；普通短提纲默认 4,096 tokens。
+`deepseek` 使用 GPU52 的 `DeepSeek-V4.1-Flash`（`http://172.28.4.52:8831/v1`），凭据从项目 `.env` 或环境变量 `GPU52_DEEPSEEK_API_KEY` 读取。
+例如在独立目录试跑首章：
+
+```bash
+NOVEL_PLANNER_ENDPOINT=deepseek .venv/bin/python scripts/plan_chapter_thin.py \
+  inputs/十日终焉.md --novel-id shiri-ds --episode-index 1 \
+  --bible outputs/shiri/story_bible.json --output-root outputs/experiments/deepseek \
+  --style 3d --frame 16:9
+```
+
+批量资源已在 `configs/pipeline.json` 的 `resources.planning_models.deepseek` 登记，初始单并发；在目标小说的 `planning` 中加入 `"deepseek": 1` 即可参与调度。正式小说的资源分配保持当前配置。规划选模型不改变判官、建档和 H3 翻译的模型。
+
+开拍前准备可通过 `NOVEL_PREPARATION_ENDPOINT=deepseek` 为本次命令选择 DS，覆盖共享准备模型配置，并传递给各集的子进程；未设置时沿用 `defaults.preparation`。需要全程用 DS 时，同时设置 `NOVEL_PLANNER_ENDPOINT=deepseek` 和 `SECOND_REVIEW_JUDGE=deepseek`，建圣经与逐章提取的端点也应显式选择 DS。图片仍由现有图片生成服务制作。
+
+普通改编分镜超过全集时长上限时，先复用原提纲和已有草稿进入专门压缩步骤，模型只返回逐条对白修改和冗余镜头的删除地址，程序保留其余画面字段及原文引用。最多两轮、共用180秒预算，每轮重新做原有结构、原文引用和实际台词时长检查；压缩仍超限就报告失败，不因时长继续重做整章提纲。已有失败草稿可用 `plan_chapter_thin.py --compress-existing <response_attempt_NN.raw.json>` 直接恢复压缩，需保留相邻的 `analysis_attempt_NN.txt`。作者定稿与创作方法持有的分场稿沿用各自流程。
 
 ### 沙箱 agent 规划
 

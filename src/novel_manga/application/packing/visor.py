@@ -16,7 +16,7 @@ from pathlib import Path
 
 from novel_manga.application.identity.phases import chapter_of, load_phases, phase_for
 from novel_manga.llm.client import ask_json
-from novel_manga.llm.config import endpoint_settings
+from novel_manga.review.endpoints import judge_settings
 from novel_manga.util import atomic_write_json
 
 POLICY = "visor-states-v2-stage-index"
@@ -66,7 +66,7 @@ def fill(episode_dir: Path, *, ask=None, script=None, write=True, reconsider=Non
     script = script if script is not None else json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
     wearers = closed_view_wearers(episode_dir.parent, chapter_of(episode_dir))
     ask = ask or (lambda prompt: ask_json([{"type": "text", "text": prompt}], SCHEMA, name="visor_states",
-                                          max_tokens=1500, settings=endpoint_settings("local")))
+                                          max_tokens=1500, settings=judge_settings()))
     try:
         previous = json.loads((episode_dir / FILE).read_text())
     except (OSError, ValueError):

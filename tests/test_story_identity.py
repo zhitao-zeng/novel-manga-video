@@ -392,3 +392,42 @@ def test_an_alias_of_unknown_provenance_still_leaves_the_second_actor_unbound(tm
         {'actors': [actor(1, '本体'), actor(2, '化身')]}, identity_store_thin.load_catalog(novel),
         [{'text': '本体站在化身对面。'}], {'别人': '本体'})
     assert [r['name'] for r in result['unmatched_actors']] == ['化身']
+
+
+def test_source_confirmed_appellation_is_bound_only_in_its_reading_chapter(tmp_path, monkeypatch):
+    novel = book(tmp_path, ('江永', '另一青年'))
+    atomic_write_json(novel / 'reading_cast.json', {'aliases': {}, 'chapter_aliases': {
+        '1': {'青年男子': '江永'}, '2': {'青年男子': '另一青年'}}})
+    from novel_manga.llm import client
+    monkeypatch.setattr(client, 'ask_json', lambda *a, **k: {'actors': [actor(1, '青年男子')]})
+    for n, expected in [(1, '江永'), (2, '另一青年')]:
+        directory = novel / f'book_{n}'
+        atomic_write_json(directory / 'segments.json', [{'segment_id': 'seg_1', 'text': '青年男子走入店中。'}])
+        result = identity_flow_thin.resolve_chapter(directory)
+        assert result['unmatched_actors'] == []
+        assert source_identity.active_cast_names(result) == {expected}
+    assert identity_flow_thin.reading_aliases(novel, 3) == {}
+
+
+def test_appended_bible_character_cannot_steal_a_ledger_character_id(tmp_path):
+    novel = book(tmp_path, ('新来客', '原角色'))
+    atomic_write_json(novel / 'entity/entities.json', [{'id': 'e001', 'canonical': '原角色'}])
+    catalog = identity_store_thin.load_catalog(novel)
+    assert catalog.by_name['新来客']['id'] != catalog.by_name['原角色']['id']
+    assert catalog.by_name['新来客']['design']['name'] == '新来客'
+    assert catalog.by_name['原角色']['design']['name'] == '原角色'
+    assert catalog.by_name['新来客']['asset_id'] == 'character_001'
+
+
+def test_old_grounded_source_is_rebound_without_reading_the_book_again(tmp_path, monkeypatch):
+    novel = book(tmp_path, ('新来客', '原角色'))
+    atomic_write_json(novel / 'entity/entities.json', [{'id': 'e001', 'canonical': '原角色'}])
+    directory = novel / 'book_1'
+    segments = [{'segment_id': 'seg_1', 'text': '新来客走进庭院。'}]
+    atomic_write_json(directory / 'segments.json', segments)
+    atomic_write_json(directory / 'identity_context.json', {'policy': 'story-identity-v5-grounded-types',
+        'inputs': {'segments': segments}, 'source_actors': [actor(1, '新来客')]})
+    from novel_manga.llm import client
+    monkeypatch.setattr(client, 'ask_json', lambda *a, **k: pytest.fail('source reading must be reused'))
+    result = identity_flow_thin.resolve_chapter(directory)
+    assert source_identity.active_cast_names(result) == {'新来客'}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import time
 from pathlib import Path
 import novel_manga.llm.client as model_client
@@ -82,12 +83,12 @@ def review_cards(novel_dir: Path, include_backups: bool = False, only_ids: set[s
     stamp = time.time()
     for entry in (*report["characters"].values(), *report["locations"].values()):
         entry["judged_at"] = stamp
-    if only_ids is None:
-        atomic_write_json(assets / "cards_review.json", report)
-    else:
-        # The factory judges each card as it is built: that verdict joins the
-        # series-wide report rather than replacing it.
-        atomic_write_json(assets / "cards_review.json", merge_card_report(assets / "cards_review.json", report))
+    assets.mkdir(parents=True, exist_ok=True)
+    with (assets / ".cards_review.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        # Concurrent per-card reviews join the current report while holding the same lock.
+        payload = report if only_ids is None else merge_card_report(assets / "cards_review.json", report)
+        atomic_write_json(assets / "cards_review.json", payload)
     return report
 
 

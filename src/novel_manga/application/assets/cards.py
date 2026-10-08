@@ -117,7 +117,8 @@ def main() -> int:
                 if review["flags"]:
                     fixes = remediate_cards(novel_dir, review)
                     if fixes["deleted"]:
-                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
+                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile,
+                                           {asset_id} & props)
                     review = review_cards(novel_dir, only_ids={asset_id})
                     row["fixes"] = fixes["stylized"] + fixes["deleted"]
                 elif cached is not None:

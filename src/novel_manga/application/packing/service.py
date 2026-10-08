@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from novel_manga.story.compilation import ClipCompiler, plan_totals, lint_stage, chat_turns
 from novel_manga.story.dialogue import merged_turns
+from novel_manga.story.scene import wears_bindings
 from novel_manga.story.sources import segment_ids
 from novel_manga.application.packing.context import compiler_options, POLICY, PACKER_VERSION
 from novel_manga.application.packing.assets import build_references, bodies_for
@@ -159,6 +160,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "action_bindings": [{"stage": i, "source_stage": shot["index"],
                              "actions": copy.deepcopy(shot.get("actions", []))}
                             for i, shot in enumerate(clip['shots'], 1)],
+        "wears_bindings": wears_bindings(clip['shots']),
         "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip(), "chat_target": str(t.get("chat_target") or "").strip()} for shot in clip["shots"] for t in chat_turns(shot)],
         "spoken_text": "".join(line["text"] for line in lines),
         "prompt": prompt,

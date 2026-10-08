@@ -6,7 +6,9 @@ import os
 import sys
 import json
 from pathlib import Path
+from novel_manga.application.configuration import project_root
 from novel_manga.application.profiles import style_names
+from novel_manga.util import load_dotenv
 from novel_manga.planning.context import PlannerContext
 from novel_manga.application.planning.requests import qwen_default
 from novel_manga.application.planning.flow import run, PlanningInputError
@@ -29,6 +31,7 @@ def planner_endpoint():
 
 
 def main(*, context: PlannerContext | None = None) -> int:
+    load_dotenv(project_root() / ".env")
     with planner_endpoint():    # applied before anything reads QWEN38_LOCAL_*, put back after
         return _plan(context)
 
@@ -44,10 +47,10 @@ def _plan(context: PlannerContext | None = None) -> int:
     parser.add_argument("--output-root", default="outputs")
     parser.add_argument("--base-url", default=qwen_default(), help="one Qwen endpoint; the default spreads over every QWEN38_LOCAL_BASE_URL entry")
     parser.add_argument("--model", default=os.getenv("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project"))
-    # A healthy clip plan is 4.5-6.5K tokens.  Constrained decoding can derail
-    # into endless whitespace; a tight cap turns that into a fast, cheap redo.
-    parser.add_argument("--max-tokens", type=int, default=int(os.environ.get("NOVEL_PLAN_MAX_TOKENS") or (12000 if ctx.short_clips else 9000)),
-                        help="completion budget; the 15 s mode writes 6-8 clips and needs more room (chapter 381 was cut off three times at 9000)")
+    # Full storyboards can exceed 12K tokens; leave room for complete JSON.
+    # This is an output ceiling: a finished draft stops before using it all.
+    parser.add_argument("--max-tokens", type=int, default=int(os.environ.get("NOVEL_PLAN_MAX_TOKENS") or 30000),
+                        help="output token ceiling for storyboards/director drafts (default 30000; NOVEL_PLAN_MAX_TOKENS overrides)")
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--max-redo", type=int, default=4)
     parser.add_argument("--min-seconds", type=float, default=0.0, help="reject a plan shorter than this (drives the redo)")
@@ -61,12 +64,14 @@ def _plan(context: PlannerContext | None = None) -> int:
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")
+    parser.add_argument("--compress-existing", type=Path,
+                        help="压缩已有分镜草稿及其相邻提纲，不重新生成提纲或整章初稿")
     parser.add_argument("--merge", type=int, default=1, help="chapters per episode: episode k covers chapters (k-1)*N+1..k*N")
     parser.add_argument("--part", type=int, default=0,
                         help="one episode of a chapter cut into several (parts.json beside the chapter): 1 for 上, 2 for 中, 3 for 下")
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     parser.add_argument("--outline-mode", choices=("coverage", "story"), default="coverage", help="first-pass planning; story is the experimental causal/scene outline")
-    parser.add_argument("--outline-tokens", type=int, help="first-pass budget: default 4096 for an outline, 8192 for a method's scene screenplay")
+    parser.add_argument("--outline-tokens", type=int, help="first-pass output ceiling: default 4096 for an outline, 30000 for a method's scene screenplay")
     parser.add_argument("--seed", type=int, help="optional model sampling seed for matched planning experiments")
     parser.add_argument("--story-method", choices=("default", *METHODS),
                         help="local writing/directing method; otherwise inherit profile.json")
@@ -96,6 +101,8 @@ def _plan(context: PlannerContext | None = None) -> int:
         parser.error("--outline-tokens must be positive")
     if args.max_seconds is not None and (args.max_seconds <= 0 or args.max_seconds < args.min_seconds):
         parser.error("--max-seconds must be positive and not below --min-seconds")
+    if args.compress_existing and (args.replay or args.bind_storyboard or args.planning_backend == 'sandbox_agent'):
+        parser.error('--compress-existing 用于普通改编草稿，不能同时回放或绑定作者分镜')
 
     try:
         return run(args, ctx)

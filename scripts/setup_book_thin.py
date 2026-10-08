@@ -65,6 +65,8 @@ def alive(url: str, key: str = "") -> bool:
 
 
 def env_value(name: str) -> str:
+    if name in os.environ:
+        return os.environ[name].strip()
     path = ROOT / ".env"
     if not path.is_file():
         return ""
@@ -96,7 +98,8 @@ def preflight(config: dict, *, reading: bool) -> tuple[dict, list[str]]:
 
     if reading:
         extractors = [e.strip() for e in env_value("QWEN38_LOCAL_BASE_URL").split(",") if e.strip()]
-        live = [e for e in extractors if alive(e)]
+        extractor_key = env_value(env_value("QWEN38_LOCAL_API_KEY_VAR") or "QWEN38_LOCAL_API_KEY")
+        live = [e for e in extractors if alive(e, extractor_key)]
         if not live:
             problems.append("逐章提取没有可用端点：QWEN38_LOCAL_BASE_URL 里的实例都连不上")
         else:
@@ -114,7 +117,7 @@ def preflight(config: dict, *, reading: bool) -> tuple[dict, list[str]]:
     bible_url = env_value("NOVEL_LLM_BASE_URL")
     bible_key = env_value("NOVEL_LLM_API_KEY")
     if bible_url and alive(bible_url, bible_key):
-        log(f"建圣经用 .env 配的 {bible_url}")
+        log(f"建圣经用 {bible_url}")
     elif key and alive(agent_url, key):
         # Falling back silently would hide a dead endpoint; say which one and why.
         log(f"建圣经：.env 的 {bible_url or '(未设)'} 连不上，改用归并那台 {config['base_url']}")
@@ -136,11 +139,15 @@ def main() -> int:
     parser.add_argument("--chapters", default="1-100", help="读哪些章，例如 1-100")
     parser.add_argument("--bible-chapters", type=int, default=5, help="种子圣经从前几章设计")
     parser.add_argument("--output-root", default="outputs")
+    parser.add_argument("--agent-config", type=Path, default=SANDBOX,
+                        help="本次归并的沙箱配置，不修改共享默认配置")
+    parser.add_argument("--read-workers", type=int, default=0,
+                        help="逐章提取并发；0 沿用每端点的默认并发")
     parser.add_argument("--force", action="store_true", help="工作区已存在时重建")
     parser.add_argument("--skip-read", action="store_true", help="已经读过，直接用现成的归并结果")
     args = parser.parse_args()
 
-    config = json.loads(SANDBOX.read_text(encoding="utf-8"))
+    config = json.loads(args.agent_config.read_text(encoding="utf-8"))
     overrides, problems = preflight(config, reading=not args.skip_read)
     for problem in problems:
         log("✗ " + problem)
@@ -182,12 +189,14 @@ def main() -> int:
                 elif target.exists():
                     target.unlink()
         code = run([python, "scripts/lean_bible_thin.py", "--novel-dir", str(novel_dir),
-                    "--chapters", args.chapters, "--agent-input", str(run_dir)],
+                    "--chapters", args.chapters, "--agent-input", str(run_dir),
+                    "--workers", str(args.read_workers)],
                    overrides, "逐章读 + 写归并输入")
         if code:
             return code
         code = run([python, "scripts/run_agent_thin.py", "--run", run_name,
-                    "--skills", "merge", "--timeout", "7200"], overrides, "归并（沙箱 agent）")
+                    "--skills", "merge", "--timeout", "7200", "--config", str(args.agent_config)],
+                   overrides, "归并（沙箱 agent）")
         if code:
             return code
 

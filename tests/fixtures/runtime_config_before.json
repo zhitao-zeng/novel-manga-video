@@ -185,7 +185,22 @@
   "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-shiri",
   "tick_seconds": 90,
   "round_gap_seconds": 120,
-  "keys": [],
+  "keys": [
+   {
+    "name": "sd25",
+    "model": "sd2.5",
+    "key_var": "PHANROUTER_API_KEY",
+    "clip_cap": 30,
+    "pool": "",
+    "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/sd25",
+    "inflight": {
+     "min": 4,
+     "max": 56,
+     "start": 56
+    },
+    "parallel": 20
+   }
+  ],
   "ranges": [
    {
     "chapters": "1-34",
@@ -263,6 +278,7 @@
   },
   "render": {
    "prescreen": true
-  }
+  },
+  "stop_on_quota_exhausted": true
  }
 }

@@ -119,6 +119,9 @@ def run(args, ctx: PlannerContext) -> int:
     except ValueError as error:
         raise PlanningInputError(str(error)) from error
     ctx.story_method = method.key if method else ''
+    existing_draft = getattr(args, 'compress_existing', None)
+    if existing_draft and method:
+        raise PlanningInputError('--compress-existing 不改写创作方法持有的分场稿')
     ctx.story_blueprint = {}
     ctx.method_artifacts = {}
     # Scene-exit pairs from the source: the validator makes the question heard whatever the
@@ -208,11 +211,14 @@ def run(args, ctx: PlannerContext) -> int:
             asked = [n for n in unjudged if n in on_stage]
             judged = judge_unknown(novel_dir, asked, chapter_text, episode.index) if asked else {}
             grown = grow_unbound_roster(novel_dir, context, chapter_text, episode.index)
-            if not judged and not grown:
-                break
+            # Another chapter can have filled this person while our source reading
+            # was in flight. Growth then adds nothing, but its current catalogue
+            # must still replace the older UNKNOWN bindings before we stop.
             full_bible = StoryBible.model_validate_json(bible_target.read_text(encoding="utf-8"))
             identity_data = load_chapter(episode_dir)
             context = resolve_chapter(episode_dir, data=identity_data)
+            if not judged and not grown:
+                break
     planner_context.load_entity_index(novel_dir, episode.index, ctx=ctx, identity_data=identity_data)
 
     # Which characters and locations the planner may name.  The whole bible is
@@ -273,14 +279,18 @@ def run(args, ctx: PlannerContext) -> int:
     # the most recently introduced places BEFORE this chapter, not the newest
     # ones in a bible that may be a thousand chapters ahead.
     added_at: dict[str, int] = {}
+    props_added_at: dict[str, int] = {}
     growth_path = novel_dir / "bible_growth.json"
     if growth_path.is_file():
         try:
             for ch, entry in json.loads(growth_path.read_text(encoding="utf-8")).items():
                 for loc in entry.get("locations", []) or []:
                     added_at.setdefault(str(loc).split("：", 1)[0].strip(), int(ch))
+                for prop in entry.get("props", []) or []:
+                    props_added_at.setdefault(str(prop).strip(), int(ch))
         except (OSError, ValueError):
             added_at = {}
+            props_added_at = {}
 
     sliced_locations = planner_context.offered_locations(
         list(full_bible.locations), chapter=episode.index, named_here=named_here,
@@ -379,8 +389,14 @@ def run(args, ctx: PlannerContext) -> int:
     segment_ids = [segment["segment_id"] for segment in segments]
     # Props join the slice the way people and places do: only the ones this chapter's text names.
     # A book without props keeps prop_names empty and the schema byte-identical to before.
-    prop_all = list(getattr(full_bible, "props", None) or [])
+    # Pre-reading can register later objects whose generic names also occur early on
+    # (a different character's cloak, for example). Keep those out of new adaptation;
+    # an authored storyboard retains its explicit choices and full-bible asset ids.
+    prop_all = [p for p in full_bible.props or []
+                if authored or props_added_at.get(p.name, 0) <= episode.index]
     prop_names = [p.name for p in pc_prompts.props_for_chapter(prop_all, episode.source_text)]
+    ctx.wearable_prop_names = (None if authored else
+                              [p.name for p in prop_all if p.name in prop_names and p.wearable])
     if prop_all:
         bible = bible.model_copy(update={"props": [p for p in prop_all if p.name in prop_names]})
     # A bound sheet is not re-planned: the model answers one object per authored shot with only the
@@ -429,6 +445,12 @@ def run(args, ctx: PlannerContext) -> int:
             # An unexplained optional field is ignored: the enum alone did not get a single prop
             # marked in the pilot.  The instruction is what makes the seat get used.
             **({"props_usage": "story_bible.props 是本书已建档的剧情道具。某 stage 画面里道具本体实际出现时（被拿着、被展示、被使用、被特写都算），在该 stage 的 props 字段标出它的名单名字——画面描述不管用什么称呼（玉石、那东西），只要指的就是它就标；最多 2 件，没出现就留空。标注的道具渲染时携带参考图以保持跨集一致"} if prop_names else {}),
+            **({"wears_usage": "wears仅表示实际穿在身上的登记装备或服装，可用名单："
+                + json.dumps(ctx.wearable_prop_names, ensure_ascii=False)
+                + "。名单为空或本镜没有登记穿戴物时用空对象{}；角色基础服装沿用档案与参考图。"
+                  "手持、腋下夹着、搬运的包裹或武器属于props，不属于wears。"
+                  "null仅表示原文明确脱下此前的穿戴物，不能用来表示没有额外装备。"}
+               if prop_names and not authored else {}),
             "recap_usage": "previous_volumes_recap 是前面几十章的主线走向、previous_chapters_recap 是最近几章的细节，两者都只用于保持连续性（人物关系、所在位置、状态），本集只拍当前章的事件，不得把前情内容拍进来",
         },
         **({"director_notes": args.notes} if args.notes else {}),
@@ -452,6 +474,9 @@ def run(args, ctx: PlannerContext) -> int:
     patch_rounds = 0  # local repair rounds, sharing the same time budget across batches
     patch_seconds_left = pc_constants.PATCH_TOTAL_SECONDS
     posture_states = None
+    from novel_manga.application.planning import compression
+    compression_rounds = 0
+    compression_seconds_left = compression.TOTAL_SECONDS
     def validate_draft(draft):
         nonlocal posture_states
         checked = pc_validation.validate_and_normalize(draft, segments, bible, location_map, episode.source_text, everyone, ctx=ctx)
@@ -467,11 +492,52 @@ def run(args, ctx: PlannerContext) -> int:
             checked.issues.extend(issues_for_grades(checked.shots, grades, everyone))
         return checked
 
+    def compress_duration(draft, checked, attempt):
+        nonlocal compression_rounds, compression_seconds_left
+        if authored or method or args.replay:
+            return draft, checked
+        while (any(i.code == PlanningCode.DURATION_ABOVE_MAXIMUM for i in checked.issues)
+               and compression_rounds < compression.ROUNDS and compression_seconds_left > 0):
+            compression_rounds += 1
+            name = f'compression_attempt_{attempt:02d}_{compression_rounds:02d}'
+            atomic_write_json(episode_dir / f'{name}.before.json', draft)
+            began = time.monotonic()
+            row = {'round': compression_rounds}
+            print(json.dumps({'attempt': attempt, 'status': 'compressing', **row}, ensure_ascii=False), flush=True)
+            try:
+                candidate, details = compression.compress_plan(draft, payload, schema, checked.shots,
+                    checked.errors, base_url=args.base_url, model=args.model, max_tokens=args.max_tokens,
+                    timeout=min(args.timeout, compression_seconds_left), ctx=ctx, seed=args.seed)
+                row.update(details)
+                atomic_write_json(episode_dir / f'{name}.json', candidate)
+                checked = validate_draft(candidate)
+                draft = candidate
+                row.update(errors_after=checked.errors,
+                    after_seconds=round(sum(float(s.get('duration_seconds', pc_text.stage_seconds(s['turns'], ctx=ctx)))
+                                            for s in checked.shots), 2))
+            except Exception as error:  # a failed compression never authorizes another whole rewrite
+                row['failed'] = f'{type(error).__name__}: {str(error)[:250]}'
+                break
+            finally:
+                compression_seconds_left = max(0.0, compression_seconds_left - (time.monotonic() - began))
+                attempts[-1].setdefault('compressions', []).append(row)
+                atomic_write_json(episode_dir / f'{name}.report.json', row)
+        return draft, checked
+
     for attempt in range(1, args.max_redo + 2):
         request_payload = {**payload, **({"repair": repair} if repair else {})}
         atomic_write_json(episode_dir / f"request_attempt_{attempt:02d}.json", request_payload)
         raw_path = episode_dir / f"response_attempt_{attempt:02d}.raw.json"
-        if args.replay and attempt == 1:
+        if existing_draft and attempt == 1:
+            content = existing_draft.read_text(encoding='utf-8')
+            number = re.search(r'response_attempt_(\d+)', existing_draft.name)
+            outline_path = existing_draft.parent / f'analysis_attempt_{number.group(1) if number else "01"}.txt'
+            if not outline_path.is_file():
+                raise PlanningInputError('压缩已有草稿需要相邻的原始提纲 analysis_attempt_NN.txt')
+            ctx.outline = json.loads(outline_path.read_text(encoding='utf-8'))
+            meta = {'loaded_for_compression': str(existing_draft), 'seconds': 0.0,
+                    'outline_mode': 'existing_compression', 'outline_attempts': []}
+        elif args.replay and attempt == 1:
             content = Path(args.replay).read_text(encoding="utf-8")
             meta = {"replayed_from": str(args.replay)}
             replay = Path(args.replay)
@@ -493,7 +559,7 @@ def run(args, ctx: PlannerContext) -> int:
         else:
             try:
                 content, meta = planner_requests.call_model(base_url=args.base_url, model=args.model, payload=request_payload, schema=schema,
-                                           max_tokens=args.max_tokens, timeout=args.timeout, analysis_tokens=args.outline_tokens or (8192 if method else 4096),
+                                           max_tokens=args.max_tokens, timeout=args.timeout, analysis_tokens=args.outline_tokens or (30000 if method else 4096),
                                            notes=args.notes, grammar=grammar, profile=profile,
                                            outline_mode=args.outline_mode, seed=args.seed, ctx=ctx)
             except planner_requests.IncompleteOutlineError as error:
@@ -533,6 +599,8 @@ def run(args, ctx: PlannerContext) -> int:
         resent = attempts and attempts[-1].get("fingerprint") == fingerprint
         attempts.append({"attempt": attempt, **meta, "errors": errors, "warnings": warnings, "fingerprint": fingerprint, "resent_previous": bool(resent)})
         print(json.dumps({"attempt": attempt, **meta, "error_count": len(errors), "warning_count": len(warnings)}, ensure_ascii=False), flush=True)
+        raw, validation = compress_duration(raw, validation, attempt)
+        errors, warnings, shots = validation.errors, validation.warnings, validation.shots
         decision = pc_decisions.decide_validation(validation, final_attempt=attempt == args.max_redo + 1,
                     patch_rounds=patch_rounds, patch_seconds_left=patch_seconds_left, allow_floor_waiver=True)
         # A shortfall waived here stays waived while a presence patch runs - that patch is about who is
@@ -593,6 +661,7 @@ def run(args, ctx: PlannerContext) -> int:
             finally:
                 patch_seconds_left = max(0.0, patch_seconds_left - (time.monotonic() - patch_started))
             validation = validate_draft(patched)
+            patched, validation = compress_duration(patched, validation, attempt)
             errors, warnings, shots = validation.errors, validation.warnings, validation.shots
             attempts[-1].setdefault("patches", []).append({**summary, "errors_after": len(errors), "errors": errors[:6]})
             print(json.dumps({"attempt": attempt, "patch": summary, "error_count": len(errors)}, ensure_ascii=False), flush=True)
@@ -660,6 +729,9 @@ def run(args, ctx: PlannerContext) -> int:
                     attempts[-1]["retention_reported"] = reported
         if errors:
             final_errors = errors
+            if existing_draft or (not authored and not method and not args.replay
+                    and any(i.code == PlanningCode.DURATION_ABOVE_MAXIMUM for i in validation.issues)):
+                break  # duration uses its dedicated compression budget, not a new outline/draft
             repair = pc_decisions.revision_feedback(errors, raw, resent=bool(resent))
             continue
         result = (raw, shots, warnings)

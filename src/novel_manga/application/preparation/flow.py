@@ -42,6 +42,9 @@ def prepare_one(directory):
     if blocked:
         return record(directory, 'needs_replan', blocks=blocked)
     actions.ensure_cards(directory, plan)
+    from novel_manga.application.preparation.wearer_cards import check_references
+    from novel_manga.application.preparation.readiness import worn_reference_pairs
+    check_references(directory.parent, worn_reference_pairs(plan))
     return actions.translate_and_check(directory, plan, answer)
 
 

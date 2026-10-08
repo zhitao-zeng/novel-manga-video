@@ -2,8 +2,7 @@
 
 The service speaks a small async job API of its own rather than PhanRouter's tasks endpoint:
 POST /v1/videos returns an id, GET /v1/videos/{id} reports status, and /content hands back the
-MP4.  It costs nothing, renders 960x544 at 24 fps with sound, and takes about two thirds of a
-second of wall clock per second of finished video.
+MP4.  The client sends the output size and sampling parameters explicitly with each request.
 
 Only the video call moves here.  Character and location cards still go through PhanRouter,
 because that is where the image model lives - so this class inherits everything else.
@@ -52,7 +51,7 @@ NOTHING_ELSE = (
     "除此之外不得再说任何话，不得即兴发挥、不得重复台词、不得添加旁白或语气词。"
     "没有台词的时间里保持安静，只有环境声和动作音效。"
 )
-SHORT_EDGE = 768  # the deployed Ref2VA turbo LoRA is the 768p build; it renders native 1344x768
+SHORT_EDGE = 544  # output size; the service retains its 8step_v1.0_768p LoRA
 MIN_SECONDS, MAX_SECONDS = 4, 15
 POLL_SECONDS = 3.0
 
@@ -97,7 +96,13 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
             image.save(buffer, format="JPEG", quality=88)
         return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
 
+    def sampling_parameters(self) -> dict:
+        """The sampling configuration actually sent by this local H3 lane."""
+        return {"short_edge": SHORT_EDGE, "aspect_ratio": self.ratio,
+                "num_inference_steps": 9, "flow_shift": 12.0, "audio_flow_shift": 3.0}
+
     def _payload(self, prompt: str, images: list[Path], audios: tuple[Path, ...], duration: float) -> dict:
+        sampling = self.sampling_parameters()
         seconds = max(MIN_SECONDS, min(MAX_SECONDS, math.ceil(duration)))
         conditions = [{"type": "image", "role": "reference", "uri": self._image_data_url(path)}
                       for path in images]
@@ -109,15 +114,22 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
             "prompt": h3_prompt(prompt),
             "seconds": seconds,
             "conditions": conditions,
-            "target": {"short_edge": SHORT_EDGE, "aspect_ratio": self.ratio,
+            "target": {"short_edge": sampling["short_edge"], "aspect_ratio": sampling["aspect_ratio"],
                        "duration_seconds": float(seconds)},
             "num_outputs_per_prompt": 1,
             # This service counts sigma points, including the terminal point:
             # nine points give the eight evaluations of the 8step_v1.0_768p LoRA.
-            "num_inference_steps": 9,
-            "flow_shift": 12.0,
-            "audio_flow_shift": 3.0,
+            "num_inference_steps": sampling["num_inference_steps"],
+            "flow_shift": sampling["flow_shift"],
+            "audio_flow_shift": sampling["audio_flow_shift"],
         }
+
+    @staticmethod
+    def _request_digest(payload: dict, seed_variant: int) -> str:
+        # Keep the existing request/seed formula for both fresh and resumed tasks.
+        return hashlib.sha256(json.dumps(
+            {**payload, **({'seed_variant': seed_variant} if seed_variant else {})},
+            ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
     # ------------------------------------------------------------------- API
     def _submit(self, payload: dict, base: str) -> str:
@@ -167,21 +179,30 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
             if not Path(path).is_file():
                 raise FileNotFoundError(path)
         payload = self._payload(prompt, images, tuple(reference_audios), duration)
-        request_sha256 = hashlib.sha256(
-            json.dumps({**payload, **({'seed_variant': seed_variant} if seed_variant else {})}, ensure_ascii=False, sort_keys=True).encode("utf-8")
-        ).hexdigest()
-        # A seed drawn from the request keeps a resubmission of the same clip identical, while
-        # a repaired clip - whose prompt changed - gets a different draw of the dice.
-        payload["seed"] = int(request_sha256[:8], 16) % (2 ** 31)
+        sampling = self.sampling_parameters()
+        request_sha256 = self._request_digest(payload, seed_variant)
 
         task_path = output.with_suffix(output.suffix + ".task.json")
         task_id, base = None, self.base_url
+        resumed_sampling = None
         if task_path.exists():
             try:
                 cached = json.loads(task_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 cached = {}
-            if cached.get("request_sha256") == request_sha256:
+            matches = cached.get("request_sha256") == request_sha256
+            if matches:
+                resumed_sampling = sampling
+            elif cached and sampling["short_edge"] == 544:
+                previous_sampling = {**sampling, "short_edge": 768}
+                if cached.get("h3_sampling") in (None, previous_sampling):
+                    previous_payload = {**payload, "target": {**payload["target"], "short_edge": 768}}
+                    if cached.get("request_sha256") == self._request_digest(previous_payload, seed_variant):
+                        # Only the default output size changed. Finish the submitted
+                        # task using its original receipt rather than paying for another.
+                        matches = True
+                        resumed_sampling = previous_sampling
+            if matches:
                 task_id = cached.get("task_id")
                 # The task lives on the instance that took it, whichever that was.
                 base = str(cached.get("endpoint") or "").removesuffix("/v1/videos") or self.base_url
@@ -195,6 +216,14 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
             # and no second instance to move to, so resuming it waits out the whole timeout on a
             # machine this run never chose.  Drop it and submit here instead.
             task_id, base = None, self.base_url
+
+        if task_id and cached.get("h3_sampling") != resumed_sampling:
+            # The digest establishes these exact parameters even for a legacy
+            # receipt. Retain its original task id, seed and request SHA.
+            atomic_write_json(task_path, {**cached, "h3_sampling": resumed_sampling})
+        # This remains the NEW-request seed. An old task is polled using its
+        # existing id; if it is unavailable, ordinary recovery submits 544.
+        payload["seed"] = int(request_sha256[:8], 16) % (2 ** 31)
 
         slot, instance, status = None, None, "pending"
         submitted = time.monotonic()
@@ -246,6 +275,7 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                         "request_sha256": request_sha256,
                         "seconds": payload["seconds"],
                         "seed": payload["seed"],
+                        "h3_sampling": sampling,
                         "additional_image_sha256s": [hashlib.sha256(Path(p).read_bytes()).hexdigest()
                                                      for p in additional_images],
                         "reference_audio_sha256s": [hashlib.sha256(Path(p).read_bytes()).hexdigest()

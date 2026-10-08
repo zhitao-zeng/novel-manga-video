@@ -8,6 +8,7 @@ import time
 import novel_manga.application.production.common as production_common
 import novel_manga.application.production.runs as thin_runs
 from novel_manga.application.production import execution
+from novel_manga.providers.phanrouter_tasks import quota_exhausted
 
 def render(batch, chapter: int) -> None:
     row = batch.rows[chapter]
@@ -30,6 +31,9 @@ def render(batch, chapter: int) -> None:
         except Exception as error:  # noqa: BLE001 - keep other episodes reviewable
             row['note'] = f'review failed: {type(error).__name__}: {str(error)[:120]}'
             row['review_error'] = True
+        return
+    if not batch.args.cache_only and quota_exhausted():
+        row["render"] = "waiting_quota"
         return
     reviewed = execution.reviewed_render(batch)
     lane_cap = float(os.environ.get("NOVEL_CLIP_SECONDS_MAX", "0") or 0)
@@ -138,9 +142,14 @@ def render(batch, chapter: int) -> None:
         production_common.log(f"ch{chapter}: gave up after {runs} render runs on this plan; needs a look")
         return
     lock.write_text(str(os.getpid()), encoding="utf-8")
+    counted_run = False
+    started_render = False
     try:
         if not batch.args.cache_only:  # cards are only built, judged and redrawn for clips about to be generated
             batch.prepare_cards(chapter)
+            if quota_exhausted():
+                row["render"] = "waiting_quota"
+                return
             plan, blocked = inspect_episode(directory, assets=True)
             save_check(directory, plan, blocked)
             video_ids = {c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"}
@@ -150,23 +159,31 @@ def render(batch, chapter: int) -> None:
                 return
             if not reviewed and (not video_ids or video_ids - blocked.keys()):
                 thin_runs.count_run(directory)
+                counted_run = True
         command = execution.render_command(batch, chapter)
         # Fresh paid takes of gate-failed clips only for the final a person approved them for, and only on the
         # first call: a second call counted the takes the first had just bought as cached failures and bought two
         # more of each, and stale or clips_failed episodes got paid retakes nobody had asked for.
         first = command + (["--retake-failed"] if retake and not free and batch.args.retake_failed else [])
         for attempt in ((1,) if batch.args.cache_only or reviewed else (1, 2)):
+            if not batch.args.cache_only and quota_exhausted():
+                status, problem = "waiting_quota", "quota_not_enough: waiting for next scheduled run"
+                break
             production_common.log(f"ch{chapter}: rendering (attempt {attempt})")
+            started_render = True
             code, problem = batch.run(first if attempt == 1 else command, directory / "render.log")
             status = batch.render_status(chapter)
             if status in {"done", "done_with_warnings"}:
                 break
             production_common.log(f"ch{chapter}: render attempt {attempt} ended with {status} ({problem[:120]})")
+            if quota_exhausted():
+                break
             if attempt == 1 and status in {"clips_failed", "pending", "stale"}:
                 continue
             break
         replans = sum((directory / marker).exists() for marker in production_common.MODERATION_MARKERS)
         if (status == "clips_failed" and not reviewed and not batch.args.cache_only
+                and not quota_exhausted()
                 and getattr(batch.args, 'stage', 'render') == 'all'
                 and batch.moderation_blocked(chapter) and replans < len(production_common.MODERATION_MARKERS)):
             # Seedance refused the text or the output twice: re-plan the chapter
@@ -184,6 +201,8 @@ def render(batch, chapter: int) -> None:
                 code, problem = batch.run(command, directory / "render.log")
                 status = batch.render_status(chapter)
                 row["moderation_replanned"] = True
+        if counted_run and quota_exhausted() and (not started_render or thin_runs.only_quota_failures(directory)):
+            thin_runs.count_run(directory, adjustment=-1)
         row["render"] = status
         if status not in {"done", "done_with_warnings"}:
             row["note"] = problem

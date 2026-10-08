@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import json
 import os
-from novel_manga.llm.config import JsonEndpoint
+from novel_manga.llm.config import ENDPOINTS, JsonEndpoint
 
 
 def project_root() -> Path:
@@ -109,6 +109,7 @@ def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None)
         "aimd": defaults.get("aimd", {}),
         "review": defaults.get("review", {}),
         "render": defaults.get("render", {}),
+        **({"stop_on_quota_exhausted": True} if novel.get("stop_on_quota_exhausted") else {}),
     }
 
 
@@ -120,4 +121,9 @@ def preparation_environment(root: Path) -> dict:
                QWEN38_LOCAL_MODEL=settings.get('model', 'Qwen3.8-27B-Project'),
                QWEN38_LOCAL_API_KEY_VAR=settings.get('key_var', 'H3_PROMPT_NO_KEY'),
                NOVEL_CLIP_SECONDS_MAX=str(settings.get('clip_cap', 15)))
+    endpoint = str(env.get('NOVEL_PREPARATION_ENDPOINT') or '').strip()
+    if endpoint:
+        if endpoint not in ENDPOINTS:
+            raise ValueError(f'unknown preparation endpoint {endpoint}; pick one of {sorted(ENDPOINTS)}')
+        env.update(ENDPOINTS[endpoint])
     return env
