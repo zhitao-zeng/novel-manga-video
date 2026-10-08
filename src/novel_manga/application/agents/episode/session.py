@@ -8,6 +8,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from novel_manga.util import read_json
 
 from novel_manga.application.agents.sandbox import (
     Attempt,
@@ -78,6 +79,18 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
         session_id = str(uuid.uuid4())
         state = {"session_id": session_id}
 
+    context_rotation=None
+    if enable_tools and (work_dir/'input/current-task.json').is_file():
+        if resume and state.get('current_task_policy')!=1:
+            archive=work_dir/'episode-session-before-current-task.json'
+            _write_json(archive,state)
+            context_rotation={'previous_session_id':session_id,'archive':archive.name,
+                'reason':'Start current-task context without replaying obsolete production conversations'}
+            session_id=str(uuid.uuid4())
+            state={'session_id':session_id}
+            resume=False
+        state['current_task_policy']=1
+
     skills_dir = work_dir / ".claude" / "skills"
     if skills_dir.exists() and any(p.name != "episode-production" for p in skills_dir.iterdir()):
         raise SandboxRefused("This workspace contains other skills; use a dedicated episode workspace.")
@@ -106,20 +119,47 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
         "-v", f"{work_dir}:/work", "-w", "/work",
         "-e", f"ANTHROPIC_BASE_URL={config['base_url']}", "-e", "ANTHROPIC_AUTH_TOKEN",
     ]
+    if enable_tools:
+        command.extend(['-v',f'{skill_source.parents[1]/"src"}:/opt/novel-code:ro'])
     for name in ("ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
                  "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
         command.extend(["-e", f"{name}={model}"])
+    if config.get('max_thinking_tokens') is not None:
+        command.extend(['-e', f"MAX_THINKING_TOKENS={int(config['max_thinking_tokens'])}",
+                        '-e', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1'])
+    if config.get('chat_template_kwargs') is not None:
+        # vLLM's Anthropic endpoint forwards template options but does not read
+        # Anthropic's thinking budget. Use the CLI's native extra-body setting.
+        command.extend(['-e', 'CLAUDE_CODE_EXTRA_BODY='+json.dumps({
+            'chat_template_kwargs': config['chat_template_kwargs']})])
+    direct_draft = ((work_dir/'output/episode.json').is_file()
+                    and read_json(work_dir.parent/'source-draft-call.json', {}).get('status') == 'candidate')
+    role = ('Repair the existing production draft using the reported check results and original source. '
+            'Consult only the episode-production skill sections needed for the current problem; '
+            'the host already supplies fixed H3 syntax, bindings and timing.' if direct_draft else
+            'Read /work/.claude/skills/episode-production/SKILL.md '
+            'and its output contract before authoring this episode.')
+    if read_json(work_dir/'input/manifest.json',{}).get('production_mode') in {'pipeline_review','batch_review'}:
+        role = ('Repair the confirmed input defect or review the existing film, as specified by the current phase. '
+                'Reuse completed production stages. '
+                'Consult only relevant episode-production skill sections and shared repair cases; '
+                'do not create a replacement screenplay or repeat the production pipeline.')
     command.extend([
         "-e", "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1",
         "-e", f"CLAUDE_CODE_EFFORT_LEVEL={config.get('effort', 'medium')}",
         config["image"], "timeout", str(timeout), "claude", "-p", prompt_text,
         "--resume" if resume else "--session-id", session_id,
+        "--model", model,
         "--dangerously-skip-permissions", "--tools", FILE_TOOLS + (",Bash" if enable_tools else ""),
         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
         "--setting-sources", "", "--output-format", "stream-json", "--verbose",
-        "--append-system-prompt", "Read /work/.claude/skills/episode-production/SKILL.md "
-        "and its output contract before authoring this episode.",
+        "--append-system-prompt", role,
     ])
+    if config.get('max_turns') is not None:
+        turns = int(config['max_turns'])
+        if turns <= 0:
+            raise ValueError('max_turns must be positive')
+        command.extend(['--max-turns', str(turns)])
     started = time.time()
     with (attempt / "session.jsonl").open("w", encoding="utf-8") as session, \
             (attempt / "stderr.log").open("w", encoding="utf-8") as errors:
@@ -136,6 +176,23 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
         or (attempt / "output-before" / p.relative_to(output)).read_bytes() != p.read_bytes()
     )
     _snapshot(output, attempt / "output-after")
+    completion = {}
+    last_text = ''
+    with (attempt / 'session.jsonl').open() as stream:
+        for line in stream:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get('type') == 'result':
+                completion = event
+            elif event.get('type') == 'assistant':
+                content = (event.get('message') or {}).get('content') or []
+                if isinstance(content, list):
+                    text = '\n'.join(str(p.get('text') or '') for p in content if p.get('type') == 'text')
+                    if text:
+                        last_text = text
+    from .recovery import refusal_reason, summary_ending
     record = {
         "run": work_dir.name, "attempt": attempt.name, "session_id": session_id, "resume": resume,
         "enable_tools": enable_tools,
@@ -143,6 +200,11 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
         "timeout_seconds": timeout, "seconds": elapsed, "exit": code, "produced": produced,
         "kept_from_earlier_attempts": len(files) - len(produced),
         "expected_output": expected_output, "expected_output_produced": expected_output in produced,
+        'turn_limit_reached': completion.get('subtype') == 'error_max_turns',
+        'num_turns': completion.get('num_turns'),
+        'refusal': refusal_reason(completion.get('result') or last_text),
+        'summary_only': summary_ending(completion.get('result') or last_text),
+        **({'context_rotation':context_rotation} if context_rotation else {}),
     }
     _write_json(attempt / "attempt.json", record)
     state["last_attempt"] = attempt.name

@@ -8,6 +8,46 @@ from novel_manga.llm import transport
 from novel_manga.llm.config import JsonEndpoint
 
 
+def test_explicit_ds_refusal_uses_qwen_once_inside_same_deadline(monkeypatch):
+    monkeypatch.setenv('NOVEL_REFUSAL_FALLBACK', 'flashnext')
+    calls = []
+    def respond(http, bases, headers, payload, **kwargs):
+        calls.append((payload['model'], kwargs['deadline']))
+        content = 'I cannot help with this request.' if len(calls) == 1 else '{"consistent":true}'
+        return {'choices': [{'message': {'content': content}, 'finish_reason': 'stop'}]}
+    monkeypatch.setattr(client, 'post_any', respond)
+    answer = client.ask_json([], {}, name='source', settings=JsonEndpoint('DeepSeek-V4.1-Flash', ('http://ds/v1',)))
+    assert answer == {'consistent': True}
+    assert [c[0] for c in calls] == ['DeepSeek-V4.1-Flash', 'Qwen3.8-Flash-Next']
+    assert calls[0][1] == calls[1][1]
+
+
+def test_negative_source_verdict_does_not_trigger_model_fallback(monkeypatch):
+    monkeypatch.setenv('NOVEL_REFUSAL_FALLBACK', 'flashnext')
+    calls = []
+    def respond(*args, **kwargs):
+        calls.append(1)
+        return {'choices': [{'message': {'content': '{"consistent":false,"problems":["wrong speaker"]}'}, 'finish_reason': 'stop'}]}
+    monkeypatch.setattr(client, 'post_any', respond)
+    assert client.ask_json([], {}, name='source', settings=JsonEndpoint('DeepSeek', ('http://ds/v1',)))['consistent'] is False
+    assert len(calls) == 1
+
+
+def test_json_object_mode_sends_schema_as_text_without_changing_original_parts(monkeypatch):
+    parts = [{'type': 'text', 'text': 'Write two shots.'}]
+    schema = {'type': 'object', 'properties': {'shots': {'type': 'array', 'items': {'type': 'string', 'minLength': 1}}}}
+    saved = copy.deepcopy(parts)
+    seen = []
+    def respond(http, bases, headers, payload, **kwargs):
+        seen.append(payload)
+        return {'choices': [{'message': {'content': '{"shots":["A walks.","B sits."]}'}, 'finish_reason': 'stop'}]}
+    monkeypatch.setattr(client, 'post_any', respond)
+    assert client.ask_json(parts, schema, name='h3', json_object=True)['shots'] == ['A walks.', 'B sits.']
+    assert seen[0]['response_format'] == {'type': 'json_object'}
+    assert json.dumps(schema) in seen[0]['messages'][0]['content'][-1]['text']
+    assert parts == saved
+
+
 def test_stream_keeps_usage_and_existing_platform_parameters(monkeypatch):
     monkeypatch.setenv('QWEN38_LOCAL_MIN_MAX_TOKENS', '50000')
     monkeypatch.setenv('QWEN38_LOCAL_REASONING', 'low')

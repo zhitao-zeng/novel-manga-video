@@ -2,14 +2,21 @@
 from __future__ import annotations
 import re
 from novel_manga.runtime_backends import normalize_text
-from .dialogue import character_pictures, indexed_pictures, subject_map
+from .dialogue import BOUND_SPEECH, character_pictures, indexed_pictures, speech_is_offscreen, subject_map
 
 # One subject can be shown by more than one picture, so the declaration names them all.  The pattern
 # still matches the older one-picture wording, which is what every saved request contains.
-SUBJECT_DECLARATION = '<Subject {subject}> is the person shown in {pictures}.'
+SUBJECT_DECLARATION = '<Subject {subject}> is the subject shown in {pictures}.'
 DECLARED_SUBJECT = re.compile(re.escape(SUBJECT_DECLARATION)
+                             .replace('subject\\ shown', '(?:subject|person)\\ shown')
                              .replace(re.escape('{subject}'), r'(\d+)')
                              .replace(re.escape('{pictures}'), r'[^.]+'))
+
+
+def neutral_declarations(text):
+    """Only the compiler-owned declaration: animals and creatures are not declared human."""
+    return re.sub(r'^(<Subject \d+> is the )person( shown in <Picture \d+>[^\n]*\.)',
+                  r'\1subject\2', text, flags=re.M)
 
 CHARACTER_TRAIT = re.compile(r"([^\s，。；<>]{1,12})的辨识特征[:：]\s*([^。\n]{1,80})")
 # A naming line may carry a note for the translator after its tag - "席勒 = <Subject 2> (修长直立，姿态放松)" - and
@@ -148,8 +155,9 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
                 take = f"Identity and outfit design follow <Picture {body}>."
             if name in worn:
                 take = (f"The face, hair and build follow <Picture {face or body}>. "
-                        f"This person wears the armor or garment design from <Picture {worn[name]}>. "
-                        "The wearer and worn garment form one body.")
+                        f"This person wears the item shown in <Picture {worn[name]}> as specified in the shot. "
+                        f"Other clothing follows <Picture {body}>. "
+                        "The wearer and worn item form one body.")
             closed = next((n for n, r in own if view_of(r) == 'closed'), None)
             if closed is not None and all(view_of(r) == 'closed' for _, r in own):
                 take = (f"Take the visible body proportions, outfit and fully closed helmet from <Picture {closed}>. "
@@ -173,7 +181,7 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
                         'material, structure and scale relative to people. Its role is an object design.')
             if ref.get('wearers'):
                 tags = ', '.join(f'<Subject {subject_of[name]}>' for name in ref['wearers'] if name in subject_of)
-                defs[-1] += (f' Use its garment design on {tags}. Each wearer retains their character-reference identity. '
+                defs[-1] += (f' Use its design for the item worn by {tags}. Each wearer retains their character-reference identity. '
                              'A separate empty copy appears at the time explicitly described in the shot.')
     return defs, subject_of
 
@@ -203,7 +211,7 @@ def voice_lines(clip: dict, subject_of: dict, speaker_ids: dict) -> list[str]:
     return lines
 
 
-def compose(clip: dict, english: list[str], stages: list, *, soundscape: str = "") -> str:
+def compose(clip: dict, english: list[str], stages: list, *, soundscape: str = "", authored: bool = False) -> str:
     """Bind the six sections without adding another correction or performance narrative. Speakers carry
     stable (Sx) ids next to their subject tag; an off-screen line uses the guide's exact phrase and is followed by
     the statement that the on-screen characters' lips stay closed (the "wrong mouth moves" defect)."""
@@ -233,7 +241,7 @@ def compose(clip: dict, english: list[str], stages: list, *, soundscape: str = "
             turns = [(r['speaker_name'],r['text'],r['delivery_mode']=='offscreen_dialogue',r.get('emotion') or '', bool(r.get('inner_monologue')))
                      for r in clip['dialogue_bindings'] if r['stage']==index]
         timing = clip.get('shot_timing', [])
-        if clip.get('scene_ids') and len(timing) == len(stages):
+        if (authored or clip.get('scene_ids')) and len(timing) == len(stages):
             text = f"Planned duration: {timing[index-1]['seconds']:g} seconds. " + text
         millis = round(elapsed * 1000)
         stamp = f'{millis // 60000:02d}:{(millis % 60000) / 1000:06.3f}'
@@ -245,11 +253,15 @@ def compose(clip: dict, english: list[str], stages: list, *, soundscape: str = "
                     else float(clip.get('request_seconds') or 0) / max(1, len(stages)))
         for turn_index, (who, line, offscreen, *rest) in enumerate(turns):
             turn_start = len(body)
-            line = line.translate(str.maketrans('，。！？；：', ',.!?;:'))
-            line = re.sub(r'([.!?])\1+', r'\1', line)
+            if authored:
+                from .dialogue import dialogue_punctuation
+                line = dialogue_punctuation(line)
+            else:
+                line = line.translate(str.maketrans('，。！？；：', ',.!?;:'))
+                line = re.sub(r'([.!?])\1+', r'\1', line)
             # A packed clause may end in a comma because the source speaker continues in the
             # next request. H3 must finish THIS request's utterance, not improvise its completion.
-            if index == last_spoken_stage and turn_index == len(turns) - 1:
+            if not authored and index == last_spoken_stage and turn_index == len(turns) - 1:
                 line = re.sub(r'…+$', '.', line.rstrip())
                 line = re.sub(r'[,;:、]+$', '.', line.rstrip())
                 if line and line[-1] not in '.!?':
@@ -294,7 +306,7 @@ def compose(clip: dict, english: list[str], stages: list, *, soundscape: str = "
         n, shown = subject_of[name], picture_phrase([p for p, r in own if view_of(r) != 'closed'] or [p for p, _ in own])
         retention.append(f"<Subject {n}>: fully_preserved - the identity and outfit design of {shown}; one instance in every shot it appears in.")
         if any(name in ref.get('wearers', []) for ref in clip.get('references', [])):
-            retention[-1] = f'<Subject {n}>: partially_preserved - identity, face and hair from {shown}; clothing follows the wearable prop binding.'
+            retention[-1] = f'<Subject {n}>: partially_preserved - identity, face, hair and other clothing from {shown}; the worn item follows its prop reference.'
         if all(view_of(r) == 'closed' for _, r in own):
             retention[-1] = f'<Subject {n}>: fully_preserved - the visible body, outfit and closed helmet of {shown}; one instance in every shot.'
     # The task prefix names what the references actually are; "audio reference" only when a voice
@@ -387,10 +399,9 @@ def final_dialogue_issues(clip: dict) -> list[str]:
     body = clip['prompt_h3'].split('detailed_description:',1)[-1].split('overall_soundscape:',1)[0]
     actual = []
     for block in re.finditer(r'\[Shot (\d+)\](.*?)(?=\[Shot \d+\]|\Z)', body, re.S):
-        for speech in re.finditer(r'(?:(?:<Subject (\d+)>)|(?:An off-screen voice))\s+\(S\d+\)\s+says'
-                                  r'( in an off-screen voiceover)?\s*<d>\[Chinese\]\s*(.*?)</d>', block[2], re.S):
+        for speech in BOUND_SPEECH.finditer(block[2]):
             actual.append((int(block[1]), int(speech[1]) if speech[1] else None,
-                           bool(speech[2]) or speech[1] is None, normalize_text(speech[3])))
+                           speech_is_offscreen(speech), normalize_text(speech[4])))
     expected = [(r['stage'], subjects.get(r['speaker_name']),
                  r['delivery_mode']=='offscreen_dialogue' or r['speaker_name'] not in subjects,
                  normalize_text(r['text'])) for r in clip['dialogue_bindings']]
@@ -440,7 +451,10 @@ def request_issues(clip: dict) -> list[str]:
         # Every clip, not only authored scenes: H3 reads Chinese aloud wherever it stands.  美漫 ch12 clip_20
         # (2026-09-25) carried the naming table's traits after a subject tag and passed as "ok".
         issues.append(CHINESE_OUTSIDE_DIALOGUE)
-    return issues + final_dialogue_issues(clip) + positive_direction_issues(text)
+    # Positive phrasing is authoring advice. A legacy sentence such as
+    # "no other person has this face" does not invalidate its identities or words.
+    # Callers may surface positive_direction_issues separately from hard failures.
+    return issues + final_dialogue_issues(clip)
 
 
 def identity_issues(clip: dict) -> list[str]:

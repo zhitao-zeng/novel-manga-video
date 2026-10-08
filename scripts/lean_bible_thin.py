@@ -198,14 +198,6 @@ def fold_into_bible(novel_dir: Path, export: dict, add_locations: bool = False) 
             "gender": person.get("gender", "未写明"), "age": person.get("age", "未写明"),
             "appearance": person["appearance"], "wardrobe": person["wardrobe"]})
         added_characters.append(person["name"])
-    if add_locations:
-        # By name only.  The pass quotes what a chapter says about a place, and that is not the
-        # empty-stage plate a card is drawn from - it has people in it and skips the light.  The
-        # audit will flag a bare name and fill_locations_thin writes the description from the source.
-        for place in missing_locations(bible, export):
-            bible.setdefault("locations", []).append(place["name"].strip())
-            added_locations.append(place["name"].strip())
-
     aliases_path = novel_dir / "bible_aliases.json"
     aliases = {}
     if aliases_path.exists():
@@ -219,6 +211,9 @@ def fold_into_bible(novel_dir: Path, export: dict, add_locations: bool = False) 
 
     atomic_write_json(path, bible)
     atomic_write_json(aliases_path, aliases)
+    if add_locations:
+        from novel_manga.application.identity.reading_locations import adopt
+        added_locations = adopt(novel_dir, export)
     return {"characters": added_characters, "locations": added_locations, "skipped": skipped}
 
 

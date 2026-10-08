@@ -12,11 +12,13 @@ card, like build_cards_thin.py.
 from __future__ import annotations
 from novel_manga.application.configuration import project_root
 
-from novel_manga.media.asset_prompts import character_prompt
+from novel_manga.media.asset_prompts import character_prompt, expression_prompt
 import argparse
+import fcntl
 import json
 import os
 import sys
+import shutil
 import time
 from dataclasses import replace as dc_replace
 from pathlib import Path
@@ -27,7 +29,7 @@ from novel_manga.media.asset_policy import ModerationRejected
 from novel_manga.media.asset_style import AssetStyle, image_backend, card_suffix as style_card_suffix, wants_3d_card
 from novel_manga.media.adapters import FramedPhanRouter
 from novel_manga.media.common import log
-from novel_manga.application.identity.phases import load_phases, phased, wearable_prop
+from novel_manga.application.identity.phases import load_phases, phase_for, phased, wearable_prop
 from novel_manga.application.profiles import frame_spec, load_genre, load_profile, load_style, style_names, styled_bible
 from novel_manga.config import Settings  # noqa: E402
 from novel_manga.models.bible import StoryBible
@@ -58,6 +60,18 @@ def worn_reference(phase: dict, bible: StoryBible, root: Path):
     return prop, root / "props" / prop_asset / "turnaround.jpeg"
 
 
+def ensure_worn_card(factory, root, bible, card):
+    """Characters sharing one missing prop wait for its single image build."""
+    card.parent.mkdir(parents=True, exist_ok=True)
+    from novel_manga.resource_waits import QueueWait
+    with QueueWait('shared_phase_asset') as queue, (card.parent/'phase-build.lock').open('a') as lock:
+        queue.begin()
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        queue.finish()
+        if not card.is_file():
+            factory.build_selected(root, bible, set(), set(), prop_ids={card.parent.name})
+
+
 def worn_inputs(name: str, prop, worn_card: Path, base_card: Path) -> tuple[str, str, list[Path]]:
     """(lead, wear note, references) for a phase card that wears a prop.
 
@@ -83,16 +97,37 @@ def closed_view_prompt(name: str, prop: str, closed: str) -> str:
 
 
 STYLE_MASTER_GUARD = (
-    "【系列母版继承】参考图只锁定线稿粗细、二维平涂、赛璐璐阴影、色彩亮度、"
+    "【系列母版继承】参考图只锁定所选画风的材质、色彩亮度、"
     "光影方向和整体动画制作规格；不得照抄参考图人物身份、脸型、发型、服装、姿势、"
     "场景结构或具体构图，必须严格按当前资产描述重新设计。"
 )
+
+
+def reuse_phase_card(root: Path, base_id: str, directory: Path, prompt: str) -> bool:
+    """Reuse a completed identical card after a later step failed; keep its provenance."""
+    for path in sorted((root/'characters').glob(f'{base_id}-*/spec.json')):
+        if path.parent == directory:
+            continue
+        spec = json.loads(path.read_text(encoding='utf-8'))
+        primary = path.parent/'turnaround.jpeg'
+        if spec.get('prompt') != prompt or not primary.is_file() or not primary.stat().st_size:
+            continue
+        shutil.copy2(primary, directory/'turnaround.jpeg')
+        sheet = path.parent/'expressions.jpeg'
+        if sheet.is_file() and sheet.stat().st_size:
+            shutil.copy2(sheet, directory/'expressions.jpeg')
+        current = json.loads((directory/'spec.json').read_text(encoding='utf-8'))
+        current['reused_from'] = str(path.parent)
+        (directory/'spec.json').write_text(json.dumps(current, ensure_ascii=False, indent=1), encoding='utf-8')
+        return True
+    return False
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--only", default="", help="comma-separated character names; default every character in phases.json")
+    parser.add_argument("--chapter", type=int, help="build only the active phase for this chapter")
     parser.add_argument("--force", action="store_true", help="redraw a variant that already has an image (the old one is moved aside)")
     parser.add_argument("--dry-run", action="store_true", help="write spec.json and print the prompt, draw nothing")
     parser.add_argument("--expressions", action="store_true", help="also draw expressions.jpeg for variants that have a turnaround (a lead's second view)")
@@ -104,6 +139,9 @@ def main() -> int:
     load_dotenv(project_root() / ".env")
     novel_dir = args.novel_dir.resolve()
     phases = load_phases(novel_dir)
+    if args.chapter is not None:
+        phases = {name: [phase] for name in phases
+                  if (phase := phase_for(phases, name, args.chapter)) is not None}
     if not phases:
         print(f"{novel_dir / 'series_assets' / 'phases.json'}: no phases", file=sys.stderr)
         return 2
@@ -151,7 +189,7 @@ def main() -> int:
             worn_prop, worn_card = worn_reference(phase, bible, root)
             if worn_prop is not None and not worn_card.is_file() and not args.dry_run:
                 # The wearable's own card comes first - the phase card is drawn from it.
-                factory.build_selected(root, bible, set(), set(), prop_ids={worn_card.parent.name})
+                ensure_worn_card(factory, root, bible, worn_card)
             lead, wear_note, references = ("", "", [])
             if worn_prop is not None:
                 lead, wear_note, references = worn_inputs(name, worn_prop, worn_card,
@@ -181,6 +219,9 @@ def main() -> int:
             (directory / "spec.json").write_text(json.dumps(spec, ensure_ascii=False, indent=1), encoding="utf-8")
             if args.dry_run:
                 print(json.dumps({"name": name, "asset_id": asset_id, "status": "dry-run", "prompt_head": prompt[:160]}, ensure_ascii=False), flush=True)
+                continue
+            if not args.force and reuse_phase_card(root, base_id, directory, prompt):
+                print(json.dumps({"name": name, "asset_id": asset_id, "status": "reused"}, ensure_ascii=False), flush=True)
                 continue
             if output.is_file():
                 stamp = time.strftime("%m%d-%H%M")
@@ -248,7 +289,7 @@ def main() -> int:
                 look = phased(character, phase)
                 started = time.monotonic()
                 try:
-                    factory.ensure_card(factory._expression_prompt(bible, look.name, look.expression_profile,
+                    factory.ensure_card(expression_prompt(bible, look.name, look.expression_profile,
                                                                family=asset_style.render_family, direction=asset_style.render_direction), sheet, reference=primary)
                     status = "expressions built"
                 except Exception as error:  # noqa: BLE001

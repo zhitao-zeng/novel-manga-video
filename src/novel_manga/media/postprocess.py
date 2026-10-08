@@ -255,6 +255,8 @@ class BatchRenderer(Renderer):
         for path in normalized:
             offsets.append(cumulative)
             cumulative += media_duration(path)
+        self.sequence_spans = [(start, offsets[i+1] if i+1 < len(offsets) else cumulative)
+                               for i, start in enumerate(offsets)]
         return offsets
 
 
@@ -295,6 +297,12 @@ def assemble(ctx, results: list[dict], output_dir: Path) -> dict:
         ass = staged_ass
     # The actual end card rendered for this final, not a guess from the settings on a later recheck.
     silent_outro = media_duration(ctx.work / "outro.mp4") if ctx.settings.outro_seconds > 0 else 0.0
+    spans = getattr(ctx.renderer, 'sequence_spans', [])
+    first_story = int(ctx.settings.intro_seconds > 0)
+    timeline = [{"unit_id": segment['unit_id'], "role": segment['role'],
+                 "start": spans[first_story+i][0], "end": spans[first_story+i][1]}
+                for i, segment in enumerate(turn_segments)] if len(spans) >= first_story+len(turn_segments) else []
     return {'final_video': str(final), 'cover': str(cover), 'ending': str(ending), 'ass': str(ass),
             'duration': round(media_duration(final), 3), 'subtitle_events': len(events),
-            'silent_outro_seconds': silent_outro, 'pending_publish': output_dir != ctx.episode_dir}
+            'silent_outro_seconds': silent_outro, 'pending_publish': output_dir != ctx.episode_dir,
+            **({'timeline': timeline} if timeline else {})}

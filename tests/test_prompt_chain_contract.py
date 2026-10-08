@@ -73,7 +73,7 @@ def test_dialogue_tail_is_reported_without_rejecting_or_trimming_the_take():
 
 def test_same_identity_can_be_described_concisely_without_changing_reference():
     c=clip();c['prompt_h3']=compose(c,['A person stands.'],[('',[])])
-    revised=c['prompt_h3'].replace('is the person shown in','is the young man in')
+    revised=c['prompt_h3'].replace('is the subject shown in','is the young man in')
     assert not request_issues({**c,'prompt_h3':revised})
     validate_prompt(c,revised)
     with pytest.raises(ValueError):validate_prompt(c,revised.replace('<Picture 1>','<Picture 2>'))
@@ -162,9 +162,10 @@ def test_preparation_hands_compiler_conflict_to_existing_repair_status(tmp_path,
     from novel_manga.application.preparation import actions
     directory=tmp_path/'book'/'book_1';directory.mkdir(parents=True)
     c=clip();c['kind']='video'
-    def compile_request(c, *, note, episode_dir, problems):
+    def compile_request(c, *, note, episode_dir, problems, source_conflicts):
         assert episode_dir==directory
         problems.append('原文穿甲者与分镜无人空甲冲突')
+        source_conflicts.extend(problems)
         return False
     monkeypatch.setattr(translator,'convert',compile_request)
     monkeypatch.setattr(actions,'record',lambda directory,status,**kw:{'status':status,**kw})

@@ -11,12 +11,14 @@ import novel_manga.application.review.verify as verify_clips
 
 def review_batch(novel: Path, episodes: list[int], scope: str, state_dir: Path, legacy: Path, workers: int = 6, max_tokens: int | None = None) -> dict:
     cache = state_dir / "verified.jsonl"
-    local, flash = review_store.current_evidence(legacy, state_dir)
+    local, flash = review_store.current_evidence(legacy, state_dir, review_mode='verify')
     jobs = []
     for n in episodes:
         directory = novel / f"{novel.name}_{n}"
-        review, takes = review_store.reconcile(directory, local, flash)
-        for cid in missing_reviews(review, takes, scope):
+        # Select work without saving a provisional confirmed-claim failure over
+        # the primary verdict that the final specific check still needs.
+        review, takes = review_store.reconcile(directory, local, flash, write=False)
+        for cid in missing_reviews(review, takes, scope, review_mode='verify'):
             row = review["clips"][cid]
             claim = row.get("flash_pending") if scope == "flash" else row.get("story_issue", "")
             jobs.append((n, cid, str(claim or ""), "confirm" if scope == "flash" else "managed"))
@@ -34,11 +36,12 @@ def review_batch(novel: Path, episodes: list[int], scope: str, state_dir: Path, 
     remaining = 0
     for n in episodes:
         directory = novel / f"{novel.name}_{n}"
-        review, takes = review_store.reconcile(directory, local, flash)
-        if any(row.get("confirmed") for row in review.get("clips", {}).values()):
-            from novel_manga.application.review.episode import review_episode
-            review = review_episode(directory, fresh=False)
-        remaining += len(missing_reviews(review, takes, scope))
+        previous, review, takes = review_store.read_reconciled(directory, local, flash, apply_confirmed=False)
+        if any(row.get("confirmed") for row in previous.get("clips", {}).values()):
+            from novel_manga.application.review.confirmed import enforce
+            review = enforce(directory,review,previous,verify=True)
+        review_store.write_reconciled(directory,previous,review)
+        remaining += len(missing_reviews(review, takes, scope, review_mode='verify'))
         from novel_manga.application.repair.history import observe
         from novel_manga.application.repair.delivery import publish_if_ready
         observe(directory, review, takes)

@@ -115,3 +115,31 @@ def test_story_feedback_is_the_judges_instruction_not_the_description():
     answer = {"people": [], "same_person_twice": True, "species_or_gender_wrong": False, "action_by_wrong_person": False, "actor_missing": False,
               "lead_face_swapped": False, "ghost_text": False, "verdict": "obvious", "evidence": "两个艾琳娜", "instruction": "艾琳娜只出现一次"}
     assert review_policy.verify_to_verdict(answer)["feedback"] == "艾琳娜只出现一次"
+
+
+def test_same_video_requires_new_review_when_mode_changes_or_is_unknown(tmp_path, monkeypatch):
+    from novel_manga.application.review import judges
+    from novel_manga.util import atomic_write_json, read_json
+    book=tmp_path/'book';ep=book/'book_1'
+    video=ep/'work/clips/clip_01/attempt_01/clip.mp4'
+    video.parent.mkdir(parents=True);video.write_bytes(b'unchanged take')
+    atomic_write_json(book/'story_bible.json',{'novel_title':'n','genre':'g','visual_style':'v',
+        'palette':'p','style_fingerprint':'f','characters':[],'locations':[]})
+    atomic_write_json(ep/'clip_plan.json',{'clips':[{'clip_id':'clip_01','kind':'video'}]})
+    calls=[]
+    monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO','0')
+    def judge(clip, video, bible, location_time, hypothesis, work_dir):
+        calls.append(review_evidence.review_mode(work_dir))
+        return {'severity':'pass'}
+    monkeypatch.setattr(judges,'judge_clip',judge)
+    monkeypatch.setenv('NOVEL_REVIEW_MODE','classic')
+    first=review_episode.review_episode(ep,fresh=False)
+    assert first['review_mode']=='classic'
+    assert review_episode.review_episode(ep,fresh=False)==first and calls==['classic']
+    monkeypatch.setenv('NOVEL_REVIEW_MODE','verify')
+    second=review_episode.review_episode(ep,fresh=False)
+    assert second['review_mode']=='verify' and calls==['classic','verify']
+    assert review_episode.review_episode(ep,fresh=False)==second and calls==['classic','verify']
+    second.pop('review_mode');atomic_write_json(ep/'episode_review.json',second)
+    assert review_episode.review_episode(ep,fresh=False)['review_mode']=='verify'
+    assert calls==['classic','verify','verify'] and video.read_bytes()==b'unchanged take'

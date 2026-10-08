@@ -32,6 +32,8 @@ from pathlib import Path
 
 ROOT = project_root()
 from novel_manga.application.production.runs import REVIEW_POLICY, episode_status, gate_failures, render_runs
+from novel_manga.application.review.evidence import review_mode
+from novel_manga.review.contracts import current_review
 
 POLICY = "delivery-gate-v1"
 
@@ -150,7 +152,8 @@ def main() -> int:
         review_state = "not_ready"
         if status in {"done", "done_with_warnings"} and final.is_file():
             review_state = "pending"
-            if review.get("policy") == REVIEW_POLICY and mtime(d / "episode_review.json") >= mtime(final):
+            mode = review_mode(d/'work/review/current') or review.get('review_mode')
+            if current_review(review,mode) and mtime(d / "episode_review.json") >= mtime(final):
                 if any(c.get("severity") == "review_error" for c in clips.values() if isinstance(c, dict)):
                     review_state = "error"
                 elif expected and all(clips.get(cid, {}).get("severity") in {"pass", "minor", "fail"} for cid in expected):

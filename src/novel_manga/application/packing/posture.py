@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 
 from novel_manga.llm.client import ask_json, obj
@@ -97,19 +98,37 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
     previous = previous if previous is not None else read_json(episode_dir / FILE, {})
     rows = material(script, segments)
     prior_batches = previous.get('batches', []) if previous.get('policy') == POLICY else []
+    old_rows = previous.get('inputs', []) if previous.get('policy') == POLICY else []
+    unchanged_prefix = set()
+    for old, new in zip(old_rows, rows):
+        if old != new:
+            break
+        unchanged_prefix.add(new['index'])
     ask = ask or (lambda prompt, contract: ask_json([{'type': 'text', 'text': prompt}], contract,
-                       name='posture_continuity', max_tokens=6000, settings=endpoint_settings('local')))
+                       name='posture_continuity', max_tokens=6000,
+                       settings=endpoint_settings(os.environ.get('NOVEL_PLANNER_ENDPOINT', '').strip() or 'local')))
     result = {'policy': POLICY, 'inputs': rows, 'stages': {}, 'issues': [], 'batches': []}
     last = {}
     for offset in range(0, len(rows), BATCH):
         batch = rows[offset:offset + BATCH]
         inputs = {'previous_shot': rows[offset - 1] if offset else None,
                   'previous_states': copy.deepcopy(last), 'shots': batch}
-        cached = next((b for b in prior_batches if b['inputs'] == inputs), None)
+        # Readings classify the authored facts and continuity; resolve() supplies inherited poses.
+        # An upstream pose correction must propagate, not ask the model to reinvent unchanged shots.
+        cached = next((b for b in prior_batches if b['inputs'].get('shots') == inputs['shots']
+                       and b['inputs'].get('previous_shot') == inputs['previous_shot']
+                       and {n:s.get('index') for n,s in b['inputs'].get('previous_states',{}).items()}
+                           == {n:s.get('index') for n,s in last.items()}), None)
         feedback = ''
         for attempt in range(2):
             answer = (copy.deepcopy(cached['answer']) if cached and attempt == 0
                       else ask(question(inputs) + feedback, schema(batch)))
+            answer = copy.deepcopy(answer)
+            for i, reading in enumerate(answer.get('stages', [])):
+                index = reading.get('index')
+                old = previous.get('stages', {}).get(str(index), {}).get('reading')
+                if index in unchanged_prefix and old:
+                    answer['stages'][i] = copy.deepcopy(old)
             try:
                 readings = checked_answers(batch, answer)
                 if offset == 0 and readings[0]['boundary'] != 'reset':

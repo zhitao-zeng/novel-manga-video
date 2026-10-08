@@ -70,7 +70,7 @@ def test_the_english_declares_one_person_with_a_closed_look(tmp_path, monkeypatc
     defs, subjects = subject_lines(clip)
     assert subjects == {'席勒': 1, '托尼': 2}
     tony = next(d for d in defs if d.startswith('<Subject 2>'))
-    assert tony.startswith('<Subject 2> is the person shown in <Picture 2> and <Picture 3>.')
+    assert tony.startswith('<Subject 2> is the subject shown in <Picture 2> and <Picture 3>.')
     assert 'Identity and outfit design follow <Picture 2>.' in tony
     assert "<Picture 3> shows this same person with the helmet's faceplate closed" in tony
     monkeypatch.setattr(translator, 'ask_json', lambda parts, schema, **kw: {

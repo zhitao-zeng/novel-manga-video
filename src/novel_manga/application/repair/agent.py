@@ -12,6 +12,7 @@ from novel_manga.application.configuration import project_root
 from novel_manga.application.profiles import h3_stamp
 from novel_manga.repair.proposal import RepairProposal
 from novel_manga.story.h3 import request_issues
+from novel_manga.story.dialogue import dialogue_punctuation
 from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
@@ -50,11 +51,25 @@ def validate_prompt(clip, prompt):
     # associations and retention mode, not every word of their descriptions.
     if retention_bindings(old['retention_analysis']) != retention_bindings(new['retention_analysis']):
         raise ValueError('agent changed protected reference binding: retention_analysis')
-    for pattern in (r'<d>.*?</d>', r'<Subject \d+> \(S\d+\) says(?: in an off-screen voiceover)?',
-                    r'\[Shot \d+\]', r'Planned duration: [\d.]+ seconds\.', r'At \d\d:\d\d\.\d+',
+    old_dialogue = [dialogue_punctuation(text) for text in re.findall(r'<d>(.*?)</d>', clip['prompt_h3'], re.S)]
+    new_dialogue = [dialogue_punctuation(text) for text in re.findall(r'<d>(.*?)</d>', prompt, re.S)]
+    if old_dialogue != new_dialogue:
+        raise ValueError('agent changed dialogue, delivery binding or shot timing')
+    for pattern in (r'<Subject \d+> \(S\d+\) says(?: in an off-screen voiceover)?',
+                    r'\[Shot \d+\]', r'At \d\d:\d\d\.\d+',
                     r'The speaking voice follows the timbre referenced from <Audio \d+>\.'):
         if re.findall(pattern, clip['prompt_h3'], re.S) != re.findall(pattern, prompt, re.S):
             raise ValueError('agent changed dialogue, delivery binding or shot timing')
+    duration_pattern = r'Planned duration: ([\d.]+) seconds\.'
+    old_durations = [float(value) for value in re.findall(duration_pattern, clip['prompt_h3'])]
+    new_durations = [float(value) for value in re.findall(duration_pattern, prompt)]
+    if old_durations != new_durations:
+        timing = clip.get('shot_timing') or []
+        expected = [float(row['seconds']) for row in timing]
+        # Older requests can include a duration header for only some shots.
+        # Filling those headers must still use the complete saved shot timing.
+        if not expected or new_durations != expected:
+            raise ValueError('agent changed planned durations; preserve the saved shot timing')
     for pattern in (r'<Subject \d+>', r'<Picture \d+>', r'<Audio \d+>', r'\(S\d+\)'):
         if set(re.findall(pattern, clip['prompt_h3'])) != set(re.findall(pattern, prompt)):
             raise ValueError('agent changed reference/speaker tags')
@@ -64,23 +79,31 @@ def validate_prompt(clip, prompt):
 
 
 def provided_frames(directory: Path, clip_id: str, video: Path, target: Path):
-    """Copy frames supported by the same-take review, or extract four on the host."""
+    """Copy the explicit same-take frame list, including late actions, or extract."""
     review_path = directory/'episode_review.json'
     reviewed = (read_json(review_path, {}).get('clips') or {}).get(clip_id, {})
     identity = take_identity(video)
-    cached = [directory/'work/review'/clip_id/f'frame_{i}.jpg' for i in range(1, 4)]
+    target.mkdir(parents=True, exist_ok=True)
+    for frame in target.glob('frame_*.jpg'):
+        frame.unlink()
+    cache = directory/'work/review'/clip_id
+    evidence = read_json(cache/'frame-evidence.json', {})
+    rows = evidence.get('frames') or []
+    cached = [Path(row['path']) for row in rows]
     same_review = (reviewed.get('video') == str(video) and identity
-                   and reviewed.get('take') == identity and reviewed.get('severity') != 'review_error')
-    # Later numbered frames can be stale tails of an earlier review.
-    if (same_review and all(p.is_file() and p.stat().st_size > 0
+                   and reviewed.get('take') == identity and reviewed.get('severity') != 'review_error'
+                   and evidence.get('video') == str(video) and evidence.get('take') == identity)
+    # A glob cannot distinguish stale tails whose timestamps look plausible.
+    if (same_review and cached and all(p.is_file() and p.stat().st_size > 0
                             and identity[2] <= p.stat().st_mtime_ns <= review_path.stat().st_mtime_ns
                             for p in cached)):
-        target.mkdir(parents=True, exist_ok=True)
         frames = []
         for source in cached:
             frame = target/source.name
             shutil.copy2(source, frame)
             frames.append(frame)
+        atomic_write_json(target/'frame-evidence.json', {
+            **evidence, 'frames': [{**row, 'path': str(frame)} for row, frame in zip(rows, frames)]})
         return frames, 'same_take_review_report_supported'
     return clip_frames(video, target, 4), 'host_uniform_10_to_90_percent'
 

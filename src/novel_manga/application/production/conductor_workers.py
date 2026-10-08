@@ -43,6 +43,8 @@ def spawn(conductor, name: str, command: list[str], extra_env: dict | None = Non
         return
     env = {**os.environ, **conductor_common.BASE_ENV,
            **conductor.cfg.get('model_environment', {}), **(extra_env or {})}
+    if getattr(conductor,'workspaces',None) and conductor.cfg.get('agent',{}).get('asset_manifest'):
+        env['NOVEL_ASSET_PREPARATION_MANIFEST']=conductor.cfg['agent']['asset_manifest']
     env.update(reference_image_env(env))
     log_path = conductor.tmp / f"{name}.log"
     with log_path.open("ab") as handle:
@@ -80,4 +82,9 @@ def server_env(conductor, server: dict) -> dict:
     env = {"QWEN38_LOCAL_BASE_URL": server["base"], "QWEN38_LOCAL_MODEL": server["model"],
            "NOVEL_LLM_BASE_URL": server["base"].split(",")[0], "NOVEL_LLM_MODEL": server["model"]}
     env["QWEN38_LOCAL_API_KEY_VAR"] = server.get("key_var", "")  # named, never the key itself
+    if getattr(conductor,'workspaces',None) and server.get('endpoint'):
+        endpoint=server['endpoint']
+        env.update({key:endpoint for key in ('NOVEL_PLANNER_ENDPOINT','SECOND_REVIEW_JUDGE',
+            'NOVEL_H3_TRANSLATION_ENDPOINT','NOVEL_H3_REQUEST_CHECK_ENDPOINT','VERIFY_JUDGE')})
+        env['NOVEL_REFUSAL_FALLBACK']='flashnext' if endpoint=='deepseek' else ''
     return env

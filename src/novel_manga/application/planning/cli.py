@@ -61,6 +61,8 @@ def _plan(context: PlannerContext | None = None) -> int:
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")
+    parser.add_argument("--compress-existing", type=Path,
+                        help="压缩已有分镜草稿及其相邻提纲，不重新生成提纲或整章初稿")
     parser.add_argument("--merge", type=int, default=1, help="chapters per episode: episode k covers chapters (k-1)*N+1..k*N")
     parser.add_argument("--part", type=int, default=0,
                         help="one episode of a chapter cut into several (parts.json beside the chapter): 1 for 上, 2 for 中, 3 for 下")
@@ -96,6 +98,8 @@ def _plan(context: PlannerContext | None = None) -> int:
         parser.error("--outline-tokens must be positive")
     if args.max_seconds is not None and (args.max_seconds <= 0 or args.max_seconds < args.min_seconds):
         parser.error("--max-seconds must be positive and not below --min-seconds")
+    if args.compress_existing and (args.replay or args.bind_storyboard or args.planning_backend == 'sandbox_agent'):
+        parser.error('--compress-existing 用于普通改编草稿，不能同时回放或绑定作者分镜')
 
     try:
         return run(args, ctx)

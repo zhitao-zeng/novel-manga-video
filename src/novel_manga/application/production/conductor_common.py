@@ -28,10 +28,11 @@ REPO = project_root()
 PY = str(REPO / ".venv" / "bin" / "python")
 
 
-SCRIPTS = REPO / "scripts"
+CODE = Path(__file__).resolve().parents[4]
+SCRIPTS = CODE / "scripts"
 
 
-BASE_ENV = {"PYTHONPATH": "src", "NOVEL_PLANNER_BACKEND": "deterministic",
+BASE_ENV = {"PYTHONPATH": str(CODE / 'src'), "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": "short-drama-adaptive-v1"}
 
 

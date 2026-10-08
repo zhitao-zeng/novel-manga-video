@@ -19,6 +19,17 @@ from novel_manga.application.profiles import plan_fingerprint
 from novel_manga.application.production.runs import REVIEW_POLICY, episode_status
 
 
+def test_common_budget_cap_restricts_existing_grants_without_resetting_history(tmp_path):
+    directory = tmp_path/'book/book_1'
+    utils.atomic_write_json(directory/'repair_budget_grants.json', {
+        '*': {'limit': 2, 'reason': 'user requested fewer retries'},
+        'clip_01': {'limit': 5, 'reason': 'older allowance'}})
+    history.save(directory, {'trials': [], 'prior_generation_counts': {'clips': {'clip_01': 3}}})
+    assert history.generation_limit(directory, 'clip_01') == 2
+    assert history.generation_limit(directory, 'clip_02') == 2
+    assert history.generated_counts(history.load(directory))['clip_01'] == 3
+
+
 
 
 

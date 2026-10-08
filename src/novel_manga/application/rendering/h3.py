@@ -29,7 +29,8 @@ from novel_manga.util import atomic_write_json  # noqa: E402
 from novel_manga.story.h3 import request_issues, stages_of, subject_lines, asset_subjects, compose, tag_names, CJK, CHARACTER_TRAIT, REQUEST_CONTENT_RULES
 
 SCHEMA = {"type": "object", "additionalProperties": False, "required": ["shots", "soundscape", "conflicts"],
-          "properties": {"shots": {"type": "array", "items": {"type": "string"}},
+          "properties": {"shots": {"type": "array", "items": {"type": "string", "minLength": 1},
+                                   "description": "One nonempty chronological English paragraph per input shot, preserving its dialogue markers."},
                          "soundscape": {"type": "string"},
                          "conflicts": {"type": "array", "items": {"type": "string"}}}}
 ASK = (
@@ -72,7 +73,7 @@ def warn(clip: dict, message: str) -> None:
     print(f"  {clip.get('clip_id', '?')}: H3 prompt {message}", file=sys.stderr, flush=True)
 
 
-def request_context(clip: dict, episode_dir: Path | None) -> tuple[dict, list]:
+def request_context(clip: dict, episode_dir: Path | None, *, source_script=None) -> tuple[dict, list]:
     """Read only the source/stages and exact reference images owned by this episode."""
     if episode_dir is None:
         return {}, []
@@ -81,7 +82,7 @@ def request_context(clip: dict, episode_dir: Path | None) -> tuple[dict, list]:
     ids = {str(i) for i in clip.get('segment_ids', [])}
     rows = read_json(directory / 'segments.json', [])
     source = [r for r in rows if str(r.get('segment_id')) in ids]
-    script = read_json(directory / 'chapter_script.json', {})
+    script = source_script if source_script is not None else read_json(directory / 'chapter_script.json', {})
     indexes = set(clip.get('shot_indexes', []))
     fields = ('origin_index', 'wears', 'props', 'scene_objects', 'source_quote')
     if 'action_bindings' not in clip:
@@ -99,7 +100,7 @@ def request_context(clip: dict, episode_dir: Path | None) -> tuple[dict, list]:
 
 
 def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path | None = None,
-            problems: list | None = None) -> bool:
+            problems: list | None = None, source_script=None, source_conflicts: list | None = None) -> bool:
     """Generate one authoritative shot/sound/delivery response, then bind protected text and references.
 
     Incomplete output is retried within the existing budget; source conflicts return to the caller. Never
@@ -108,6 +109,12 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
     from novel_manga.application.profiles import h3_correction_parts
     prompt, existing_note = h3_correction_parts(clip)
     note = str(note or "").strip() or existing_note
+
+    def reject(message):
+        if problems is not None:
+            problems.append(message)
+        warn(clip, message)
+        return False
 
     def merge_correction_into_prompt() -> None:
         """The correction stops being a parallel truth (audit #5): once its English is in, the
@@ -128,8 +135,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
         return False
     stages = stages_of(prompt)
     if not stages:
-        warn(clip, "FAILED: the Chinese prompt has no 【阶段】 block to translate")
-        return False
+        return reject("FAILED: the Chinese prompt has no 【阶段】 block to translate")
     _, subject_of = subject_lines(clip)
     # The name alone does not say what the character IS.  In a book where most of the cast are
     # dragons, a translator given only "奥尔德 = <Subject 2>" has to guess, and it guessed wrong:
@@ -148,8 +154,8 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
         if ref.get('role') == 'prop' and ref.get('wearers'):
             wearer_tags = [f'<Subject {subject_of[n]}>' for n in ref['wearers'] if n in subject_of]
             if wearer_tags:
-                naming += (f"Wearable {ref['name']}: a garment/armor worn by {', '.join(wearer_tags)}. "
-                           "A standing or moving description of this worn garment refers to its wearer, not an empty suit. "
+                naming += (f"Wearable {ref['name']}: an item worn by {', '.join(wearer_tags)}. "
+                           "A standing or moving description of this worn item refers to its wearer, not an empty suit. "
                            "Distinguish a separate explicitly unoccupied copy only when the shot calls for one.\n")
         if ref.get('role') in {'character','location'}:
             picture+=1
@@ -162,8 +168,7 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
         # Unlike spoken lines, authored physical sound cues must survive the
         # SOUND removal above and reach H3 in English, in their own shot.
         if len(clip.get('shot_sound', [])) != len(stages):
-            warn(clip, 'FAILED: authored sound does not match shot count')
-            return False
+            return reject('FAILED: authored sound does not match shot count')
         visuals = [visual + (' 同期声：' + tag_names(clip['shot_sound'][i], naming) if clip['shot_sound'][i] else '')
                    for i, visual in enumerate(visuals)]
     from novel_manga.story.voice_delivery import visual_request
@@ -183,10 +188,9 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
                             'delivery': mode, 'emotion': row.get('emotion', '') if isinstance(row, dict) else (row[3] if len(row)>3 else ''), 'words_for_timing_only': words})
         visuals[i-1] += "\nNative dialogue slots in playback order (empty means no generated speech; output markers, not these words): " + json.dumps(details, ensure_ascii=False)
     try:
-        context, images = request_context(clip, episode_dir)
+        context, images = request_context(clip, episode_dir, source_script=source_script)
     except (OSError, ValueError) as error:
-        warn(clip, f'FAILED to load current source/reference context: {error}')
-        return False
+        return reject(f'FAILED to load current source/reference context: {error}')
     definitions, _ = subject_lines(clip)
     context.update(reference_bindings=definitions, current_correction=tag_names(note, naming) if note else '',
                    packed_action_bindings=clip.get('action_bindings', []),
@@ -196,21 +200,32 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
     schema = copy.deepcopy(SCHEMA)
     schema['properties']['shots'].update(minItems=len(visuals), maxItems=len(visuals))
     problem = ''
+    endpoint = h3_translation_endpoint()
     for _ in range(tries):
         try:
             feedback = ('\nPrevious response was rejected: ' + problem + '\n') if problem else ''
             text = (ASK + INPUT_RULES + feedback + naming + '\nInput context:\n'
                     + json.dumps(context, ensure_ascii=False) + '\nShots:\n'
                     + '\n'.join(f'{i}. {visual}' for i, visual in enumerate(visuals, 1)))
+            print(f"{clip.get('clip_id', 'clip')}: h3prompt model={endpoint.model}", file=sys.stderr, flush=True)
             answer = ask_json([{'type': 'text', 'text': text}, *images], schema, name='h3prompt',
-                              max_tokens=700 + 450 * len(visuals), settings=h3_translation_endpoint())
+                              max_tokens=700 + 450 * len(visuals), settings=endpoint, json_object=True)
+            if not isinstance(answer, dict) or not isinstance(answer.get('conflicts', []), list):
+                raise ValueError('H3 translation requires a JSON object with a conflicts array')
             if answer.get('conflicts'):
                 if problems is not None:
                     problems.extend(answer['conflicts'])
+                if source_conflicts is not None:
+                    source_conflicts.extend(answer['conflicts'])
                 warn(clip, 'source/storyboard conflict: ' + '; '.join(answer['conflicts']))
                 return False
-            english = [str(v).strip() for v in answer.get('shots', [])]
-            soundscape = str(answer.get('soundscape') or '').strip()
+            directions = answer.get('shots')
+            if not isinstance(directions, list) or any(not isinstance(v, str) for v in directions):
+                raise ValueError('H3 shots must be an array of English strings')
+            if not isinstance(answer.get('soundscape') or '', str):
+                raise ValueError('H3 soundscape must be an English string')
+            english = [v.strip() for v in directions]
+            soundscape = (answer.get('soundscape') or '').strip()
             if len(english) != len(visuals) or not all(english):
                 raise ValueError('one nonempty direction is required for each shot')
             for i, sentence in enumerate(english):
@@ -230,6 +245,8 @@ def convert(clip: dict, tries: int = TRIES, note: str = "", *, episode_dir: Path
         except Exception as error:  # noqa: BLE001 - bounded generation, never a semantic fallback
             problem = f'{type(error).__name__}: {str(error)[:350]}'
     warn(clip, f"FAILED after {tries} tries: {problem}")
+    if problems is not None and problem:
+        problems.append(problem)
     return False
 
 

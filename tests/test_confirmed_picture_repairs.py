@@ -78,6 +78,27 @@ def test_targeted_check_receives_named_current_character_references(tmp_path, mo
     assert answer['result']=='resolved'
 
 
+def test_confirmed_visual_judge_does_not_follow_preparation_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv('NOVEL_H3_TRANSLATION_ENDPOINT', 'flashnext')
+    monkeypatch.setenv('NOVEL_H3_REQUEST_CHECK_ENDPOINT', 'flashnext')
+    monkeypatch.setenv('SECOND_REVIEW_JUDGE', 'deepseek')
+    monkeypatch.setattr(confirmed, 'clip_frames', lambda *a: [tmp_path / 'frame.jpg'])
+    monkeypatch.setattr(confirmed, 'image_part', lambda *a: {'type': 'image'})
+    seen = {}
+
+    def ask(parts, schema, **kwargs):
+        seen['settings'] = kwargs['settings']
+        return {'observations': ['一个人'], 'checks': [
+            {'criterion': '一个人', 'scope': 'visual', 'met': True, 'evidence': '同框一个人'}]}
+
+    monkeypatch.setattr(confirmed, 'ask_json', ask)
+    answer = confirmed.judge_finding({}, tmp_path / 'video.mp4',
+                                    {'instruction': '同框一个人'}, tmp_path / 'frames')
+    assert answer['result'] == 'resolved'
+    assert seen['settings'].model == 'DeepSeek-V4.1-Flash'
+    assert seen['settings'].endpoints == ('http://172.28.4.52:8831/v1',)
+
+
 def test_a_finding_is_not_rejudged_on_the_take_it_was_confirmed_on(tmp_path, monkeypatch):
     """ch12-1 clip_19/20 (2026-09-26): re-judging the confirmed frames cleared two human-confirmed findings."""
     d,clips,rows=fixture_episode(tmp_path)

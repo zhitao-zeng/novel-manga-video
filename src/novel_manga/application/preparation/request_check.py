@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from novel_manga.application.configuration import h3_translation_endpoint
+from novel_manga.application.configuration import h3_request_check_endpoint
 from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import read_json, atomic_write_json
 
-POLICY = 'request-reference-v6-final-request'
+POLICY = 'request-reference-v8-scene-roles'
 STABLE_ASPECTS = {'identity', 'appearance', 'wearing', 'object'}
 SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'maxLength': 240}},
               'findings': {'type': 'array', 'items': obj({
@@ -21,10 +21,11 @@ SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'max
                   'reason': {'type': 'string', 'maxLength': 240}})}})
 
 
-def interpret(answer, lines, picture_count):
+def interpret(answer, lines, picture_count, *, references=()):
     if 'findings' not in answer:
         raise ValueError('request check did not return scoped findings')
     problems, ignored = [], []
+    location_pictures = {r['picture'] for r in references if r.get('role') == 'location'}
     for finding in answer['findings']:
         if finding.get('relation') not in {'contradiction', 'underspecified', 'compatible'}:
             raise ValueError('request check did not classify the relation between current facts')
@@ -32,8 +33,10 @@ def interpret(answer, lines, picture_count):
             continue
         # A reference card supplies stable identity/design, not a pose or camera. Generic style
         # and shot-size preferences are not a reason to rewrite an authored scene in this gate.
-        if (finding['aspect'] in {'style', 'camera'} or not finding['subject_specific']
-                or (finding['basis'] == 'reference' and finding['aspect'] not in STABLE_ASPECTS)):
+        if (finding.get('scope_recheck') == 'out_of_scope'
+                or finding['aspect'] in {'style', 'camera'} or not finding['subject_specific']
+                or (finding['basis'] == 'reference' and finding['aspect'] not in STABLE_ASPECTS
+                    and not (finding['aspect'] == 'space' and finding['picture'] in location_pictures))):
             ignored.append(finding)
             continue
         if not finding['lines'] or any(type(i) is not int or not 1 <= i <= len(lines) for i in finding['lines']):
@@ -44,6 +47,47 @@ def interpret(answer, lines, picture_count):
                         + (f"；图{finding['picture']}" if finding['basis'] == 'reference' else '') + '）')
     return {'policy': POLICY, 'observations': answer.get('observations', []), 'consistent': not problems,
             'problems': problems, 'findings': answer['findings'], 'out_of_scope': ignored}
+
+
+def recheck_scope(answer, lines, legend):
+    """Verify what a reported conflict compares before treating its labels as authoritative."""
+    candidates = [(i, row) for i, row in enumerate(answer.get('findings', []))
+                  if row.get('relation') == 'contradiction']
+    if not candidates:
+        return answer
+    prompt = ('复核输入检查器报告的冲突范围，不重新判断图片内容，也不审查尚未生成的视频。'
+              '报告的aspect/basis标签可能标错，必须依据reason描述的两项事实和原始请求行重新判断。'
+              '角色参考只提供稳定身份、身体结构和服装设计；站坐、手部姿势、手中临时道具、背景、'
+              '没有正在抽烟或喝酒，都不能限制导演安排的新动作。角色图站着而分镜坐着是out_of_scope，'
+              '不是appearance冲突；图里没有临时手持道具不等于导演不能让角色拿起它。'
+              '普通场景参考图提供地形、建筑和固定结构，不是成片的全量物体清单或带人物的起始帧。'
+              '导演在场景中安排人群、临时篝火、食物等可移动物件，不因参考图里没有就构成矛盾。'
+              '临时群众和无专用参考图的道具允许用正文描述，不要求每个对象都注册成Subject。'
+              'fully_preserved按主体定义中的参考用途解释，不把背景图缺少群众当成禁止群众入镜。'
+              '场景建筑或室内室外的明确冲突、角色缺少明确指定服饰、物件设计相反仍是in_scope。'
+              'basis=request需要两条实际请求约束互相矛盾；身份定义没写坐姿不是坐姿指令的反面。'
+              '按阶段先后允许换姿势与移动，不把不同时间的状态强制同时发生。'
+              '无法确定范围则uncertain，不擅自放行。每个id回答一次，给出理由。\n'
+              + json.dumps({'references': legend, 'request_lines': lines,
+                            'findings': [{'id': i, **row} for i, row in candidates]}, ensure_ascii=False))
+    schema = obj({'checks': {'type': 'array', 'items': obj({
+        'id': {'type': 'integer'}, 'scope': {'type': 'string', 'enum': ['in_scope', 'out_of_scope', 'uncertain']},
+        'reason': {'type': 'string', 'maxLength': 240}})}})
+    try:
+        checked = ask_json([{'type': 'text', 'text': prompt}], schema,
+            name='request_conflict_scope', max_tokens=1200, timeout=180, settings=h3_request_check_endpoint())
+        rows = checked.get('checks') or []
+        if len(rows) != len(candidates) or {r.get('id') for r in rows} != {i for i, _ in candidates}:
+            return {**answer, 'scope_check': {'error': 'incomplete scope recheck'}}
+    except Exception as error:
+        return {**answer, 'scope_check': {'error': type(error).__name__}}
+    import copy
+    revised = copy.deepcopy(answer)
+    for row in rows:
+        if row['scope'] == 'out_of_scope':
+            revised['findings'][row['id']]['scope_recheck'] = 'out_of_scope'
+    revised['scope_check'] = checked
+    return revised
 
 
 def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
@@ -72,6 +116,9 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
               '有明确穿戴关系和对应装备参考时可覆盖基础衣物；明确的穿脱、面罩开合按本镜事件执行，'
               '不能把参考卡上的坐站、机位、面罩默认状态强加给视频；头部被裁切不算缺脸。'
               '场景参考可有空间，不能因为人物参考卡背景有椅子就要求每镜坐着。'
+              '普通场景图仅约束地形、建筑和固定结构；导演可添加剧情所需的群众、篝火、食物等临时物体，'
+              '也可安排当前光线变化。参考图没有这些内容不表示禁止出现。'
+              'Subject标签用于绑定参考主体，不是所有可入镜对象的封闭名单；正文可描述无专用参考图的临时群众。'
               '核对同一个人是否同时在过肩前景和背景、画外与画内是否冲突、起止状态与动作是否矛盾、'
               '穿戴物是否被额外当成一个身体、取消动作后是否还留有对应动作声。'
               '同款机甲既被穿戴又作为剧情明确要求的独立空甲是合法的，按本镜人数和物件用途判断。'
@@ -101,11 +148,15 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
     schema['properties']['findings']['items']['properties']['lines']['items']['maximum'] = max(1, len(lines))
     schema['properties']['findings']['items']['properties']['picture']['maximum'] = len(paths)
     answer = ask_json(parts, schema, name='repair_request_consistency', max_tokens=1600,
-                      settings=h3_translation_endpoint())
-    return interpret(answer, lines, len(paths))
+                      settings=h3_request_check_endpoint())
+    answer = recheck_scope(answer, lines, legend)
+    result = interpret(answer, lines, len(paths), references=legend)
+    if 'scope_check' in answer:
+        result['scope_check'] = answer['scope_check']
+    return result
 
 
-def cached_consistency(novel_dir, work, clip, request):
+def cached_consistency(novel_dir, work, clip, request, *, require_cached=False):
     """Same request and reference contents reuse this expensive check; a seed change alone does not rerun it."""
     inputs = {'policy': POLICY, 'chinese': clip.get('prompt', ''), 'english': request['prompt'],
               'references': request['references'], 'reference_sha256': request.get('reference_sha256'),
@@ -119,12 +170,18 @@ def cached_consistency(novel_dir, work, clip, request):
     old_inputs, old_answer = saved.get('inputs', {}), saved.get('answer', {})
     if (answer is None and old_inputs.get('policy') in {'request-reference-v1', 'request-reference-v2-scoped-evidence',
                                                      'request-reference-v3-scoped-evidence',
-                                                     'request-reference-v4-current-input-only', 'request-reference-v5-explicit-contradictions'}
+                                                     'request-reference-v4-current-input-only', 'request-reference-v5-explicit-contradictions',
+                                                     'request-reference-v7-scope-recheck'}
             and {**old_inputs, 'policy': POLICY} == inputs
-            and old_answer.get('consistent') is True and not old_answer.get('problems')):
+            and old_answer.get('consistent') is True and not old_answer.get('problems')
+            and not any(f.get('basis') == 'reference' and f.get('aspect') == 'space'
+                        and f.get('relation') == 'contradiction'
+                        for f in old_answer.get('findings', []))):
         answer = {**old_answer, 'policy': POLICY, 'reused_from': old_inputs['policy']}
         atomic_write_json(path, {'inputs': inputs, 'answer': answer})
     if answer is None:
+        if require_cached:
+            raise ValueError('prepared request is stale; return clip to standard preparation')
         answer = request_consistency(clip, novel_dir, request=request)
         atomic_write_json(path, {'inputs': inputs, 'answer': answer})
     return answer
@@ -140,7 +197,8 @@ def current_request(directory, clip):
 
 
 def before_generation(ctx, clip, request):
-    answer = cached_consistency(ctx.novel_dir, ctx.work, clip, request)
+    answer = cached_consistency(ctx.novel_dir, ctx.work, clip, request,
+                                require_cached=getattr(ctx, 'prepared_requests_only', False))
     if answer.get('consistent') is not True or answer.get('problems'):
         problems = answer.get('problems') or ['请求与参考图未得到一致结论']
         ctx._blocked_clips[clip['clip_id']] = ['request: ' + p for p in problems]

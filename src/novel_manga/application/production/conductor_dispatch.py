@@ -8,6 +8,16 @@ import novel_manga.application.production.conductor_state as conductor_state
 import novel_manga.application.production.conductor_workers as conductor_workers
 
 def range_finished(conductor, r: dict, stats: dict) -> bool:
+    if getattr(conductor, 'workspaces', None):
+        from .workspaces import busy
+        if any(busy(conductor.workspaces[str(n)]) for n in range(r['a'],r['b']+1)):
+            return False
+    if getattr(conductor,'workspaces',None) and any(
+            lane['range'] and list(lane['range']) == [r['a'],r['b'],r['plan_mode']]
+            and any(conductor_workers.alive(conductor, worker) for worker in conductor.procs
+                    if worker == 'lane_'+name or worker.startswith('lane_'+name+'_'))
+            for name,lane in conductor.lanes.items()):
+        return False
     blocks_done = all(b["done"] for b in conductor.blocks if b["a"] >= r["a"] and b["b"] <= r["b"])
     batch = conductor_workers.external_running(conductor, f"--chapters {r['a']}-{r['b']} --stage render", r["plan_mode"])
     return blocks_done and not stats["renderable"] and not batch
@@ -39,8 +49,13 @@ def tick_lanes(conductor, stats: dict[int, dict]) -> None:
             current = pick
             conductor.log(f"{name}: takes range {pick['a']}-{pick['b']} (plan mode {pick['plan_mode']} s)")
             ensure_prepass(conductor, pick)
+        if getattr(conductor, 'workspaces', None):
+            refill_first_pass(conductor, name, key, current, stats[id(current)])
+            continue
         if not conductor_workers.alive(conductor, f"lane_{name}") and now >= lane["next_round_at"]:
             r = current
+            if getattr(conductor,'workspaces',None) and not stats[id(r)]['renderable']:
+                continue
             if conductor_workers.external_running(conductor, f"--chapters {r['a']}-{r['b']} --stage render", r["plan_mode"]):
                 continue  # a lane started outside the conductor is still on this range: adopt, do not duplicate
             command = [conductor_common.PY, str(conductor_common.SCRIPTS / "thin_batch.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", f"{r['a']}-{r['b']}",
@@ -49,13 +64,45 @@ def tick_lanes(conductor, stats: dict[int, dict]) -> None:
                        # render.prescreen: the local Qwen scores each prompt for content-filter risk and softens the
                        # wording before the first submission (worth it now that planning no longer queues on Qwen).
                        *([] if conductor.cfg.get("render", {}).get("prescreen") else ["--no-prescreen"]), "--prune"]
+            if getattr(conductor,'workspace_index',None):
+                command += ['--workspace-index',conductor.workspace_index,'--first-pass','--no-recurring-cards']
             conductor_workers.spawn(conductor, f"lane_{name}", command, conductor_workers.key_env(conductor, key))
             lane["next_round_at"] = now + conductor.cfg.get("round_gap_seconds", 120)
         elif not conductor_workers.alive(conductor, f"lane_{name}"):
             pass  # between rounds
 
 
+def refill_first_pass(conductor, name, key, r, stats):
+    """Each completed chapter frees its worker immediately; other chapters keep running."""
+    from .workspaces import current
+    # A range-sized worker from the previous release owns its remaining chapters until drained.
+    if conductor_workers.alive(conductor, f'lane_{name}') or conductor_workers.external_running(
+            conductor, f"--chapters {r['a']}-{r['b']} --stage render", r['plan_mode']):
+        return
+    active = {int(worker.rsplit('_', 1)[1]) for worker in conductor.procs
+              if worker.startswith(f'lane_{name}_') and conductor_workers.alive(conductor, worker)}
+    for n in range(r['a'], r['b']+1):
+        receipt = current(conductor.workspaces[str(n)]) or {}
+        if receipt.get('status') == 'rendering':
+            active.add(n)  # preserve workers inherited from a previous conductor
+    for n in stats['renderable']:
+        if len(active) >= int(key['parallel']):
+            break
+        if n in active or conductor_workers.external_running(conductor, f'--chapters {n}-{n} --stage render', r['plan_mode']):
+            active.add(n)
+            continue
+        command = [conductor_common.PY, str(conductor_common.SCRIPTS/'thin_batch.py'),
+            '--novel-dir', str(conductor.novel_dir), '--chapters', f'{n}-{n}', '--stage', 'render',
+            '--merge', '1', '--parallel', '1', '--workers', '0', '--inflight', str(key['inflight']['max']),
+            '--plan-mode', str(r['plan_mode']), '--no-prescreen', '--prune',
+            '--workspace-index', conductor.workspace_index, '--first-pass', '--no-recurring-cards']
+        conductor_workers.spawn(conductor, f'lane_{name}_{n}', command, conductor_workers.key_env(conductor, key))
+        active.add(n)
+
+
 def ensure_prepass(conductor, r: dict) -> None:
+    if getattr(conductor,'workspaces',None):
+        return  # Existing bulk asset worker plus the native preparation stage own selected cards.
     name = f"prepass_{r['a']}_{r['b']}"
     if conductor_workers.alive(conductor, name):
         return
@@ -122,6 +169,9 @@ def tick_planning(conductor, congested: bool) -> None:
     plan_cfg = conductor.cfg["planning"]
     now = time.time()
     for block in conductor.blocks:
+        if (block['done'] and getattr(conductor,'workspaces',None)
+                and not all(conductor_state.settled(conductor,n) for n in range(block['a'],block['b']+1))):
+            block['done']=False
         if block["done"]:
             continue
         chapters = range(block["a"], block["b"] + 1)
@@ -159,11 +209,21 @@ def tick_planning(conductor, congested: bool) -> None:
     if need_read and not conductor_workers.alive(conductor, "story_pass"):
         a, b = read_upto + 1, max(x["b"] for x in conductor.blocks)
         conductor_workers.spawn(conductor, "story_pass", [conductor_common.PY, str(conductor_common.SCRIPTS / "story_pass_thin.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", f"{a}-{b}"])
+    stock = 0
+    if getattr(conductor,'workspaces',None):
+        from .workspaces import chapter as workspace_chapter
+        stock=sum(workspace_chapter(row)['ready_clips'] for row in conductor.workspaces.values())
     for block in pending:
         if len(active) >= target:
             break
         if read_upto < min(block["b"], block["a"] + plan_cfg["margin"]):
             continue
+        if getattr(conductor,'workspaces',None):
+            from .workspaces import busy, chapter as workspace_chapter
+            if any(busy(conductor.workspaces[str(n)]) for n in range(block['a'],block['b']+1)):
+                continue
+            if stock >= int(plan_cfg.get('ready_buffer_clips',100)):
+                break
         name = f"plan_{block['a']}_{block['b']}"
         if conductor_workers.external_running(conductor, f"--chapters {block['a']}-{block['b']} --stage plan"):
             active.append(block)  # planned outside the conductor (e.g. left from a restart): counts toward the target
@@ -173,6 +233,9 @@ def tick_planning(conductor, congested: bool) -> None:
             continue  # every planning server is full; try again next tick
         command = [conductor_common.PY, str(conductor_common.SCRIPTS / "thin_batch.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", f"{block['a']}-{block['b']}",
                    "--stage", "plan", "--merge", "1", "--max-redo", "2", "--volume-size", "50", "--no-grow-bible"]
+        if getattr(conductor,'workspace_index',None):
+            command[command.index('--stage')+1]='prepare'
+            command += ['--workspace-index',conductor.workspace_index,'--first-pass','--no-recurring-cards']
         if block.get("min_seconds"):
             command += ["--min-seconds", str(block["min_seconds"])]
         # A server's slots are filled by blocks, one chapter at a time each: thin_batch now honours
@@ -187,6 +250,10 @@ def tick_planning(conductor, congested: bool) -> None:
 
 
 def tick_review(conductor, waiting: int, stats: dict[int, dict]) -> None:
+    if getattr(conductor,'workspaces',None):
+        from . import batch_review
+        batch_review.tick(conductor,stats,waiting)
+        return
     if conductor_workers.alive(conductor, "review") or waiting > conductor.cfg["qwen"].get("waiting_low", 5) or conductor_workers.external_running(conductor, "--stage render --review-only"):
         return
     todo = [n for r in conductor.ranges for n in stats[id(r)]["unreviewed"]][:60]

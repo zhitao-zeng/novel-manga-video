@@ -145,6 +145,10 @@ def remediate_cards(novel_dir: Path, report: dict) -> dict:
     from novel_manga.media.asset_repair import stylize_card
     from novel_manga.application.profiles import frame_spec, load_profile
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
+    # This helper only redraws near-photoreal character cards. Location redraws
+    # return to the asset factory, where the per-kind route remains explicit.
+    from dataclasses import replace
+    settings = replace(settings, local_image_base_url=None)
     provider = FramedPhanRouter(settings, frame_spec(load_profile(novel_dir)))
     assets = novel_dir / "series_assets"
     done = {"stylized": [], "deleted": [], "already_tried": [], "in_use": []}

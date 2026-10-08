@@ -25,27 +25,32 @@ def publication_pending(directory: Path) -> bool:
     return bool((read(directory / "thin_media_report.json", {}).get("assembly") or {}).get("pending_publish"))
 
 
+def precise_review_blockers(review: dict, takes: dict, expected: list[str]) -> list[str]:
+    """Selected clips rejected by the existing precise publication contract."""
+    blocked = []
+    for cid in expected:
+        row, current = (review.get("clips") or {}).get(cid) or {}, takes.get(cid) or {}
+        verdict = row.get("verify") or {}
+        if (not current or row.get("video") != current.get("video") or row.get("take") != current.get("take")
+                or verdict.get("verdict") not in {"fine", "subtle"} or any(verdict.get(k) for k in ERROR_FIELDS)
+                or row.get("story_ok") is False or row.get("technical") or row.get("flash_pending")):
+            blocked.append(cid)
+    return blocked
+
+
 def publish_if_ready(directory: Path, review: dict, takes: dict) -> bool:
-    from novel_manga.application.production.runs import REVIEW_POLICY, episode_status
+    from novel_manga.application.production.runs import episode_status
+    from novel_manga.review.contracts import current_review
     media = read(directory / "thin_media_report.json", {})
     assembly = media.get("assembly") or {}
     if not assembly.get("pending_publish") or episode_status(directory, True) != "done":
         return False
-    if review.get("policy") != REVIEW_POLICY or review.get("feedback"):
+    if not current_review(review,'verify') or review.get("feedback"):
         return False
     plan = read(directory / "clip_plan.json", {})
     expected = [c["clip_id"] for c in plan.get("clips", []) if c.get("kind") == "video"]
-    if not expected:
+    if not expected or precise_review_blockers(review, takes, expected):
         return False
-    for cid in expected:
-        row, current = (review.get("clips") or {}).get(cid) or {}, takes.get(cid) or {}
-        verdict = row.get("verify") or {}
-        if not current or row.get("video") != current.get("video") or row.get("take") != current.get("take"):
-            return False
-        if verdict.get("verdict") not in {"fine", "subtle"} or any(verdict.get(k) for k in ERROR_FIELDS):
-            return False
-        if row.get("story_ok") is False or row.get("technical") or row.get("flash_pending"):
-            return False
     candidate = Path(assembly["final_video"])
     if candidate.parent != directory / CANDIDATE_DIR or not candidate.is_file():
         return False

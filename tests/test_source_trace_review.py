@@ -42,7 +42,7 @@ def test_restored_source_rechecks_once_but_reuses_current_video_observations(tmp
     (directory/'segments.json').write_text(json.dumps([{'segment_id': 's1', 'text': '原文有司机。'}]))
     (directory/'thin_media_report.json').write_text(json.dumps({'clips': [{'clip_id': 'c1', 'selected': {'video': str(video)}}]}))
     raw = {'policy': cast_video.POLICY, 'people': ['甲', '司机']}
-    old = {'policy': contracts.POLICY, 'clips': {'c1': {'severity': 'pass', 'video': str(video),
+    old = {'policy': contracts.POLICY, 'review_mode':'classic', 'clips': {'c1': {'severity': 'pass', 'video': str(video),
            'take': storage.take_identity(video), 'verify': {'cast_video': raw}}}, 'feedback': {}}
     (directory/'episode_review.json').write_text(json.dumps(old))
     monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO', '1')

@@ -17,6 +17,8 @@ import novel_manga.planning.audit as pc_audit
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", required=True, help="outputs/<novel-id> created by build_bible_thin.py")
+    parser.add_argument('--workspace-index', help='registered chapters mapped to existing isolated episode books')
+    parser.add_argument('--first-pass', action='store_true', help='generate only missing first videos; review is independent')
     parser.add_argument("--chapters", default="1", help='e.g. "1", "2-10", "1,3,5-7"')
     parser.add_argument("--source", help="novel text; defaults to the path recorded in novel.json")
     parser.add_argument("--title", help="cover title; defaults to novel.json")
@@ -60,6 +62,8 @@ def main() -> int:
                         help="渲染前不做结构检查（地点有没有描写、镜头的地点和角色在不在圣经里、时长在不在 4–15 秒）")
     parser.add_argument("--dry-run", action="store_true", help="print what would run and exit")
     args = parser.parse_args()
+    if args.first_pass and not args.workspace_index:
+        parser.error('--first-pass requires --workspace-index')
     if args.review_only:
         # This option selects an operation, not merely a reporting preference.
         # It wins over --unattended and the default --stage all.
@@ -72,7 +76,7 @@ def main() -> int:
     chapters = production_common.parse_chapters(args.chapters)
     batch.rows = {chapter: {} for chapter in chapters}
     production_common.log(f"{batch.novel_id}: chapters {chapters[0]}..{chapters[-1]} ({len(chapters)}), stage {args.stage}, source {batch.source.name}")
-    if args.audit and not args.dry_run and not args.no_render and args.stage in ("all", "render"):
+    if args.audit and not getattr(batch,'workspaces',None) and not args.dry_run and not args.no_render and args.stage in ("all", "render"):
         problems = pc_audit.blocking_problems(batch.novel_dir)
         for problem in problems:
             production_common.log(f"审查不通过 · {problem.where} · {problem.rule}：{problem.detail}")
@@ -86,17 +90,32 @@ def main() -> int:
         if not args.dry_run and any(batch.plan_status(ch) != "planned" or args.replan for ch in chapters):
             batch.check_qwen()
         batch.plan_stage(chapters)
+    if args.stage == 'prepare':
+        if not batch.workspaces:
+            parser.error('--stage prepare requires --workspace-index')
+        from .workspaces import prepare
+        with ThreadPoolExecutor(max_workers=max(1, args.plan_parallel)) as pool:
+            futures = {n: pool.submit(prepare, batch, n) for n in chapters}
+            for n, future in futures.items():
+                answer = future.result()
+                batch.rows[n].update(preparation=answer['status'], note=answer.get('error', ''))
+                production_common.log(f'ch{n}: preparation {answer["status"]}')
+        return 0
     if args.stage == "assets":
         batch.assets(chapters)
     if args.stage == "render":
+        if args.first_pass:
+            from .workspaces import chapter as workspace_chapter
+            chapters=[n for n in chapters if workspace_chapter(batch.workspaces[str(n)])['ready']]
         if args.plan_mode and not args.no_render:
             def clip_plan_mode(chapter: int) -> int | None:
                 path = batch.episode_dir(chapter) / "clip_plan.json"
                 try:
-                    policy = str(json.loads(path.read_text(encoding="utf-8")).get("policy", ""))
+                    plan = json.loads(path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     return None
-                return 15 if policy.endswith("-15s") else 30
+                from .runs import clip_plan_mode as mode_of
+                return mode_of(plan)
             wrong = [ch for ch in chapters if clip_plan_mode(ch) not in (None, args.plan_mode)]
             if wrong:
                 production_common.log(f"skipping {len(wrong)} episodes planned for the other clip length: {wrong[:8]}"
@@ -129,4 +148,6 @@ def main() -> int:
                 except Exception as error:  # noqa: BLE001
                     batch.rows[chapter]["note"] = f"render thread failed: {type(error).__name__}: {str(error)[:120]}"
                     production_common.log(f"ch{chapter}: render thread failed ({type(error).__name__}: {str(error)[:120]})")
+    if args.first_pass:
+        return 0  # Per-episode production receipts distinguish ready/blocked from film acceptance.
     return production_reports.report(batch, chapters)

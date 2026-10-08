@@ -92,6 +92,23 @@ def test_patch_batches_share_time_and_stop_before_another_request(monkeypatch):
     assert results[-2]['draft']['clips'][0]['stages'][8:] == raw['clips'][0]['stages'][8:]
 
 
+def test_patch_batches_exclude_shared_model_queue_from_the_total_budget(monkeypatch,tmp_path):
+    from novel_manga.resource_waits import QueueWait
+    raw=draft(5);clock=[0.0];calls=[]
+    monkeypatch.setenv('NOVEL_RESOURCE_WAIT_FILE',str(tmp_path/'waits.jsonl'))
+    monkeypatch.setattr(requests.time,'monotonic',lambda:clock[0])
+    def ask(parts,schema,**kwargs):
+        calls.append(kwargs['timeout'])
+        with QueueWait('model') as queue:
+            queue.begin();clock[0]+=200
+        clock[0]+=1
+        return response(raw,schema)
+    monkeypatch.setattr('novel_manga.llm.client.ask_json',ask)
+    results=list(requests.patch_batches(raw,[],{f'c1 stage {i}':['需修正'] for i in range(1,6)},
+        SEGMENTS,['主角'],['庭院'],timeout=120,total_timeout=180,ctx=PlannerContext()))
+    assert len(calls)==2 and not any(r.get('failed') for r in results)
+
+
 def test_incomplete_batch_does_not_publish_its_partial_replacements(monkeypatch):
     raw = draft(8)
     calls = []

@@ -12,10 +12,11 @@ import time
 ROOT = project_root()
 
 
-SCRIPTS = ROOT / "scripts"
+CODE = Path(__file__).resolve().parents[4]
+SCRIPTS = CODE / "scripts"
 
 
-PLAN_STAGES = ("plan", "assets", "render")
+PLAN_STAGES = ("plan", "assets", "prepare", "render")
 
 
 MODERATION_MARKERS = (".moderation_replanned", ".moderation_replanned2")  # one generic re-plan, then one naming the refused lines

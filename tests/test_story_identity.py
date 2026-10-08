@@ -56,6 +56,24 @@ def test_ledger_merge_keeps_one_identity_and_both_names(tmp_path):
     assert {'正式名', '旧名字'} <= catalog.by_name['正式名']['forms']
 
 
+def test_merged_lower_id_still_selects_the_surviving_actor_in_saved_reading(tmp_path):
+    from novel_manga.story.identity import canonical_entity
+    novel = book(tmp_path, ('伽兀',))
+    atomic_write_json(novel/'entity/entities.json', [
+        {'id': 'e069', 'canonical': '旧名字', 'merged_into': 'e253'},
+        {'id': 'e253', 'canonical': '伽兀', 'asset_id': 'character_146'}])
+    context = reading({'e253': '伽兀'}, [
+        {'form': '伽兀大师', 'entity_id': 'e069', 'presence': 'on_stage'}],
+        [{'type': 'same_as', 'subject': 'e069', 'object': 'e253'}])
+    context['primary_entities'] = ['e069']
+    assert canonical_entity(context, 'e069') == 'e253'
+    assert source_identity.active_cast_names(context) == {'伽兀'}
+    assert identity_context_thin.effective_aliases(novel, context=context)['伽兀大师'] == '伽兀'
+    catalog = identity_store_thin.load_catalog(novel)
+    row = source_identity.identity_rows(['伽兀'], catalog.bible, '伽兀大师来了。', context, catalog)[0]
+    assert row['entity_id'] == 'e253' and row['source_names'] == ['伽兀大师']
+
+
 def test_contextual_alias_cannot_merge_an_avatar_or_two_owners(tmp_path):
     novel = book(tmp_path, ('本体', '分身'))
     atomic_write_json(novel / 'bible_aliases.json', {'分身': '本体', '先生': '本体'})

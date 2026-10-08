@@ -26,6 +26,21 @@ def test_agent_cannot_change_locked_request_parts(before,after):
     with pytest.raises(ValueError):agent.validate_prompt(c,c['prompt_h3'].replace(before,after))
 
 
+def test_repair_can_add_duration_matching_saved_shot_timing():
+    c = example()
+    c['shot_timing'] = [{'stage': 1, 'seconds': 5}]
+    replacement = c['prompt_h3'].replace('[Shot 1]', '[Shot 1] Planned duration: 5 seconds.')
+    agent.validate_prompt(c, replacement)
+
+
+def test_repair_cannot_add_duration_different_from_saved_shot_timing():
+    c = example()
+    c['shot_timing'] = [{'stage': 1, 'seconds': 5}]
+    replacement = c['prompt_h3'].replace('[Shot 1]', '[Shot 1] Planned duration: 6 seconds.')
+    with pytest.raises(ValueError):
+        agent.validate_prompt(c, replacement)
+
+
 def configured(tmp_path):
     d,clips,review=fixture_episode(tmp_path)
     for c in clips:
@@ -157,3 +172,10 @@ def test_definition_self_reference_preserves_binding_but_other_tags_remain_locke
     with pytest.raises(ValueError, match='subject_definitions'):
         crossed = first + ' It follows <Subject 2>.' + separator + rest
         agent.validate_prompt(c, c['prompt_h3'].replace(old, crossed))
+
+
+def test_repair_accepts_fullwidth_compiled_dialogue_punctuation():
+    c = example()
+    agent.validate_prompt(c, c['prompt_h3'].replace('你好.', '你好。'))
+    with pytest.raises(ValueError):
+        agent.validate_prompt(c, c['prompt_h3'].replace('你好.', '你好？'))

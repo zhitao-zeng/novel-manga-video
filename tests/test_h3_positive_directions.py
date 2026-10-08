@@ -40,19 +40,20 @@ def test_complete_six_sections_are_affirmative_and_keep_identity_voice_counts(fa
     assert '<Audio 1> is the voice-timbre reference for <Subject 1> (S1)' in text
     assert 'audience-only private thought in their own voice' in text and 'jaw stays still' in text
     assert 'When visible in a shot, exactly one <Subject 1> is present' in text
-    assert 'wearer and worn garment form one body' in text
+    assert 'wearer and worn item form one body' in text
     assert '<Subject 3>: fully_preserved - the prop design' in text
     assert 'overall_soundscape:\nNone.' in text and 'non_diegetic_music:\nNone.' in text
     assert all(f'{section}:\n' in text for section in ['subject_definitions', 'summary', 'retention_analysis',
                                                      'detailed_description', 'overall_soundscape', 'non_diegetic_music'])
 
 
-def test_all_sections_and_cached_final_request_use_the_shared_shape_check():
+def test_all_sections_keep_style_advice_separate_from_request_failures():
     clean = compose({'request_seconds': 4, 'references': []}, ['The door remains closed.'], [('', [])])
     for section in ['subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
                     'overall_soundscape', 'non_diegetic_music']:
         dirty = clean.replace(section + ':\n', section + ':\nAvoid sparks. ')
-        assert 'Write affirmative visible facts.' in request_issues({'prompt_h3': dirty})
+        assert positive_direction_issues(dirty) == ['Write affirmative visible facts.']
+        assert request_issues({'prompt_h3': dirty}) == []
 
 
 def test_shared_authoring_rules_and_crowd_reference_are_affirmative():
@@ -63,9 +64,10 @@ def test_shared_authoring_rules_and_crowd_reference_are_affirmative():
     assert positive_direction_issues(text) == [] and 'for 2 distinct unnamed supporting people' in text
 
 
-def test_negative_style_input_is_preserved_as_evidence_and_rejected():
+def test_negative_style_input_is_preserved_as_evidence_and_advice():
     clip = {'request_seconds': 4, 'render_family': '2d', 'references': [],
             'h3_style_line': 'No 3D rendering.'}
     text = compose(clip, ['The closed door fills the frame.'], [('', [])])
     assert 'No 3D rendering.' in text  # compilation does not silently cut a supplied condition
-    assert request_issues({**clip, 'prompt_h3': text}) == ['Write affirmative visible facts.']
+    assert positive_direction_issues(text) == ['Write affirmative visible facts.']
+    assert request_issues({**clip, 'prompt_h3': text}) == []

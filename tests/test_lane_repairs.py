@@ -438,11 +438,11 @@ def test_a_review_the_judge_could_not_finish_goes_back_in_the_queue(tmp_path):
     directory = episode(tmp_path)
     write_report(directory, write_plan(directory, [video_clip()]))
     review = directory / "episode_review.json"
-    review.write_text(json.dumps({"policy": thin_runs.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}}), encoding="utf-8")
+    review.write_text(json.dumps({"policy": thin_runs.REVIEW_POLICY, "review_mode":"classic", "clips": {"clip_01": {"severity": "review_error"}}}), encoding="utf-8")
     later(review, 5)
     c = conductor(tmp_path)
     assert conductor_state.chapter(c, 1)["unreviewed"]
-    review.write_text(json.dumps({"policy": thin_runs.REVIEW_POLICY, "clips": {"clip_01": {"severity": "review_error"}}, "error_rounds": 3}), encoding="utf-8")
+    review.write_text(json.dumps({"policy": thin_runs.REVIEW_POLICY, "review_mode":"classic", "clips": {"clip_01": {"severity": "review_error"}}, "error_rounds": 3}), encoding="utf-8")
     later(review, 10)
     assert not conductor_state.chapter(c, 1)["unreviewed"]
 
@@ -460,7 +460,7 @@ def test_a_resumed_review_judges_again_only_the_clips_it_failed_on(tmp_path, mon
     (directory / "thin_media_report.json").write_text(json.dumps({"clips": [
         {"clip_id": cid, "selected": {"video": str(path), "hypothesis": ""}} for cid, path in videos.items()]}), encoding="utf-8")
     review = directory / "episode_review.json"
-    review.write_text(json.dumps({"policy": review_contracts.POLICY, "clips": {
+    review.write_text(json.dumps({"policy": review_contracts.POLICY, "review_mode":"classic", "clips": {
         "clip_01": {"video": str(videos["clip_01"]), "take": review_storage.take_identity(videos["clip_01"]), "severity": "pass"},
         "clip_02": {"video": str(videos["clip_02"]), "severity": "review_error", "error": "ReadTimeout"}}}), encoding="utf-8")
     later(review, 5)

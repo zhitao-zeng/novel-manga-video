@@ -25,7 +25,8 @@ def short_of(full: str) -> str:
 
 
 def offered_locations(locations: list[str], *, chapter: int, named_here: Callable[[str], bool],
-                      recent: set[str], added_at: dict[str, int], window: int) -> list[str]:
+                      recent: set[str], added_at: dict[str, int], window: int,
+                      read_here: set[str] = frozenset()) -> list[str]:
     """The bible locations this chapter may be planned in.
 
     A location with no bible_growth record came from the base bible, which is built from the opening
@@ -35,6 +36,7 @@ def offered_locations(locations: list[str], *, chapter: int, named_here: Callabl
     known = [full for full in locations if added_at.get(short_of(full), BASE_CHAPTER) <= chapter]
     offered = [full for full in known
                if named_here(short_of(full))
+               or short_of(full) in read_here
                or short_of(full) in recent
                or added_at.get(short_of(full), BASE_CHAPTER) == BASE_CHAPTER
                or chapter - window <= added_at[short_of(full)] <= chapter]

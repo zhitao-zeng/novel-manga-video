@@ -109,11 +109,11 @@ def test_two_views_of_one_actor_are_one_subject_with_two_pictures():
     assert subject_map(clip) == {'梁舟': 1, '阿岚': 2}
     assert [n for n, _ in character_pictures(clip)['梁舟']] == [1, 2]
     defs, _ = subject_lines(clip)
-    assert defs[0].startswith('<Subject 1> is the person shown in <Picture 1> and <Picture 2>.')
+    assert defs[0].startswith('<Subject 1> is the subject shown in <Picture 1> and <Picture 2>.')
     # each picture keeps its own job: the bust stops at the collar and cannot answer for a costume
     assert 'face, hair, age and skin tone from <Picture 2>' in defs[0]
     assert 'body proportions, garment cut, main colours and accessories from <Picture 1>' in defs[0]
-    assert sum('is the person shown' in d for d in defs) == 2  # scenes also have Subject labels
+    assert sum('is the subject shown' in d for d in defs) == 2  # scenes also have Subject labels
     assert any(d.startswith('<Subject 3> is the setting') for d in defs)
 
 
@@ -132,7 +132,7 @@ def test_a_single_view_clip_is_worded_exactly_as_before():
     clip = scene_clip(render_family='2d')
     defs, subjects = subject_lines(clip)
     assert subjects == {'梁舟': 1}
-    assert defs[0].startswith('<Subject 1> is the person shown in <Picture 1>.')
+    assert defs[0].startswith('<Subject 1> is the subject shown in <Picture 1>.')
     assert not request_issues({**clip, 'prompt_h3': compose(clip, ['<Subject 1> waits.'], stages_of(PROMPT))})
 
 

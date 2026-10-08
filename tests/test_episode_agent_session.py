@@ -17,7 +17,7 @@ def config(monkeypatch):
             "model": "configured-model", "key_var": "EPISODE_MODEL_KEY", "effort": "medium"}
 
 
-def fake_cli(monkeypatch, work_dir, *, outputs=None, code=0):
+def fake_cli(monkeypatch, work_dir, *, outputs=None, code=0, result=None):
     calls = []
 
     def call(command, *, stdout, stderr, env):
@@ -28,6 +28,8 @@ def fake_cli(monkeypatch, work_dir, *, outputs=None, code=0):
         transcript.parent.mkdir(parents=True, exist_ok=True)
         transcript.write_text('{"type":"user"}\n', encoding="utf-8")
         stdout.write(json.dumps({"type": "system", "subtype": "init", "session_id": identity}) + "\n")
+        if result:
+            stdout.write(json.dumps(result) + '\n')
         for name, value in (outputs or {}).items():
             path = work_dir / "output" / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,6 +38,30 @@ def fake_cli(monkeypatch, work_dir, *, outputs=None, code=0):
 
     monkeypatch.setattr(session.subprocess, "call", call)
     return calls
+
+
+def test_cli_turn_limit_is_recorded_as_resumable_without_claiming_success(tmp_path, monkeypatch, config):
+    work = tmp_path/'episode'
+    calls = fake_cli(monkeypatch, work, code=1, result={
+        'type': 'result', 'subtype': 'error_max_turns', 'is_error': True, 'num_turns': 16})
+    result = session.run_session(work, 'Draft', config={**config, 'max_turns': 16})
+    command, _ = calls[0]
+    assert command[command.index('--max-turns')+1] == '16'
+    assert result.ok is False and result.record['turn_limit_reached'] is True
+    assert result.record['num_turns'] == 16
+    first_id = result.record['session_id']
+    calls = fake_cli(monkeypatch, work)
+    session.run_session(work, 'Continue', config=config, resume=True)
+    assert calls[0][0][calls[0][0].index('--resume')+1] == first_id
+
+
+def test_summary_completion_is_recorded_without_treating_it_as_work(tmp_path,monkeypatch,config):
+    work=tmp_path/'episode'
+    fake_cli(monkeypatch,work,result={'type':'result','subtype':'success',
+        'result':'<analysis>Conversation history.</analysis><summary>Pending task: apply repair.</summary>'})
+    result=session.run_session(work,'Continue',config=config)
+    assert result.record['summary_only'] is True
+    assert result.produced==[]
 
 
 def test_initial_session_uses_configured_model_only_workspace_and_file_tools(tmp_path, monkeypatch, config):
@@ -82,6 +108,71 @@ def test_repair_resumes_same_session_and_keeps_prior_output_versions(tmp_path, m
     assert json.loads((work / session.SESSION_FILE).read_text())["last_attempt"] == second.directory.name
 
 
+def test_reassigned_model_is_explicit_while_resuming_the_same_transcript(tmp_path, monkeypatch, config):
+    work = tmp_path/'episode'
+    fake_cli(monkeypatch, work, outputs={'repair.json': 'saved candidate'})
+    old = session.run_session(work, 'Repair inputs', config=config, enable_tools=True)
+    calls = fake_cli(monkeypatch, work)
+    selected = {**config, 'model': 'other-allocated-model', 'base_url': 'http://other-model'}
+    new = session.run_session(work, 'Continue saved work', config=selected, resume=True, enable_tools=True)
+    command, _ = calls[0]
+    assert command[command.index('--resume')+1] == old.record['session_id'] == new.record['session_id']
+    assert command[command.index('--model')+1] == selected['model']
+    assert f'ANTHROPIC_BASE_URL={selected["base_url"]}' in command
+    assert (new.directory/'output-before/repair.json').read_text() == 'saved candidate'
+    assert new.record['model'] == selected['model'] and not new.produced
+
+
+def test_explicit_thinking_budget_reaches_the_agent_container(tmp_path, monkeypatch, config):
+    work = tmp_path/'episode'
+    calls = fake_cli(monkeypatch, work, outputs={'episode.json': '{}'})
+    session.run_session(work, 'Read the source and write the episode',
+                        config={**config, 'effort': 'low', 'max_thinking_tokens': 0})
+    command, _ = calls[0]
+    assert 'MAX_THINKING_TOKENS=0' in command
+    assert 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1' in command
+    assert 'CLAUDE_CODE_EFFORT_LEVEL=low' in command
+
+
+def test_template_options_use_the_cli_extra_body(tmp_path, monkeypatch, config):
+    work = tmp_path/'episode'
+    calls = fake_cli(monkeypatch, work, outputs={'episode.json': '{}'})
+    session.run_session(work, 'Repair the supplied draft', config={
+        **config, 'max_thinking_tokens': 0,
+        'chat_template_kwargs': {'enable_thinking': False}})
+    command, _ = calls[0]
+    extra = next(value.split('=', 1)[1] for value in command
+                 if value.startswith('CLAUDE_CODE_EXTRA_BODY='))
+    assert json.loads(extra) == {'chat_template_kwargs': {'enable_thinking': False}}
+
+
+def test_tool_session_can_read_running_source_without_writable_host_mount(tmp_path,monkeypatch,config):
+    work=tmp_path/'episode'
+    calls=fake_cli(monkeypatch,work)
+    session.run_session(work,'Diagnose the tool failure',config=config,enable_tools=True)
+    command,_=calls[0]
+    mounts=[command[i+1] for i,v in enumerate(command) if v=='-v']
+    assert len(mounts)==2
+    assert mounts[1].endswith('/src:/opt/novel-code:ro')
+    assert not any('/.env' in value for value in mounts)
+
+
+def test_first_current_task_starts_one_fresh_context_and_keeps_old_work(tmp_path,monkeypatch,config):
+    work=tmp_path/'episode'
+    fake_cli(monkeypatch,work,outputs={'repair.json':'saved repair'})
+    old=session.run_session(work,'Old workflow context',config=config,enable_tools=True)
+    (work/'input').mkdir();(work/'input/current-task.json').write_text('{"targets":[]}')
+    calls=fake_cli(monkeypatch,work)
+    fresh=session.run_session(work,'Current task',resume=True,config=config,enable_tools=True)
+    assert '--session-id' in calls[0][0] and '--resume' not in calls[0][0]
+    assert fresh.record['session_id']!=old.record['session_id']
+    assert json.loads((work/'episode-session-before-current-task.json').read_text())['session_id']==old.record['session_id']
+    assert (work/'output/repair.json').read_text()=='saved repair'
+    calls=fake_cli(monkeypatch,work)
+    continued=session.run_session(work,'Next tool result',resume=True,config=config,enable_tools=True)
+    assert '--resume' in calls[0][0] and continued.record['session_id']==fresh.record['session_id']
+
+
 def test_workflow_mode_adds_bash_and_resumes_existing_file_session(tmp_path, monkeypatch, config):
     work = tmp_path / "episode"
     fake_cli(monkeypatch, work, outputs={"episode.json": "draft-v1"})
@@ -96,7 +187,8 @@ def test_workflow_mode_adds_bash_and_resumes_existing_file_session(tmp_path, mon
     assert command[command.index("--resume") + 1] == first.record["session_id"]
     assert "--session-id" not in command and "--fork-session" not in command
     assert command[command.index("--tools") + 1] == "Read,Write,Edit,Glob,Grep,Bash"
-    assert command.count("-v") == 1 and command[command.index("-v") + 1] == f"{work}:/work"
+    assert command.count("-v") == 2 and command[command.index("-v") + 1] == f"{work}:/work"
+    assert any(value.endswith('/src:/opt/novel-code:ro') for value in command)
     assert command[command.index("timeout") + 1] == "5400"
     assert executed.record["enable_tools"] is True
     assert executed.record["expected_output"] == "episode.json"

@@ -168,7 +168,7 @@ DEFAULT_SYSTEM_PROMPT = """你是中文{frame_text}{style_name}短剧的编剧�
    camera与light按共用字段规则逐镜独立填写，描述当前可见状态，不用"电影感""氛围感"这类词。
    每段clip写avoid：本段具体不要出现的东西，用名词，例如"灵碑上不要出现可读文字""大厅不要出现现代家具""不要给楚焱红色发光的眼睛"；不写"低质量"这类空泛负面词。clip_id只写clip_1这样的短编号。
 7. 画面描述不得出现血液、伤口、破皮、流血。灵碑、石碑、牌匾、纸张上不得出现可读文字或数字，一律写成"无字的发光纹路"；唯一允许的可读文字是手机或电脑屏幕上的聊天消息（用 chat_message 给出内容）。
-8. clip.characters只填该段画面中出现的StoryBible具名角色；location只填给定地点名。speaker_name是具名角色，或"无名测验员""无名族人"这类无名画外角色；无名角色只能用offscreen_dialogue。silent_action和title_card的speaker_name留空字符串。
+8. clip.characters只填该段画面中出现的StoryBible具名角色；location只填给定地点名，优先选择与原文空间一致的具体地点，不能因旧地点有图就把卧房换成大堂。speaker_name填具名角色或给定的画外说话者；本章原文称呼（如酒吧老板、黄发老人）优先于泛化的无名商人、无名旅人，缺角色卡不改变说话者身份。没有角色卡的临时说话者用offscreen_dialogue，必要的可见活动用extras表达；不能将原文的动作安到其他人身上。silent_action和title_card的speaker_name留空字符串。
 {scene_fields}
 8c. 如果给了ledger_snapshot：它是原著逐段的出场记录，chapter_cast是本章在场/只有声音/只被提及的人，segments里是每个区段原文点到名的人。只让原文这一段在场的人进in_frame；segments里没点到、chapter_cast里又不在场的人不要出现；must_not_reveal里的关系此时读者还不知道，台词和画面都不得点破。
 9. 只输出JSON。不要Markdown、不要解释、不要代码围栏。""".replace("{scene_fields}", field_instructions("planning")) + "\n" + TIMING_GUIDANCE

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import json
 import os
-from novel_manga.llm.config import JsonEndpoint
+from novel_manga.llm.config import JsonEndpoint, endpoint_settings
 
 EXECUTORS = ('standard', 'episode_agent')
 
@@ -67,10 +67,21 @@ def environment(root: Path, base: dict | None = None) -> dict:
     return result
 
 
-def h3_translation_endpoint() -> JsonEndpoint:
+def _h3_preparation_endpoint(variable: str) -> JsonEndpoint:
+    name = str(os.environ.get(variable) or '').strip()
+    if name:
+        return endpoint_settings(name)
     defaults = {'QWEN38_LOCAL_BASE_URL': ','.join(f'http://127.0.0.1:{p}/v1' for p in range(18120, 18125)),
                 'QWEN38_LOCAL_MODEL': 'Qwen3.8-27B-Project', 'QWEN38_LOCAL_API_KEY_VAR': 'H3_PROMPT_NO_KEY'}
     return JsonEndpoint.from_env({**defaults, **os.environ})
+
+
+def h3_translation_endpoint() -> JsonEndpoint:
+    return _h3_preparation_endpoint('NOVEL_H3_TRANSLATION_ENDPOINT')
+
+
+def h3_request_check_endpoint() -> JsonEndpoint:
+    return _h3_preparation_endpoint('NOVEL_H3_REQUEST_CHECK_ENDPOINT')
 
 
 def repair_settings(root: Path) -> dict:
@@ -107,7 +118,24 @@ def episode_agent_settings(root: Path, spec: dict) -> dict:
     if int(settings['parallel']) < 1 or int(settings['workers']) < 1:
         raise ValueError('agent.parallel and agent.workers must be positive')
     settings['parallel'], settings['workers'] = int(settings['parallel']), int(settings['workers'])
+    if 'production_parallel' in settings:
+        settings['production_parallel']=int(settings['production_parallel'])
+        if settings['production_parallel']<1:
+            raise ValueError('agent.production_parallel must be positive')
+    if settings.get('asset_manifest'):
+        settings['asset_manifest']=str((root/settings['asset_manifest']).resolve())
+    if settings.get('first_pass_priority') and not settings.get('production_parallel'):
+        raise ValueError('agent.first_pass_priority requires independent production_parallel capacity')
+    if 'task_pool_size' in settings:
+        settings['task_pool_size']=int(settings['task_pool_size'])
+        if settings['task_pool_size']<1:raise ValueError('agent.task_pool_size must be positive')
+    if 'normal_parallel' in settings:
+        settings['normal_parallel'] = int(settings['normal_parallel'])
+        if not 0 <= settings['normal_parallel'] <= settings['parallel']:
+            raise ValueError('agent.normal_parallel must fit within agent.parallel')
     settings['output_root'] = str((root / settings.get('output_root', 'outputs/episode-agent')).resolve())
+    if settings.get('config'):
+        settings['config'] = str((root / settings['config']).resolve())
     return settings
 
 
@@ -143,9 +171,10 @@ def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None,
         "planning": planning,
         "qwen": defaults.get("qwen", {}),
         "aimd": defaults.get("aimd", {}),
-        "review": defaults.get("review", {}),
+        "review": {**defaults.get("review", {}), **novel.get('review',{})},
         "render": defaults.get("render", {}),
         "executor": selected,
+        **({'workspace_index':str((paths.root/novel['workspace_index']).resolve())} if novel.get('workspace_index') else {}),
         "agent": episode_agent_settings(paths.root, novel),
         "model_environment": model_resources_environment(paths.root, pipeline),
     }
@@ -153,10 +182,16 @@ def config_for_novel(pipeline: dict, novel_id: str, *, root: Path | None = None,
 
 def preparation_environment(root: Path) -> dict:
     settings = pipeline_config(root).get('defaults', {}).get('preparation', {})
-    env = {**environment(root), **model_resources_environment(root)}
+    env = {**model_resources_environment(root), **environment(root)}
     defaults = h3_translation_endpoint()
     env.update(QWEN38_LOCAL_BASE_URL=','.join(settings.get('endpoints', defaults.endpoints)),
                QWEN38_LOCAL_MODEL=settings.get('model', 'Qwen3.8-27B-Project'),
                QWEN38_LOCAL_API_KEY_VAR=settings.get('key_var', 'H3_PROMPT_NO_KEY'),
                NOVEL_CLIP_SECONDS_MAX=str(settings.get('clip_cap', 15)))
+    if selected := env.get('NOVEL_PREPARATION_ENDPOINT'):
+        from novel_manga.llm.config import ENDPOINTS
+        env.update(ENDPOINTS[selected])
+        endpoint = JsonEndpoint.from_env(env)
+        env.update(NOVEL_LLM_BASE_URL=endpoint.endpoints[0], NOVEL_LLM_MODEL=endpoint.model,
+                   NOVEL_LLM_API_KEY=endpoint.key)
     return env

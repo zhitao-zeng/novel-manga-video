@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from novel_manga.application.production.common import parse_chapters
+from novel_manga.application.agents.sandbox import load_config
 
 from .context import create_context
 from .flow import process_environment, read_status, run_episode
@@ -31,6 +32,9 @@ def parser():
         command.add_argument('--target-seconds', type=float, nargs='+', metavar='SECONDS',
                              help='Source episode duration or minimum and maximum duration.')
         if name == 'run':
+            command.add_argument('--config', type=Path, help='Task-specific sandbox configuration.')
+            command.add_argument('--retry-issues', action='store_true',
+                                 help='Retry a stopped episode, retaining media and video budgets; session policy follows config.')
             command.add_argument('--timeout', type=int,
                                  help='Total operation continuation time; defaults to sandbox configuration.')
     return result
@@ -63,7 +67,10 @@ def main(argv=None):
                     elif arguments.command == 'status':
                         result = read_status(context)
                     else:
-                        result = run_episode(context, timeout=arguments.timeout)
+                        options = {'retry_issues': True} if arguments.retry_issues else {}
+                        if arguments.config:
+                            options['config'] = load_config(arguments.config)
+                        result = run_episode(context, timeout=arguments.timeout, **options)
                     results.append(result)
                 except (OSError, ValueError, RuntimeError) as error:
                     results.append({'episode': str(episode), 'status': 'blocked', 'passed': False,

@@ -553,7 +553,8 @@ class ClipCompiler:
                 + (f"结束时：{self.compact(shot['end_state'])}。" if self.compact(shot['end_state']) else "")
             )
         scales = "、".join(dict.fromkeys(shot["shot_scale"] for shot in shots))
-        ambience = list(dict.fromkeys(shot["sfx"] for shot in shots if shot.get("sfx")))
+        ambience = list(dict.fromkeys(cue.strip() for shot in shots if shot.get("sfx")
+                                      for cue in str(shot["sfx"]).split("、") if cue.strip()))
         ambience_text = "、".join(ambience) if ambience else "现场环境声"
         lines.append(f"画面呈现{(grammar or {}).get('style_line') or bible.visual_style}。")
         if self.options.camera_policy == 'authored':

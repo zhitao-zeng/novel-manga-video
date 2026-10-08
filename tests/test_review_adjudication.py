@@ -136,7 +136,7 @@ def test_old_classification_is_refreshed_once_without_rewatching_unchanged_take(
     video = directory / 'v.mp4'; video.write_bytes(b'unchanged video')
     (directory / 'clip_plan.json').write_text(json.dumps({'clips': [{'clip_id': 'c', 'kind': 'video'}]}))
     (directory / 'thin_media_report.json').write_text(json.dumps({'clips': [{'clip_id': 'c', 'selected': {'video': str(video)}}]}))
-    old = {'policy': contracts.POLICY, 'clips': {'c': {'video': str(video), 'take': storage.take_identity(video),
+    old = {'policy': contracts.POLICY, 'review_mode':'classic', 'clips': {'c': {'video': str(video), 'take': storage.take_identity(video),
         'severity': 'fail', 'identity_issue': '衣着错误', 'scripted': False,
         'verify': {'cast_video': {'policy': cast_video.POLICY}, 'error_kinds': ['same_person_twice'],
                    'adjudication': {'confirmed': True}}}}, 'feedback': {'c': '改衣服'}}
@@ -206,7 +206,7 @@ def _episode_with_old_input_rejection(tmp_path):
     (directory / 'clip_plan.json').write_text(json.dumps({'clips': [clip]}))
     (directory / 'thin_media_report.json').write_text(json.dumps({'clips': [{'clip_id': 'c', 'selected': {'video': str(video)}}]}))
     verdict = {'video': str(video), 'take': storage.take_identity(video), **old_input_rejection()}
-    (directory / 'episode_review.json').write_text(json.dumps({'policy': contracts.POLICY, 'clips': {'c': verdict}}))
+    (directory / 'episode_review.json').write_text(json.dumps({'policy': contracts.POLICY, 'review_mode':'classic', 'clips': {'c': verdict}}))
     return directory
 
 

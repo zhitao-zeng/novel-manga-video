@@ -2,7 +2,7 @@
   {
     "name": "first_precise_pass",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -77,7 +77,7 @@
   {
     "name": "old_take_does_not_clear_current",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -134,7 +134,7 @@
   {
     "name": "replacement_needs_review",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -184,7 +184,7 @@
   {
     "name": "ordinary_scan_keeps_prior_precise_verdict",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -239,7 +239,7 @@
   {
     "name": "joint_recheck_replaces_ordinary",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -315,7 +315,7 @@
   {
     "name": "flash_candidate_awaits_confirmation",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -393,7 +393,7 @@
   {
     "name": "explicit_confirmation_clears_flash",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -469,7 +469,7 @@
   {
     "name": "source_recheck_overrides_confirmation",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -546,7 +546,7 @@
   {
     "name": "technical_failure_stays",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -598,7 +598,7 @@
   {
     "name": "old_final_gate_with_evidence",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -673,7 +673,7 @@
   {
     "name": "old_final_gate_without_evidence",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -727,7 +727,7 @@
   {
     "name": "removed_id_cannot_request_retake",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -802,7 +802,7 @@
   {
     "name": "missing_media_stays_unchecked",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {
@@ -844,7 +844,7 @@
   {
     "name": "source_confirmation_has_priority",
     "report": {
-      "policy": "thin-review-v1.17-story",
+      "policy": "thin-review-v1.23-current-phase-viewer-impact",
       "episode": "book_1",
       "clips": {
         "a": {

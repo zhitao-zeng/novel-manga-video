@@ -13,7 +13,7 @@ from pathlib import Path
 import novel_manga.llm.client as model_client
 from novel_manga.review import policy
 import novel_manga.review.contracts as review_contracts
-from novel_manga.util import media_duration
+from novel_manga.util import atomic_write_json, media_duration, read_json
 from novel_manga.application.profiles import load_genre, load_profile
 
 
@@ -106,6 +106,11 @@ def clip_frames(video: Path, output_dir: Path, count: int) -> list[Path]:
         target = output_dir / f"frame_{index + 1}.jpg"
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{position:.3f}", "-i", str(video), "-frames:v", "1", "-vf", f"scale={review_contracts.FRAME_WIDTH}:-2", "-q:v", "4", str(target)], check=True)
         frames.append(target)
+    from novel_manga.review.storage import take_identity
+    atomic_write_json(output_dir/'frame-evidence.json', {
+        'video': str(video), 'take': take_identity(video),
+        'frames': [{'path': str(frame), 'seconds': seconds * (0.1 + 0.8 * index / max(1, count - 1))}
+                   for index, frame in enumerate(frames)]})
     return frames
 
 
@@ -159,39 +164,88 @@ def review_mode(work_dir: Path) -> str:
         return ""
 
 
-def collect_clip_evidence(clip: dict, video: Path, bible: StoryBible, work_dir: Path, *, verify: bool = False) -> tuple[list[dict], ClipEvidence]:
-    """Select the same cards/frames and load the same evidence as the existing mode."""
-    phases = thin_phases.load_phases(bible_root(work_dir))
-    chapter = thin_phases.chapter_of(work_dir.parents[2])
-    by_name = {c.name: thin_phases.phased(c, thin_phases.phase_for(phases, c.name, chapter)) for c in bible.characters}
+def character_cards(clip: dict, bible: StoryBible, novel_dir: Path, chapter: int) -> tuple[dict, list[str], list]:
+    """Resolve actual selected cards and their descriptions for every review entry."""
+    phases = thin_phases.load_phases(novel_dir)
+    by_name = {c.name: c for c in bible.characters}
+    base_ids = {c.name: f'character_{i:03d}' for i, c in enumerate(bible.characters, 1)}
     cast = [name for name in clip.get("cast", []) if name in by_name]
-    extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for shot in clip.get("shots", []) for e in (shot.get("extras") or []))]))
-    listeners = list(dict.fromkeys(l for l in [*(clip.get("listeners") or []), *(l for shot in clip.get("shots", []) for l in (shot.get("listeners") or []))] if l in by_name))
-    offscreen = list(dict.fromkeys(str(row.get("speaker_name") or "") for row in clip.get("lines", []) if row.get("delivery_mode") == "offscreen_dialogue" and row.get("speaker_name")))
     cards = []
-    for name in cast[:((3 if len(cast) <= 3 else 2) if verify else review_contracts.MAX_IMAGES - 3)]:
+    for name in cast:
         refs = sorted((ref for ref in clip.get('references', []) if ref.get('name') == name
                        and ref.get('role') in {None, 'character'} and ref.get('path')),
                       key=lambda ref: not str(ref['path']).endswith('turnaround.jpeg'))
-        path = next((Path(ref['path']) for ref in refs if (bible_root(work_dir) / ref['path']).is_file()), None)
-        # The plan may predate the character's phases: the judge sees the phase's card when it is drawn, so an
-        # adult dragon is not marked down against the hatchling card (星海 洛恩, 254 clips on 2026-09-13).
-        path = path or thin_phases.phase_card(bible_root(work_dir), phases, name, chapter)
-        if path is not None and (bible_root(work_dir) / path).is_file():  # a card being rebuilt is simply not shown
+        selected = next((ref for ref in refs if (novel_dir / ref['path']).is_file()), None)
+        if selected is not None:
+            path = Path(selected['path'])
+            # Scoped changes can leave different phases in one chapter. Describe
+            # the card actually shown, not the chapter's most recently added phase.
+            # reference_paths can override a phase card back to the standard base
+            # path while retaining its old asset_id. The explicit base wins too.
+            ids = ((path.parent.name,) if path.parent.name == base_ids[name]
+                   else (path.parent.name, selected.get('asset_id')))
+            phase = next((p for asset_id in ids if asset_id for p in phases.get(name, [])
+                          if p.get('asset_id') == asset_id), None)
+        else:
+            phase = thin_phases.phase_for(phases, name, chapter)
+            path = thin_phases.phase_card(novel_dir, phases, name, chapter)
+        by_name[name] = thin_phases.phased(by_name[name], phase)
+        if phase and phase.get('appearance') and 'gender' not in phase:
+            # Older phase records could correct the actual body/image but could
+            # not carry gender. Do not assert the superseded base field to a judge.
+            # The current image and source remain available for that judgment.
+            by_name[name] = by_name[name].model_copy(update={'gender': ''})
+        if path is not None and (novel_dir / path).is_file():  # a card being rebuilt is simply not shown
             cards.append((name, path))
-    # Clips with on-screen chat get more frames: stray text tends to flash briefly.
-    frame_count = min(6 if clip.get("chat_lines") else review_contracts.FRAMES_PER_CLIP, review_contracts.MAX_IMAGES - len(cards))
-    if verify:
-        frame_count = review_contracts.MAX_IMAGES - len(cards)
+    return by_name, cast, cards
+
+
+def collect_clip_evidence(clip: dict, video: Path, bible: StoryBible, work_dir: Path, *, verify: bool = False) -> tuple[list[dict], ClipEvidence]:
+    """Select the same cards/frames and load the same evidence as the existing mode."""
+    by_name, cast, cards = character_cards(clip, bible, bible_root(work_dir), thin_phases.chapter_of(work_dir.parents[2]))
+    extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for shot in clip.get("shots", []) for e in (shot.get("extras") or []))]))
+    listeners = list(dict.fromkeys(l for l in [*(clip.get("listeners") or []), *(l for shot in clip.get("shots", []) for l in (shot.get("listeners") or []))] if l in by_name))
+    offscreen = list(dict.fromkeys(str(row.get("speaker_name") or "") for row in clip.get("lines", []) if row.get("delivery_mode") == "offscreen_dialogue" and row.get("speaker_name")))
+    # Keep every selected character card. Truncating the sixth card made the judge
+    # compare Subject 6 with image 6, which was actually a video frame.
+    import math
+    from PIL import Image, ImageDraw, ImageOps
+    from novel_manga.story.dialogue import subject_map
+    desired_frames = 6 if verify or clip.get('chat_lines') else review_contracts.FRAMES_PER_CLIP
+    slots = review_contracts.MAX_IMAGES - desired_frames
+    per_image = max(1, math.ceil(len(cards) / slots))
+    groups = [cards[i:i+per_image] for i in range(0, len(cards), per_image)]
+    frame_count = min(desired_frames, review_contracts.MAX_IMAGES - len(groups))
     frames = clip_frames(video, work_dir, frame_count)
     parts = []
     legend = []
-    for number, (name, path) in enumerate(cards, start=1):
-        parts.append(model_client.image_part(bible_root(work_dir) / path, review_contracts.CARD_SIDE))
-        legend.append(f"图{number}=角色卡：{name}")
-    for number, frame in enumerate(frames, start=len(cards) + 1):
+    subjects = subject_map(clip)
+    for number, group in enumerate(groups, start=1):
+        if len(group) == 1:
+            name, path = group[0]
+            picture = bible_root(work_dir) / path
+            label = f'角色卡：{name}'
+        else:
+            sheet = Image.new('RGB', (480 * len(group), 824), '#eeeeee')
+            draw = ImageDraw.Draw(sheet)
+            for i, (name, path) in enumerate(group):
+                with Image.open(bible_root(work_dir) / path) as card:
+                    card = ImageOps.contain(card.convert('RGB'), (480, 800))
+                    sheet.paste(card, (i * 480 + (480 - card.width)//2, 24))
+                draw.text((i * 480 + 6, 5), f'Card {i+1} / Subject {subjects.get(name, "?")}', fill='black')
+            picture = work_dir / f'reference-sheet-{number}.jpg'
+            sheet.save(picture, quality=95)
+            label = '角色卡拼图（从左到右）：' + '；'.join(
+                f'{i}={name}（Subject {subjects.get(name, "?")}）' for i, (name, _) in enumerate(group, 1))
+        legend.append(f'图{number}={label}')
+        parts.append({'type': 'text', 'text': legend[-1]})
+        parts.append(model_client.image_part(picture, review_contracts.CARD_SIDE * (2 if len(group) > 1 else 1)))
+    for number, frame in enumerate(frames, start=len(groups) + 1):
         parts.append(model_client.image_part(frame, review_contracts.FRAME_WIDTH))
-        legend.append(f"图{number}=视频第{number - len(cards)}帧")
+        positions = read_json(work_dir/'frame-evidence.json', {}).get('frames', [])
+        seconds = next((row['seconds'] for row in positions if row['path'] == str(frame)), None)
+        at = f"（约{seconds:.2f}秒）" if seconds is not None else ''
+        legend.append(f"图{number}=视频第{number - len(groups)}帧{at}")
     episode = work_dir.parents[2]
     screen_path = bible_root(work_dir) / "chat_screen.json"
     screen = json.loads(screen_path.read_text(encoding="utf-8")) if not verify and screen_path.is_file() else {}

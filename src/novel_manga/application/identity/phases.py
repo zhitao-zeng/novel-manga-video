@@ -31,7 +31,7 @@ from novel_manga.models.bible import Character
 
 POLICY = "phase-cards-v1"
 # A phase may set any of these; a key present with "" clears the field (a beast has no hair style).
-LOOK_FIELDS = ("hair", "appearance", "wardrobe", "base_costume", "silhouette", "palette", "age",
+LOOK_FIELDS = ("hair", "appearance", "wardrobe", "base_costume", "silhouette", "palette", "age", "gender",
                "signature_prop", "visual_archetype")
 
 

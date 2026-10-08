@@ -54,6 +54,177 @@ def book(tmp_path, monkeypatch):
     return source, episode, tmp_path
 
 
+def test_preparation_carries_the_book_asr_aliases_into_the_isolated_runtime(book):
+    source, _, root = book
+    aliases = {'林州': '林舟'}
+    write(source/'asr_aliases.json', aliases)
+    ctx = context.create_context(source, 2, input_mode='source', output_root=root/'isolated')
+    prepare_inputs(ctx)
+    assert read(ctx.novel_dir/'asr_aliases.json') == aliases
+    assert read(source/'asr_aliases.json') == aliases
+
+
+def test_batch_adopted_source_refreshes_native_plan_for_review_without_rebinding(book):
+    from novel_manga.application.production import workspaces
+    source,_,root=book;ctx=context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepare_inputs(ctx)
+    plan={'clips':[{'clip_id':'clip_01','kind':'video','request_seconds':5,'references':[
+        {'asset_id':'character_009','role':'character','name':'林舟','path':'series_assets/characters/character_009/turnaround.jpeg'}]}]}
+    script={'shots':[{'index':1,'characters':['林舟'],'location':'书房'}]}
+    write(ctx.episode_dir/'clip_plan.json',plan);write(ctx.episode_dir/'chapter_script.json',script)
+    row={'episode':2,'run_dir':str(ctx.run_dir),'novel_dir':str(ctx.novel_dir),'episode_dir':str(ctx.episode_dir),
+        'source_novel_dir':str(source),'source_episode_dir':str(ctx.source_episode_dir),'input_mode':'source'}
+    workspaces.save(row,'blocked',error='normal preparation needs one correction')
+    plan['clips'][0]['prompt_h3']='Latest native request'
+    write(ctx.episode_dir/'clip_plan.json',plan)
+    manifest=prepare_inputs(ctx)
+    assert read(ctx.work_dir/'input/clip_plan.json')==plan
+    assert read(ctx.work_dir/'input/chapter_script.json')==script
+    assert manifest['authoritative_inputs']==['input/chapter_script.json','input/clip_plan.json']
+    assert 'adopted' in manifest['authority']
+
+
+def test_source_exception_retains_failed_script_and_merged_location_evidence(book, monkeypatch):
+    from novel_manga.application.agents.episode import flow, authoring
+    source, episode, root = book
+    write(source/'h3_preparation/episodes/2.json', {'status': 'needs_repair', 'reason': 'wrong location'})
+    write(episode/'chapter_script.json', {'shots': [{'location': '错误的旧书房'}]})
+    write(episode/'response_attempt_01.raw.json', {'candidate': 'normal writer choices'})
+    write(source/'reading_cast.json', {'locations': [
+        {'name': '临海书房', 'chapters': [2], 'description': '看得见海面'},
+        {'name': '后来宫殿', 'chapters': [3]}]})
+    ctx = context.create_context(source, 2, input_mode='source', output_root=root/'isolated')
+    manifest = prepare_inputs(ctx)
+    assert manifest['preparation_exception'] == 'input/preparation/exception.json'
+    assert read(ctx.work_dir/'input/preparation/chapter_script.json')['shots'][0]['location'] == '错误的旧书房'
+    assert [r['name'] for r in read(ctx.work_dir/'input/reading/locations.json')] == ['临海书房']
+    assert not (ctx.episode_dir/'chapter_script.json').exists()
+    monkeypatch.setattr(authoring, 'propose', lambda *a, **kw: pytest.fail('normal writer repeated after preparation failed'))
+    assert flow._fill_missing_requests(ctx) is None
+    assert 'input/preparation/exception.json' in flow.initial_prompt(ctx)
+
+
+def test_source_preparation_uses_current_phase_instead_of_inherited_base_views(book):
+    source, episode, root = book
+    base_card = 'series_assets/characters/character_009/turnaround.jpeg'
+    phase_card = 'series_assets/characters/character_009-p2/turnaround.jpeg'
+    phase_path = source/phase_card
+    phase_path.parent.mkdir(parents=True); phase_path.write_bytes(b'current phase card')
+    phase_path.with_name('expressions.jpeg').write_bytes(b'current phase expressions')
+    write(source/'series_assets/phases.json', {'characters': {'林舟': [
+        {'from': 2, 'to': 3, 'asset_id': 'character_009-p2', 'label': '白发红衣'}]}})
+    write(episode/'clip_plan.json', {'clips': [{'references': [
+        {'name':'林舟','role':'character','asset_id':'character_009','path':base_card}]}]})
+    ctx = context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepared = prepare_inputs(ctx)
+    assert prepared['ready']
+    assert 'input/reading/character-phases.json' in prepared['reading']
+    phases = read(ctx.work_dir/'input/reading/character-phases.json')
+    assert phases['chapter']==2 and phases['characters']['林舟']['asset_id']=='character_009-p2'
+    assets = [r for r in read(ctx.run_dir/'catalog.json') if r['role']=='character']
+    assert {r['asset_id'] for r in assets} == {'character_009-p2'}
+    assert {r['phase'] for r in assets} == {'白发红衣'}
+    assert {Path(r['path']).name for r in assets} == {'turnaround.jpeg','expressions.jpeg'}
+    assert (ctx.work_dir/assets[0]['image']).read_bytes() == b'current phase card'
+    assert (source/base_card).read_bytes().startswith(b'original asset')
+
+
+def test_missing_current_phase_does_not_silently_supply_a_wrong_base_picture(book):
+    source, _, root = book
+    write(source/'series_assets/phases.json', {'characters': {'林舟': [
+        {'from': 2, 'to': 3, 'asset_id': 'character_009-p2', 'label': '白发红衣'}]}})
+    ctx = context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    result = prepare_inputs(ctx)
+    assert not result['ready']
+    assert any('character_009-p2' in r['path'] for r in result['missing_assets'])
+    assert not any(r['role']=='character' for r in read(ctx.run_dir/'catalog.json'))
+
+
+def test_future_source_phase_does_not_replace_current_character(book):
+    source, _, root = book
+    write(source/'series_assets/phases.json', {'characters': {'林舟': [
+        {'from': 3, 'to': 4, 'asset_id': 'character_009-future', 'label': '后续形态'}]}})
+    ctx = context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    assert prepare_inputs(ctx)['ready']
+    assert {r['asset_id'] for r in read(ctx.run_dir/'catalog.json') if r['role']=='character'}=={'character_009'}
+
+
+def test_episode_local_phase_card_is_copied_without_changing_the_original(book):
+    from novel_manga.application.agents.episode.input_assets import local_phases
+    source, _, root = book
+    ctx = context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepare_inputs(ctx)
+    phase_file = local_phases(ctx)
+    write(phase_file, {'characters': {'林舟': [
+        {'from': 2, 'to': 2, 'asset_id': 'character_009-local', 'label': '已核对的新形态'}]}})
+    # Local variants may exist only in this episode after an input repair.
+    characters = ctx.novel_dir/'series_assets/characters'
+    if characters.is_symlink(): characters.unlink(); characters.mkdir()
+    card = characters/'character_009-local/turnaround.jpeg'
+    card.parent.mkdir(); card.write_bytes(b'local accepted phase')
+    assert prepare_inputs(ctx)['ready']
+    asset = next(r for r in read(ctx.run_dir/'catalog.json') if r['role']=='character')
+    assert asset['asset_id']=='character_009-local'
+    assert (ctx.work_dir/asset['image']).read_bytes()==b'local accepted phase'
+    assert not (source/'series_assets/characters/character_009-local').exists()
+
+
+def test_script_candidate_keeps_its_authored_card_despite_a_new_book_phase(book):
+    from novel_manga.application.agents.episode.inputs import _candidate_references
+    source, _, root = book
+    ctx = context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepare_inputs(ctx)
+    from dataclasses import replace
+    ctx = replace(ctx,input_mode='script')
+    write(ctx.novel_dir/'series_assets/phases.json', {'characters': {'林舟': [
+        {'from': 2, 'to': 3, 'asset_id': 'character_009-p2'}]}})
+    refs = _candidate_references(ctx,'林舟在书房。',{}, {'shots':[{'characters':['林舟']}]})
+    assert {r['asset_id'] for r in refs if r['role']=='character'}=={'character_009'}
+
+
+def test_source_snapshot_preserves_location_introduction_chapters(book):
+    source, _, root = book
+    growth = {'2': {'locations': ['书房：旧窗']}, '50': {'locations': ['远方城堡：石墙']}}
+    write(source/'bible_growth.json', growth)
+    ctx = context.create_context(source, 2, input_mode='source', output_root=root/'isolated')
+    prepare_inputs(ctx)
+    assert read(ctx.novel_dir/'bible_growth.json') == growth
+
+
+def test_preparation_reuses_existing_chapter_reading_without_another_model_call(book):
+    source, _, root = book
+    record = {'chapter': 2, 'answer': {'people': [{'form': '林舟', 'presence': '在场'}],
+                                      'looks': [{'form': '林舟', 'text': '穿白衬衫'}]},
+              'model': 'saved DS', 'endpoint': 'private operational metadata'}
+    write(source/'lean/extract/ch-002.json', record)
+    ctx = context.create_context(source, 2, input_mode='source', output_root=root/'isolated')
+    with patch('novel_manga.llm.client.ask_json', side_effect=AssertionError('Do not reread with a model')):
+        manifest = prepare_inputs(ctx)
+    path = 'input/reading/chapter-extract.json'
+    assert path in manifest['reading']
+    assert read(ctx.work_dir/path) == {'chapter': 2, 'answer': record['answer']}
+
+
+def test_cached_reading_of_another_chapter_is_not_offered(book):
+    source, _, root = book
+    write(source/'lean/extract/ch-002.json', {'chapter': 8, 'answer': {'people': ['错误章节角色']}})
+    ctx = context.create_context(source, 2, input_mode='source', output_root=root/'isolated')
+    manifest = prepare_inputs(ctx)
+    assert 'input/reading/chapter-extract.json' not in manifest['reading']
+
+
+def test_source_catalog_never_offers_rejected_folder_images_as_extra_views(book):
+    source, _, root = book
+    folder = source/'series_assets/characters/character_009'
+    (folder/'turnaround.photoreal-rejected.jpeg').write_bytes(b'rejected design')
+    (folder/'expressions.jpeg').write_bytes(b'published expressions')
+    ctx = context.create_context(source, 2, input_mode='source', output_root=root/'isolated')
+    prepare_inputs(ctx)
+    catalog = read(ctx.run_dir/'catalog.json')
+    assert not any('rejected' in r['path'] for r in catalog)
+    assert any(r['path'].endswith('expressions.jpeg') for r in catalog)
+
+
 def saved_script(source, episode, *, count=1, seconds=12):
     script = {'video_title': '已定稿', 'shots': [{'index': i, 'characters': ['林舟'],
         'visual_prompt': '林舟坐在书房。', 'motion_prompt': '林舟转头。',

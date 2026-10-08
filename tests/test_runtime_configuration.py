@@ -38,6 +38,19 @@ def test_file_environment_preserves_existing_precedence_without_mutation(tmp_pat
     assert inherited == {'MODEL': 'caller'}
 
 
+def test_preparation_respects_selected_endpoint_and_shared_slots(tmp_path, monkeypatch):
+    from novel_manga.application.configuration import preparation_environment
+    (tmp_path/'configs').mkdir()
+    (tmp_path/'configs/pipeline.json').write_text(json.dumps({'defaults': {'preparation': {
+        'endpoints': ['http://retired/v1'], 'model': 'retired-model'}}}))
+    monkeypatch.setenv('NOVEL_PREPARATION_ENDPOINT', 'deepseek')
+    resources = '[{"base":"http://shared/v1","slots":8}]'
+    monkeypatch.setenv('NOVEL_MODEL_RESOURCES', resources)
+    env = preparation_environment(tmp_path)
+    assert env['QWEN38_LOCAL_MODEL'] == 'DeepSeek-V4.1-Flash'
+    assert env['NOVEL_MODEL_RESOURCES'] == resources
+
+
 def test_h3_endpoint_defaults_and_overrides_are_per_call(monkeypatch):
     for name in ['QWEN38_LOCAL_BASE_URL', 'QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_API_KEY_VAR']:
         monkeypatch.delenv(name, raising=False)
@@ -48,6 +61,23 @@ def test_h3_endpoint_defaults_and_overrides_are_per_call(monkeypatch):
     second = h3_translation_endpoint()
     assert second.model == 'alternate' and second.endpoints == ('http://different.invalid/v1',)
     assert first.model != second.model and len(first.endpoints) == 5
+
+
+def test_translation_override_keeps_request_gate_and_final_judge_on_ds(monkeypatch):
+    from novel_manga.application import configuration
+    from novel_manga.review.endpoints import judge_settings
+    monkeypatch.setenv('QWEN38_LOCAL_BASE_URL', 'http://172.28.4.52:8831/v1')
+    monkeypatch.setenv('QWEN38_LOCAL_MODEL', 'DeepSeek-V4.1-Flash')
+    monkeypatch.setenv('SECOND_REVIEW_JUDGE', 'deepseek')
+    monkeypatch.setenv('NOVEL_H3_TRANSLATION_ENDPOINT', 'flashnext')
+    monkeypatch.delenv('NOVEL_H3_REQUEST_CHECK_ENDPOINT', raising=False)
+    before = dict(os.environ)
+    assert configuration.h3_translation_endpoint().model == 'Qwen3.8-Flash-Next'
+    assert configuration.h3_request_check_endpoint().model == 'DeepSeek-V4.1-Flash'
+    assert judge_settings().model == 'DeepSeek-V4.1-Flash'
+    assert dict(os.environ) == before
+    monkeypatch.setenv('NOVEL_H3_REQUEST_CHECK_ENDPOINT', 'flashnext')
+    assert configuration.h3_request_check_endpoint().model == 'Qwen3.8-Flash-Next'
 
 
 def test_importing_translation_does_not_set_process_model_environment():

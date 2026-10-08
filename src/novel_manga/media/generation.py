@@ -4,6 +4,7 @@ import re
 import wave
 from pathlib import Path
 from ..util import run
+from ..util import read_json
 from .common import log, reference_digests
 from .policy import COMPLIANCE_SUFFIX, RETRY_SUFFIX, soften_prompt
 
@@ -120,6 +121,14 @@ def reference_voices(ctx, clip: dict) -> tuple[Path, ...]:
         return tuple(path for _, path in chosen)
 
 
+def h3_sampling(ctx) -> dict | None:
+    """The real local provider's sampler; replay contexts may have no provider."""
+    if not getattr(getattr(ctx, 'settings', None), 'local_h3_base_url', None):
+        return None
+    sampler = getattr(getattr(ctx, 'provider', None), 'sampling_parameters', None)
+    return dict(sampler()) if sampler is not None else None
+
+
 def build_request(ctx, clip, attempt):
     retry = retry_suffix(ctx, clip, attempt)
     prompt = clip_prompt(ctx, clip) + retry + (COMPLIANCE_SUFFIX if clip.get('_compliance') else '')
@@ -134,6 +143,9 @@ def build_request(ctx, clip, attempt):
         request['reference_audio_sha256'] = reference_digests(voices)
     if ctx.settings.local_h3_base_url:
         request['seed_variant'] = int(clip.get('repair_take', 0))*100 + attempt - 1
+        sampling = h3_sampling(ctx)
+        if sampling is not None:
+            request['h3_sampling'] = sampling
     return request, references, digests, retry
 
 
@@ -145,6 +157,13 @@ def submit(ctx, clip, request, output, references):
             raise ValueError('H3 final request invalid: ' + '; '.join(problems))
     voices = (tuple(Path(p) for p in request['reference_audios']) if 'reference_audios' in request
               else reference_voices(ctx, clip))
-    return ctx.provider.create_video(request['prompt'], None, output, duration=float(clip['request_seconds']),
+    result = ctx.provider.create_video(request['prompt'], None, output, duration=float(clip['request_seconds']),
             additional_images=references, reference_audios=voices,
             **({'seed_variant': request['seed_variant']} if ctx.settings.local_h3_base_url else {}))
+    if ctx.settings.local_h3_base_url:
+        actual = read_json(output.with_suffix(output.suffix + '.task.json'), {}).get('h3_sampling')
+        if isinstance(actual, dict) and actual != request.get('h3_sampling'):
+            if request.get('h3_sampling') is not None:
+                request['h3_sampling_target'] = request['h3_sampling']
+            request['h3_sampling'] = dict(actual)
+    return result

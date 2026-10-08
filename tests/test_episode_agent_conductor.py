@@ -10,43 +10,7 @@ from novel_manga.application.production import conductor_common, conductor_dispa
 from novel_manga.application.production.episode_agents import _model_environment as select_agent_model
 
 
-def write(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value))
-
-
-def pipeline(root):
-    return {'resources': {'video_keys': {'h3': {
-        'model': 'minimax-h3-ref2va-turbo', 'base_url': 'pool', 'key_var': '', 'pool': 'test-h3',
-        'clip_cap': 15, 'parallel': 3, 'inflight': {'min': 1, 'max': 4, 'start': 2}}},
-        'planning_models': {'shared': {'base': 'http://first/v1,http://second/v1', 'model': 'agent-model', 'slots': 2, 'key_var': 'MODEL_KEY'}}},
-        'defaults': {'planning': {'block_size': 3, 'margin': 1}},
-        'novels': [{'id': 'book', 'title': 'Book', 'novel_dir': str(root / 'book'), 'tmp_dir': str(root / 'production'),
-                    'render_keys': ['h3'], 'planning': {'shared': 1}, 'blocks_max': 1, 'blocks_min': 1,
-                    'ranges': [{'chapters': '1-3', 'plan_mode': 30}], 'executor': 'episode_agent',
-                    'agent': {'input_mode': 'source', 'output_root': str(root / 'agent-output'),
-                              'parallel': 2, 'workers': 3}}]}
-
-
-@pytest.fixture
-def setup(tmp_path, monkeypatch):
-    (tmp_path / 'book').mkdir()
-    write(tmp_path / 'book/novel.json', {'novel_id': 'book'})
-    config = pipeline(tmp_path)
-    write(tmp_path / 'configs/pipeline.json', config)
-    monkeypatch.setattr(conductor_common, 'REPO', tmp_path)
-    monkeypatch.setattr(control, 'processes', lambda: [])
-    monkeypatch.setattr(episode_agents, '_model_environment', lambda c: {'NOVEL_AGENT_MODEL': 'agent-model'})
-    spawned = []
-    def spawn(c, name, command, extra=None):
-        spawned.append((name, command, extra))
-        c.procs[name] = SimpleNamespace(pid=900 + len(spawned), poll=lambda: None)
-    monkeypatch.setattr(conductor_workers, 'spawn', spawn)
-    return tmp_path, config, spawned
-
-
-def make(config, root):
-    return conductor_flow.Conductor(config_for_novel(config, 'book', root=root), dry_run=False)
+from support.episode_conductor import write, pipeline, setup, make
 
 
 def test_agent_tick_dispatches_each_episode_only_and_inherits_caps(setup, monkeypatch):
@@ -70,6 +34,40 @@ def test_agent_tick_dispatches_each_episode_only_and_inherits_caps(setup, monkey
     assert state['executor'] == 'episode_agent' and state['agents']['1']['status'] == 'working'
 
 
+def test_started_episode_resumes_before_fresh_work_without_resetting_session(setup):
+    root, config, spawned = setup
+    write(root/'agent-output/book/book_1-source/agent-run.json', {
+        'status': 'deferred', 'phase': 'deferred', 'passed': False,
+        'remaining_seconds': 900, 'session_id': 'same-session'})
+    c = make(config, root)
+    assert c.tick() is True
+    assert [s[0] for s in spawned] == ['agent_1', 'agent_2']
+    assert c.agents['1']['status'] == 'working' and not c.agents['1']['passed']
+    saved = control.read(root/'agent-output/book/book_1-source/agent-run.json')
+    assert saved['session_id'] == 'same-session' and saved['remaining_seconds'] == 900
+    for n in (1, 2):
+        c.procs[f'agent_{n}'].poll = lambda: 0
+        write(root/f'agent-output/book/book_{n}-source/agent-run.json', {'status': 'finished', 'passed': True})
+    assert c.tick() is True
+    assert spawned[-1][0] == 'agent_3'
+
+
+def test_fixed_source_judge_recovery_is_automatically_dispatched_without_retry_budget(setup):
+    root, config, spawned = setup
+    run = root/'agent-output/book/book_1-source'
+    for n in (1, 2, 3):
+        write(root/f'agent-output/book/book_{n}-source/agent-run.json', {
+            'status': 'blocked' if n == 1 else 'finished', 'passed': n != 1, 'remaining_seconds': 321})
+    write(run/'book/book_1/work/input_repairs/clip_01-1.json', {
+        'status': 'rejected', 'step': 'source', 'clip_id': 'clip_01', 'decision': {'clip_id': 'clip_01'}})
+    c = make(config, root)
+    assert c.tick() is True
+    assert [s[0] for s in spawned] == ['agent_1']
+    assert '--retry-issues' not in spawned[0][1]
+    saved = control.read(run/'agent-run.json')
+    assert saved['remaining_seconds'] == 321 and saved['status'] == 'deferred'
+
+
 @pytest.mark.parametrize('terminal', ['finished', 'finished_with_issues', 'blocked'])
 def test_saved_terminal_results_never_automatically_rerun(setup, terminal):
     root, config, spawned = setup
@@ -82,6 +80,131 @@ def test_saved_terminal_results_never_automatically_rerun(setup, terminal):
     assert all(row['status'] == terminal for row in c.agents.values())
     assert make(config, root).tick() is False
     assert spawned == []
+
+
+def test_configured_retry_runs_once_and_deferred_resumes_without_new_retry(setup):
+    root, config, spawned = setup
+    config['novels'][0]['agent'].update(retry_issues=True, parallel=1)
+    for n in (1, 2, 3):
+        write(root / f'agent-output/book/book_{n}-source/agent-run.json',
+              {'status': 'finished' if n > 1 else 'finished_with_issues', 'passed': n > 1,
+               'session_id': 'retained', 'remaining_seconds': 123})
+    c = make(config, root)
+    assert c.tick() is True
+    assert [s[0] for s in spawned] == ['agent_1']
+    assert '--retry-issues' in spawned[0][1]
+    assert control.read(root/'production/state.json')['agents']['1']['issue_retry_started'] is True
+    c.procs['agent_1'].poll = lambda: 0
+    write(root/'agent-output/book/book_1-source/agent-run.json',
+          {'status': 'deferred', 'passed': False, 'session_id': 'retained', 'remaining_seconds': 99})
+    restarted = make(config, root)
+    assert restarted.tick() is True
+    assert '--retry-issues' not in spawned[-1][1]
+    assert control.read(root/'agent-output/book/book_1-source/agent-run.json')['remaining_seconds'] == 99
+    restarted.procs['agent_1'].poll = lambda: 0
+    write(root/'agent-output/book/book_1-source/agent-run.json', {'status': 'finished_with_issues', 'passed': False})
+    assert restarted.tick() is False
+    assert make(config, root).tick() is False
+    assert len(spawned) == 2
+
+
+@pytest.mark.parametrize('reason,expected', [
+    ('episode operation timeout exhausted', True),
+    ('episode agent invocation failed', True),
+    ('episode agent ended twice without operation or output progress', False),
+    ('unresolved clips: clip_01', False),
+])
+def test_budget_continuation_retries_only_configured_stop_reasons(setup, reason, expected):
+    root, config, spawned = setup
+    config['novels'][0]['agent'].update(retry_issues=True, retry_reasons=[
+        'episode operation timeout exhausted', 'episode agent invocation failed'])
+    for n in (1, 2, 3):
+        write(root/f'agent-output/book/book_{n}-source/agent-run.json', {
+            'status': 'blocked' if n == 1 else 'finished', 'passed': n != 1,
+            'reason': reason if n == 1 else None})
+    c = make(config, root)
+    assert c.tick() is expected
+    assert bool(spawned) is expected
+    if expected:
+        c.procs['agent_1'].poll = lambda: 0
+        assert c.tick() is False
+        assert make(config, root).tick() is False
+        assert len(spawned) == 1
+
+
+@pytest.mark.parametrize('with_reason_filter', [False, True])
+def test_audited_chapter_can_continue_after_interface_fix_once(setup, with_reason_filter):
+    root, config, spawned = setup
+    config['novels'][0]['agent'].update(retry_issues=True, retry_chapters=[1, 3])
+    if with_reason_filter:
+        config['novels'][0]['agent']['retry_reasons'] = []
+    for n in (1, 2, 3):
+        write(root/f'agent-output/book/book_{n}-source/agent-run.json', {
+            'status': 'finished' if n == 3 else 'finished_with_issues', 'passed': n == 3})
+    c = make(config, root)
+    assert c.tick() is True
+    assert [r[0] for r in spawned] == ['agent_1']
+    c.procs['agent_1'].poll = lambda: 0
+    assert c.tick() is False
+    assert make(config, root).tick() is False
+    assert len(spawned) == 1
+
+
+def test_agent_task_config_and_loaded_code_branch_reach_child(setup):
+    root, config, spawned = setup
+    config['novels'][0]['agent']['config'] = 'task/agent.json'
+    c = make(config, root)
+    c.tick()
+    command = spawned[0][1]
+    assert command[command.index('--config') + 1] == str(root/'task/agent.json')
+    assert Path(command[1]) == Path(episode_agents.__file__).resolve().parents[4]/'scripts/episode_agent.py'
+    assert command[command.index('--project-root') + 1] == str(root)
+
+
+def test_continuation_retains_saved_duration_contract(setup):
+    root, config, spawned = setup
+    run = root/'agent-output/book/book_1-source'
+    write(run/'agent-run.json', {'status': 'deferred', 'remaining_seconds': 120})
+    write(run/'sandbox/input/manifest.json', {'target_seconds': [90, 120]})
+    c = make(config, root)
+    c.tick()
+    command = spawned[0][1]
+    start = command.index('--target-seconds') + 1
+    assert command[start:start+2] == ['90', '120']
+    assert control.read(run/'sandbox/input/manifest.json')['target_seconds'] == [90, 120]
+
+
+def test_model_selection_reads_task_config(setup, monkeypatch):
+    from novel_manga.application.agents import sandbox
+    root, config, _ = setup
+    config['novels'][0]['agent']['config'] = 'task/agent.json'
+    seen = []
+    monkeypatch.setattr(sandbox, 'load_config', lambda path: seen.append(path) or
+                        {'model': 'agent-model', 'key_var': 'MODEL_KEY'})
+    monkeypatch.setenv('MODEL_KEY', 'test-task-key')
+    monkeypatch.setenv('NOVEL_LLM_API_KEY', 'test-old-key')
+    selected = select_agent_model(make(config, root))
+    assert selected['NOVEL_AGENT_MODEL'] == 'agent-model'
+    assert selected['NOVEL_LLM_API_KEY'] == 'test-task-key'
+    assert seen == [root/'task/agent.json']
+
+
+def test_retry_waits_for_video_resource_without_losing_retry_intent(setup, monkeypatch):
+    import time
+    root, config, spawned = setup
+    config['novels'][0]['agent']['retry_issues'] = True
+    for n in (1, 2, 3):
+        write(root/f'agent-output/book/book_{n}-source/agent-run.json',
+              {'status': 'finished' if n > 1 else 'blocked', 'passed': n > 1})
+    c = make(config, root)
+    monkeypatch.setattr(episode_agents.conductor_capacity, 'tick_aimd', lambda *a: None)
+    c.lanes['h3']['parked_until'] = time.time()+100
+    assert c.tick() is True
+    assert spawned == []
+    assert not c.agents['1'].get('issue_retry_started')
+    c.lanes['h3']['parked_until'] = 0
+    c.tick()
+    assert '--retry-issues' in spawned[0][1]
 
 
 def test_controller_restarts_adopt_live_external_episode_workers(setup, monkeypatch):
@@ -415,6 +538,27 @@ def test_parked_h3_stops_new_hosts_while_existing_hosts_drain(setup):
     assert c.agents['1']['status'] == 'working'
     assert c.agents['2']['waiting_for'] == 'video'
     assert c.agents['2']['phase'] == 'waiting_resource'
+
+
+def test_quota_window_includes_both_sides_of_midnight(setup, monkeypatch):
+    from datetime import datetime
+    import os
+    root, _, _ = setup
+    now = datetime(2026, 10, 4, 0, 3)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls):
+            return now
+
+    monkeypatch.setattr(conductor_state, 'datetime', Clock)
+    monkeypatch.setattr(conductor_state.time, 'time', lambda: now.timestamp())
+    path = root/'production/agent_1.log'; path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('[23:40:00] quota_not_enough\n[23:58:00] quota_not_enough\n'
+                    '[00:02:30] quota_not_enough\n')
+    os.utime(path, (now.timestamp(), now.timestamp()))
+    conductor = SimpleNamespace(tmp=root/'production', executor='episode_agent')
+    assert conductor_state.recent_lines(conductor, [1], 'quota_not_enough', 600) == 2
 
 
 def test_model_wait_and_agent_time_are_visible_to_shared_status(setup, monkeypatch):

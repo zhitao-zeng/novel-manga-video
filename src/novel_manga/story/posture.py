@@ -48,7 +48,10 @@ def resolve(rows, answers, previous=None):
                 text = '；'.join(str(shot.get(k) or '') for k in ('visual_prompt', 'motion_prompt', 'end_state'))
                 if person['transition'] not in text:
                     issues.append({'index': index, 'kind': 'reading',
-                                   'detail': f'{name}的姿态改变证据不在本镜中，transition应逐字引用本人的改变动作'})
+                                   'detail': f'镜{index} {name}的姿态改变证据不在本镜中：'
+                                             f'transition={person["transition"]!r}；'
+                                             '应从该镜visual_prompt/motion_prompt/end_state逐字截取本人的改变动作，'
+                                             '不要引用source原文、前后镜或改写句子'})
             elif not person['transition']:
                 if changed_at_start:
                     problems.append(f'{name}上一镜结束时{before["posture"]}，本镜开始时{pose}，缺少明确的姿态交接')

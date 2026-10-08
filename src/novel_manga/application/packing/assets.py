@@ -47,7 +47,7 @@ def prop_assets_on_disk(novel_dir) -> dict[str, set[str]]:
     return out
 
 
-def build_references(cast: list[str], location_short: str, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None, props: list[str] | None = None, props_index: dict | None = None, props_on_disk: set[str] | None = None, worn_overrides: dict[str, str | None] | None = None, faceplate_closed: set[str] | frozenset = frozenset(), faceplate_closed_only: set[str] | frozenset = frozenset()) -> tuple[list[dict], list[str], str]:
+def build_references(cast: list[str], location_short: str | None, bible: StoryBible, location_map: dict[str, str], speakers: tuple[str, ...] = (), novel_dir: Path | None = None, chapter: int | None = None, *, settings=None, identity_data=None, body_refs=None, props: list[str] | None = None, props_index: dict | None = None, props_on_disk: set[str] | None = None, worn_overrides: dict[str, str | None] | None = None, faceplate_closed: set[str] | frozenset = frozenset(), faceplate_closed_only: set[str] | frozenset = frozenset()) -> tuple[list[dict], list[str], str]:
     settings = settings or compiler_options()
     character_index = {character.name: index for index, character in enumerate(bible.characters, start=1)}
     location_index = {full.split("：", 1)[0].strip(): index for index, full in enumerate(bible.locations, start=1)}
@@ -167,13 +167,25 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
                         if name in closed_tags else '')
                 else:
                     bindings[index] = text.replace('体型和服装', '体型') + f'。当前穿着{item}，不采用人物卡的原服装。'
-    full = location_map[location_short]
-    location_asset = f"location_{location_index[location_short]:03d}"
-    count += 1
-    references.append({"tag": f"@图片{count}", "role": "location", "name": location_short, "asset_id": location_asset, "path": f"series_assets/locations/{location_asset}/establishing.jpeg"})
-    # The location's seat number is fixed the moment it takes it: a prop appended below must not
-    # shift the binding that tells the model which picture is the place.
-    location_tag = references[-1]["tag"]
+    location_binding = ''
+    if location_short is not None:
+        full = location_map[location_short]
+        location_asset = f"location_{location_index[location_short]:03d}"
+        location_phase = None
+        if novel_dir is not None:
+            from novel_manga.util import read_json
+            location_phases = read_json(novel_dir/'series_assets/phases.json', {}).get('locations', {})
+            location_phase = phase_for(location_phases, location_short, chapter)
+            if location_phase:
+                location_asset = location_phase['asset_id']
+                full = location_short + '：' + location_phase['description']
+        count += 1
+        references.append({"tag": f"@图片{count}", "role": "location", "name": location_short, "asset_id": location_asset, "path": f"series_assets/locations/{location_asset}/establishing.jpeg",
+                           **({'phase': location_phase.get('label', location_short)} if location_phase else {})})
+        # Capture the place's picture number before adding a prop.
+        location_tag = references[-1]["tag"]
+        description = compact(full.split("：", 1)[1] if "：" in full else full, 40)
+        location_binding = f"{location_tag}用于<{location_short}>的建筑、地面、固定道具和光线（{description}），不采用图中人物"
     # The prop seat: one slot after the location, never at the cost of a character's view - ten
     # reference images and the model starts blending faces.  A prop the bible does not list (a
     # planner hallucination) or whose card was never built is dropped, not invented.
@@ -223,8 +235,6 @@ def build_references(cast: list[str], location_short: str, bible: StoryBible, lo
     # into the prompt.  Cast order here is just for a stable plan file.
     for voice_index, name in enumerate((n for n in cast if n in speakers and n in settings.voices), start=1):
         references.append({"tag": f"@音频{voice_index}", "role": "voice", "name": name, "path": settings.voices[name]})
-    description = compact(full.split("：", 1)[1] if "：" in full else full, 40)
-    location_binding = f"{location_tag}用于<{location_short}>的建筑、地面、固定道具和光线（{description}），不采用图中人物"
     if prop_bindings:
-        location_binding += "。" + "。".join(prop_bindings)
+        location_binding += ("。" if location_binding else '') + "。".join(prop_bindings)
     return references, bindings, location_binding

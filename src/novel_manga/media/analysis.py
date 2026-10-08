@@ -78,25 +78,15 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
         run(["ffmpeg", "-y", "-v", "error", "-i", str(video), "-vn", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s16le", str(partial)])
         partial.replace(wav)
     reference = clip.get("spoken_text", "")
+    vocalizations = speech.planned_vocalizations(clip)
     if asr_path.is_file():
         # The record names the take it was made from, but its clip directory can be renamed under it
         # (split_long_stages renumbers clips): the take is the file beside the record, never the path inside it.
         cached = {**json.loads(asr_path.read_text(encoding="utf-8")), "clip_id": clip["clip_id"], "video": str(video)}
         if 'reference' in cached and (cached['reference'] != reference
-                or (cached.get('chunks') and cached.get('speech_evaluation_policy') != speech.EVALUATION_POLICY)):
-            rows = speech.corrected_rows(cached.get('chunks', []), reference, ctx.protected_terms, ctx.aliases)
-            if not rows and cached.get('hypothesis'):
-                # Existing aggregate records can be evaluated, but contain no new timing evidence.
-                rows = [{'hypothesis': cached['hypothesis']}]
-            checked = speech.evaluate(reference, rows, cached.get('mean_volume_db'), cached.get('max_volume_db'))
-            retained = [issue for issue in cached.get('issues', [])
-                        if not speech.replaced_by_speech_recheck(issue) and issue != speech.QualityIssue.UNSCRIPTED_SPEECH.code]
-            checked['issues'] = list(dict.fromkeys([*retained, *checked['issues']]))
-            checked['passed'] = not checked['issues']
-            checked['chunks'] = rows if cached.get('chunks') else cached.get('chunks', [])
-            cached.update(checked)
-            if 'speech_recheck_policy' in cached:
-                cached = speech.recheck(reference, cached, ctx.protected_terms, ctx.aliases)
+                or cached.get('planned_vocalizations', []) != vocalizations
+                or cached.get('speech_evaluation_policy') != speech.EVALUATION_POLICY):
+            cached = speech.refresh(reference, cached, ctx.protected_terms, ctx.aliases, vocalizations=vocalizations)
             cached = with_dialogue_timing(cached)
             atomic_write_json(asr_path, cached)
         return with_dialogue_timing(cached)
@@ -115,14 +105,15 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
             rows.append(row)
     rows = speech.corrected_rows(rows, reference, ctx.protected_terms, ctx.aliases)
     result = {"clip_id": clip["clip_id"], "video": str(video), "duration": round(media_duration(video), 3),
-              **speech.evaluate(reference, rows, mean_db, peak_db)}
+              **speech.evaluate(reference, rows, mean_db, peak_db, vocalizations=vocalizations)}
     result = with_dialogue_timing(result)
     atomic_write_json(asr_path, result)
     return result
 
 def recheck_speech(ctx, clip: dict, analysis: dict, video: Path) -> dict:
-    if clip['clip_id'] not in getattr(ctx, 'speech_checks', set()) or analysis.get('speech_recheck_policy') == 1:
+    if clip['clip_id'] not in getattr(ctx, 'speech_checks', set()) or analysis.get('speech_recheck_policy') == speech.RECHECK_POLICY:
         return analysis
-    result = speech.recheck(clip.get('spoken_text', ''), analysis, ctx.protected_terms, ctx.aliases)
+    result = speech.recheck(clip.get('spoken_text', ''), analysis, ctx.protected_terms, ctx.aliases,
+                            vocalizations=speech.planned_vocalizations(clip))
     atomic_write_json(video.parent / 'asr.json', result)
     return result

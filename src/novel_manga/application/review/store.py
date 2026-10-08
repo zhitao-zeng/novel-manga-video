@@ -14,7 +14,8 @@ from novel_manga.review.audit_queue import export_results
 ROOT = project_root()
 
 
-def load_evidence(paths: list[Path]) -> dict:
+def load_evidence(paths: list[Path], *, review_mode=None) -> dict:
+    from novel_manga.review.contracts import current_review
     result = {}
     for path in paths:
         if not path.is_file():
@@ -25,17 +26,21 @@ def load_evidence(paths: list[Path]) -> dict:
                     row = json.loads(line)
                 except ValueError:
                     continue  # the running scanner may still be appending its last line
+                if review_mode is not None and not current_review(row,review_mode):
+                    continue
                 reconciliation.merge_evidence(result, row)
     return result
 
 
-def current_evidence(legacy: Path, state_dir: Path) -> tuple[dict, dict]:
-    local = load_evidence([legacy / "wy_verify.jsonl", state_dir / "scan_local.jsonl", state_dir / "verified.jsonl"])
+def current_evidence(legacy: Path, state_dir: Path, *, review_mode=None) -> tuple[dict, dict]:
+    from novel_manga.review.contracts import current_review
+    local = load_evidence([legacy / "wy_verify.jsonl", state_dir / "scan_local.jsonl", state_dir / "verified.jsonl"],review_mode=review_mode)
     flash = load_evidence([legacy / "wy_verify_flash.jsonl", state_dir / "scan_flash.jsonl"])
     queue = state_dir / "shared_audit.sqlite3"
     if queue.is_file():
         for row in export_results(queue, 'qwen'):
-            reconciliation.merge_evidence(local, row)
+            if review_mode is None or current_review(row,review_mode):
+                reconciliation.merge_evidence(local, row)
         for row in export_results(queue, 'flash'):
             reconciliation.merge_evidence(flash, row)
     return local, flash
@@ -61,12 +66,12 @@ def current_takes(directory: Path, plan: dict, review: dict) -> dict:
     return result
 
 
-def read_reconciled(directory: Path, local: dict, flash: dict) -> tuple[dict, dict, dict]:
+def read_reconciled(directory: Path, local: dict, flash: dict, *, apply_confirmed: bool = True) -> tuple[dict, dict, dict]:
     plan = read(directory / "clip_plan.json", {})
     previous = read(directory / "episode_review.json", {})
     takes = current_takes(directory, plan, previous)
     result = reconciliation.reconcile_review(directory, plan, previous, takes, local, flash)
-    if any(row.get("confirmed") for row in previous.get("clips", {}).values()):
+    if apply_confirmed and any(row.get("confirmed") for row in previous.get("clips", {}).values()):
         from novel_manga.application.review.confirmed import enforce
         result = enforce(directory, result, previous)
     return previous, result, takes

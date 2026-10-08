@@ -199,6 +199,9 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
             from novel_manga.application.review.judges import judge_clip
             from novel_manga.application.review.confirmed import enforce
             from novel_manga.models.bible import StoryBible
+            from novel_manga.application.review.evidence import review_mode
+            from novel_manga.review.contracts import POLICY
+            mode = 'verify' if review_mode(directory/'work/source_picture_review'/cid)=='verify' else 'classic'
             picture = judge_clip(clips[cid], Path(now['video']), StoryBible.model_validate(bible), {},
                                  selected.get(cid, {}).get('hypothesis', ''), directory/'work/source_picture_review'/cid,
                                  source_script=proposal['script'], visor_states=proposal.get('visor_states'))
@@ -208,7 +211,8 @@ def prepare_source_recheck(directory: Path, targets: list[str] | None = None, *,
             if picture.get('severity') == 'review_error':
                 raise ValueError(f'{cid}: source verified but picture review incomplete')
             picture['source_segment_ids'] = list(clips[cid].get('segment_ids') or [])
-            record.update(picture_review=picture, source_only_verdict=record.get('verdict'),
+            picture.update(policy=POLICY,review_mode=mode)
+            record.update(policy=POLICY,review_mode=mode,picture_review=picture, source_only_verdict=record.get('verdict'),
                           verdict={'pass': 'fine', 'minor': 'subtle'}.get(picture['severity'], 'obvious'),
                           evidence=picture.get('identity_issue') or picture.get('defect_issue') or picture.get('story_issue') or '',
                           instruction=picture.get('feedback') or '')

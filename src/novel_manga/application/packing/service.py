@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 from novel_manga.story.compilation import ClipCompiler, plan_totals, lint_stage, chat_turns
 from novel_manga.story.dialogue import merged_turns
+from novel_manga.story.scene import wears_bindings
 from novel_manga.story.sources import segment_ids
 from novel_manga.application.packing.context import compiler_options, POLICY, PACKER_VERSION
 from novel_manga.application.packing.assets import build_references, bodies_for
@@ -21,11 +22,11 @@ def clip_cast(clip, *, settings=None):
     return cast
 
 
-def prepared_shots(script: dict, episode_dir: Path, *, identity_data=None, posture_states=None) -> list[dict]:
+def prepared_shots(script: dict, episode_dir: Path, *, identity_data=None, posture_states=None, speaker_facts=None) -> list[dict]:
     from novel_manga.planning.storyboard import require_bound_storyboard
     require_bound_storyboard(script)
     from novel_manga.application.identity.scene import prepare_scene
-    resolved = prepare_scene(script, episode_dir, identity_data=identity_data)
+    resolved = prepare_scene(script, episode_dir, identity_data=identity_data, speaker_facts=speaker_facts)
     if resolved.issues:
         raise ValueError('分镜需要明确本镜状态：' + '; '.join(resolved.issues))
     from novel_manga.application.packing.posture import FILE, attach
@@ -57,7 +58,14 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         if not 4 <= seconds <= options.max_clip_seconds:
             raise ValueError(f'{clip_id}: request_seconds override outside clip limits')
         clip['seconds'] = seconds
-    clip["request_seconds"] = int(min(options.max_clip_seconds, max(4, math.ceil(clip["seconds"]))))
+    if 'shot_timing' in clip:
+        if (len(clip['shot_timing']) != len(clip['shots'])
+                or not 3 <= clip['request_seconds'] <= options.max_clip_seconds
+                or abs(sum(t['seconds'] for t in clip['shot_timing']) - clip['request_seconds']) > .01):
+            raise ValueError('authored request timing does not match the preserved shots')
+        clip['seconds'] = clip['request_seconds']
+    else:
+        clip["request_seconds"] = int(min(options.max_clip_seconds, max(4, math.ceil(clip["seconds"]))))
     cast = clip_cast(clip, settings=options)
     if override.get("cast"):
         # Director fix: restrict the reference set (e.g. drop a silent
@@ -95,7 +103,17 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
             worn_overrides[name] = states[0]           # on then off within this clip: card rides, binding narrates the change
         else:
             worn_overrides[name] = None                # bare throughout
-    references, bindings, location_binding = build_references(cast, clip["location"], bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"), props=clip_prop_names or None, props_index={p.name: p for p in getattr(bible, "props", None) or []}, worn_overrides=worn_overrides or None, faceplate_closed=closed_for(ctx["episode_dir"], clip, script=ctx.get("source_script"), states=ctx.get("visor_states")), faceplate_closed_only=closed_for(ctx["episode_dir"], clip, script=ctx.get("source_script"), states=ctx.get("visor_states"), throughout=True))
+    reference_location = clip.get('reference_location', clip['location'])
+    reference_cast = cast
+    if 'authored_references' in clip:
+        named = {c.name for c in bible.characters}
+        named.update(turn['speaker_name'] for shot in clip['shots'] for turn in shot['turns']
+                     if turn.get('delivery_mode') in {'visible_dialogue', 'singing'})
+        named.update(r['name'] for r in clip['authored_references'] if r.get('role')=='character')
+        # Unnamed, unpictured extras remain in the scene/cast; rebuilding an
+        # adopted shot does not invent a registered portrait for them.
+        reference_cast = [name for name in cast if name in named]
+    references, bindings, location_binding = build_references(reference_cast, reference_location, bible, ctx["location_map"], speakers=speakers, novel_dir=ctx["episode_dir"].parent, chapter=chapter_of(ctx["episode_dir"]), settings=options, identity_data=ctx.get("identity_data"), body_refs=ctx.get("body_refs"), props=clip_prop_names or None, props_index={p.name: p for p in getattr(bible, "props", None) or []}, worn_overrides=worn_overrides or None, faceplate_closed=closed_for(ctx["episode_dir"], clip, script=ctx.get("source_script"), states=ctx.get("visor_states")), faceplate_closed_only=closed_for(ctx["episode_dir"], clip, script=ctx.get("source_script"), states=ctx.get("visor_states"), throughout=True))
     # An episode can use an approved costume/armour card without changing that
     # character's base card for every other chapter. The picture seat stays put.
     chosen_pictures = override.get('reference_paths') or {}
@@ -120,7 +138,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
             # A voice recording has its own references; it must not put an offscreen thinker into
             # the picture, nor downgrade the thought into native speech (agent ch12 shot 9).
             recording_refs, _, _ = build_references(
-                [thinker], clip['location'], bible, ctx['location_map'], speakers=(thinker,),
+                [thinker], reference_location, bible, ctx['location_map'], speakers=(thinker,),
                 novel_dir=ctx['episode_dir'].parent, chapter=chapter_of(ctx['episode_dir']),
                 settings=options, identity_data=ctx.get('identity_data'), body_refs=ctx.get('body_refs'))
             recording_cards = [r for r in recording_refs if r.get('role') == 'character']
@@ -159,6 +177,7 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
         "action_bindings": [{"stage": i, "source_stage": shot["index"],
                              "actions": copy.deepcopy(shot.get("actions", []))}
                             for i, shot in enumerate(clip['shots'], 1)],
+        "wears_bindings": wears_bindings(clip['shots']),
         "chat_lines": [{"speaker_name": t["speaker_name"], "text": t["text"].strip(), "chat_target": str(t.get("chat_target") or "").strip()} for shot in clip["shots"] for t in chat_turns(shot)],
         "spoken_text": "".join(line["text"] for line in lines),
         "prompt": prompt,
@@ -186,6 +205,8 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
                      shot_ids=[s['shot_id'] for s in clip['shots']],
                      shot_timing=[{'seconds': s['duration_seconds'], 'cut': s.get('cut', '')} for s in clip['shots']],
                      scene_time=clip['shots'][0].get('scene_time', ''))
+    if 'shot_timing' in clip:
+        entry['shot_timing'] = copy.deepcopy(clip['shot_timing'])
     from novel_manga.story.h3 import source_crowds
     data = ctx.get('identity_data')
     data = data if data is not None else load_chapter(ctx['episode_dir'])

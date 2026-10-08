@@ -81,6 +81,31 @@ def test_keep_pass_rechecks_selected_postmix_and_preserves_inputs_and_other_clip
     assert_frozen(protected)
 
 
+def test_changed_mode_keep_cannot_be_reused_as_the_previous_mode(episode,monkeypatch):
+    from novel_manga.application.review import episode as review_episode, evidence
+    from novel_manga.review.contracts import POLICY, current_review
+    directory,_,_,_,protected,_,_=episode
+    previous=read_json(directory/'episode_review.json')
+    previous.update(policy=POLICY,review_mode='verify')
+    atomic_write_json(directory/'episode_review.json',previous)
+    modes=[]
+    def judge(clip,video,bible,times,hypothesis,work,**kwargs):
+        modes.append(evidence.review_mode(work))
+        return {'severity':'pass','verify':{'verdict':'fine'},'feedback':''}
+    monkeypatch.setattr(judges,'judge_clip',judge)
+    monkeypatch.setenv('NOVEL_REVIEW_MODE','classic')
+    assert execution.recheck_current_clip(directory,'a')['accepted']==['a']
+    saved=read_json(directory/'episode_review.json')
+    assert not current_review(saved,'verify')
+    assert saved['clips']['b']==previous['clips']['b']
+    current=review_episode.review_episode(directory,fresh=False)
+    assert modes==['classic'] and current_review(current,'classic')
+    monkeypatch.setenv('NOVEL_REVIEW_MODE','verify')
+    result=review_episode.review_episode(directory,fresh=False)
+    assert modes==['classic','verify'] and current_review(result,'verify')
+    assert_frozen(protected)
+
+
 @pytest.mark.parametrize('case', ['picture', 'speech', 'extra_speech', 'confirmed'])
 def test_keep_cannot_clear_picture_speech_or_human_confirmed_failure(episode, monkeypatch, case):
     directory, _, mixed, values, protected, _, _ = episode

@@ -33,6 +33,14 @@ class ResolvedScene:
         return self.script['shots']
 
 
+def wears_bindings(shots: list[dict]) -> list[dict]:
+    """Copy each current shot's wardrobe and visibility into clip metadata."""
+    return [{'stage': stage, 'source_stage': shot['index'],
+             'wears': copy.deepcopy(shot.get('wears', {})),
+             'in_frame': copy.deepcopy(shot.get('in_frame', shot.get('characters', [])))}
+            for stage, shot in enumerate(shots, 1)]
+
+
 def resolve_identities(script, context: SceneContext):
     script = copy.deepcopy(script)
     changes = _resolve_identities(script, context) if context.source_available else {}

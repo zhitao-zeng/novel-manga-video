@@ -15,8 +15,9 @@ from novel_manga.planning.preparation import POLICY, TERMINAL
 from novel_manga.application.preparation.store import read, inputs, record, has_video, backup, eligible, summary
 import novel_manga.application.preparation.actions as actions
 ROOT = project_root()
+CODE = Path(__file__).resolve().parents[4]
 
-def prepare_one(directory):
+def prepare_one(directory, *, card_builder=None):
     from novel_manga.application.preparation.readiness import inspect_episode
     previous = read(directory.parent / 'h3_preparation/episodes' / (directory.name.rsplit('_', 1)[-1] + '.json'), {})
     attempts = previous.get('attempts', 0) if previous.get('policy') == POLICY and previous.get('inputs') == inputs(directory) else 0
@@ -41,7 +42,10 @@ def prepare_one(directory):
     plan, blocked = inspect_episode(directory)
     if blocked:
         return record(directory, 'needs_replan', blocks=blocked)
-    actions.ensure_cards(directory, plan)
+    if card_builder is None:
+        actions.ensure_cards(directory, plan)
+    else:
+        card_builder(plan)
     return actions.translate_and_check(directory, plan, answer)
 
 
@@ -92,7 +96,7 @@ def run(args, *, worker_env=None):
             while queue and len(active) < args.workers and not stop:
                 n = queue.pop(0)
                 log = (out / f'chapter-{n}.log').open('a')
-                child = subprocess.Popen([sys.executable, str(ROOT / 'scripts/prepare_h3_book.py'), '--novel-dir', str(novel),
+                child = subprocess.Popen([sys.executable, str(CODE / 'scripts/prepare_h3_book.py'), '--novel-dir', str(novel),
                                           '--episode', str(n)], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                                          stdin=subprocess.DEVNULL, env=worker_env)
                 log.close()

@@ -23,5 +23,14 @@
     "visual": "skill-visual-fn-v2",
     "dream": "skill-dream-fn-v2",
     "community": "skill-community-fn-v2"
+  },
+  "agent_slice_seconds": 600,
+  "source_agent_slice_seconds": 1200,
+  "refusal_fallback": {
+    "endpoint": "flashnext",
+    "base_url": "http://172.28.4.81:8038",
+    "model": "Qwen3.8-Flash-Next",
+    "key_var": "GPU81_QWEN_API_KEY",
+    "model_slots_reserved_for_tools": 0
   }
 }

@@ -31,6 +31,32 @@ def has_video(directory):
     return (directory / (directory.name + '.mp4')).is_file() or any((directory / 'work/clips').glob('*/attempt_*/clip.mp4'))
 
 
+def unfilmed_video_clips(directory, plan=None):
+    """First pass is actual video availability, independently of acceptance/repair labels."""
+    directory = Path(directory)
+    plan = read(directory/'clip_plan.json', {}) if plan is None else plan
+    selected = {r['clip_id']: r.get('selected') or {}
+                for r in read(directory/'thin_media_report.json', {}).get('clips', [])}
+    pending = set()
+    for clip in plan.get('clips', []):
+        if clip.get('kind') != 'video':
+            continue
+        cid = clip['clip_id']
+        if clip_video(directory, cid, selected.get(cid, {})) is None:
+            pending.add(cid)
+    return pending
+
+
+def clip_video(directory, cid, selected=None):
+    directory = Path(directory)
+    if selected is None:
+        selected = next((r.get('selected') or {} for r in read(directory/'thin_media_report.json', {}).get('clips', [])
+                         if r['clip_id'] == cid), {})
+    paths = [Path(selected[key]) for key in ('postmix_video', 'video') if selected.get(key)]
+    paths += sorted((directory/'work/clips'/cid).glob('attempt_*/clip.mp4'), reverse=True)
+    return next((p for p in paths if p.is_file() and p.stat().st_size > 0), None)
+
+
 def backup(directory):
     dest = directory.parent / 'h3_preparation/before' / directory.name.rsplit('_', 1)[-1]
     dest.mkdir(parents=True, exist_ok=True)

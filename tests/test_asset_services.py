@@ -44,6 +44,22 @@ def test_asset_configuration_returns_to_defaults_for_another_book():
     assert custom.frame_text == '横屏16:9' and plain.frame_text == '竖屏9:16'
 
 
+def test_character_api_and_local_location_are_independent_routes(tmp_path):
+    calls=[]
+    class Provider:
+        def create_image(self,prompt,output,**kw):
+            calls.append((output.parent.parent.name,kw.get('route_local')))
+            output.parent.mkdir(parents=True,exist_ok=True)
+            Image.new('RGB',(64,64),'blue').save(output)
+            return ImageResult(path=output)
+    bible=StoryBible(novel_title='book',genre='fantasy',visual_style='3D',palette='blue',
+        style_fingerprint='fixture',characters=[Character(name='甲',appearance='黑发',wardrobe='蓝衣')],locations=['空厅'])
+    factory=FramedAssetFactory(Settings(reuse_existing_assets=True),Provider(),
+        style=AssetStyle(dialect_routes_subset=True,local_kinds=('location','prop')))
+    factory.build_selected(tmp_path/'series_assets',bible,{'character_001'},{'location_001'},expressions=False,prop_ids=set())
+    assert calls==[('characters',False),('locations',True)]
+
+
 def test_a_style_package_can_word_itself_differently_per_image_model():
     """gpt-image knows 选角定妆照 and draws one; Qwen draws a poster from the same words and
     needs the frame spelled out.  Since 2026-09-29 the per-model wording lives in the dialect
@@ -64,7 +80,7 @@ def test_a_style_package_can_word_itself_differently_per_image_model():
 
     assert default.card_brief == '' and default.prompt_fingerprint is True
     # qwen.json 声明 local_kinds=['prop']:道具拿方言措辞,人物保持画风包+API 措辞
-    assert qwen.dialect_routes_subset and qwen.local_kinds == ('prop',)
+    assert qwen.dialect_routes_subset and qwen.local_kinds == ('location', 'prop')
     assert qwen.card_brief == '' and qwen.prompt_fingerprint is True
     assert '{name}' in qwen.prop_brief and '人物' in qwen.prop_negative_prompt
     # Everything the two models share is still stated once, in the style package.

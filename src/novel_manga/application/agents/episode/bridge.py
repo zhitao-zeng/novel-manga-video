@@ -11,8 +11,8 @@ import time
 
 from novel_manga.util import atomic_write_json, read_json
 
-ACTIONS = {'check', 'render', 'review', 'apply', 'status', 'finish'}
-SLOW_ACTIONS = {'render', 'review', 'apply', 'finish'}
+ACTIONS = {'check', 'adopt', 'render', 'review', 'apply', 'status', 'finish'}
+SLOW_ACTIONS = {'adopt', 'render', 'review', 'apply', 'finish'}
 MAX_REQUEST_BYTES = 65536
 
 
@@ -135,11 +135,16 @@ class EpisodeBridge:
     def handle(self, action, payload):
         with self._lock:
             busy = (self._job is not None and self._job.get('status') == 'accepted') or (self._future is not None and not self._future.done())
+            waiting_turn = bool(self._turn_active and self._job and self._job.get('status') == 'accepted')
+            handoff = ({'yield': True, 'next': 'End this Agent turn now. The accepted operation cannot start until you return; the host will resume you with its result.'}
+                       if waiting_turn else {})
             if action == 'status':
-                return {'ok': True, **self._dispatch('status', {}), 'busy': busy, 'job': self._job_status()}
+                return {'ok': True, **self._dispatch('status', {}), 'busy': busy, 'job': self._job_status(), **handoff}
             if busy:
                 return {'ok': False, 'status': 'busy', 'job_id': self._job['id'],
-                        'error': 'An episode operation is running; poll status before starting another.'}
+                        'error': 'An episode operation is pending; end this turn for the host to execute it.'
+                            if waiting_turn else 'An episode operation is running; wait for its completion before starting another.',
+                        **handoff}
             if action == 'check':
                 return {'ok': True, **self._dispatch(action, payload)}
             if action not in SLOW_ACTIONS:

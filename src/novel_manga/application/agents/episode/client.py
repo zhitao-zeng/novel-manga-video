@@ -32,13 +32,15 @@ def main(argv=None):
         description='Call the host episode workflow through /work/episode-tools.sock; print JSON.',
         epilog='render, review, apply and finish return a job_id immediately. When yield=true, '
                'end this Agent turn; the host executes the operation and resumes the same session. '
-               'On resume, read status and inspect job.result or job.error. '
+               'On resume, inspect the host state and job result supplied in the continuation prompt. '
                'Only status is available while an operation is running; new operations return busy. '
                'Files are paths relative to /work. No file contents or credentials are sent by this CLI.')
     commands = parser.add_subparsers(dest='action', required=True)
     check = commands.add_parser('check', help='Check the current authored episode or final requests without rendering.')
     check.add_argument('file', nargs='?', help='default: output/requests.json for a prepared script, otherwise output/episode.json')
-    render = commands.add_parser('render', help='Render an episode or final requests, or reuse the current plan and caches.')
+    adopt = commands.add_parser('adopt', help='Validate and adopt a draft for input/asset repair without generating video.')
+    adopt.add_argument('file', nargs='?', help='default: current authored episode or requests file')
+    render = commands.add_parser('render', help='Validate and render a draft or current plan, and export the existing independent review evidence.')
     render.add_argument('file', nargs='?', help='optional authored episode or requests file; omit to use the current prepared plan')
     commands.add_parser('review', help='Review the current generated takes.')
     apply = commands.add_parser('apply', help='Apply the agent-authored repair file.')

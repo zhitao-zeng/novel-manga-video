@@ -51,6 +51,8 @@ def setup_episode(tmp_path):
         (frames/f'frame_{i}.jpg').write_bytes(f'existing frame {i}'.encode())
     write(directory/'episode_review.json', {'clips': {'clip_09': {
         'video': str(current), 'take': take_identity(current), 'severity': 'fail'}}})
+    write(frames/'frame-evidence.json', {'video': str(current), 'take': take_identity(current),
+        'frames': [{'path': str(frames/f'frame_{i}.jpg'), 'seconds': i} for i in range(1, 4)]})
     return directory, current, historical, clip, media
 
 
@@ -82,6 +84,30 @@ def test_three_frame_review_does_not_reuse_a_stale_fourth_frame_with_plausible_m
     frames, provenance = agent.provided_frames(directory, 'clip_09', current, tmp_path/'run/input/take-1/frames')
     assert provenance == 'same_take_review_report_supported'
     assert [p.name for p in frames] == ['frame_1.jpg', 'frame_2.jpg', 'frame_3.jpg']
+
+
+def test_same_review_exports_the_late_fourth_action_frame(tmp_path, monkeypatch, agent):
+    directory, current, _, _, _ = setup_episode(tmp_path)
+    cache = directory/'work/review/clip_09'
+    write(cache/'frame-evidence.json', {'video': str(current), 'take': take_identity(current),
+        'frames': [{'path': str(cache/f'frame_{i}.jpg'), 'seconds': i * 3} for i in range(1, 5)]})
+    write(directory/'episode_review.json', {'clips': {'clip_09': {
+        'video': str(current), 'take': take_identity(current), 'severity': 'fail'}}})
+    monkeypatch.setattr(agent, 'clip_frames', lambda *a: pytest.fail('use all four supported frames'))
+    target = tmp_path/'run/input/frames'
+    frames, provenance = agent.provided_frames(directory, 'clip_09', current, target)
+    assert provenance == 'same_take_review_report_supported'
+    assert [p.name for p in frames] == [f'frame_{i}.jpg' for i in range(1, 5)]
+    assert json.loads((target/'frame-evidence.json').read_text())['frames'][-1]['seconds'] == 12
+
+
+def test_legacy_review_without_frame_list_extracts_tail_instead_of_guessing(tmp_path, monkeypatch, agent):
+    directory, current, _, _, _ = setup_episode(tmp_path)
+    (directory/'work/review/clip_09/frame-evidence.json').unlink()
+    calls = mock_host_frames(agent, monkeypatch)
+    frames, provenance = agent.provided_frames(directory, 'clip_09', current, tmp_path/'input/frames')
+    assert provenance == 'host_uniform_10_to_90_percent'
+    assert len(frames) == 4 and len(calls) == 1
 
 
 @pytest.mark.parametrize('problem', ['different_take', 'missing_frame', 'old_frame', 'postmix_video', 'review_error'])

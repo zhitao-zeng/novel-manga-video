@@ -283,6 +283,16 @@
         {
          "seconds": 14.0
         }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
+        }
        ]
       },
       {
@@ -367,6 +377,16 @@
        "shot_timing": [
         {
          "seconds": 14.0
+        }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
         }
        ]
       },
@@ -458,6 +478,16 @@
        "shot_timing": [
         {
          "seconds": 14.0
+        }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
         }
        ]
       }
@@ -836,6 +866,16 @@
         {
          "seconds": 14.0
         }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
+        }
        ]
       },
       {
@@ -920,6 +960,16 @@
        "shot_timing": [
         {
          "seconds": 14.0
+        }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
         }
        ]
       },
@@ -1011,6 +1061,16 @@
        "shot_timing": [
         {
          "seconds": 14.0
+        }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
         }
        ]
       }
@@ -1402,6 +1462,16 @@
         {
          "seconds": 14.0
         }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
+        }
        ]
       },
       {
@@ -1486,6 +1556,16 @@
        "shot_timing": [
         {
          "seconds": 14.0
+        }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
         }
        ]
       },
@@ -1577,6 +1657,16 @@
        "shot_timing": [
         {
          "seconds": 14.0
+        }
+       ],
+       "wears_bindings": [
+        {
+         "stage": 1,
+         "source_stage": 1,
+         "wears": {},
+         "in_frame": [
+          "林凡"
+         ]
         }
        ]
       }

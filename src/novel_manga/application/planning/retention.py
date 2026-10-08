@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from novel_manga.llm.client import ask_json
-from novel_manga.llm.config import endpoint_settings
+from novel_manga.review.endpoints import judge_settings
 from novel_manga.planning.issues import PlanningCode, PlanningIssue
 
 
@@ -83,6 +83,6 @@ def review(section: str, shots: list[dict], source: str) -> tuple[dict, list[Pla
     )
     answer = ask_json([{"type": "text", "text": prompt}], SCHEMA,
                       name="retained_content_review", max_tokens=3000, timeout=180,
-                      retry_truncated=False, settings=endpoint_settings('local'))
+                      retry_truncated=False, settings=judge_settings())
     verdict = {"section": section, "verdicts": answer.get("verdicts")}
     return verdict, interpret(verdict, section)

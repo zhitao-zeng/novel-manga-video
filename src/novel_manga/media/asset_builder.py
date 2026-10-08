@@ -160,6 +160,10 @@ class FramedAssetFactory:
         # 不带 route_local 调用,保持旧测试替身和旁路调用方的签名兼容。
         remote_route = False if self.style.dialect_routes_subset else None
         route_kw = {} if remote_route is None else {"route_local": remote_route}
+        location_route = ({} if not self.style.dialect_routes_subset
+                          else {"route_local": 'location' in self.style.local_kinds})
+        if location_route.get('route_local') and self.style.location_negative_prompt:
+            location_route['negative_prompt']=self.style.location_negative_prompt
         prop_route = ({} if not self.style.dialect_routes_subset
                       else {"route_local": 'prop' in self.style.local_kinds})
         for index, character in enumerate(bible.characters, start=1):
@@ -203,6 +207,8 @@ class FramedAssetFactory:
                 continue
             directory = root / "locations" / asset_id
             prompt = self._location_prompt(bible, location) + guard + self.style.location_empty_suffix
+            if location_route.get('route_local'):
+                prompt += '。建筑上的牌匾、标识和招牌均为纯色空白面板，以边框和材质呈现。'
             spec = location_spec(asset_id, location, bible, prompt)
             invariants, state, scope = spec['identity_invariants'], spec['state_variables'], spec['reference_scope']
             atomic_write_json(directory / "spec.json", spec)
@@ -210,11 +216,13 @@ class FramedAssetFactory:
             ratio = "16:9" if "16:9" in self.style.frame_text else "9:16"
             before = sha256_file(card) if card.is_file() else None
             image = self.ensure_card(prompt, card, reference=style_master, aspect_ratio=ratio,
-                                     **route_kw)
+                                     **location_route)
             # Counted only when the local model drew it just now: a card reused from an earlier run was
             # already looked at, and the hosted model's empty rooms have come back empty.
-            if getattr(self.settings, "local_image_base_url", None) and sha256_file(card) != before:
-                image = self._keep_empty(prompt, card, image, reference=style_master, aspect_ratio=ratio)
+            if (getattr(self.settings, "local_image_base_url", None)
+                    and location_route.get('route_local') is not False and sha256_file(card) != before):
+                image = self._keep_empty(prompt, card, image, reference=style_master, aspect_ratio=ratio,
+                                         **location_route)
             locations[asset_id] = AssetRecord(
                 asset_id=asset_id, kind="location", name=location, identity_invariants=invariants, state_variables=state, reference_scope=scope,
                 spec_path=str((directory / "spec.json").relative_to(root.parent)), primary_image=str(image.path.relative_to(root.parent)),

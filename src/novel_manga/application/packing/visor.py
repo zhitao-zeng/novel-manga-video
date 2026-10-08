@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 from novel_manga.application.identity.phases import chapter_of, load_phases, phase_for
@@ -66,7 +67,8 @@ def fill(episode_dir: Path, *, ask=None, script=None, write=True, reconsider=Non
     script = script if script is not None else json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
     wearers = closed_view_wearers(episode_dir.parent, chapter_of(episode_dir))
     ask = ask or (lambda prompt: ask_json([{"type": "text", "text": prompt}], SCHEMA, name="visor_states",
-                                          max_tokens=1500, settings=endpoint_settings("local")))
+                                          max_tokens=1500,
+                                          settings=endpoint_settings(os.environ.get('NOVEL_PLANNER_ENDPOINT', '').strip() or 'local')))
     try:
         previous = json.loads((episode_dir / FILE).read_text())
     except (OSError, ValueError):

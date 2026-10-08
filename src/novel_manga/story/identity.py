@@ -19,8 +19,12 @@ def canonical_entity(context, eid):
                 group.update([r['subject'],r['object']])
         if group == before:
             break
-    preferred = [e for e in context.get('primary_entities', []) if e in group]
-    return preferred[0] if preferred else min(group)
+    # The catalogue may have merged a lower numbered ledger row into a later
+    # surviving row. Historical same_as claims still mention both. Choosing the
+    # smallest removed ID made a source actor disappear from the planner roster.
+    present = group.intersection(context.get('entities', {}))
+    preferred = [e for e in context.get('primary_entities', []) if e in (present or group)]
+    return preferred[0] if preferred else min(present or group)
 
 
 def name_matches(name: str, known: list[str]) -> bool:

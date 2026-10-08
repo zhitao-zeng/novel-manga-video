@@ -22,6 +22,9 @@ class RenderContext:
     bible: StoryBible | None = None
     black_checks: set = field(default_factory=set)
     cache_only: bool = False
+    first_pass_only: bool = False
+    first_pass_clips: set | None = None
+    prepared_requests_only: bool = False
     chat_screen: dict = field(default_factory=dict)
     clip_plan: dict = field(default_factory=dict)
     episode_dir: Path | None = None
@@ -69,3 +72,4 @@ class AssemblyResult(TypedDict, total=False):
     media_qc: dict
     silent_outro_seconds: float
     pending_publish: bool
+    timing: dict[str, float]

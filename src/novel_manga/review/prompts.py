@@ -17,6 +17,8 @@ def shot_contract(clip: dict) -> str:
                    if clip.get('prompt_h3') else
                    "\n本镜中文拍摄计划：\n" + str(clip.get('prompt') or '（未提供）'))
     return (description
+            + "\n编号说明：英文请求里的 <Picture n> 是生成时的素材编号，不是本次审查图片序号。"
+              "请按本次图例的姓名/Subject 对应角色卡；角色卡拼图中的左右小图各代表独立人物，视频帧不作角色卡。"
             + "\n判定边界：角色卡提供身份、服装材质和配色，不规定每一镜的姿势、站位、面罩开合或可见部位。"
               "这些状态优先按实际最终英文请求及其动作先后判断，英文未明确时再参考中文计划和台账；开合过程不能要求全程保持卡上的状态。"
               "局部特写、背影、遮挡、画外人物不要求露脸；只看见穿甲者的躯干或腿仍算该人物，"
@@ -24,21 +26,31 @@ def shot_contract(clip: dict) -> str:
               "无人空甲、雕像和装备与穿戴者分开匹配；空甲的面罩状态不能算到人物身上。"
               "剧情允许的独立空甲不能仅凭同款外形判成人物克隆；要有第二张人脸或其他人在其中的可见证据。"
               "同色系明暗变化（如深灰与黑）和光照差异不算换装；看不清或描述没提到不等于缺失。\n"
+              "原文明确的换装按本镜事件时点及穿戴关系核对，身份仍按角色参考辨认；"
+              "本镜计划不能为与原文冲突的身份或衣着开脱。\n"
             + ('\n已确认的逐镜面罩状态：' + json.dumps(clip['review_visor_states'], ensure_ascii=False)
                if clip.get('review_visor_states') else ''))
 
 
 def scripted_event(clip: dict) -> str:
-    """The planner's one-line summary of what the clip shows, read back out of its request prompt."""
+    """Read the legacy event line or the source writer's existing structured bindings."""
     match = EVENT_LINE.search(str(clip.get("prompt") or ""))
-    return match.group(1) if match else ""
+    if match:
+        return match.group(1)
+    bindings = {key: clip[key] for key in ('action_bindings', 'wears_bindings') if clip.get(key)}
+    return json.dumps(bindings, ensure_ascii=False) if bindings else ""
 
 
 def story_block(clip: dict, segments: dict) -> str:
     """The passage this clip adapts and the planner's event line, for the judge to check the picture against."""
-    source = "\n".join(str(segments.get(str(s), "")) for s in clip.get("segment_ids") or []).strip()[:1500]
+    source = "\n".join(str(segments.get(str(s), "")) for s in clip.get("segment_ids") or []).strip()
     event = scripted_event(clip)
-    return (f"\n本段原文（剧情依据）：{source or '（无）'}" + (f"\n本段剧本事件：{event}" if event else "") + "\n")
+    if not source and not event:
+        return "\n本段原文（剧情依据）：（无）\n"
+    return (f"\n本段原文（剧情依据）：{source or '（无）'}" + (f"\n本段剧本事件：{event}" if event else "")
+            + "\n审查范围：原文段落可能覆盖多个镜头。先按本镜事件、动作与穿戴关系及实际请求定位当前阶段，"
+              "再对照完整原文判断人物和动作归属；其他镜头的事件不要求在本镜全部出现。"
+              "本镜计划与原文明示内容冲突仍须指出，不能用计划覆盖原文。\n")
 
 
 def describe(character: Character) -> str:
@@ -79,9 +91,12 @@ def classic_prompt(clip: dict, location_time: dict, hypothesis: str, evidence: C
         + (f"手机屏幕上应显示的群消息（这些文字允许出现）：{chats}\n" if chats else "")
         + "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色是否与其角色卡一致、没有两个角色长成同一人、没有角色被画成另一个角色的服装发型、近景里没有多出的具名角色（远处模糊背景里的人不算），不一致时在 identity_issue 写清是谁、哪一帧；"
         "若给出了原著账本出场快照，以快照为准判断谁该在场、谁该做动作、谁只是声音或只被提及；快照说某人在别人的身体里，画面就该是那具身体。"
-        "story_ok：对照本段原文——原文里在这一段有动作或对白的人物是否都出现在画面里？画面里的动作是否由原文说的那个人完成"
+        "story_ok：对照完整原文与本镜阶段——当前镜头事件中应入镜、有动作或对白的人物是否出现？画面里的动作是否由原文说的那个人完成"
         "（例如原文是甲将物品递给乙，画面却由丙代替甲，就是动作落在错误的人物身上；出场人物名单漏了原文里的人，"
         "也按原文判）？只看原文写到的事，不苛求细节；story_kind 选最主要的一类（story_ok 为 true 时填无问题）；story_issue 用一句话写清谁缺席、或谁的动作被谁做了；"
+        "按镜头阶段与抽帧时间核对，前阶段已出现的人物或动作不能因后阶段换景、近景裁切而判缺失；"
+        "身份匹配的人物同时出现不是混淆。动作归属错误必须指出具体帧中实际的发起者和承受者，未覆盖动作的帧不能证明动作颠倒。"
+        "ASR是辅助文字识别，专名同音或书写差异不能单独证明人物、动作或台词归属错误；"
         "location_ok 与 time_of_day_ok 是否符合地点和时间设定；text_or_watermark 画面是否出现手机屏幕聊天消息以外的文字、字幕、水印、Logo；"
         "chat_text_ok：若本段有应显示的群消息，帧里手机屏幕上的文字是否是清晰的简体中文且内容与预期一致（允许只显示部分或截断，不允许乱码、错字连篇或无关文字），没有预期消息时填 true，不一致时在 chat_text_issue 写清；visual_defects 是否有明显崩坏（多手、面部扭曲、肢体错位、人物穿模）；"
         "severity：identity 不一致、原文有动作的人物缺席或动作落在错误的人物身上、屏幕消息乱码或不符、文字水印或严重崩坏为 fail；仅地点时间存疑或轻微瑕疵为 minor；否则 pass。feedback 为一句给视频模型的修正指令（fail 时必填，指明谁应该长什么样、避免什么）。只输出JSON。"
@@ -111,5 +126,11 @@ def verify_prompt(clip: dict, location_time: dict, evidence: ClipEvidence) -> st
             + evidence.snapshot
             + evidence.source_contract
             + f"\n预期台词：{lines or '无'}\n" + evidence.world
-            + evidence.identity + review_contracts.VERIFY_QUESTIONS)
+            + evidence.identity
+            + '\n验收尺度：当前原文、当前实际选用的阶段角色图优先于旧角色登记和历史判词。'
+              '若旧文字性别/年龄与原文及当前图冲突，指出输入信息冲突，不要要求视频改成旧错误。'
+              '不影响辨认人物和理解情节的色差、衣纹、发丝、轻微体型比例和背景装饰差异只记subtle；'
+              'obvious必须有当前帧中可定位且影响观看的证据。静态抽帧不能证明漏说台词。'
+              '关键人物缺席、动作由错的人做、关键事件相反或严重结构错误仍需修复。'
+            + review_contracts.VERIFY_QUESTIONS)
     return text

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from novel_manga.media import analysis, speech
+from novel_manga.runtime_backends import correct_protected_lexicon
 
 
 @pytest.mark.parametrize('reference,heard,level,issues', [
@@ -52,3 +53,47 @@ def test_changed_dialogue_reuses_recognition_and_updates_only_current_evaluation
     before = copy.deepcopy(updated)
     assert speech.recheck('请进。', updated, [], {})['passed']
     assert updated == before
+
+
+def test_proper_name_spelling_correction_keeps_raw_recognition_and_exact_changes():
+    rows = [{'hypothesis': '科茶来了。', 'start': 0, 'end': 2}]
+    result = speech.corrected_rows(rows, '科查来了。', ['科查'], {})[0]
+    assert result['raw_hypothesis'] == '科茶来了。'
+    assert result['hypothesis'] == '科查来了。'
+    assert result['corrections'][0]['source'] == '科茶'
+    assert result['corrections'][0]['canonical'] == '科查'
+
+
+def test_spelling_correction_does_not_replace_a_different_registered_name_or_fill_missing_name():
+    for heard, reference, names in [('林奇来了', '林齐来了', ['林齐', '林奇']),
+                                   ('恩来了', '恩佐来了', ['恩佐'])]:
+        corrected, changes = correct_protected_lexicon(heard, reference, names)
+        assert corrected == heard and changes == []
+
+
+def test_planned_laughter_keeps_raw_asr_but_does_not_count_as_extra_words():
+    clip = {'shot_sound': ['大笑声'], 'shot_timing': [{'seconds': 5}]}
+    events = speech.planned_vocalizations(clip)
+    rows = [{'start': 0, 'end': 1, 'hypothesis': '请进'},
+            {'start': 2, 'end': 4, 'hypothesis': '哈哈哈哈哈哈'}]
+    saved = copy.deepcopy(rows)
+    assert speech.evaluate('请进', rows, -20, -10)['warnings'] == ['nonverbal_laughter']
+    result = speech.evaluate('请进', rows, -20, -10, vocalizations=events)
+    assert result['passed'] and result['nonverbal_chunks'] == [rows[1]]
+    assert result['chunks'] == saved and rows == saved
+    assert result['hypothesis'] == '请进哈哈哈哈哈哈' and result['speech_hypothesis'] == '请进'
+    assert speech.recheck('请进', result, [], {}, vocalizations=events)['passed']
+    assert not speech.evaluate('小心危险赶快躲开', rows, -20, -10, vocalizations=events)['passed']
+    assert not speech.evaluate('请进', [rows[0], {**rows[1], 'hypothesis': '哈哈今天我来给你讲故事'}],
+                               -20, -10, vocalizations=events)['passed']
+    assert speech.evaluate('请进', [rows[0], {**rows[1], 'start': 7, 'end': 9}],
+                           -20, -10, vocalizations=events)['warnings'] == ['nonverbal_laughter']
+    assert speech.planned_vocalizations({'shot_sound': ['微笑'], 'shot_timing': [{'seconds': 5}]}) == []
+
+
+def test_wordless_planned_laughter_does_not_hide_unplanned_words():
+    events = [{'kind': 'laughter', 'start': 0, 'end': 4}]
+    rows = [{'start': 0, 'end': 3, 'hypothesis': '呵呵呵呵呵呵'}]
+    assert speech.evaluate('', rows, -20, -10, vocalizations=events)['passed']
+    rows[0]['hypothesis'] = '呵呵请你坐下'
+    assert speech.evaluate('', rows, -20, -10, vocalizations=events)['issues'] == ['unscripted_speech']

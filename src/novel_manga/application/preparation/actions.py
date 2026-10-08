@@ -14,9 +14,17 @@ from novel_manga.planning.preparation import POLICY, needs_full_replan
 from novel_manga.application.preparation.store import read, inputs, record
 from novel_manga.application.preparation.audit import audit
 ROOT = project_root()
+CODE = Path(__file__).resolve().parents[4]
 
 def run_tool(args, timeout=1200):
-    result = subprocess.run([sys.executable, *args], cwd=ROOT, timeout=timeout,
+    if Path(args[0]).name=='build_cards_thin.py':
+        # Image providers bound each actual request/poll. A helper can wait for
+        # a shared card or render several cards; that wait is not a hung request.
+        timeout=None
+    if str(args[0]).startswith('scripts/'):
+        args = [str(CODE/args[0]), *args[1:]]
+    from novel_manga.resource_waits import run_with_active_timeout
+    result = run_with_active_timeout([sys.executable, *args], cwd=ROOT, timeout=timeout,
                             env={**os.environ, 'NOVEL_CLIP_SECONDS_MAX': '15'})
     if result.returncode:
         raise ValueError(f'{Path(args[0]).name} returned {result.returncode}; see episode log')
@@ -66,6 +74,13 @@ def check_script(directory, plan, *, concerns=None):
     if not answer['source_readable']:
         return None, record(directory, 'needs_source', audit=answer)
     if answer['issues']:
+        if os.environ.get('NOVEL_AGENT_MANAGED') == '1':
+            # This controller owns a native Episode Agent. Keep the existing
+            # plan and exact issue kinds instead of running a second reframe
+            # workflow that can turn a location correction into re-attribution.
+            return None, record(directory, 'needs_replan' if needs_full_replan(answer['issues'])
+                                else 'needs_repair', audit=answer,
+                                reason='Existing inputs need the recorded local corrections')
         record(directory, 'repairing', audit=answer)
         full = needs_full_replan(answer['issues'])
         if full:
@@ -136,11 +151,12 @@ def translate_and_check(directory, plan, answer):
         note = str(notes.get(clip['clip_id'], ''))
         if h3_prompt_outdated(clip, note, strict=True):
             problems = []
-            if not convert(clip, note=note, episode_dir=directory, problems=problems):
+            source_conflicts = []
+            if not convert(clip, note=note, episode_dir=directory, problems=problems, source_conflicts=source_conflicts):
                 if problems:
                     return record(directory, 'needs_repair', reason=problems,
-                                  request_conflicts={clip['clip_id']: {
-                                      'stage_indexes': clip.get('shot_indexes', []), 'problems': problems}})
+                                  **{'request_conflicts' if source_conflicts else 'request_errors': {
+                                      clip['clip_id']: {'stage_indexes': clip.get('shot_indexes', []), 'problems': problems}}})
                 return record(directory, 'error', reason='English prompt incomplete: ' + clip['clip_id'])
             atomic_write_json(plan_path, plan)  # each completed translation survives an interruption
         if request_issues(clip):

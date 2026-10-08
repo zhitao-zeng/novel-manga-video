@@ -1,5 +1,8 @@
 from __future__ import annotations
 import json
+import subprocess
+from pathlib import Path
+from ..util import read_json, run
 from .common import log, reference_digests
 from .policy import COMPLIANCE_SUFFIX, RETRY_TAIL, RETRY_TAIL_H3, soften_prompt
 
@@ -7,6 +10,59 @@ from . import generation
 
 class CacheMiss(RuntimeError):
     """--cache-only: the clip would have to be generated."""
+
+
+H3_PARAMETERS = ('short_edge', 'aspect_ratio', 'num_inference_steps', 'flow_shift', 'audio_flow_shift')
+
+
+def _native_size(video: Path) -> tuple[int, int] | None:
+    """Read existing media dimensions; no sampler/NFE is inferred from them."""
+    try:
+        result = run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+                      'stream=width,height', '-of', 'json', str(video)])
+        stream = json.loads(result.stdout)['streams'][0]
+        return int(stream['width']), int(stream['height'])
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
+        return None
+
+
+def actual_sampling(video: Path | None, saved: dict | None = None) -> dict:
+    """Use the selected take's submission evidence, retaining unknown legacy fields."""
+    records = []
+    if video is not None:
+        records.append(read_json(video.with_suffix(video.suffix + '.task.json'), {}))
+    records.append(saved if saved is not None else
+                   read_json(video.parent / 'request.json', {}) if video is not None else {})
+    actual = next((row['h3_sampling'] for row in records
+                   if isinstance(row.get('h3_sampling'), dict) and row['h3_sampling']), {})
+    actual = {key: actual.get(key) for key in H3_PARAMETERS}
+    if actual['short_edge'] is None and video is not None:
+        size = _native_size(video)
+        if size is not None:
+            actual['short_edge'] = min(size)
+    return actual
+
+
+def sampling_matches(ctx, saved: dict | None = None, video: Path | None = None) -> bool:
+    target = generation.h3_sampling(ctx)
+    if target is None:
+        return True
+    actual = actual_sampling(video, saved)
+    for key in H3_PARAMETERS[1:]:
+        if actual[key] is not None and target.get(key) is not None and actual[key] != target[key]:
+            return False
+    if actual['short_edge'] is not None:
+        return float(actual['short_edge']) >= float(target['short_edge'])
+    # Old complete media has no sampler record. Preserve the lower default's
+    # legacy cache when size evidence is unavailable; a higher target needs proof.
+    return float(target['short_edge']) <= 544
+
+
+def sampling_report(ctx, video: Path) -> dict:
+    target = generation.h3_sampling(ctx)
+    if target is None:
+        return {}
+    return {'h3_sampling': actual_sampling(video), 'h3_sampling_target': target}
 
 def without_retry(prompt: str) -> str:
         return RETRY_TAIL.sub("", prompt, count=1)
@@ -18,7 +74,7 @@ def references_match(saved: dict, references, digests: list[str]) -> bool:
         saved_digests = saved.get("reference_sha256")
         return saved.get("references") == [str(p) for p in references] and (saved_digests is None or list(saved_digests) == digests)
 
-def request_matches(ctx, clip: dict, saved: dict, references, digests: list[str]) -> bool:
+def request_matches(ctx, clip: dict, saved: dict, references, digests: list[str], *, video: Path | None = None) -> bool:
         """A take was made for this clip as it now stands: the same pictures and length, and a prompt that is the
         clip's base plus only what a run adds - a retake note, the output filter's compliance line and, on Seedance,
         the softened wording (prescreen or an input refusal).  Every mix of those is the same clip: the list of
@@ -40,7 +96,8 @@ def request_matches(ctx, clip: dict, saved: dict, references, digests: list[str]
         tail = RETRY_TAIL_H3 if english else RETRY_TAIL
         prompt = str(saved.get("prompt", ""))
         variants = [prompt] + ([prompt[: -len(COMPLIANCE_SUFFIX)]] if prompt.endswith(COMPLIANCE_SUFFIX) and not english else [])
-        return any(tail.sub("", variant, count=1) in forms for variant in variants)
+        return (any(tail.sub("", variant, count=1) in forms for variant in variants)
+                and sampling_matches(ctx, saved, video))
 
 def cached_take(ctx, clip: dict, attempt: int) -> bool:
         """Whether take `attempt` of the clip is already in the cache, made for the clip as it now stands."""
@@ -53,7 +110,7 @@ def cached_take(ctx, clip: dict, attempt: int) -> bool:
         except (OSError, ValueError):
             return False
         references = tuple(ctx.novel_dir / ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice")
-        return request_matches(ctx, clip, saved, references, reference_digests(references))
+        return request_matches(ctx, clip, saved, references, reference_digests(references), video=video)
 
 
 def current_video(ctx, clip, attempt, directory, references, digests, history):
@@ -66,7 +123,7 @@ def current_video(ctx, clip, attempt, directory, references, digests, history):
         # Compared with the wording clip_base chose, whatever a run added to it (request_matches).  Built from
         # clip["prompt"] alone, it let a local-H3 lane keep clips H3 had rendered from the Chinese prompt, which
         # H3 reads aloud (雾月 1732 on 2026-09-11 kept 11 of its 18 that way).
-        if request_matches(ctx, clip, saved, references, digests):
+        if request_matches(ctx, clip, saved, references, digests, video=output):
             log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
             return output
         if ctx.cache_only:
@@ -97,7 +154,7 @@ def other_video(ctx, clip, attempt, directory, references, digests):
         saved = json.loads((other / "request.json").read_text(encoding="utf-8"))
         # The same wording and the same pictures.  Comparing paths alone handed back a video of the old card
         # after the card was redrawn - the very video the check above had just set aside for that reason.
-        if request_matches(ctx, clip, saved, references, digests):
+        if request_matches(ctx, clip, saved, references, digests, video=other_video):
             # A retry exists to replace a clip that failed the speech gate;
             # reusing that same clip would just fail it again.  Only a video
             # that passed (or was never judged - a resumed run) is reused.

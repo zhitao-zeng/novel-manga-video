@@ -47,6 +47,10 @@ class Batch:
         self.args = args
         self.novel_dir = Path(args.novel_dir).resolve()
         self.novel_id = self.novel_dir.name
+        from novel_manga.util import read_json
+        self.workspaces = read_json(Path(args.workspace_index), {}) if getattr(args, 'workspace_index', None) else {}
+        self._local_batches = {}
+        self.batch_factory = type(self)
         meta_path = self.novel_dir / "novel.json"
         self.meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
         source = args.source or self.meta.get("source")
@@ -60,7 +64,7 @@ class Batch:
         self.notes = json.loads(Path(args.notes_json).read_text(encoding="utf-8")) if args.notes_json else {}
         self.env = {
             **os.environ,
-            "PYTHONPATH": "src",
+            "PYTHONPATH": str(production_common.CODE / 'src'),
             "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": os.environ.get("NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"),
             **thin_profile.reference_image_env(os.environ),
@@ -125,6 +129,8 @@ class Batch:
             self.rows[chapter]["note"] = f"bible growth failed: {type(error).__name__}"
 
     def episode_dir(self, chapter: int) -> Path:
+        if getattr(self,'workspaces',None):
+            return Path(self.workspaces[str(chapter)]['episode_dir'])
         return self.novel_dir / f"{self.novel_id}_{chapter}"
 
     def run(self, command: list[str], log_path: Path) -> tuple[int, str]:
@@ -140,13 +146,23 @@ class Batch:
         """--stage plan: up to --plan-parallel chapters at once, as --stage all does - it used to be a plain loop
         whatever --plan-parallel said.  The volume checkpoints still come in chapter order."""
         def plan_one(chapter: int) -> int:
-            self.grow(chapter)
-            self.plan(chapter)
+            if getattr(self,'workspaces',None):
+                from .workspaces import bootstrap, lease, local_batch
+                with lease(self.workspaces[str(chapter)]) as owned:
+                    if owned:
+                        bootstrap(self.workspaces[str(chapter)])
+                        local = local_batch(self, chapter)
+                        local.grow(chapter)
+                        local.plan(chapter)
+            else:
+                self.grow(chapter)
+                self.plan(chapter)
             return chapter
         with ThreadPoolExecutor(max_workers=max(1, self.args.plan_parallel)) as planners:
             for future in [planners.submit(plan_one, chapter) for chapter in chapters]:
                 production_reports.volume_checkpoint(self, future.result(), chapters)
-            self.second_pass(chapters, planners)
+            if not getattr(self,'workspaces',None):
+                self.second_pass(chapters, planners)
 
     def second_pass(self, chapters: list[int], planners: ThreadPoolExecutor) -> None:
         """Plan once more whatever failed, now that the rest of the batch has run.
@@ -335,7 +351,7 @@ class Batch:
         data = json.loads(report.read_text(encoding="utf-8"))
         return any("SensitiveContentDetected" in str(c.get("error", "")) for c in data.get("clips", []))
 
-    def h3_ready(self, chapter: int) -> bool:
+    def h3_ready(self, chapter: int, *, clip_ids=None) -> bool:
         """Whether a local-H3 lane can render this episode now: every video clip has a current English prompt.
 
         H3 speaks what is written in Chinese, so a clip rendered from the Chinese prompt recites its stage
@@ -344,6 +360,37 @@ class Batch:
         converted waits for the next round - it used to be decided once per lane start, and 1597 waited
         for good while conversion was a pass run by hand."""
         directory = self.episode_dir(chapter)
+        if getattr(self.args, 'first_pass', False):
+            from novel_manga.application.preparation.store import unfilmed_video_clips
+            from novel_manga.application.rendering.h3 import convert
+            from novel_manga.util import atomic_write_json
+            plan = json.loads((directory/'clip_plan.json').read_text())
+            notes = thin_runs.corrections(directory)
+            pending = unfilmed_video_clips(directory, plan)
+            from novel_manga.application.preparation.readiness import inspect_episode, reference_issues
+            _, blocked = inspect_episode(directory)
+            errors = self.rows[chapter]['h3_errors'] = {}
+            for clip in plan['clips']:
+                cid = clip['clip_id']
+                if (cid not in pending or cid in blocked or (clip_ids is not None and cid not in clip_ids)
+                        or reference_issues(clip, directory.parent)):
+                    continue
+                note = str(notes.get(cid, ''))
+                from novel_manga.story.h3 import neutral_declarations
+                previous = clip.get('prompt_h3', '')
+                neutral = neutral_declarations(previous)
+                if neutral != previous:
+                    clip['prompt_h3'] = neutral
+                    atomic_write_json(directory/'clip_plan.json', plan)
+                if thin_profile.h3_prompt_outdated(clip, note, strict=True):
+                    try:
+                        if not convert(clip, note=note, episode_dir=directory, tries=1):
+                            errors[cid] = ['H3 conversion did not produce a valid current request']
+                            continue
+                        atomic_write_json(directory/'clip_plan.json', plan)
+                    except Exception as error:
+                        errors[cid] = [f'H3 conversion: {type(error).__name__}: {error}']
+            return not errors
         if not self.h3_missing(directory):
             return True
         production_common.log(f"ch{chapter}: writing the English (H3) prompts")
@@ -369,7 +416,7 @@ class Batch:
                    and clip["clip_id"] not in blocked
                    and thin_profile.h3_prompt_outdated(clip, str(notes.get(clip.get("clip_id"), "")), strict=True))
 
-    def prepare_cards(self, chapter: int) -> None:
+    def prepare_cards(self, chapter: int, *, clip_ids=None) -> None:
         """Build the cards this episode references; in review mode judge just those
         cards, fix each at most once, rebuild, judge again."""
         directory = self.episode_dir(chapter)
@@ -377,8 +424,13 @@ class Batch:
         plan = json.loads((directory / "clip_plan.json").read_text(encoding="utf-8"))
         from novel_manga.application.preparation.readiness import inspect_episode
         _, blocked = inspect_episode(directory)
+        from novel_manga.application.preparation.store import unfilmed_video_clips
+        pending = unfilmed_video_clips(directory, plan) if getattr(self.args, 'first_pass', False) else None
+        roles={'character','location','prop'} if getattr(self.args,'first_pass',False) else {'character','location'}
         wanted = {ref["asset_id"] for clip in plan["clips"] if clip["clip_id"] not in blocked
-                  for ref in clip.get("references", []) if ref.get("role") in {"character", "location"}}
+                  and (pending is None or clip['clip_id'] in pending)
+                  and (clip_ids is None or clip['clip_id'] in clip_ids)
+                  for ref in clip.get("references", []) if ref.get("role") in roles}
         # Named characters who keep coming back - in the group chat or off
         # screen - without ever being on camera are never referenced by a clip,
         # so they never got a card; the chat avatar and any later appearance

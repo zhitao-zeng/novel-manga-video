@@ -41,10 +41,13 @@ def load_scene_context(novel: Path, chapter=None, *, directory: Path | None = No
                         compilation=compilation or {})
 
 
-def prepare_scene(script: dict | ResolvedScene, directory: Path, *, compilation=None, identity_data=None) -> ResolvedScene:
+def prepare_scene(script: dict | ResolvedScene, directory: Path, *, compilation=None, identity_data=None, speaker_facts=None) -> ResolvedScene:
     # The directory is passed through, not taken apart into a chapter number and rebuilt: the round
     # trip read meiman-daoshi_12-1 with _(\d+)$, got nothing, and resolved every part of a cut
     # chapter with source_available false and no speaker facts (four-layer audit, 2026-09-25, 9).
     context = load_scene_context(Path(directory).parent, directory=Path(directory),
                                  compilation=compilation, identity_data=identity_data)
+    if speaker_facts is not None:
+        from dataclasses import replace
+        context = replace(context, speaker_facts=speaker_facts)
     return resolve_scene(script, context)

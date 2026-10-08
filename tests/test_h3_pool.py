@@ -19,7 +19,7 @@ def test_eight_evaluation_lora_request_includes_terminal_sigma_point():
     provider.ratio = '16:9'
     payload = provider._payload('A person waits.', [], (), 15)
     assert payload['num_inference_steps'] == 9
-    assert payload['target']['short_edge'] == 768
+    assert payload['target']['short_edge'] == 544
     assert (payload['flow_shift'], payload['audio_flow_shift']) == (12.0, 3.0)
 
 
@@ -317,17 +317,26 @@ def test_idle_gpus_and_a_clip_just_handed_in_are_not_stuck(tmp_path, monkeypatch
     assert not pool.cooling(instance.url)
 
 
-def test_a_clip_waits_for_the_pool_no_longer_than_its_own_time(tmp_path, monkeypatch):
-    provider, card = make_provider(tmp_path, lambda request: httpx.Response(500))
-    provider.settings.poll_timeout = 1.5
+def test_a_clip_can_queue_longer_than_its_polling_budget_then_generate(tmp_path, monkeypatch):
+    import threading
+    def handler(request):
+        if request.method=='POST':return httpx.Response(200,json={'id':'queued-task'})
+        if request.url.path.endswith('/content'):return httpx.Response(200,content=b'mp4')
+        return httpx.Response(200,json={'status':'completed'})
+    provider, card = make_provider(tmp_path,handler)
+    provider.settings.poll_timeout = .1
     monkeypatch.setattr(provider.pool, "problem", lambda target: None)
     held = [provider.pool.acquire(timeout=1) for _ in range(2)]  # both instances busy, one slot each
-    started = time.monotonic()
-    with pytest.raises(PoolUnavailable):  # a RuntimeError: the runner waits it out and asks again
-        provider.create_video("prompt", None, tmp_path / "clip.mp4", 5.0, additional_images=(card,))
-    assert time.monotonic() - started < 5
-    for _, handle in held:
-        h3_pool.release(handle)
+    original_pause=provider.pool._pause
+    monkeypatch.setattr(provider.pool,'_pause',lambda start,timeout,message:time.sleep(.02))
+    result=[]
+    worker=threading.Thread(target=lambda:result.append(provider.create_video(
+        'prompt',None,tmp_path/'clip.mp4',5.0,additional_images=(card,))))
+    worker.start();time.sleep(.2)
+    assert worker.is_alive() and not (tmp_path/'clip.mp4').exists()
+    for _,handle in held:h3_pool.release(handle)
+    worker.join(timeout=3)
+    assert result==[tmp_path/'clip.mp4']
 
 
 def test_a_failed_task_is_set_aside_and_the_next_call_submits_again(tmp_path, monkeypatch):
@@ -350,6 +359,64 @@ def test_a_failed_task_is_set_aside_and_the_next_call_submits_again(tmp_path, mo
     assert (tmp_path / "clip.mp4.task.failed.json").is_file()
     provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
     assert output.read_bytes() == b"mp4" and len(posts) == 2
+
+
+def test_generation_timing_separates_pool_service_and_transfer_and_releases_before_download(tmp_path, monkeypatch):
+    posts = []
+
+    def handler(request):
+        if request.method == 'POST':
+            posts.append(1)
+            return httpx.Response(200, json={'id': 'timed'})
+        if request.url.path.endswith('/content'):
+            return httpx.Response(200, content=b'mp4')
+        return httpx.Response(200, json={'status': 'completed', 'created_at': 100,
+                                      'completed_at': 132, 'inference_time_s': 30})
+
+    provider, card = make_provider(tmp_path, handler)
+    monkeypatch.setattr(provider.pool, 'problem', lambda target: None)
+    clock = [10000.0]
+    monkeypatch.setattr(local_h3.time, 'monotonic', lambda: clock[0])
+    acquire, submit, state, download = provider.pool.acquire, provider._submit, provider._state, provider._download
+    output = tmp_path/'clip.mp4'
+    receipt = output.with_suffix('.mp4.task.json')
+
+    def waiting(**kw):
+        clock[0] += 11
+        return acquire(**kw)
+
+    def sending(*args):
+        clock[0] += 2
+        return submit(*args)
+
+    def polling(*args):
+        clock[0] += 33
+        return state(*args)
+
+    def transfer(*args, **kw):
+        base = json.loads(receipt.read_text())['endpoint'].removesuffix('/v1/videos')
+        # The finished task no longer reserves its GPU instance during transfer.
+        handle = provider.pool.hold(base, timeout=.1)
+        h3_pool.release(handle)
+        clock[0] += 4
+        return download(*args, **kw)
+
+    monkeypatch.setattr(provider.pool, 'acquire', waiting)
+    monkeypatch.setattr(provider, '_submit', sending)
+    monkeypatch.setattr(provider, '_state', polling)
+    monkeypatch.setattr(provider, '_download', transfer)
+    provider.create_video('prompt', None, output, 5, additional_images=(card,))
+    saved = json.loads(receipt.read_text())
+    timings = saved['client_timing']
+    assert [timings[k] for k in ('pool_wait_s', 'submission_s', 'service_observed_s', 'download_s', 'provider_elapsed_s')] == [11, 2, 33, 4, 50]
+    assert not timings['resumed']
+    assert saved['service_timing']['inference_time_s'] == 30
+    provider.create_video('prompt', None, output, 5, additional_images=(card,))
+    resumed = json.loads(receipt.read_text())
+    assert posts == [1]
+    assert resumed['client_timing'] == timings
+    assert resumed['resume_timing']['resumed']
+    assert resumed['resume_timing']['pool_wait_s'] == 0
 
 
 def test_a_resumed_task_holds_a_slot_on_its_instance(tmp_path, monkeypatch):

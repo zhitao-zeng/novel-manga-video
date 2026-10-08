@@ -14,6 +14,7 @@ class RepairProposal:
     structural_repair: dict | None = None
     visor_states: dict | None = None
     posture_states: dict | None = None
+    source_speaker_contract: list | None = None
 
     @classmethod
     def from_result(cls, value):
@@ -38,6 +39,7 @@ class RepairProposal:
         return {'script': self.script, 'plan': self.plan, 'notes': self.notes,
                 'changes': self.changes, 'structural_repair': self.structural_repair or {},
                 **({'visor_states':self.visor_states} if self.visor_states is not None else {}),
+                **({'source_speaker_contract':self.source_speaker_contract} if self.source_speaker_contract is not None else {}),
                 **({'posture_states':self.posture_states} if self.posture_states is not None else {})}
 
     def as_result(self, include_proposal=False):

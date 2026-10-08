@@ -34,6 +34,9 @@ def audit(directory, *, concerns=None):
               '重点查台词/动作安错人、人物当前身份或成长阶段错误、核心因果事件遗漏、明确地点错误。'
               '区分当场人物、远程聊天、只被提及的人；聊天卡是有效表达。角色库是辅助，原文明确信息优先。'
               '不要因为姓名别称、代词、画外音或未露脸就判断角色缺失；不要评价尚未生成的视频。'
+              '原文人物在场不等于每镜必须露脸，画外对白可以发生在同一现场；未进角色库的临时人物仍可用原文称呼。'
+              '仅内部称呼泛化不构成错人，须指出它实际把哪句台词或哪个动作转给了谁、如何改变剧情事实。'
+              'silent_action和title_card的speaker_name按格式必须为空，不能因此报动作归属错误；动作主体看actions、in_frame和事件正文。'
               '〔身份注〕是已核定的姓名关联，属于阅读辅助而非原文剧情；同一实体的两种名字不能报成缺人或错人。'
               '每个问题必须给对应stage编号、支撑问题的原文区段编号、具体矛盾和修正办法。'
               '填写source_segment区段编号，source_quote必须留空，程序会直接取未加注的真实原文。'
@@ -62,6 +65,8 @@ def audit(directory, *, concerns=None):
             '只保留让本章核心事实相反、核心动作/说话人错误或造成关键因果缺口的问题。'
             '明确剔除冷笑与冷淡等微表情差异、一般支线省略、为了完整复述原文而追加的镜头、'
             '纯粹要求美化或增强性格张力的意见。源文本说明含混时不要据角色卡猜测事实。'
+            '临时人物没有角色卡、称呼泛化或同场人物采用画外对白本身不是错人；必须有实际归属矛盾。'
+            'silent_action的speaker_name为空是合法格式；不能要求给无声动作补说话人。'
             '返回成立的问题下标（从0开始）以及逐项简短理由；可以全部不成立。\n'
             + json.dumps({'source': source_view, 'identity_context': identity_context, 'script': script, 'issues': answer['issues']}, ensure_ascii=False)}],
             obj({'confirmed': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0, 'maximum': len(answer['issues'])-1}},

@@ -4,6 +4,7 @@ from __future__ import annotations
 from novel_manga.application.configuration import project_root
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 ROOT = project_root()
@@ -24,6 +25,8 @@ def main() -> int:
     parser.add_argument("--prescreen", action="store_true", help="ask the local Qwen for content-filter risk and soften risky prompts before the first submission")
     parser.add_argument("--no-moderation-repair", dest="moderation_repair", action="store_false", default=True, help="do not bisect and rewrite a prompt the text filter keeps refusing")
     parser.add_argument("--max-attempts", type=int, default=2)
+    parser.add_argument('--first-pass', action='store_true', help='only missing first videos, shared take history, no assembly or film review')
+    parser.add_argument('--first-clips', help='only these fully prepared first-pass clip ids, comma separated')
     parser.add_argument("--repair", action="store_true", help="repair an existing episode through source, framing and retake decisions with its existing history")
     parser.add_argument("--review", action="store_true", help="review the generated episode and correct failed clips within this run's take budget")
     parser.add_argument("--cache-only", action="store_true", help="rebuild the episode from clips already rendered; never generate, and write nothing when a clip is missing")
@@ -34,12 +37,33 @@ def main() -> int:
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--tier", choices=("quality", "fast"), help="override profile.json tier")
     args = parser.parse_args()
+    if args.first_clips is not None and not args.first_pass:
+        parser.error('--first-clips requires --first-pass')
+    selected = set(filter(None, (args.first_clips or '').split(','))) if args.first_clips is not None else None
     novel_dir = args.novel_dir.resolve()
     episode_dir = novel_dir / args.episode
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
+    if args.first_pass and not args.dry_run:
+        from novel_manga.application.preparation.store import unfilmed_video_clips
+        from novel_manga.application.repair import history
+        from novel_manga.util import read_json
+        plan = read_json(episode_dir/'clip_plan.json')
+        history.adopt_reviewed_run(episode_dir)
+        targets = unfilmed_video_clips(episode_dir, plan)
+        if selected is not None:
+            targets &= selected
+        history.begin_trial(episode_dir, targets, 'standard_batch_first_pass',
+                            after_plan=plan, after_notes=read_json(episode_dir/'review_feedback.json', {}))
+        record = history.load(episode_dir)
+        record['trials'][-1]['managed'] = True
+        history.save(episode_dir, record)
     runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair, cache_only=args.cache_only, retake_failed=args.retake_failed)
+    runner.context.first_pass_only = args.first_pass
+    runner.context.first_pass_clips = selected
+    runner.context.prepared_requests_only = selected is not None
+    runner.context.asr_helper = Path(__file__).resolve().parents[4]/'scripts/thin_asr_segments.py'
     clips = [c for c in runner.context.clip_plan["clips"] if c["kind"] == "video"]
     summary = {
         "profile": runner.context.profile, "canvas": f"{runner.context.settings.width}x{runner.context.settings.height}",
@@ -57,14 +81,27 @@ def main() -> int:
         sheet = cards_sheet(novel_dir, novel_dir / "series_assets" / "cards_sheet.jpg", asset_ids=asset_ids)
         print(json.dumps({"assets": "ready", "cards_sheet": str(sheet) if sheet else None}, ensure_ascii=False), flush=True)
         return 0
-    if args.review or args.repair:
+    if args.first_pass:
+        previous_priority=os.environ.get('NOVEL_VIDEO_PRIORITY')
+        os.environ['NOVEL_VIDEO_PRIORITY']='first'
+        try:
+            report = runner.run(assemble=False)
+        finally:
+            if previous_priority is None:
+                os.environ.pop('NOVEL_VIDEO_PRIORITY',None)
+            else:
+                os.environ['NOVEL_VIDEO_PRIORITY']=previous_priority
+    elif args.review or args.repair:
         from novel_manga.application.rendering.reviewed import run
         report = run(runner, repair_existing=args.repair)
     else:
         report = runner.run()
-    clip_rows = [{"clip_id": r["clip_id"], "attempts": len(r["attempts"]), "error": r.get("error"), **({"cer": r["selected"]["cer"], "peak_db": r["selected"]["max_volume_db"], "duration": r["selected"]["duration"]} if r.get("selected") else {})} for r in report["clips"]]
+    clip_rows = [{"clip_id": r["clip_id"], "attempts": len(r["attempts"]), "error": r.get("error"), **({"cer": r["selected"].get("cer"), "peak_db": r["selected"].get("max_volume_db"), "duration": r["selected"].get("duration")} if r.get("selected") else {})} for r in report["clips"]]
     assembly = {k: v for k, v in (report.get("assembly") or {}).items() if k != "media_qc"} or None
     print(json.dumps({"status": report["status"], "elapsed_seconds": report["elapsed_seconds"], "failed_clips": report["failed_clips"], "gate_failed_clips": report["gate_failed_clips"], "assembly": assembly, "clips": clip_rows}, ensure_ascii=False, indent=2), flush=True)
+    if args.first_pass:
+        from novel_manga.application.preparation.store import unfilmed_video_clips
+        return 3 if unfilmed_video_clips(episode_dir) else 0
     if report["failed_clips"]:
         return 3
     if (args.review or args.repair) and not report['quality_review']['passed']:

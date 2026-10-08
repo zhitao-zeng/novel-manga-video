@@ -33,7 +33,7 @@ def episode(tmp_path):
     write(video.parent / "asr.json", {"passed": True})
     plan = {"clips": [{"clip_id": "clip_01", "kind": "video", "prompt": "original request", "request_seconds": 8, "references": []}]}
     take = review_storage.take_identity(video)
-    review = {"policy": REVIEW_POLICY, "clips": {"clip_01": {"video": str(video), "take": take,
+    review = {"policy": REVIEW_POLICY, "review_mode":"verify", "clips": {"clip_01": {"video": str(video), "take": take,
               "story_ok": False, "verify": {"verdict": "obvious", "same_person_twice": True,
                                             "evidence": "two copies of the lead", "instruction": "one lead"}}},
               "feedback": {"clip_01": "one lead"}}
@@ -56,4 +56,3 @@ def candidate_episode(episode):
     write(directory / "thin_media_report.json", media)
     takes = current_takes(directory, plan, review)
     return directory, plan, review, media, takes
-

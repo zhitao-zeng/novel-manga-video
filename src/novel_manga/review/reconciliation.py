@@ -15,6 +15,12 @@ def merge_evidence(result: dict, row: dict):
         return
     key = evidence_key(int(row["ep"]), row["clip"], row["video"], row["take"])
     old = result.get(key, {})
+    if (old.get('policy'),old.get('review_mode')) != (row.get('policy'),row.get('review_mode')):
+        if (review_contracts.current_review(old,old.get('review_mode'))
+                and not review_contracts.current_review(row,row.get('review_mode'))):
+            return  # an older queue file must not downgrade fresh verified evidence
+        result[key] = row  # priority belongs to one method/policy, not a different check's old conclusion
+        return
     if old.get('mode') == 'source_confirm' and row.get('mode') != 'source_confirm':
         return
     if old.get("mode") == "confirm" and row.get("mode") not in {"confirm", 'source_confirm'}:
@@ -38,21 +44,43 @@ def verdict_from_record(record: dict) -> dict:
         verdict['source_confirmed_at'] = record.get('source_confirmed_at')
     if record.get("mode") == "joint":
         verdict["joint_checked"] = True
+    for field in ('policy','review_mode'):
+        if field in record:
+            verdict.setdefault(field,record[field])
     return {"video": record["video"], "take": record["take"], **verdict}
 
 
 def assemble_review(directory: Path, previous: dict, clips: dict) -> dict:
     feedback = {cid: v.get("feedback") or v.get("story_issue") or "按原文修正画面"
                 for cid, v in clips.items() if (v.get("tier") or v.get("fix_tier")) == "must_fix"}
-    return {**previous, "policy": review_contracts.POLICY, "episode": directory.name, "video_name": "clip.mp4", "clips": clips,
-            "feedback": feedback, "flags": [f"{cid}: {note}" for cid, note in feedback.items()]}
+    result = {**previous, "policy": review_contracts.POLICY, "episode": directory.name, "video_name": "clip.mp4", "clips": clips,
+              "feedback": feedback, "flags": [f"{cid}: {note}" for cid, note in feedback.items()]}
+    modes = set()
+    for cid,row in clips.items():
+        mode = row.get('review_mode')
+        if review_contracts.current_review(row,mode):
+            modes.add(mode)
+        elif (row == (previous.get('clips') or {}).get(cid)
+                and review_contracts.current_review(previous,previous.get('review_mode'))):
+            modes.add(previous['review_mode'])
+        else:
+            modes.add(None)
+    if len(modes)==1 and None not in modes:
+        result['review_mode'] = next(iter(modes))
+    else:
+        result.pop('review_mode',None)
+    return result
 
 
-def missing_reviews(review: dict, takes: dict, scope: str) -> list[str]:
+def missing_reviews(review: dict, takes: dict, scope: str, *, review_mode: str | None = None) -> list[str]:
     result = []
     for cid in takes:
         row = review.get("clips", {}).get(cid) or {}
         if row.get("technical"):
+            continue
+        if (review_mode is not None and not review_contracts.current_review(review,review_mode)
+                and not review_contracts.current_review(row,review_mode)):
+            result.append(cid)
             continue
         if scope == "flash":
             wanted = bool(row.get("flash_pending"))
@@ -101,6 +129,11 @@ def reconcile_review(directory: Path, plan: dict, previous: dict, takes: dict, l
         matches = old.get("video") == current["video"] and old.get("take") == current["take"]
         key = evidence_key(ep, cid, current["video"], current["take"])
         record = local.get(key)
+        incoming = verdict_from_record(record) if record else {}
+        mode = incoming.get('review_mode')
+        new_method = (review_contracts.current_review(incoming,mode)
+                      and not (review_contracts.current_review(old,mode)
+                               or (matches and review_contracts.current_review(previous,mode))))
         # Preserve a current explicit technical failure (e.g. a black clip).
         if matches and old.get("technical"):
             continue
@@ -110,10 +143,10 @@ def reconcile_review(directory: Path, plan: dict, previous: dict, takes: dict, l
         # the single canonical verdict as usual.
         final_gate = old.get("verified") or {}
         legacy_final = matches and final_gate and record and record.get("verdict") == final_gate.get("verdict")
-        if record and (not matches or not old.get("verify") or legacy_final or (record.get("mode") == "confirm" and not old.get("flash_checked"))
+        if record and (new_method or not matches or not old.get("verify") or legacy_final or (record.get("mode") == "confirm" and not old.get("flash_checked"))
                        or (record.get("mode") == "joint" and not old.get("joint_checked"))
                        or (record.get('mode') == 'source_confirm' and old.get('source_confirmed_at') != record.get('source_confirmed_at'))):
-            clips[cid] = verdict_from_record(record)
+            clips[cid] = incoming
         elif not matches:
             clips[cid] = {**current, "severity": "review_error", "error": "current take awaiting precise review"}
         row = clips.get(cid) or {}

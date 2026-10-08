@@ -46,7 +46,7 @@ def failing_clips(review: dict) -> dict[str, str]:
 REBUILD_LOCK = threading.Lock()  # retain the existing rebuild serialization during this refactor
 
 
-def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str], *, repack_report: dict | None = None, visor_states=None) -> tuple[dict, list[str]]:
+def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str], *, repack_report: dict | None = None, visor_states=None, preserve_timing: bool = False, source_checked_turns=None) -> tuple[dict, list[str]]:
     """Rebuild only the named clips from their recorded shot indexes; every other clip keeps its entry (and request)."""
     with REBUILD_LOCK:
         ctx = packing_context.context_for_plan(episode_dir, bible_path, plan)
@@ -56,10 +56,12 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
             previous = read(episode_dir / 'posture_states.json', {})
             ctx['posture_states'] = fill(episode_dir, script=script, previous=previous, write=False)
             dependent = changed_stages(previous, ctx['posture_states'])
-            clip_ids = clip_ids | {c['clip_id'] for c in plan['clips']
-                                  if dependent.intersection(c.get('shot_indexes', []))}
+            dependent_clips = {c['clip_id'] for c in plan['clips']
+                               if dependent.intersection(c.get('shot_indexes', []))}
+            clip_ids = clip_ids | dependent_clips
             if repack_report is not None:
                 repack_report['_posture_states'] = ctx['posture_states']
+                repack_report['_posture_dependent_clips'] = sorted(dependent_clips)
         if visor_states is not None:
             ctx['visor_states'] = visor_states
             if repack_report is not None:
@@ -72,12 +74,37 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
         from novel_manga.story.h3 import source_crowds
         bible_data=ctx['bible'].model_dump()
         source_segments={str(s.get('segment_id')):s.get('text','') for s in ctx['identity_data'].segments}
+        # A source-checked dialogue correction supersedes only those stages'
+        # older speaker facts. Keep the old file intact until publication.
+        speaker_facts=None
+        if source_checked_turns:
+            speaker_facts=[fact for fact in read(episode_dir/'source_speaker_contract.json',[])
+                           if fact.get('stage') not in source_checked_turns]
+            if repack_report is not None:
+                repack_report['_speaker_facts']=speaker_facts
         shots = packing_service.prepared_shots(copy.deepcopy(script), episode_dir, identity_data=ctx.get("identity_data"),
-                                               posture_states=ctx.get('posture_states'))
+                                               posture_states=ctx.get('posture_states'),speaker_facts=speaker_facts)
+        if source_checked_turns:
+            from novel_manga.story.dialogue import clip_bindings, dialogue_punctuation
+            def spoken(shot):
+                return [(t['speaker_name'],t['delivery_mode'],bool(t.get('inner_monologue')),
+                         dialogue_punctuation(t['text'])) for t in clip_bindings([copy.deepcopy(shot)])]
+            approved={s.get('index',i):spoken(s) for i,s in enumerate(script['shots'],1)
+                      if s.get('index',i) in source_checked_turns}
+            if any(spoken(s)!=approved[s['index']] for s in shots if s['index'] in approved):
+                raise ValueError('compiled dialogue differs from the source-checked correction')
         from novel_manga.application.preparation.readiness import location_issues
         by_index = {s['index']: s for s in shots}
         recut = {c['clip_id'] for c in plan.get('clips', []) if c['clip_id'] in clip_ids
                  and c.get('kind') == 'video' and location_issues(c, by_index)}
+        if preserve_timing:
+            mixed = [c['clip_id'] for c in plan['clips'] if c['clip_id'] in recut and len({
+                by_index[i].get('location') for i in c.get('shot_indexes',[]) if i in by_index
+                and by_index[i].get('location')}) > 1]
+            if mixed:
+                raise ValueError('input repair crosses locations inside existing clips: '+', '.join(mixed)+
+                                 '; correct the source-supported shot locations without changing cuts')
+            recut = set()  # a location rebinding alone must not run the automatic cutter
         recut_ids = set()
         if recut:
             from novel_manga.application.packing.blocked import repack
@@ -103,7 +130,26 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 continue
             clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,
                     "seconds": round(sum(ClipCompiler(ctx.get('compiler_options') or compiler_options()).shot_seconds(p) for p in pieces), 2)}
+            if preserve_timing or plan.get('policy') == 'episode-agent-authored-v1':
+                if [p['index'] for p in pieces] != before['shot_indexes']:
+                    raise ValueError('authored input repair changed the existing shot grouping')
+                clip.update(request_seconds=before['request_seconds'],
+                            shot_timing=copy.deepcopy(before['shot_timing']))
+            if plan.get('policy') == 'episode-agent-authored-v1':
+                clip['authored_references']=copy.deepcopy(before.get('references',[]))
+                if (clip['location'] == before.get('location')
+                        and clip['location'] not in ctx['location_map']):
+                    # An authored scene label is separate from its selected card.
+                    # Preserve that known binding (or its deliberate absence).
+                    places = [r for r in before.get('references', []) if r.get('role') == 'location']
+                    if not places:
+                        clip['reference_location'] = None
+                    elif len(places) == 1 and places[0].get('name') in ctx['location_map']:
+                        clip['reference_location'] = places[0]['name']
             override = {**(before.get('override') or {}), **ctx['overrides'].get(before['clip_id'], {})}
+            if repack_report is not None and '_source_lines' in repack_report:
+                from novel_manga.story.dialogue import clip_bindings
+                repack_report.setdefault('_source_lines',{})[before['clip_id']]=clip_bindings(pieces)
             after = packing_service.clip_entry(clip, before["clip_id"], ctx, override)
             def seat(ref):
                 return tuple(ref.get(k) for k in ('role', 'name', 'asset_id', 'view'))

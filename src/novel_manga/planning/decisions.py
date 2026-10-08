@@ -48,6 +48,14 @@ def decide_validation(result: ValidationResult, *, final_attempt: bool, patch_ro
         warnings.extend('report only: ' + i.message for i in rest)
         issues = presence
     targets = patch_targets(issues)
+    if targets is None and allow_floor_waiver and final_attempt:
+        # Fix source/shot errors before evaluating the existing final-attempt
+        # soft duration floor. A short draft must not force a whole rewrite of
+        # otherwise local quote repairs. The floor remains an issue until those
+        # errors are fixed; no stage or chapter validity check is waived here.
+        without_floor = [i for i in issues if i.code != PlanningCode.DURATION_BELOW_MINIMUM]
+        if len(without_floor) != len(issues):
+            targets = patch_targets(without_floor)
     can_patch = targets is not None and patch_rounds < constants.PATCH_ROUNDS and patch_seconds_left > 0
     presence_waived = None
     if presence and len(issues) == len(presence) and not can_patch:

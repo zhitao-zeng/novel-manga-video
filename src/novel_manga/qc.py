@@ -33,12 +33,16 @@ def inspect_silence(video: Path, duration: float, *, silent_outro_seconds: float
         "-vn", "-f", "null", "-",
     ], capture_output=True, text=True, check=True)
     durations = [float(item) for item in re.findall(r"silence_duration:\s*([0-9.]+)", silence.stderr)]
+    intervals = [{'start': round(float(end)-float(seconds), 6), 'end': float(end), 'seconds': float(seconds)}
+                 for end, seconds in re.findall(r'silence_end:\s*([0-9.]+)\s*\|\s*silence_duration:\s*([0-9.]+)', silence.stderr)]
     maximum = max(durations, default=0.0)
     seconds = sum(durations)
     scope = {"scope": "story" if silent_outro_seconds else "full_video",
              "end_seconds": round(story_seconds, 6), "excluded_outro_seconds": round(silent_outro_seconds, 6)}
     return {
-        "long_silence": {"passed": maximum <= 4.5, "detail": {"max_silence_seconds": round(maximum, 6), **scope}},
+        "long_silence": {"passed": maximum <= 4.5, "detail": {"max_silence_seconds": round(maximum, 6), **scope,
+            "max_interval": max(intervals, key=lambda row: row['seconds'], default=None),
+            "long_intervals": [row for row in intervals if row['seconds'] > 4.5]}},
         "silence_ratio": {"passed": seconds / story_seconds <= 0.35,
                           "detail": {"silence_seconds": round(seconds, 6), "duration_seconds": round(story_seconds, 6),
                                      "ratio": round(seconds / story_seconds, 6), "threshold_db": -45, **scope}},
@@ -49,6 +53,28 @@ def subtitle_check(ass: Path, *, required: bool = True) -> dict:
     return {'passed': ass.is_file() and (not required or 'Dialogue:' in ass.read_text(encoding='utf-8')),
             'detail': 'burned ASS source retained' if required else 'no planned dialogue; empty ASS is valid',
             'required': required}
+
+
+def apply_check_policy(checks: dict, ignored) -> dict | None:
+    """Apply book waivers to saved measurements; unknown old waivers need inspection."""
+    ignored = set(ignored)
+    result = {}
+    for name, original in checks.items():
+        row = dict(original)
+        measured = row.get('measured_passed') if row.get('waived') else row.get('passed')
+        if row.get('waived') and measured is None and name not in ignored:
+            return None
+        row.pop('waived', None)
+        row.pop('measured_passed', None)
+        if name in ignored:
+            row.update(passed=True, waived=True)
+            if measured is not None:
+                row['measured_passed'] = measured
+        else:
+            row['passed'] = measured
+        result[name] = row
+    return {'passed': bool(result) and all(row.get('passed') is True for row in result.values()),
+            'checks': result}
 
 
 def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: Settings, report: Path,
@@ -95,7 +121,11 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
     ], capture_output=True, text=True)
     durations = [float(item) for item in re.findall(r"black_duration:([0-9.]+)", black.stderr)]
     max_black = max(durations, default=0.0)
-    checks["black_frames"] = {"passed": max_black < 1.0, "detail": {"max_black_seconds": max_black}}
+    black_intervals = [{'start': float(start), 'end': float(end), 'seconds': float(seconds)}
+                       for start, end, seconds in re.findall(
+                           r'black_start:([0-9.]+)\s+black_end:([0-9.]+)\s+black_duration:([0-9.]+)', black.stderr)]
+    checks["black_frames"] = {"passed": max_black < 1.0, "detail": {"max_black_seconds": max_black,
+        'intervals': black_intervals, 'max_interval': max(black_intervals, key=lambda row: row['seconds'], default=None)}}
 
     volume = subprocess.run([
         "ffmpeg", "-v", "info", "-i", str(video),
@@ -129,9 +159,6 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
     # Checks the novel waives (profile qc_ignore, or NOVEL_QC_IGNORE=a,b): kept in the report with their numbers,
     # marked waived and counted as passed - 雾月 2026-09-14: silence is not a delivery criterion.
     waived = set(ignore_checks) | {item.strip() for item in os.environ.get("NOVEL_QC_IGNORE", "").split(",") if item.strip()}
-    for key in waived & set(checks):
-        checks[key]["waived"] = True
-        checks[key]["passed"] = True
-    result = {"passed": all(item["passed"] for item in checks.values()), "checks": checks}
+    result = apply_check_policy(checks, waived)
     atomic_write_json(report, result)
     return result

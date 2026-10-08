@@ -35,7 +35,9 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
     media = json.loads(report_path.read_text(encoding="utf-8")) if report_path.is_file() else {}
     selected = {row["clip_id"]: row.get("selected") or {} for row in media.get("clips", [])}
     segments = review_evidence.segment_texts(episode_dir)
-    report = {"policy": review_contracts.POLICY, "episode": episode_dir.name, "video_name": video_name, "clips": {}, "flags": [], "feedback": {}}
+    mode = 'verify' if review_evidence.review_mode(episode_dir/'work/review/current') == 'verify' else 'classic'
+    report = {"policy": review_contracts.POLICY, "review_mode": mode,
+              "episode": episode_dir.name, "video_name": video_name, "clips": {}, "flags": [], "feedback": {}}
     suffix = "" if video_name == "clip.mp4" else "." + video_name.replace(".mp4", "")
     review_path = episode_dir / f"episode_review{suffix}.json"
     try:
@@ -46,7 +48,11 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
     # last review keeps its verdict (with whatever the verification gate wrote on it), and only new takes are judged.
     # 雾月 2026-09-14: each repair round re-judged all 633 clips of a 60-episode batch for ~40 changed takes.
     # NOVEL_REVIEW_FRESH=1 judges every clip again (a card or prompt change the policy string does not carry).
-    earlier = (previous.get("clips") or {}) if previous.get("policy") == review_contracts.POLICY else {}
+    earlier = previous.get('clips') or {}
+    if not review_contracts.current_review(previous,mode):
+        # A keep/source recheck may have verified individual clips in the new
+        # mode while the rest of the episode still awaits that method.
+        earlier = {cid:row for cid,row in earlier.items() if review_contracts.current_review(row,mode)}
     resume = not fresh if fresh is not None else os.environ.get("NOVEL_REVIEW_FRESH", "").strip() != "1"
     def checkpoint():
         # A long review may outlive its terminal. Save each completed take so a restart reuses it;

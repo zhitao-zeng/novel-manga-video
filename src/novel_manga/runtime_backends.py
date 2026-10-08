@@ -51,6 +51,7 @@ def correct_protected_lexicon(
 
     corrected = hypothesis
     corrections: list[dict[str, str | int]] = []
+    known_terms = {normalize_text(term) for term in canonical_terms}
     for source, canonical in (aliases or {}).items():
         if canonical not in reference or source not in corrected or source == canonical:
             continue
@@ -69,6 +70,8 @@ def correct_protected_lexicon(
             continue
         expected = reference.find(canonical) / max(1, len(reference))
         center = round(expected * len(corrected))
+        left, _, right = reference.partition(canonical)
+        before, after = normalize_text(left)[-2:], normalize_text(right)[:2]
         radius = max(5, len(canonical) * 3)
         best: tuple[int, int, int, str] | None = None
         best_start = 0
@@ -79,8 +82,16 @@ def correct_protected_lexicon(
             for start in range(start_min, start_max + 1):
                 candidate = corrected[start : start + width]
                 normalized = normalize_text(candidate)
-                if not normalized:
+                if not normalized or len(normalized) != len(normalize_text(canonical)):
                     continue
+                if normalized in known_terms and normalized != normalize_text(canonical):
+                    continue  # An actually recognized different named entity is not a spelling correction.
+                key = normalize_text(canonical)
+                if ((after and normalized[:-1] == key[:-1] and normalized[-1] == after[0]
+                     and not normalize_text(corrected[start + width:]).startswith(after))
+                        or (before and normalized[1:] == key[1:] and normalized[0] == before[-1]
+                            and not normalize_text(corrected[:start]).endswith(before))):
+                    continue  # Do not consume adjacent words to manufacture a partly missing name.
                 distance = edit_distance(normalized, normalize_text(canonical))
                 rank = (distance, abs(start - center), abs(width - len(canonical)), candidate)
                 if best is None or rank < best:

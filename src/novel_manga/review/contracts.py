@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import novel_manga.llm.client as model_client
-REVIEW_POLICY = "thin-review-v1.17-story"
+REVIEW_POLICY = "thin-review-v1.23-current-phase-viewer-impact"
 
 
 POLICY = REVIEW_POLICY  # shared with scheduling and delivery: the judge reads the source passage
+
+
+def current_review(report: dict, mode: str | None) -> bool:
+    """A verdict from another mode cannot stand in for the requested checks."""
+    return (report.get('policy') == POLICY
+            and report.get('review_mode') == ('verify' if mode == 'verify' else 'classic'))
 
 
 PHOTOREAL_LIMIT = 0.6
@@ -117,6 +123,9 @@ SCRIPT_CHECK_RULES = (
     "审查员说“手掌中心出现嘴巴属于崩坏”，那就是剧本要求的（scripted=true），evidence 抄原文里对应的那句。\n"
     "只有原文或剧本事件确实写到了同一件事才算剧本要求。以下都不算：发型、服装、年龄、性别与设定不符；"
     "多出了原文没有写的人；同一个人在画面里出现两次而原文没有写两个人；地点或昼夜不对；画面上有文字。"
+    "原文段落可能跨多个镜头，只有当前镜头阶段明确要求的同一事件才可判 scripted=true；"
+    "后续或其他镜头的异象不能为当前镜头豁免。结合本镜实际请求、事件及阶段绑定定位，"
+    "剧本与原文明示内容冲突或缺少当前阶段依据时填 false。"
     "拿不准就填 false。note 用一句话说明。只输出 JSON。"
 )
 
@@ -162,7 +171,7 @@ VERIFY_QUESTIONS = (BODY_QUESTION +
     "same_person_twice：同一帧里是否有两个或更多长得一样（同脸同装）的人；\n"
     "species_or_gender_wrong：人被画成动物、动物被画成人或别的动物、动物直立拟人化，或原文里的女人由男人演（反之）、成人画成小孩；\n"
     "action_by_wrong_person：原文里甲做的动作或说的话，画面里由乙做或对错的对象做（例如原文甲向乙递东西，画面却由丙递出）；\n"
-    "actor_missing：原文这一段里有动作或对白的人不在画面里，而且没有别人替他做（只露背影的听者、画外说话的人不算缺席）；\n"
+    "actor_missing：原文对应本镜事件中应入镜、有动作或对白的人不在画面里，而且没有别人替他做（只露背影的听者、画外说话的人不算缺席；其他镜头事件中的人不必在本镜出现）；\n"
     "lead_face_swapped：主角或其他给了角色卡的主要人物，脸型发型明显不是角色卡上那个人（追剧的观众认得主角，这也算一眼看出）；\n"
     "ghost_text：画面出现字幕、文字、水印、Logo（手机屏幕上的消息除外）；这一项单独记录，不影响 verdict；\n"
     "verdict：obvious＝观众会觉得荒谬或前后不一致（same_person_twice、species_or_gender_wrong、action_by_wrong_person、actor_missing、"

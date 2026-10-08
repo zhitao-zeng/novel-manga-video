@@ -30,7 +30,7 @@ def image_part(path: Path, max_side: int) -> dict:
     return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")}}
 
 
-def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True, settings: JsonEndpoint | None = None) -> dict:
+def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True, settings: JsonEndpoint | None = None, json_object: bool = False) -> dict:
     """Ask a JSON question, sharing the timeout across endpoints and at most one length retry."""
     headers = {}
     key = settings.key if settings else endpoint_key()
@@ -42,7 +42,14 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
         "response_format": {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": schema}},
         "messages": [{"role": "user", "content": parts}],
     }
-    deadline = time.monotonic() + timeout
+    if json_object:
+        # Some deployed services accept json_schema but corrupt free-form string arrays.
+        # These callers validate their own result; make the shape visible to the model.
+        payload['response_format'] = {'type': 'json_object'}
+        payload['messages'][0]['content'] = [*parts, {'type': 'text', 'text':
+            'Return a JSON object matching this schema: ' + json.dumps(schema, ensure_ascii=False)}]
+    from novel_manga.resource_waits import RequestDeadline
+    deadline = RequestDeadline(timeout)
     with httpx.Client(timeout=timeout, trust_env=False) as client:
         for retry in range(2 if retry_truncated else 1):
             request_key = f"{name}-{next(_CALL_COUNTER)}"
@@ -51,6 +58,20 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
                             timeout_message=f"{name}: {timeout:g}s request budget exhausted")
             choice = body["choices"][0]
             content = choice["message"].get("content") or "{}"
+            from .refusal import refusal_reason
+            fallback = os.environ.get('NOVEL_REFUSAL_FALLBACK')
+            refused = choice['message'].get('refusal') or (
+                refusal_reason(content) if not content.lstrip().startswith(('{', '[')) else '')
+            if fallback and 'deepseek' in payload['model'].lower() and refused:
+                from .config import endpoint_settings
+                settings = endpoint_settings(fallback)
+                headers = {'Authorization': 'Bearer '+settings.key} if settings.key else {}
+                payload = {**payload, 'model': settings.model}
+                log(f'{name}: explicit model refusal; switching once to {settings.model} within the same request budget')
+                body = post_any(client, list(settings.endpoints), headers, payload, settings=settings,
+                                deadline=deadline, timeout_message=f'{name}: fallback request budget exhausted')
+                choice = body['choices'][0]
+                content = choice['message'].get('content') or '{}'
             try:
                 return json.loads(content)
             except json.JSONDecodeError as error:
@@ -66,4 +87,3 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
 
 def obj(properties: dict, required: list[str] | None = None) -> dict:
     return {"type": "object", "properties": properties, "required": required or list(properties), "additionalProperties": False}
-

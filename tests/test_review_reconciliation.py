@@ -39,6 +39,37 @@ def test_partial_jsonl_and_model_errors_do_not_replace_confirmed_evidence(tmp_pa
     assert list(store.load_evidence([tmp_path / 'missing.jsonl', path]).values()) == [confirmed]
 
 
+@pytest.mark.parametrize('policy_current',[True,False])
+def test_reconciliation_retains_mode_only_from_current_policy(policy_current):
+    from novel_manga.review.contracts import POLICY
+    case=cases()[0]
+    previous={**case['previous'],'policy':POLICY if policy_current else 'old-policy','review_mode':'verify'}
+    result=rules.reconcile_review(Path('/frozen/book/book_1'),case['plan'],previous,case['takes'],{}, {})
+    assert (result.get('review_mode')=='verify') is policy_current
+
+
+def test_source_confirm_from_another_mode_cannot_keep_the_old_mode_stamp():
+    from novel_manga.review.contracts import POLICY,current_review
+    case=cases()[0]
+    previous={**case['previous'],'policy':POLICY,'review_mode':'verify'}
+    record={**case['local'][0],'mode':'source_confirm','source_confirmed_at':'new',
+            'policy':POLICY,'review_mode':'classic',
+            'picture_review':{'severity':'pass','story_ok':True}}
+    local={};rules.merge_evidence(local,record)
+    result=rules.reconcile_review(Path('/frozen/book/book_1'),case['plan'],previous,case['takes'],local,{})
+    assert not current_review(result,'verify')
+
+
+def test_source_priority_does_not_hide_a_fresh_requested_review_method():
+    from novel_manga.review.contracts import POLICY
+    record=cases()[0]['local'][0]
+    classic={**record,'mode':'source_confirm','policy':POLICY,'review_mode':'classic'}
+    verify={**record,'mode':'managed','policy':POLICY,'review_mode':'verify'}
+    records={}
+    rules.merge_evidence(records,classic);rules.merge_evidence(records,verify)
+    assert list(records.values())==[verify]
+
+
 def test_current_take_selection_keeps_project_relative_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(store, 'ROOT', tmp_path)
     episode = tmp_path / 'outputs/n/n_1'; episode.mkdir(parents=True)

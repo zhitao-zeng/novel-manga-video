@@ -60,7 +60,6 @@ class Verifier:
         self.model_settings = model_client.JsonEndpoint.from_env({
             'QWEN38_LOCAL_BASE_URL': endpoint_env.get('QWEN38_LOCAL_BASE_URL', 'http://127.0.0.1:18120/v1')})
         self.bible = StoryBible.model_validate_json((self.novel / "story_bible.json").read_text(encoding="utf-8"))
-        self.phases = thin_phases.load_phases(self.novel)
         grammar = self.novel / "visual_grammar.json"
         self.location_time = json.loads(grammar.read_text(encoding="utf-8")).get("location_time", {}) if grammar.is_file() else {}
         self._segments: dict = {}
@@ -95,7 +94,7 @@ class Verifier:
         try:
             for line in self.out.open(encoding="utf-8"):
                 d = json.loads(line)
-                if "error" not in d:
+                if "error" not in d and review_contracts.current_review(d,'verify'):
                     done.add((d["ep"], d["clip"], d.get("video"), json.dumps(d.get("take"))))
         except FileNotFoundError:
             pass
@@ -103,20 +102,16 @@ class Verifier:
 
     # ---- one clip ----
     def prompt_for(self, clip: dict, ep_dir: Path, chapter: int, claim: str) -> tuple[list, str]:
-        by_name = {c.name: thin_phases.phased(c, thin_phases.phase_for(self.phases, c.name, chapter)) for c in self.bible.characters}
         crowds=clip.get('crowd_roles',{})
-        cast = [n for n in clip.get("cast", []) if n in by_name and n not in crowds]
+        by_name, cast, cards = review_evidence.character_cards(
+            {**clip, 'cast': [n for n in clip.get('cast', []) if n not in crowds]}, self.bible, self.novel, chapter)
         extras = list(dict.fromkeys([*(clip.get("extras") or []), *(e for s in clip.get("shots", []) for e in (s.get("extras") or []))]))
         extras.extend(f"{v['count'] or '多'}名不同的{name}（服装可以相同，脸和发型必须能区分；参考图只提供制服）" for name,v in crowds.items())
         listeners = list(dict.fromkeys(l for l in [*(clip.get("listeners") or []), *(l for s in clip.get("shots", []) for l in (s.get("listeners") or []))] if l in by_name))
         offscreen = list(dict.fromkeys(str(r.get("speaker_name") or "") for r in clip.get("lines", []) if r.get("delivery_mode") == "offscreen_dialogue" and r.get("speaker_name")))
         background = [n for n in clip.get("background_only", []) if n in by_name]
-        cards = []
-        for name in cast[:3 if len(cast) <= 3 else 2]:
-            path = next((Path(ref["path"]) for ref in clip.get("references", []) if ref.get("name") == name and str(ref["path"]).endswith("turnaround.jpeg")), None)
-            path = thin_phases.phase_card(self.novel, self.phases, name, chapter) or path
-            if path is not None and (self.novel / path).is_file():
-                cards.append((name, path))
+        shown = set(cast[:3 if len(cast) <= 3 else 2])
+        cards = [(name, path) for name, path in cards if name in shown]
         lines = "；".join(f"{r.get('speaker_name') or '旁白'}：{r['text']}" for r in clip.get("lines", []))
         location = clip.get("location", "")
         expected_time = self.location_time.get(location, "")
@@ -184,6 +179,7 @@ class Verifier:
         except Exception as error:  # noqa: BLE001
             return {"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "error": f"{type(error).__name__}: {str(error)[:100]}"}
         answer.update({"ep": ep, "clip": cid, "mode": mode, "video": str(video), "take": take, "claim": claim[:300],
+                       "policy": review_contracts.POLICY, "review_mode": "verify",
                        "ts": time.strftime("%m-%d %H:%M"), "judge": self.judge_tag})
         people = answer.get("people") or []
         answer["people"] = [f"{p.get('who')}({p.get('gender')}{'/动物' if p.get('is_animal') else ''}) {p.get('doing')} [{p.get('frames')}]" for p in people][:8]

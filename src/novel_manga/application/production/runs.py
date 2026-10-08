@@ -21,6 +21,12 @@ from novel_manga.review.contracts import REVIEW_POLICY
 RUNS_FILE = ".render_runs"
 
 
+def clip_plan_mode(plan):
+    """Authored and packed plans share the explicit clip limit, not a policy-name suffix."""
+    cap=float((plan.get('limits') or {}).get('max_clip_seconds') or 0)
+    return (15 if cap<=15 else 30) if cap>0 else (15 if '-15s' in str(plan.get('policy','')) else 30)
+
+
 def runs_key(directory: Path) -> list[float]:
     plan, feedback = directory / "clip_plan.json", directory / "review_feedback.json"
     return [plan.stat().st_mtime if plan.is_file() else 0.0, feedback.stat().st_mtime if feedback.is_file() else 0.0]

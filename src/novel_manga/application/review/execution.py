@@ -19,11 +19,43 @@ def media_matches(plan, media, *, notes=None):
 
 
 def review_saved(directory: Path, *, fresh=None, video_name='clip.mp4'):
+    if video_name == 'clip.mp4':
+        refresh_speech_evidence(directory)
     review = review_episode(directory, video_name=video_name, fresh=fresh)
     if video_name == 'clip.mp4':
         plan = read_json(directory / 'clip_plan.json', {})
         history.observe(directory, review, current_takes(directory, plan, review))
     return review
+
+
+def refresh_speech_evidence(directory):
+    """A policy refresh uses existing audio evidence and cannot submit video."""
+    from novel_manga.media import speech
+    directory = Path(directory)
+    plan = read_json(directory/'clip_plan.json', {})
+    media = read_json(directory/'thin_media_report.json', {})
+    if not media_matches(plan, media, notes=read_json(directory/'review_feedback.json', {})):
+        return False
+    clips = {c['clip_id']: c for c in plan.get('clips', [])}
+    bible = read_json(directory.parent/'story_bible.json', {})
+    terms = [c['name'] for c in bible.get('characters') or [] if c.get('name')]
+    aliases = read_json(directory.parent/'asr_aliases.json', {})
+    changed = False
+    for row in media.get('clips') or []:
+        selected = row.get('selected') or {}
+        clip = clips.get(row.get('clip_id'))
+        if (not clip or not selected.get('video') or 'reference' not in selected
+                or selected.get('speech_evaluation_policy') == speech.EVALUATION_POLICY):
+            continue
+        row['selected'] = speech.refresh(clip.get('spoken_text', ''), selected, terms, aliases,
+                                        vocalizations=speech.planned_vocalizations(clip))
+        changed = True
+    if changed:
+        selected = {r['clip_id']: r.get('selected') or {} for r in media['clips']}
+        media['gate_failed_clips'] = [cid for cid in media.get('gate_failed_clips') or []
+                                      if selected.get(cid, {}).get('passed') is not True]
+        atomic_write_json(directory/'thin_media_report.json', media)
+    return changed
 
 
 def recheck_current_clip(directory: Path, cid: str) -> dict:
@@ -33,12 +65,16 @@ def recheck_current_clip(directory: Path, cid: str) -> dict:
     from novel_manga.media.speech_repair import correction, merge_note
     from novel_manga.models.bible import StoryBible
     from novel_manga.review.policy import compose_feedback, flag_line
+    from novel_manga.application.review.evidence import review_mode
+    from novel_manga.review.contracts import POLICY, current_review
 
     directory = Path(directory)
+    refresh_speech_evidence(directory)
     plan = read_json(directory / 'clip_plan.json', {})
     script = read_json(directory / 'chapter_script.json', {})
     notes = read_json(directory / 'review_feedback.json', {})
     previous = read_json(directory / 'episode_review.json', {})
+    mode = 'verify' if review_mode(directory/'work/keep_review'/cid) == 'verify' else 'classic'
     clip = next((c for c in plan.get('clips', []) if c.get('clip_id') == cid and c.get('kind') == 'video'), None)
     current = current_takes(directory, plan, previous).get(cid)
     if clip is None or current is None:
@@ -67,6 +103,7 @@ def recheck_current_clip(directory: Path, cid: str) -> dict:
         raise ValueError(f'{cid}: selected take changed during keep recheck')
 
     row = scoped['clips'][cid]
+    row.update(policy=POLICY, review_mode=mode)
     speech = speech_gate_result(directory.parent, selected, directory)
     row['speech_gate'] = speech
     if speech.get('passed') is not True:
@@ -76,6 +113,8 @@ def recheck_current_clip(directory: Path, cid: str) -> dict:
     row['tier'] = 'optional' if accepted else 'must_fix'
     row['source_segment_ids'] = list(clip.get('segment_ids') or [])
     review = copy.deepcopy(previous)
+    if not current_review(previous, mode):
+        review.pop('review_mode', None)  # one rechecked clip cannot certify the other clips' mode
     review.setdefault('clips', {})[cid] = row
     review.setdefault('feedback', {}).pop(cid, None)
     review['flags'] = [flag for flag in review.get('flags', []) if not str(flag).startswith(f'{cid}:')]
@@ -104,10 +143,10 @@ def save_result(directory, media, review, *, plan=None, rounds=(), corrections=(
                  and media['prompt_h3_fingerprint'] != h3_prompt_fingerprint(plan))
              or (bool(media) and (media.get('review_feedback') or {})
                  != read_json(directory / 'review_feedback.json', {})))
-    accepted = (bool((media.get('assembly') or {}).get('thin_passed'))
-                and not media.get('failed_clips') and not media.get('gate_failed_clips')
-                and not review.get('feedback') and not missing and not errors and not stale)
-    result = {'passed': bool(accepted), 'repair_rounds': list(rounds),
+    content_passed = (bool(planned) and not media.get('failed_clips') and not media.get('gate_failed_clips')
+                      and not review.get('feedback') and not missing and not errors and not stale)
+    accepted = content_passed and bool((media.get('assembly') or {}).get('thin_passed'))
+    result = {'passed': bool(accepted), 'content_passed': bool(content_passed), 'repair_rounds': list(rounds),
               'automatic_corrections': sorted(set(corrections)), 'blocked': blocked or {},
               'missing_reviews': missing, 'review_errors': errors,
               'remaining': sorted(review.get('feedback') or {}),

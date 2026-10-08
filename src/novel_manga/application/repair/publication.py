@@ -48,6 +48,8 @@ def write_artifacts(directory: Path, proposal: RepairProposal, *, atomic_script=
         atomic_write_json(directory / 'visor_states.json', proposal.payload['visor_states'])
     if proposal.posture_states is not None:
         atomic_write_json(directory / 'posture_states.json', proposal.posture_states)
+    if proposal.source_speaker_contract is not None:
+        atomic_write_json(directory / 'source_speaker_contract.json', proposal.source_speaker_contract)
     atomic_write_json(directory / 'clip_plan.json', proposal.plan)
     if appearance_checks:
         atomic_write_json(directory / 'repair_appearance_checks.json', appearance_checks)

@@ -35,10 +35,11 @@ def generate_outline(client: httpx.Client, endpoints: list[str], headers: dict, 
     instructions = blueprint_prompt(method) if method else pc_prompts.outline_prompt(mode)
     attempts = []
     draft_for_retry = None
-    deadline = time.monotonic() + timeout
+    from novel_manga.resource_waits import active_seconds
+    budget_started = time.monotonic()
     original_timeout = client.timeout
     for limit in dict.fromkeys((max_tokens, max(max_tokens, min(max_tokens * 2, 8192)))):
-        remaining = deadline - time.monotonic()
+        remaining = timeout - active_seconds(budget_started)
         if remaining <= 0:
             break
         started = time.monotonic()
@@ -311,13 +312,14 @@ def patch_batches(raw, missing_ids, faulty, segments, names, locations, *, timeo
         yield {'draft': patch_plan(raw, missing_ids, faulty, segments, names, locations,
                                   timeout=min(timeout, total_timeout), ctx=ctx, split_labels=split_labels)}
         return
-    deadline = time.monotonic() + total_timeout
+    from novel_manga.resource_waits import active_seconds
+    budget_started = time.monotonic()
     combined = {'insertions': [], 'replacements': []}
     for number, batch in enumerate(batches, 1):
         missing = [value for kind, value, _ in batch if kind == 'insertion']
         errors = {value: faulty[value] for kind, value, _ in batch if kind == 'replacement'}
         row = {'batch': number, 'segments': missing, 'stages': list(errors)}
-        remaining = deadline - time.monotonic()
+        remaining = total_timeout - active_seconds(budget_started)
         if remaining <= 0:
             yield {**row, 'failed': 'TimeoutError: shared patch time budget exhausted'}
             break

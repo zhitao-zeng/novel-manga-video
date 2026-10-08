@@ -40,6 +40,17 @@ def test_each_stage_he_is_in_is_answered_and_written(tmp_path):
     assert json.loads((directory / visor.FILE).read_text())['policy'] == visor.POLICY
 
 
+def test_visor_check_uses_the_explicit_planner_endpoint(tmp_path, monkeypatch):
+    directory, _ = episode(tmp_path)
+    endpoints = []
+    monkeypatch.setenv('NOVEL_PLANNER_ENDPOINT', 'deepseek')
+    monkeypatch.setattr(visor, 'endpoint_settings', lambda name: endpoints.append(name) or object())
+    monkeypatch.setattr(visor, 'ask_json', lambda *a, **k: {
+        'stages': [{'index': 1, 'state': 'opening'}, {'index': 3, 'state': 'open'}]})
+    visor.fill(directory, write=False)
+    assert endpoints == ['deepseek']
+
+
 def test_only_clips_with_the_faceplate_shut_need_the_closed_view(tmp_path):
     directory, shots = episode(tmp_path)
     visor.fill(directory, ask=lambda prompt: {'stages': [{'index': 1, 'state': 'opening'}, {'index': 3, 'state': 'open'}]})

@@ -10,6 +10,9 @@ import novel_manga.application.production.conductor_common as conductor_common
 import novel_manga.application.production.runs as thin_runs
 
 def chapter(conductor, n: int) -> dict:
+    if getattr(conductor, 'workspaces', None):
+        from .workspaces import chapter as workspace_chapter
+        return workspace_chapter(conductor.workspaces[str(n)])
     d = conductor.episode_dir(n)
     state = {"n": n, "done": False, "blocked": False, "planned": (d / "clip_plan.json").is_file(), "runs": 0, "mode": None,
              "unreviewed": False}
@@ -72,6 +75,10 @@ def _mtime(path: Path) -> float:
 def settled(conductor, n: int) -> bool:
     """Planned, or left out on purpose (planning_skipped.json: too short to be an episode)."""
     d = conductor.episode_dir(n)
+    if getattr(conductor, 'workspaces', None):
+        from .workspaces import chapter as workspace_chapter, current
+        row = conductor.workspaces[str(n)]
+        return workspace_chapter(row)['done'] or current(row) is not None
     return (d / "clip_plan.json").is_file() or (d / "planning_skipped.json").is_file()
 
 
@@ -96,25 +103,39 @@ def review_incomplete(conductor, review: Path) -> bool:
     """A review in which the judge failed on some clips (severity review_error) has not reviewed them: it
     goes back in the queue, for a few rounds.  Only the review file's age used to count, and 28 of 雾月's
     and 3 of 诸天's episodes sat as reviewed with those clips unjudged and unflagged (2026-09-11)."""
+    from novel_manga.application.review.evidence import review_mode
+    from novel_manga.review.contracts import current_review
     errors = summary(conductor, review, "review_errors", lambda data: (
         sum(1 for c in (data.get("clips") or {}).values() if c.get("severity") == "review_error"),
-        int(data.get("error_rounds", 0)), data.get("policy")))
-    return errors is None or errors[2] != thin_runs.REVIEW_POLICY or (errors[0] > 0 and errors[1] < conductor_common.REVIEW_ERROR_ROUNDS)
+        int(data.get("error_rounds", 0)), data.get("policy"), data.get('review_mode')))
+    if errors is None:
+        return True
+    # Mode selection can change without the report file changing; keep it out of
+    # the file-summary cache. Unselected readers retain the explicitly recorded method.
+    mode = review_mode(review.parent/'work/review/current') or errors[3]
+    return (not current_review({'policy':errors[2],'review_mode':errors[3]},mode)
+            or (errors[0] > 0 and errors[1] < conductor_common.REVIEW_ERROR_ROUNDS))
 
 
 def range_stats(conductor, r: dict) -> dict:
     chapters = [chapter(conductor, n) for n in range(r["a"], r["b"] + 1)]
     renderable = [c["n"] for c in chapters if c["planned"] and not c["done"] and not c["blocked"]
-                  and c["runs"] < thin_runs.RENDER_RUNS_PER_PLAN and c["mode"] == int(r.get("plan_mode", 30))]
+                  and c["runs"] < thin_runs.RENDER_RUNS_PER_PLAN and c["mode"] == int(r.get("plan_mode", 30))
+                  and (not getattr(conductor,'workspaces',None) or c.get('ready'))]
     return {"total": len(chapters), "planned": sum(c["planned"] for c in chapters), "done": sum(c["done"] for c in chapters),
             "blocked": [c["n"] for c in chapters if c["blocked"]], "renderable": renderable,
             "pending": [c["n"] for c in chapters if not c["done"]],
-            "unreviewed": [c["n"] for c in chapters if c["unreviewed"]]}
+            "unreviewed": [c["n"] for c in chapters if c["unreviewed"]],
+            **({'ready_clips':sum(c.get('ready_clips',0) for c in chapters),
+                'in_process_clips':sum(c.get('in_process_clips',0) for c in chapters),
+                'blocked_clips':sum(c.get('blocked_clips',0) for c in chapters),
+                'accepted':sum(c.get('accepted',False) for c in chapters)} if getattr(conductor,'workspaces',None) else {})}
 
 
 def recent_lines(conductor, chapters, pattern: str, seconds: int) -> int:
-    """Lines matching `pattern` in the chapters' render logs within the last `seconds` (same day)."""
-    cutoff = (datetime.now() - timedelta(seconds=seconds)).strftime("%H:%M:%S")
+    """Recent time-only log entries, including a window that crosses midnight."""
+    now = datetime.now()
+    cutoff = now - timedelta(seconds=seconds)
     count = 0
     for n in chapters:
         path = (conductor.tmp / f'agent_{n}.log' if getattr(conductor, 'executor', 'standard') == 'episode_agent'
@@ -123,8 +144,16 @@ def recent_lines(conductor, chapters, pattern: str, seconds: int) -> int:
             continue
         try:
             for line in path.read_text(encoding="utf-8", errors="replace").splitlines()[-400:]:
-                if len(line) > 9 and line[0] == "[" and line[1:9] >= cutoff and pattern in line:
-                    count += 1
+                if len(line) > 9 and line[0] == "[" and pattern in line:
+                    try:
+                        hour, minute, second = map(int, line[1:9].split(':'))
+                        stamp = now.replace(hour=hour, minute=minute, second=second, microsecond=0)
+                    except ValueError:
+                        continue
+                    if stamp > now:
+                        stamp -= timedelta(days=1)
+                    if stamp >= cutoff:
+                        count += 1
         except OSError:
             pass
     return count

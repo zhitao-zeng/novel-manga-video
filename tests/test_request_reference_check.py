@@ -9,6 +9,30 @@ from PIL import Image
 from novel_manga.application.preparation import request_check
 
 
+def test_scope_recheck_rejects_pose_mislabeled_as_stable_appearance(monkeypatch):
+    finding = {'basis': 'request', 'aspect': 'appearance', 'picture': 0, 'lines': [1, 2],
+               'subject_specific': True, 'relation': 'contradiction',
+               'reason': '参考图站着，请求坐着；身份定义没有坐姿'}
+    monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k: {
+        'checks': [{'id': 0, 'scope': 'out_of_scope', 'reason': '角色参考不约束镜头坐站动作'}]})
+    lines = [('英文', 'Identity follows Picture 1.'), ('英文', 'The subject sits at the table.')]
+    answer = request_check.recheck_scope({'findings': [finding]}, lines, [{'picture': 1, 'role': 'character'}])
+    result = request_check.interpret(answer, lines, 1)
+    assert result['consistent'] and result['out_of_scope']
+    assert finding['subject_specific'] is True
+
+
+@pytest.mark.parametrize('scope', ['in_scope', 'uncertain'])
+def test_scope_recheck_preserves_real_or_uncertain_input_conflicts(monkeypatch, scope):
+    finding = {'basis': 'reference', 'aspect': 'appearance', 'picture': 1, 'lines': [1],
+               'subject_specific': True, 'relation': 'contradiction', 'reason': '室内宿舍绑定室外街道'}
+    monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k: {
+        'checks': [{'id': 0, 'scope': scope, 'reason': '不是姿势问题，空间类型相反'}]})
+    answer = request_check.recheck_scope({'findings': [finding]}, [('英文', 'Interior dormitory.')],
+                                       [{'picture': 1, 'role': 'location'}])
+    assert request_check.interpret(answer, [('英文', 'Interior dormitory.')], 1)['consistent'] is False
+
+
 def fixture(tmp_path):
     Image.new('RGB', (64, 64), 'white').save(tmp_path / 'current.jpeg')
     Image.new('RGB', (64, 64), 'gray').save(tmp_path / 'closed.jpeg')
@@ -22,6 +46,24 @@ def fixture(tmp_path):
     request = {'prompt': clip['prompt_h3'], 'references': [str(tmp_path / r['path']) for r in clip['references'][:-1]],
                'reference_sha256': ['actual-card-1', 'actual-card-2', 'actual-card-3'], 'seed_variant': 0}
     return ctx, clip, request
+
+
+def test_prepared_renderer_never_calls_a_model_on_a_missing_or_changed_cache(tmp_path,monkeypatch):
+    ctx,clip,request=fixture(tmp_path)
+    ctx.prepared_requests_only=True
+    monkeypatch.setattr(request_check,'request_consistency',lambda *a,**k:pytest.fail('model called by submission'))
+    with pytest.raises(ValueError,match='prepared request is stale'):
+        request_check.before_generation(ctx,clip,request)
+    from novel_manga.util import atomic_write_json
+    ctx.prepared_requests_only=False
+    monkeypatch.setattr(request_check,'request_consistency',lambda *a,**k:{'consistent':True,'problems':[]})
+    request_check.before_generation(ctx,clip,request)
+    ctx.prepared_requests_only=True
+    monkeypatch.setattr(request_check,'request_consistency',lambda *a,**k:pytest.fail('model called by submission'))
+    assert request_check.before_generation(ctx,clip,request)['consistent']
+    request['reference_sha256'][0]='changed image'
+    with pytest.raises(ValueError,match='prepared request is stale'):
+        request_check.before_generation(ctx,clip,request)
 
 
 def test_request_check_receives_exact_cards_in_request_order_with_binding_legend(tmp_path, monkeypatch):
@@ -42,6 +84,21 @@ def test_request_check_receives_exact_cards_in_request_order_with_binding_legend
     assert seen == [Path(p) for p in request['references']]
     assert ctx._blocked_clips['c1'][0].startswith('request: 请求深色便装与图1衣着矛盾')
     assert not (tmp_path / 'repair_history/history.json').exists()
+
+
+def test_reference_gate_does_not_follow_translation_only_override(tmp_path, monkeypatch):
+    ctx, clip, request = fixture(tmp_path)
+    monkeypatch.setenv('QWEN38_LOCAL_BASE_URL', 'http://172.28.4.52:8831/v1')
+    monkeypatch.setenv('QWEN38_LOCAL_MODEL', 'DeepSeek-V4.1-Flash')
+    monkeypatch.setenv('NOVEL_H3_TRANSLATION_ENDPOINT', 'flashnext')
+    monkeypatch.delenv('NOVEL_H3_REQUEST_CHECK_ENDPOINT', raising=False)
+    calls=[]
+    def ask(*args, **kwargs):
+        calls.append(kwargs['settings'].model)
+        return {'observations': [], 'findings': []}
+    monkeypatch.setattr(request_check, 'ask_json', ask)
+    assert request_check.before_generation(ctx, clip, request)['consistent']
+    assert calls == ['DeepSeek-V4.1-Flash']
 
 
 def test_seed_only_retry_reuses_check_but_image_or_word_changes_recheck(tmp_path, monkeypatch):
@@ -95,6 +152,16 @@ def test_textual_closed_helmet_and_visible_eyes_conflict_is_still_checked():
                'subject_specific': True, 'relation': 'contradiction', 'reason': '全程闭合头盔同时要求清晰的眼神表演'}
     result = request_check.interpret({'findings': [finding]}, [('中文', '全程闭合'), ('英文', 'eyes blink')], 1)
     assert not result['consistent'] and result['problems']
+
+
+@pytest.mark.parametrize('role,consistent', [('location', False), ('character', True)])
+def test_reference_space_is_binding_only_for_an_actual_location_card(role, consistent):
+    finding = {'basis': 'reference', 'aspect': 'space', 'picture': 1, 'lines': [1],
+               'subject_specific': True, 'relation': 'contradiction',
+               'reason': '参考图是室外街道，本镜要求同一场景为室内大厅'}
+    result = request_check.interpret({'findings': [finding]}, [('英文', 'An interior hall.')], 1,
+                                     references=[{'picture': 1, 'role': role}])
+    assert result['consistent'] is consistent
 
 
 @pytest.mark.parametrize('relation', ['underspecified', 'compatible'])

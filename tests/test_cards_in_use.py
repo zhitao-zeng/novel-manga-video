@@ -60,13 +60,19 @@ def test_named_rejected_reference_is_not_redrawn_when_proven(tmp_path, monkeypat
 
 def test_remediation_skips_cards_in_use(tmp_path, monkeypatch):
     root = novel(tmp_path)
-    monkeypatch.setattr("novel_manga.config.Settings.from_env", lambda **_: None)
-    monkeypatch.setattr("novel_manga.media.adapters.FramedPhanRouter", lambda *_: None)
+    from novel_manga.config import Settings
+    settings=Settings(local_image_base_url='http://qwen.invalid')
+    monkeypatch.setattr("novel_manga.config.Settings.from_env", lambda **_: settings)
+    def provider(actual,*unused):
+        assert actual.local_image_base_url is None
+        return None
+    monkeypatch.setattr("novel_manga.media.adapters.FramedPhanRouter", provider)
     render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
     report = {"characters": {
         "character_001": {"views": ["turnaround.jpeg"], "actions": ["regenerate"]},
         "character_002": {"views": ["turnaround.jpeg"], "actions": ["regenerate"]}}, "locations": {}}
     done = review_cards.remediate_cards(root, report)
+    assert settings.local_image_base_url=='http://qwen.invalid'
     assert done["in_use"] == ["character_001/turnaround.jpeg"]
     assert done["deleted"] == ["character_002/turnaround.jpeg"]
     assert (root / "series_assets/characters/character_001/turnaround.jpeg").is_file()

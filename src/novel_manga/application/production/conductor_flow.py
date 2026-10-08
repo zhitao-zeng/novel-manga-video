@@ -21,6 +21,9 @@ class Conductor:
         self.plan_only = plan_only  # reading, planning and cards only: no rendering lanes
         self.novel_dir = (conductor_common.REPO / config["novel_dir"]).resolve()
         self.novel_id = self.novel_dir.name
+        from novel_manga.util import read_json
+        self.workspace_index = config.get('workspace_index')
+        self.workspaces = read_json(Path(self.workspace_index), {}) if self.workspace_index else {}
         self.tmp = Path(config.get("tmp_dir", RuntimePaths(conductor_common.REPO).temporary / "conductor"))
         self.tmp.mkdir(parents=True, exist_ok=True)
         self.procs: dict[str, subprocess.Popen] = {}
@@ -66,6 +69,8 @@ class Conductor:
             handle.write(line + "\n")
 
     def episode_dir(self, n: int) -> Path:
+        if self.workspaces:
+            return Path(self.workspaces[str(n)]['episode_dir'])
         return self.novel_dir / f"{self.novel_id}_{n}"
 
 
@@ -102,6 +107,16 @@ class Conductor:
                  "workers": {name: proc.pid for name, proc in self.procs.items() if proc.poll() is None},
                  "work": {"pending": len({n for row in stats.values() for n in row['pending']}),
                           "blocked": len({n for row in stats.values() for n in row['blocked']})}}
+        if self.workspaces:
+            state['batch_pipeline'] = {
+                'planned': sum(s['planned'] for s in stats.values()),
+                'first_complete': sum(s['done'] for s in stats.values()),
+                'ready_chapters': sum(len(s['renderable']) for s in stats.values()),
+                'ready_clips': sum(s.get('ready_clips',0) for s in stats.values()),
+                'in_process_clips': sum(s.get('in_process_clips',0) for s in stats.values()),
+                'blocked_clips': sum(s.get('blocked_clips',0) for s in stats.values()),
+                'accepted': sum(s.get('accepted',0) for s in stats.values()),
+                'review_state': str(self.tmp/'agent-review/state.json')}
         if self.plan_only:
             all_done = all(b["done"] for b in self.blocks) and not any(conductor_workers.alive(self, n) for n in self.procs if n.startswith("prepass_"))
         else:
@@ -111,6 +126,22 @@ class Conductor:
         if conductor_workers.alive(self, "review") or any(stats[id(r)]["unreviewed"] for r in self.ranges):
             all_done = False
         state["status"] = "complete" if all_done else "running"
+        if self.workspaces:
+            from .workspaces import current, busy, chapter as workspace_chapter
+            waiting_assets=False;unprepared=False
+            owned = sum(busy(row) for row in self.workspaces.values())
+            state['batch_pipeline']['owned_chapters'] = owned
+            for row in self.workspaces.values():
+                if workspace_chapter(row)['done']:
+                    continue
+                receipt=current(row)
+                waiting_assets |= bool(receipt and receipt.get('status')=='waiting_assets')
+                unprepared |= receipt is None
+            active=bool(state['workers']) or bool(owned) or getattr(self,'review_more',False)
+            more=active or waiting_assets or unprepared
+            all_done=not more
+            state['status']=('waiting_assets' if waiting_assets and not active and not unprepared else 'running') if more else (
+                'complete' if state['batch_pipeline']['accepted']==len(self.workspaces) else 'blocked')
         (self.tmp / "state.json").write_text(json.dumps(state, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
         return not all_done
 

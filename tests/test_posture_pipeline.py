@@ -68,6 +68,16 @@ def test_noop_repair_keeps_requests_cache_and_never_asks_again(episode, monkeypa
     assert json.loads((directory / posture.FILE).read_text()) == states
 
 
+def test_posture_rebuild_uses_the_explicit_planner_endpoint(episode, monkeypatch):
+    directory, script, _, _, responses = episode
+    endpoints = []
+    monkeypatch.setenv('NOVEL_PLANNER_ENDPOINT', 'deepseek')
+    monkeypatch.setattr(posture, 'endpoint_settings', lambda name: endpoints.append(name) or object())
+    monkeypatch.setattr(posture, 'ask_json', lambda *a, **k: {'stages': responses})
+    posture.fill(directory, script=script, previous={}, write=False)
+    assert endpoints == ['deepseek']
+
+
 def test_repair_updates_dependent_clip_but_not_next_scene_or_saved_ledger(episode, monkeypatch):
     directory, script, plan, states, responses = episode
     script = copy.deepcopy(script)
@@ -103,3 +113,33 @@ def test_ambiguous_repair_candidate_never_overwrites_plan_or_ledger(episode, mon
     with pytest.raises(ValueError, match='姿态交接需修正'):
         flow.rebuild_clips(directory, directory.parent / 'story_bible.json', script, plan, {'clip_01'})
     assert {p.name: p.read_bytes() for p in directory.glob('*.json')} == before
+
+
+def test_downstream_readings_reuse_authored_facts_and_resolve_new_inherited_state(episode,monkeypatch):
+    directory,script,_,_,responses=episode
+    monkeypatch.setattr(posture,'BATCH',2)
+    script=copy.deepcopy(script);responses=copy.deepcopy(responses)
+    script['shots'][2]['visual_prompt']='林凡看向门口'
+    responses[2]=answer(3,name='林凡')
+    def reply(prompt,contract):
+        rows=json.loads(prompt.split('\n')[-1])['shots']
+        return {'stages':[copy.deepcopy(responses[r['index']-1]) for r in rows]}
+    prior=posture.fill(directory,script=script,previous={},ask=reply,write=False)
+    script['shots'][0]['visual_prompt']='林凡站在窗边'
+    responses[0]['people'][0]['start']={'posture':'站','where':'窗边','quote':'站在窗边'}
+    calls=[]
+    revised=posture.fill(directory,script=script,previous=prior,
+        ask=lambda p,c:calls.append(p) or reply(p,c),write=False)
+    assert len(calls)==1
+    assert revised['stages']['4']['start']['林凡']['posture']=='站'
+
+
+def test_later_shot_repair_does_not_reinterpret_unchanged_prefix(episode,monkeypatch):
+    directory,script,_,states,responses=episode
+    script=copy.deepcopy(script);responses=copy.deepcopy(responses)
+    script['shots'][2]['visual_prompt']='次日林凡站在窗边看书'
+    # A fresh batch interpretation varies an earlier, unchanged continuity reading.
+    responses[1]['boundary']='reset';responses[1]['people'][0]['entry']='reset'
+    revised=posture.fill(directory,script=script,previous=states,
+        ask=lambda *a:{'stages':responses},write=False)
+    assert revised['stages']['2']==states['stages']['2']

@@ -62,9 +62,9 @@ def test_inner_voice_and_worn_prop_reach_actual_h3_syntax():
     assert "The speaker's lips stay closed and the jaw stays still" in prompt
     assert '<Audio 1> is the voice-timbre reference for <Subject 1> (S1)' in prompt
     assert 'The face, hair and build follow <Picture 1>' in prompt
-    assert 'This person wears the armor or garment design from <Picture 2>' in prompt
-    assert 'The wearer and worn garment form one body' in prompt
-    assert 'Use its garment design on <Subject 1>' in prompt
+    assert 'This person wears the item shown in <Picture 2>' in prompt
+    assert 'The wearer and worn item form one body' in prompt
+    assert 'Use its design for the item worn by <Subject 1>' in prompt
     assert 'Each wearer retains their character-reference identity' in prompt
     assert '<d>[Chinese] 这次免费.</d>' in prompt
     assert not request_issues({**clip, 'prompt_h3': prompt})

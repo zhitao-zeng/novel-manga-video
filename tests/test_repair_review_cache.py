@@ -35,6 +35,7 @@ def test_new_joint_recheck_can_add_a_real_error_to_an_old_pass(tmp_path):
 
 def evidence(current, *, verdict="fine", mode="all"):
     record = {**current, "ep": 1, "clip": "clip_01", "verdict": verdict, "people": ["甲(男) 站立"],
+              "policy":review_contracts.POLICY,"review_mode":"verify",
               "evidence": "visible evidence", "instruction": "甲只出现一次" if verdict == "obvious" else "", "mode": mode}
     return {reconciliation.evidence_key(1, "clip_01", current["video"], current["take"]): record}
 
@@ -49,6 +50,33 @@ def test_imported_precise_pass_clears_false_candidate_without_a_model_call(tmp_p
     state.mkdir(); legacy.mkdir()
     monkeypatch.setattr(verify_clips, 'CurrentVerifier', lambda *a: (_ for _ in ()).throw(AssertionError("must reuse the result")))
     assert review_flow.review_batch(d.parent, [1], "all", state, legacy)["judged"] == 0
+
+
+def test_standalone_verifier_cache_skips_only_current_method_and_policy(tmp_path):
+    verifier=object.__new__(verify_clips.Verifier)
+    verifier.out=tmp_path/'verified.jsonl'
+    base={'ep':1,'video':'video.mp4','take':[1,2,3],'verdict':'fine'}
+    rows=[{**base,'clip':'old'},
+          {**base,'clip':'current','policy':review_contracts.POLICY,'review_mode':'verify'},
+          {**base,'clip':'other','policy':review_contracts.POLICY,'review_mode':'classic'}]
+    verifier.out.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+    assert verifier.done_keys()=={(1,'current','video.mp4',json.dumps([1,2,3]))}
+
+
+def test_old_audit_queue_cannot_replace_current_requested_method(tmp_path,monkeypatch):
+    current={'video':'v.mp4','take':[1,2,3]}
+    fresh=next(iter(evidence(current).values()))
+    old={k:v for k,v in fresh.items() if k not in ('policy','review_mode')}
+    old.update(mode='joint',verdict='obvious')
+    state=tmp_path/'state';state.mkdir()
+    (state/'verified.jsonl').write_text(json.dumps(fresh)+'\n')
+    (state/'shared_audit.sqlite3').write_bytes(b'mocked queue')
+    monkeypatch.setattr(review_store,'export_results',lambda *a:[old])
+    local,_=review_store.current_evidence(tmp_path/'legacy',state,review_mode='verify')
+    assert list(local.values())==[fresh]
+    records={}
+    reconciliation.merge_evidence(records,fresh);reconciliation.merge_evidence(records,old)
+    assert list(records.values())==[fresh]
 
 
 def test_a_result_for_a_previous_take_cannot_clear_a_new_video(tmp_path):

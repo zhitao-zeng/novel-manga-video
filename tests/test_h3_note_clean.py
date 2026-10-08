@@ -152,3 +152,22 @@ def test_visual_only_refusal_cannot_be_accepted_as_audio_correction(monkeypatch)
     monkeypatch.setattr(h3,'ask_json',reply)
     assert not h3.convert(c,note='只说一次。')
     assert not c.get('prompt_h3') and not c.get('prompt_correction_merged')
+
+
+def test_failed_translation_returns_final_format_reason_to_the_repair_caller(monkeypatch):
+    from novel_manga.application.rendering import h3
+    clip={'clip_id':'c','request_seconds':5,'prompt':'【阶段1】甲站着。','references':[]}
+    monkeypatch.setattr(h3,'ask_json',lambda *a,**k:{'shots':[],'soundscape':'','conflicts':[]})
+    problems=[]
+    assert not h3.convert(clip,tries=1,problems=problems)
+    assert problems==['ValueError: one nonempty direction is required for each shot']
+    assert not clip.get('prompt_h3')
+
+
+def test_translation_reports_explicit_semantic_conflicts_separately(monkeypatch):
+    from novel_manga.application.rendering import h3
+    clip={'clip_id':'c','request_seconds':5,'prompt':'【阶段1】甲站着。','references':[]}
+    monkeypatch.setattr(h3,'ask_json',lambda *a,**k:{'shots':[],'soundscape':'','conflicts':['speaker disagrees with source']})
+    problems=[];conflicts=[]
+    assert not h3.convert(clip,tries=1,problems=problems,source_conflicts=conflicts)
+    assert conflicts==problems==['speaker disagrees with source']

@@ -94,6 +94,27 @@ def test_job_error_is_reported_and_next_operation_can_start(tmp_path):
         assert wait_job(server, 'completed')['job']['result']['action'] == 'review'
 
 
+def test_pending_turn_queries_request_handoff_instead_of_polling(tmp_path):
+    tools = FakeTools()
+    with running_server(tmp_path, tools) as server:
+        server.begin_turn()
+        accepted = client.request('render', {}, socket_path=server.socket_path)
+        assert accepted['yield'] is True
+        status = client.request('status', {}, socket_path=server.socket_path)
+        assert status['busy'] and status['yield'] is True
+        assert status['job']['status'] == 'accepted'
+        assert 'cannot start until you return' in status['next']
+        rejected = client.request('review', {}, socket_path=server.socket_path)
+        assert rejected['status'] == 'busy' and rejected['yield'] is True
+        assert 'poll' not in rejected['error']
+        assert not tools.entered.is_set()
+        server.end_turn()
+        assert tools.entered.wait(1)
+        tools.release.set()
+        assert wait_job(server, 'completed')['job']['result']['action'] == 'render'
+        assert [a for a, _ in tools.calls if a != 'status'] == ['render']
+
+
 def test_stop_waits_for_the_owned_job_then_removes_only_socket(tmp_path):
     tools = FakeTools()
     untouched = tmp_path / 'episode.json'

@@ -1,9 +1,30 @@
 """Pure dialogue ownership and request binding rules."""
 from __future__ import annotations
+
+
+def dialogue_punctuation(text: str) -> str:
+    """Use the compiler's punctuation width without changing words or delivery."""
+    text = text.strip().translate(str.maketrans('，。！？；：', ',.!?;:'))
+    if text and text[-1] not in '.!?':
+        text += '.'  # compose() supplies this terminator for a line without one.
+    return text
 import re
 import copy
 from novel_manga.runtime_backends import normalize_text
 from .identity import canonical_entity
+
+# Delivery modifiers and punctuation do not change the explicitly bound speaker.
+# Stop at sentence/tag boundaries so an unrelated later utterance cannot inherit it.
+BOUND_SPEECH = re.compile(
+    r"(?:<Subject (\d+)>|An off-screen voice)\s+\(S(\d+)\)\s+"
+    r"(?:says|asks|replies|whispers|shouts|calls out|murmurs|exclaims|sings)"
+    r"((?:\s+[A-Za-z-]+ly(?:\s+(?:and|but)\s+[A-Za-z-]+ly)*)?"
+    r"(?:\s+(?:in|with)\s+[^<>.!?;\n]*?)?)"
+    r"\s*[,;:]?\s*<d>\[Chinese\]\s*(.*?)</d>", re.S)
+
+
+def speech_is_offscreen(speech) -> bool:
+    return speech[1] is None or 'off-screen voiceover' in (speech[3] or '')
 
 POLICY = 'grounded-dialogue-binding-v1'
 TERMINAL_PUNCT = "。！？…!?"

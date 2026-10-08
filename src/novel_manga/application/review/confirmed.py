@@ -4,7 +4,7 @@ import copy
 from pathlib import Path
 from novel_manga.util import read_json
 from novel_manga.llm.client import ask_json, image_part
-from novel_manga.application.configuration import h3_translation_endpoint
+from novel_manga.review.endpoints import judge_settings
 from novel_manga.application.review.evidence import clip_frames
 
 SCHEMA = {'type': 'object', 'additionalProperties': False,
@@ -70,7 +70,7 @@ def judge_finding(clip, video, claim, work, novel_dir=None):
         '动作按先后帧的起点和终点核对；目标只要求踏上台阶时，不额外要求整个人走进车厢。'
         '\n正向验收目标：' + claim['instruction'] + '\n只输出JSON。')})
     answer = ask_json(parts, SCHEMA, name='confirmed_picture_check', max_tokens=1800,
-                      settings=h3_translation_endpoint())
+                      settings=judge_settings())
     return finding_result(answer)
 
 

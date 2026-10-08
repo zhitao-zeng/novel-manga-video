@@ -5,7 +5,7 @@ import contextlib
 import os
 import hashlib
 
-# The two model endpoints this project runs on, by name.  QWEN38_LOCAL_* is read by three different
+# The model endpoints this project runs on, by name. QWEN38_LOCAL_* is read by three different
 # jobs - the planner, the H3 prompt translation and the judge - so moving one of them used to move all
 # three.  A command applies the preset it wants to its own process, and nothing else changes.
 #
@@ -23,6 +23,9 @@ ENDPOINTS = {
     "flashnext": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.81:8038/v1",
                   "QWEN38_LOCAL_MODEL": "Qwen3.8-Flash-Next",
                   "QWEN38_LOCAL_API_KEY_VAR": "GPU81_QWEN_API_KEY", "QWEN38_LOCAL_STREAM": "0"},
+    "deepseek": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.52:8831/v1",
+                 "QWEN38_LOCAL_MODEL": "DeepSeek-V4.1-Flash",
+                 "QWEN38_LOCAL_API_KEY_VAR": "GPU52_DEEPSEEK_API_KEY", "QWEN38_LOCAL_STREAM": "0"},
 }
 
 
@@ -121,4 +124,3 @@ class JsonEndpoint:
                    tuple(item.strip().rstrip("/") for item in bases.split(",") if item.strip()),
                    endpoint_key(env), env.get("QWEN38_LOCAL_STREAM", "").strip() == "1",
                    env.get("QWEN38_LOCAL_REASONING", "low"), int(env.get("QWEN38_LOCAL_MIN_MAX_TOKENS", "50000") or 0))
-

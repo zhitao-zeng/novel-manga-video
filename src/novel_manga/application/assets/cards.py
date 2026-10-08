@@ -47,7 +47,7 @@ def build_with_backoff(factory, root: Path, bible: StoryBible, characters: set[s
     for wait in (*IMAGE_BACKOFF, None):
         try:
             return factory.build_selected(root, bible, characters, locations,
-                                          expressions=effective_profile(profile or {})["expressions"], prop_ids=props)
+                                          expressions=effective_profile(profile or {})["expressions"], prop_ids=props or set())
         except ModerationRejected:
             raise
         except RuntimeError as error:
@@ -57,11 +57,34 @@ def build_with_backoff(factory, root: Path, bible: StoryBible, characters: set[s
             time.sleep(wait)
 
 
+def review_existing(novel_dir,ids):
+    from novel_manga.application.review.cards import card_verdict_current,review_cards
+    from novel_manga.resource_waits import QueueWait
+    root=novel_dir/'series_assets/.locks';root.mkdir(parents=True,exist_ok=True)
+    types_path=novel_dir/'entity/types.json'
+    types=json.loads(types_path.read_text()) if types_path.exists() else {}
+    okay=True
+    for ident in ids:
+        with QueueWait('shared_asset') as queue,(root/(ident+'.lock')).open('a') as lock:
+            queue.begin();fcntl.flock(lock,fcntl.LOCK_EX);queue.finish()
+            review=card_verdict_current(novel_dir,ident)
+            if review is None:review=review_cards(novel_dir,only_ids={ident})
+            entries=review.get('characters',{}) | review.get('locations',{})
+            if ident not in entries:raise ValueError(f'no existing image review produced for {ident}')
+            mismatch=ident.startswith('character_') and types.get(entries[ident].get('name'),{}).get('kind')=='object'
+            okay=okay and not mismatch
+            print(json.dumps({'asset_id':ident,'status':'entity_type_mismatch' if mismatch else 'reviewed',
+                              'flags':review['flags']},ensure_ascii=False),flush=True)
+    return 0 if okay else 2
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--assets", required=True, help="comma-separated asset ids, e.g. character_041,location_012")
     parser.add_argument("--review", action="store_true", help="judge the cards and apply the one bounded fix")
+    parser.add_argument("--review-only",action="store_true",help="review existing images without drawing or remediation")
+    parser.add_argument('--fresh-review',action='store_true',help='recheck flagged shared images before the existing one-fix limit')
     parser.add_argument("--style", choices=tuple(style_names()))
     parser.add_argument("--frame", choices=("9:16", "16:9"))
     parser.add_argument("--tier", choices=("quality", "fast"))
@@ -73,6 +96,8 @@ def main() -> int:
     # still wins.
     load_dotenv(project_root() / ".env")
     novel_dir = args.novel_dir.resolve()
+    if args.review_only:
+        return review_existing(novel_dir,[a.strip() for a in args.assets.split(',') if a.strip()])
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
     frame = frame_spec(profile)
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
@@ -96,10 +121,19 @@ def main() -> int:
     types = json.loads(type_path.read_text()) if type_path.is_file() else {}
     for asset_id in ids:
         lock_path = root / ".locks" / f"{asset_id}.lock"
-        with open(lock_path, "w") as lock:
+        from novel_manga.resource_waits import QueueWait
+        with QueueWait("shared_asset") as queue, open(lock_path, "w") as lock:
+            queue.begin()
             fcntl.flock(lock, fcntl.LOCK_EX)  # another job or a renderer may be building the same card
+            queue.finish()
             started = time.monotonic()
             try:
+                if asset_id in locations:
+                    from novel_manga.application.identity.reading_locations import ensure_designs
+                    ensure_designs(novel_dir, {asset_id})
+                    bible = StoryBible.model_validate_json((novel_dir/'story_bible.json').read_text(encoding='utf-8'))
+                    if (novel_dir/'profile.json').is_file():
+                        bible = styled_bible(bible, profile, novel_dir)
                 build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile,
                                    {asset_id} & props)
                 status = "built"
@@ -110,15 +144,17 @@ def main() -> int:
             row = {"asset_id": asset_id, "status": status, "seconds": round(time.monotonic() - started, 1), "flags": []}
             if args.review and status == "built":
                 from novel_manga.application.review.cards import card_verdict_current, remediate_cards, review_cards
-                cached = card_verdict_current(novel_dir, asset_id)
+                cached = None if args.fresh_review else card_verdict_current(novel_dir, asset_id)
                 # judged before and unchanged since: a clean verdict stands, a
                 # flagged one goes straight to its one fix without re-judging
                 review = cached if cached is not None else review_cards(novel_dir, only_ids={asset_id})
                 if review["flags"]:
                     fixes = remediate_cards(novel_dir, review)
                     if fixes["deleted"]:
-                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations, profile)
-                    review = review_cards(novel_dir, only_ids={asset_id})
+                        build_with_backoff(factory, root, bible, {asset_id} & characters, {asset_id} & locations,
+                                           profile, {asset_id} & props)
+                    if fixes['deleted'] or fixes['stylized']:
+                        review = review_cards(novel_dir, only_ids={asset_id})
                     row["fixes"] = fixes["stylized"] + fixes["deleted"]
                 elif cached is not None:
                     row["review"] = "cached"

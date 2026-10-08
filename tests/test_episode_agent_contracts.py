@@ -116,9 +116,8 @@ def test_rejects_only_concrete_address_and_timing_failures(change, message):
     ("from <Audio 1>.", "from <Audio 2>.", "Audio tags"),
     ("[Shot 1]", "[Shot 2]", "stage"),
     ("Planned duration: 15", "Planned duration: 14", "planned duration"),
-    ("A steady breeze.", "No wind.", "affirmative"),
 ])
-def test_final_request_preserves_reference_dialogue_stage_and_affirmative_contract(before, after, message):
+def test_final_request_preserves_reference_dialogue_and_stage_contract(before, after, message):
     draft = episode()
     draft["clips"][0]["prompt_h3"] = draft["clips"][0]["prompt_h3"].replace(before, after)
     with pytest.raises(ValueError, match=message):
@@ -130,6 +129,32 @@ def test_catalog_paths_are_book_relative():
     catalog[0]["path"] = "../other-book/a.jpeg"
     with pytest.raises(ValueError, match="book-relative"):
         adopt(episode(), catalog=catalog)
+
+
+@pytest.mark.parametrize('delivery', [', ', ' in an eager tone, ', ' with feeling, ', ' breezily, ',
+                                      ' gravely and clearly, ', ' softly but firmly, ',
+                                      ' slowly and clearly with feeling, '])
+def test_bound_delivery_modifiers_preserve_words_owner_and_voice(delivery):
+    draft = episode()
+    draft['clips'][0]['prompt_h3'] = draft['clips'][0]['prompt_h3'].replace('says <d>', 'says'+delivery+'<d>')
+    _, plan = adopt(draft)
+    assert plan['clips'][0]['prompt_h3'] == draft['clips'][0]['prompt_h3']
+    draft['clips'][0]['prompt_h3'] = draft['clips'][0]['prompt_h3'].replace('says'+delivery, 'says. Someone else says ')
+    with pytest.raises(ValueError, match='identified owner'):
+        adopt(draft)
+
+
+def test_offscreen_delivery_comma_is_not_an_unowned_utterance():
+    draft = episode(turns=[{'speaker_name': '临时访客', 'text': '新年快乐！', 'delivery_mode': 'offscreen_dialogue'}], voice=False)
+    draft['clips'][0]['prompt_h3'] = draft['clips'][0]['prompt_h3'].replace('voiceover <d>', 'voiceover, <d>')
+    adopt(draft)
+
+
+@pytest.mark.parametrize('delivery', ['shouts with abandon, ', 'calls out happily, '])
+def test_explicit_bound_speech_verbs_are_not_unowned(delivery):
+    draft = episode()
+    draft['clips'][0]['prompt_h3'] = draft['clips'][0]['prompt_h3'].replace('says <d>', delivery+'<d>')
+    adopt(draft)
 
 
 @pytest.mark.parametrize("notes", ["独立压缩。", ["保留来访原因。", "调整开场节奏。"], []])
@@ -222,7 +247,9 @@ def test_format_collector_checks_all_clips_without_modifying_or_adopting_invalid
     saved = copy.deepcopy(draft)
     rows = contracts.collect_format_issues(draft, catalog=CATALOG, source_segments=SOURCES, profile={})
     assert [row["clip_id"] for row in rows] == ["clip_01", "clip_08"]
-    assert len(rows[0]["request_issues"]) == 2
+    assert rows[0]["request_issues"] == ['H3 description contains Chinese outside bound dialogue']
+    assert rows[0]["subject_ids"] and rows[0]["dialogue_bindings"]
+    assert rows[0]["speech_format"] and rows[0]["reference_order"]
     assert rows[0]["cjk_excerpts"] == ["No wind. 中文说明。"]
     assert rows[0]["negative_excerpts"] == ["No wind. 中文说明。"]
     assert "Subject/Picture binding" in rows[1]["binding_or_timing_issue"]

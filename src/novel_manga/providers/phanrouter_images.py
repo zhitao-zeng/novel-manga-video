@@ -23,6 +23,19 @@ SEEDREAM_PIXEL_FLOOR = 3_686_400
 SEEDREAM_DIMENSIONS = {"9:16": (1440, 2560), "16:9": (2560, 1440)}
 
 
+def reference_base64(path: Path) -> str:
+    """Compress only large upload copies, preserving the original reference asset."""
+    data = path.read_bytes()
+    if len(data) > 2 * 1024 * 1024:
+        with Image.open(io.BytesIO(data)) as source:
+            image = ImageOps.exif_transpose(source).convert('RGB')
+            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+            buffer = io.BytesIO()
+            image.save(buffer, format='JPEG', quality=90)
+            data = buffer.getvalue()
+    return base64.b64encode(data).decode('ascii')
+
+
 def poll_image_url(settings, client, image_headers, task_id: str) -> str:
     deadline = time.monotonic() + settings.poll_timeout
     while time.monotonic() < deadline:
@@ -69,11 +82,11 @@ def create_image(
     }
     if reference and additional_references:
         payload["base64Files"] = [
-            base64.b64encode(path.read_bytes()).decode("ascii")
+            reference_base64(path)
             for path in (reference, *additional_references)
         ]
     elif reference:
-        payload["base64File"] = base64.b64encode(reference.read_bytes()).decode("ascii")
+        payload["base64File"] = reference_base64(reference)
 
     def submit() -> httpx.Response:
         response = client.post(
@@ -184,5 +197,4 @@ def create_seedream_image(
         },
     )
     return ImageResult(path=output, public_url=str(url))
-
 

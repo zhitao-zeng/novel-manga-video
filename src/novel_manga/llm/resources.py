@@ -73,7 +73,7 @@ def _pool(base_url):
 
 
 @contextmanager
-def model_slot(base_url, *, deadline=None, on_wait=None, cancelled=None):
+def model_slot(base_url, *, deadline=None, on_wait=None, cancelled=None, reserve=0, record_queue=True):
     """Hold one endpoint slot, with an optional absolute monotonic wait deadline.
 
     Unconfigured endpoints keep ordinary behavior. A supplied callback runs once
@@ -87,39 +87,48 @@ def model_slot(base_url, *, deadline=None, on_wait=None, cancelled=None):
             raise InterruptedError('model resource admission cancelled')
         yield None
         return
+    if type(reserve) is not int or reserve < 0:
+        raise ValueError('reserved model slots must be a nonnegative integer')
     directory, capacity = pool
     directory.mkdir(parents=True, exist_ok=True)
     waiting = False
-    while True:
-        if cancelled is not None and cancelled():
-            raise InterruptedError('model resource admission cancelled')
-        if deadline is not None and time.monotonic() >= deadline:
-            raise TimeoutError('model resource wait budget exhausted')
-        effective = capacity
-        try:
-            effective = max(1, min(capacity, int((directory / 'limit').read_text().strip())))
-        except (OSError, ValueError):
-            pass
-        for index in range(effective):
-            handle = (directory / f'slot_{index:02d}.lock').open('a+')
+    from novel_manga.resource_waits import QueueWait
+    with QueueWait('model',enabled=record_queue) as queue:
+        while True:
+            if cancelled is not None and cancelled():
+                raise InterruptedError('model resource admission cancelled')
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError('model resource wait budget exhausted')
+            effective = capacity
             try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                handle.close()
-                continue
-            try:
-                yield handle
-            finally:
+                effective = max(1, min(capacity, int((directory / 'limit').read_text().strip())))
+            except (OSError, ValueError):
+                pass
+            # Long Agent sessions use the same lock pool, but leave its final slots
+            # available to short input checks, translation and independent review.
+            effective = max(1, effective-reserve)
+            for index in range(effective):
+                handle = (directory / f'slot_{index:02d}.lock').open('a+')
                 try:
-                    fcntl.flock(handle, fcntl.LOCK_UN)
-                finally:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
                     handle.close()
-            return
-        if not waiting:
-            waiting = True
-            if on_wait is not None:
-                on_wait()
-        remaining = None if deadline is None else deadline - time.monotonic()
-        if remaining is not None and remaining <= 0:
-            raise TimeoutError('model resource wait budget exhausted')
-        time.sleep(0.1 if remaining is None else min(0.1, remaining))
+                    continue
+                try:
+                    queue.finish()
+                    yield handle
+                finally:
+                    try:
+                        fcntl.flock(handle, fcntl.LOCK_UN)
+                    finally:
+                        handle.close()
+                return
+            if not waiting:
+                queue.begin()
+                waiting = True
+                if on_wait is not None:
+                    on_wait()
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                raise TimeoutError('model resource wait budget exhausted')
+            time.sleep(0.1 if remaining is None else min(0.1, remaining))

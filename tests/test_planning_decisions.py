@@ -43,6 +43,19 @@ def test_floor_waiver_applies_only_at_its_existing_point_in_the_last_attempt():
     assert not decide([short, Issue(Code.NO_STAGES, 'none')], final=True, waive=True).floor_waived
 
 
+def test_existing_shortfall_does_not_prevent_local_source_quote_repair():
+    short = Issue(Code.DURATION_BELOW_MINIMUM, '87.75s below 90s target')
+    quote = Issue(Code.QUOTE_NOT_SOURCE, 'quoted text was paraphrased', stage='clip_5 stage 1')
+    result = decide([short, quote], final=True, waive=True)
+    assert result.action == 'patch'
+    assert result.targets == ([], {'clip_5 stage 1': ['quoted text was paraphrased']})
+    assert not result.floor_waived
+    assert result.issues == [short, quote]
+    assert decide([short, quote], final=True, waive=True, rounds=3).action == 'rewrite'
+    assert decide([short, Issue(Code.NO_STAGES, 'none')], final=True, waive=True).targets is None
+    assert decide([short, quote], final=True, waive=False).targets is None
+
+
 @pytest.mark.parametrize('rounds,seconds', [(3,180),(0,0)])
 def test_exhausted_patch_budget_cannot_create_another_patch(rounds, seconds):
     issue = Issue(Code.VISIBLE_SPEAKER, 'fix speaker', stage='clip_1 stage 1')

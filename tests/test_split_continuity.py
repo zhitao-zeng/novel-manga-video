@@ -222,7 +222,7 @@ def test_old_review_is_pending_in_conductor_board_and_delivery(tmp_path, monkeyp
     monkeypatch.setattr(sys, "argv", ["delivery_gate", "--novel-dir", str(novel), "--quiet"])
     delivery_gate_thin.main()
     assert not json.loads((novel / "delivery.json").read_text())["episodes"][0]["deliverable"]
-    review["policy"] = REVIEW_POLICY
+    review.update(policy=REVIEW_POLICY,review_mode='classic')
     write(path, review)
     assert not conductor_state.chapter(c, 1)["unreviewed"]
     assert dashboard_inventory._episode_state(episode, False)["review"] == "reviewed"

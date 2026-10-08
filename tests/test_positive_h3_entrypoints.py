@@ -38,7 +38,7 @@ def current_clip():
 
 
 
-@pytest.mark.parametrize('actual', [POSITIVE + '\nNo other people appear.',
+@pytest.mark.parametrize('actual', [POSITIVE.replace('不然呢?', '另一句台词。'),
                                    POSITIVE + '\n【合规】没有背景音乐。'])
 def test_final_h3_submission_checks_actual_request_and_preserves_input(tmp_path, actual):
     clip = current_clip(); before = copy.deepcopy(clip); calls = []
@@ -58,6 +58,16 @@ def test_final_h3_submission_keeps_negative_dialogue_and_none_soundscape(tmp_pat
     generation.submit(context, clip, {'prompt': POSITIVE, 'reference_audios': [], 'seed_variant': 0},
                       tmp_path/'clip.mp4', ())
     assert calls[0][0][0] == POSITIVE
+
+
+def test_legacy_negative_direction_reaches_provider_unchanged(tmp_path):
+    clip = current_clip(); calls = []
+    actual = POSITIVE + '\nNo other people appear.'
+    context = SimpleNamespace(settings=SimpleNamespace(local_h3_base_url='pool'),
+                              provider=SimpleNamespace(create_video=lambda *a, **k: calls.append(a[0])))
+    generation.submit(context, clip, {'prompt': actual, 'reference_audios': [], 'seed_variant': 0},
+                      tmp_path/'clip.mp4', ())
+    assert calls == [actual]
 
 
 def test_final_check_does_not_change_other_video_suppliers(tmp_path):
@@ -93,10 +103,10 @@ def test_separate_thought_recording_also_stops_before_provider_for_invalid_final
     demucs = tmp_path/'demucs'; demucs.touch()
     monkeypatch.setenv('NOVEL_DEMUCS_COMMAND', str(demucs))
     monkeypatch.setattr(inner_voice, 'cached_recording', lambda *a: None)
-    monkeypatch.setattr(inner_voice, 'compose', lambda *a, **k: POSITIVE + '\nDo not improvise speech.')
+    monkeypatch.setattr(inner_voice, 'compose', lambda *a, **k: POSITIVE + '\n额外制作说明。')
     context = SimpleNamespace(novel_dir=tmp_path, work=tmp_path/'work', cache_only=False,
                               max_attempts=1, feedback={}, voice_budget=29,
                               settings=SimpleNamespace(local_h3_base_url='pool'),
                               provider=SimpleNamespace(create_video=lambda *a, **k: pytest.fail('invalid recording submitted')))
-    with pytest.raises(ValueError, match='Write affirmative visible facts'):
+    with pytest.raises(ValueError, match='Chinese outside bound dialogue'):
         inner_voice.prepare(context, clip)

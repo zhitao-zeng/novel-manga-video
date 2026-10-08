@@ -53,3 +53,19 @@ def test_reference_cast_uses_the_supplied_book_mentions():
     assert a.mentioned_characters('掌柜端来茶。', ['甲先生', '乙先生']) == ['甲先生']
     assert b.mentioned_characters('掌柜端来茶。', ['甲先生', '乙先生']) == ['乙先生']
     assert a.mentioned_characters('掌柜端来茶。', ['甲先生', '乙先生']) == ['甲先生']
+
+
+def test_soundscape_summary_deduplicates_shared_cues_without_changing_stage_sounds():
+    compiler = ClipCompiler(options(15))
+    first = {**stage(), 'turns': [], 'sfx': '拍击声、人群低语'}
+    second = {**stage(), 'index': 2, 'origin_index': 2, 'turns': [], 'sfx': '人群低语、风声'}
+    clip = {'shots': [first, second], 'request_seconds': 10}
+    before = copy.deepcopy(clip)
+    bible = StoryBible(novel_title='测试', genre='generic', visual_style='国漫', palette='青',
+        characters=[Character(name='甲', appearance='黑发', wardrobe='青衣')], locations=['庭院'], style_fingerprint='test')
+    prompt = compiler.compile_prompt(clip, bible, ['甲'], [], '庭院')
+    summary = next(line for line in prompt.splitlines() if line.startswith('声音包括'))
+    assert '<拍击声、人群低语、风声>' in summary
+    assert summary.count('人群低语') == 1
+    assert '<拍击声、人群低语>' in prompt and '<人群低语、风声>' in prompt
+    assert clip == before

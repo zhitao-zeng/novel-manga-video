@@ -76,7 +76,11 @@ class LocalQwenImageProvider:
             **({"seed": seed} if seed is not None else {}),
         }
         try:
-            response = self.client.post(f"{self.base_url}/generate", json=payload)
+            from novel_manga.llm.resources import model_slot
+            # Queue before the HTTP timeout starts: the resident image worker
+            # is serial, shared by batch prefill and episode-specific requests.
+            with model_slot(self.base_url):
+                response = self.client.post(f"{self.base_url}/generate", json=payload)
         except httpx.HTTPError as error:
             raise RuntimeError(f"local Qwen image service unreachable at {self.base_url}: {error}") from error
         if response.status_code != 200:

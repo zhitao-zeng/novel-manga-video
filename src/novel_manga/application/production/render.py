@@ -10,6 +10,12 @@ import novel_manga.application.production.runs as thin_runs
 from novel_manga.application.production import execution
 
 def render(batch, chapter: int) -> None:
+    if getattr(batch, 'workspaces', None):
+        from .workspaces import local_batch
+        return render(local_batch(batch, chapter), chapter)
+    if getattr(batch.args, 'first_pass', False):
+        from .workspaces import render_first
+        return render_first(batch, chapter)
     row = batch.rows[chapter]
     directory = batch.episode_dir(chapter)
     status = batch.render_status(chapter)

@@ -81,13 +81,19 @@ def reachable_first(base_urls):
 
 
 def post_any(client, base_urls, headers, request, *, settings=None, deadline=None, timeout_message='model time budget exhausted'):
+    from novel_manga.resource_waits import RequestDeadline
+    budget=deadline
+    if deadline is not None and not isinstance(deadline,RequestDeadline):
+        budget=RequestDeadline(max(0,deadline-time.monotonic()))
     last = None
     for base_url in reachable_first(list(base_urls)):
         try:
-            with model_slot(base_url, deadline=deadline):
+            waiting=time.monotonic()
+            with model_slot(base_url):
                 options = {}
-                if deadline is not None:
-                    remaining = deadline - time.monotonic()
+                if budget is not None:
+                    budget.waited(time.monotonic()-waiting)
+                    remaining = budget.remaining()
                     if remaining <= 0:
                         raise TimeoutError(timeout_message)
                     options['timeout'] = remaining

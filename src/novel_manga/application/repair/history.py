@@ -6,6 +6,7 @@ episode is staged until its current clips pass precise review and media checks.
 from __future__ import annotations
 
 import copy
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -24,7 +25,131 @@ def generation_limit(directory: Path, cid: str, *, grants: dict | None = None) -
     """Explicit clip-level grants after a reviewed change; history is retained."""
     grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants
     grant = grants.get(cid, {})
-    return int(grant.get('limit', MAX_GENERATED_TAKES)) if grant.get('reason') else MAX_GENERATED_TAKES
+    limit = int(grant.get('limit', MAX_GENERATED_TAKES)) if grant.get('reason') else MAX_GENERATED_TAKES
+    common = grants.get('*', {})
+    return min(limit, int(common['limit'])) if common.get('reason') and 'limit' in common else limit
+
+
+def conditional_extra(directory: Path, cid: str, *, grants=None) -> dict:
+    grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants
+    extra = grants.get(cid, {}).get('conditional_extra') or {}
+    return extra if extra.get('authorization') and extra.get('reason') else {}
+
+
+def preparation_limit(directory: Path, cid: str, *, grants=None) -> int:
+    """Preparation may use a pending approval; actual generation still may not."""
+    grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants
+    return max(generation_limit(directory, cid, grants=grants),
+               int(conditional_extra(directory, cid, grants=grants).get('limit', 0)))
+
+
+def grant_conditional_extra(directory: Path, cid: str, *, authorization: str, reason: str) -> dict:
+    """Register one explicitly authorized recovery round; never replenish it on restart."""
+    directory = Path(directory)
+    if not authorization.strip() or not reason.strip():
+        raise ValueError('conditional take requires an explicit authorization and reason')
+    if cid not in {c['clip_id'] for c in read(directory/'clip_plan.json', {}).get('clips', [])}:
+        raise ValueError(f'unknown episode clip: {cid}')
+    with (directory/'repair_budget_grants.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = directory/'repair_budget_grants.json'
+        grants = read(path, {})
+        entry = grants.get(cid, {})
+        current = conditional_extra(directory, cid, grants=grants)
+        prior = entry.get('previous_conditional_extras', [])
+        for recorded in [current, *prior]:
+            if recorded.get('authorization') == authorization:
+                return copy.deepcopy(recorded)
+        count = generation_counts(directory).get(cid, 0)
+        available = preparation_limit(directory, cid, grants=grants)
+        if count < available:
+            return copy.deepcopy(current or {'limit': available, 'reason': 'existing unspent allowance'})
+        entry = grants.setdefault(cid, {})
+        if current:
+            entry.setdefault('previous_conditional_extras', []).append(copy.deepcopy(current))
+        used_inputs = sum(read(p, {}).get('status') != 'tool_error'
+                          for p in (directory/'work/input_repairs').glob(f'{cid}-*.json'))
+        extra = {'authorization': authorization, 'reason': reason, 'limit': count+1,
+                 'baseline_count': count, 'baseline_limit': generation_limit(directory, cid, grants=grants),
+                 'input_limit': max(2, used_inputs+1),
+                 'recheck_limit': int(recheck_limit(directory, cid, grants=grants) or 0)+1,
+                 'prepared': False, 'activated': False, 'authorized_at': time.strftime('%F %T')}
+        entry['conditional_extra'] = extra
+        atomic_write_json(path, grants)
+        return copy.deepcopy(extra)
+
+
+def input_limit(directory: Path, cid: str, *, default: int, grants=None, counts=None) -> int:
+    grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants
+    base = min(default, int(grants.get(cid, {}).get('input_limit', grants.get('*', {}).get('input_limit', default))))
+    extra = conditional_extra(directory, cid, grants=grants)
+    if extra:
+        counts = generation_counts(directory) if counts is None else counts
+        if counts.get(cid, 0) < int(extra['limit']):
+            return max(base, int(extra.get('input_limit', 0)))
+    return base
+
+
+def recheck_limit(directory: Path, cid: str, *, grants=None):
+    grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants
+    base = grants.get(cid, {}).get('recheck_limit', grants.get('*', {}).get('recheck_limit'))
+    extra = conditional_extra(directory, cid, grants=grants)
+    return max(int(base or 0), int(extra['recheck_limit'])) if extra.get('recheck_limit') is not None else base
+
+
+def mark_extra_prepared(directory: Path, cids):
+    """Only the host calls this after accepting a concrete edit/input/retake."""
+    if not cids:
+        return
+    path = directory/'repair_budget_grants.json'
+    if not any(conditional_extra(directory, cid) for cid in cids):
+        return
+    with (directory/'repair_budget_grants.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        grants = read(path, {})
+        changed = False
+        for cid in cids:
+            extra = conditional_extra(directory, cid, grants=grants)
+            if extra and not extra.get('prepared'):
+                extra.update(prepared=True, prepared_at=time.strftime('%F %T'))
+                changed = True
+        if changed:
+            atomic_write_json(path, grants)
+
+
+def extra_take_ready(directory: Path, cid: str) -> bool:
+    extra = conditional_extra(directory, cid)
+    return bool(extra.get('prepared') and generation_counts(directory).get(cid, 0) < int(extra['limit']))
+
+
+def activate_extra_take(directory: Path, cid: str) -> bool:
+    """Called after the normal final-request/reference preflight, immediately before sampling."""
+    with (directory/'repair_budget_grants.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = directory/'repair_budget_grants.json'
+        grants = read(path, {})
+        extra = conditional_extra(directory, cid, grants=grants)
+        if not extra.get('prepared') or generation_counts(directory).get(cid, 0) >= int(extra['limit']):
+            return False
+        if extra.get('activated'):
+            return True
+        limit = int(extra['limit'])
+        common = grants.get('*', {})
+        if common.get('reason') and int(common.get('limit', limit)) < limit:
+            # The wildcard is a ceiling. Preserve each other clip's effective
+            # limit before lifting it for this one reviewed authorization.
+            clips = read(directory/'clip_plan.json', {}).get('clips', [])
+            limits = {c['clip_id']: generation_limit(directory, c['clip_id'], grants=grants) for c in clips}
+            for key, previous in limits.items():
+                entry = grants.setdefault(key, {})
+                entry.update(limit=previous, reason=entry.get('reason') or 'Preserve existing clip allowance')
+            common.update(limit=limit, reason='Ceiling for specifically reviewed extra takes; other clip limits retained')
+        grants.setdefault(cid, {}).update(limit=max(limit, generation_limit(directory, cid, grants=grants)),
+                                         reason=extra['reason'])
+        extra.update(activated=True, activated_at=time.strftime('%F %T'),
+                     preflight='normal final H3 request and actual-reference checks passed')
+        atomic_write_json(path, grants)
+        return True
 
 
 def generated_counts(record: dict) -> dict[str, int]:

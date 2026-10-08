@@ -56,6 +56,23 @@ def test_even_parseable_length_output_must_complete_before_pass_two(monkeypatch)
     assert meta["outline_content_chars"] == meta["outline_forwarded_chars"] == len(complete())
 
 
+def test_outline_retry_budget_excludes_model_queue_time(monkeypatch,tmp_path):
+    from novel_manga.resource_waits import QueueWait
+    clock=[0.0];calls=[]
+    monkeypatch.setattr(planner_requests.time,'monotonic',lambda:clock[0])
+    monkeypatch.setenv('NOVEL_RESOURCE_WAIT_FILE',str(tmp_path/'waits.jsonl'))
+    def response(client,urls,headers,body):
+        calls.append(body)
+        with QueueWait('model') as queue:
+            queue.begin();clock[0]+=200
+        clock[0]+=1
+        return {'choices':[{'finish_reason':'length' if len(calls)==1 else 'stop',
+            'message':{'content':complete() if len(calls)<=2 else '{"clips":[]}'}}],'usage':{}}
+    monkeypatch.setattr(planner_requests,'post_any',response)
+    _,meta=planner_requests.call_model(**kwargs(),ctx=PlannerContext.from_env())
+    assert meta['outline_complete'] is True and len(calls)==3
+
+
 def test_missing_story_section_or_duplicate_coverage_is_incomplete():
     data = json.loads(complete("story"))
     del data["sections"]["causal_chain"]

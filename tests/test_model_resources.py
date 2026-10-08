@@ -110,6 +110,22 @@ def test_already_paused_request_does_not_acquire_free_slot(configured):
     assert not list(configured.rglob('slot_*.lock'))
 
 
+def test_agent_reservation_leaves_shared_capacity_for_host_checks(configured):
+    base = 'http://model.example:8038'
+    with resources.model_slot(base, reserve=1):
+        with pytest.raises(TimeoutError):
+            with resources.model_slot(base, reserve=1, deadline=time.monotonic()+0.02):
+                pytest.fail('second Agent used the reserved host slot')
+        with child(base) as host:
+            assert host.stdout.readline().strip() == 'ACQUIRED'
+
+
+def test_reservation_keeps_single_slot_endpoints_usable(configured, monkeypatch):
+    monkeypatch.setenv('NOVEL_MODEL_RESOURCES', '[{"base":"http://model.example:8038","slots":1}]')
+    with resources.model_slot('http://model.example:8038', reserve=2, deadline=time.monotonic()+0.1):
+        pass
+
+
 def test_configured_pools_for_different_endpoints_are_independent(configured, monkeypatch):
     monkeypatch.setenv('NOVEL_MODEL_RESOURCES', json.dumps([
         {'base': 'http://model.example:8038', 'slots': 1},
@@ -216,14 +232,21 @@ def test_transport_releases_failed_endpoint_before_failover(configured, monkeypa
         pass
 
 
-def test_transport_wait_timeout_never_posts_or_marks_endpoint_unreachable(configured, monkeypatch):
+def test_transport_waits_past_execution_budget_without_posting_until_admitted(configured, monkeypatch):
+    import threading
     monkeypatch.setenv('NOVEL_MODEL_RESOURCES', '[{"base":"http://model.example:8038","slots":1}]')
-    with resources.model_slot('http://model.example:8038'):
-        with httpx.Client(transport=httpx.MockTransport(
-                lambda request: pytest.fail('HTTP attempted without an admitted slot'))) as http:
-            with pytest.raises(TimeoutError, match='resource wait budget'):
-                transport.post_any(http, ['http://model.example:8038/v1'], {}, {},
-                    settings=JsonEndpoint('model', (), stream=False), deadline=time.monotonic() + 0.05)
+    calls=[];answers=[]
+    with httpx.Client(transport=httpx.MockTransport(
+            lambda request:calls.append(request) or httpx.Response(200,json={'ok':True}))) as http:
+        def request():
+            answers.append(transport.post_any(http,['http://model.example:8038/v1'],{}, {},
+                settings=JsonEndpoint('model',(),stream=False),deadline=time.monotonic()+.05))
+        with resources.model_slot('http://model.example:8038'):
+            worker=threading.Thread(target=request);worker.start()
+            time.sleep(.15)
+            assert worker.is_alive() and not calls
+        worker.join(timeout=2)
+        assert answers==[{'ok':True}]
     assert transport._UNREACHABLE == {}
 
 
