@@ -1,4 +1,6 @@
 """Host-session fixtures shared by episode CLI and resource handoff regressions."""
+from novel_manga.application.agents.episode import runtime as episode_runtime
+from novel_manga.application.agents.episode import lifecycle as episode_lifecycle
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -27,8 +29,8 @@ def sandbox_config():
 
 
 def install_fake_runtime(monkeypatch, ctx):
-    monkeypatch.setattr(flow, 'runtime_environment', lambda *args: dict(os.environ))
-    monkeypatch.setattr(flow, 'prepare_inputs', lambda context: (
+    monkeypatch.setattr(episode_runtime, 'runtime_environment', lambda *args: dict(os.environ))
+    monkeypatch.setattr(episode_lifecycle, 'prepare_inputs', lambda context: (
         (context.work_dir / 'input').mkdir(parents=True, exist_ok=True),
         (context.work_dir / 'output').mkdir(parents=True, exist_ok=True)))
     calls = []

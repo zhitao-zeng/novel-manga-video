@@ -1,4 +1,8 @@
 """Episode handoffs release resources while retaining session and operation ownership."""
+from novel_manga.application.agents.episode import turns as episode_turns
+from novel_manga.application.agents.episode import resume_inputs as episode_resume_inputs
+from novel_manga.application.agents.episode import prompts as episode_prompts
+from novel_manga.application.agents.episode import progress as episode_progress
 import json
 import os
 from pathlib import Path
@@ -31,7 +35,7 @@ def test_pipeline_review_invokes_agent_only_after_native_generation(ctx,config,m
             return result
     monkeypatch.setattr(flow,'EpisodeTools',Tools)
     monkeypatch.setattr(native_episode,'prepare',lambda *a:calls.append('native_prepare') or {'ready':True})
-    monkeypatch.setattr(flow,'_fill_missing_requests',lambda *a,**kw:pytest.fail('legacy free-form source path'))
+    monkeypatch.setattr(episode_resume_inputs,'fill_missing_requests',lambda *a,**kw:pytest.fail('legacy free-form source path'))
     def session(work,prompt,**kwargs):
         assert not production_only, 'production host must yield before taking a repair slot'
         assert calls.index('native_prepare')<calls.index('render')
@@ -40,7 +44,7 @@ def test_pipeline_review_invokes_agent_only_after_native_generation(ctx,config,m
         atomic_write_json(work/'episode-session.json',{'session_id':'same-session'})
         bridges[-1].handle('finish',{})
         return fake_attempt(ctx,1)
-    monkeypatch.setattr(flow,'run_session',session)
+    monkeypatch.setattr(episode_turns,'run_session',session)
     result=flow.run_episode(ctx,config={**config,'production_mode':'pipeline_review'})
     if production_only:
         assert result['status']=='deferred' and result['pipeline_phase']=='review'
@@ -54,7 +58,7 @@ def test_pipeline_failure_is_recorded_without_agent_authoring(ctx,config,monkeyp
     from novel_manga.application.agents.episode import pipeline_preparation as native_episode
     calls=install_fake_runtime(monkeypatch,ctx)
     monkeypatch.setattr(native_episode,'prepare',lambda *a:{'ready':False,'stage':'preparation','error':'missing card'})
-    monkeypatch.setattr(flow,'run_session',lambda *a,**kw:pytest.fail('Agent before video'))
+    monkeypatch.setattr(episode_turns,'run_session',lambda *a,**kw:pytest.fail('Agent before video'))
     result=flow.run_episode(ctx,config={**config,'production_mode':'pipeline_review'})
     assert result['status']=='blocked' and result['pipeline_failure']['error']=='missing card'
     assert 'render' not in calls
@@ -69,9 +73,9 @@ def test_resumed_unfilmed_input_correction_returns_to_native_preparation(ctx,con
             if action=='apply':result.update(changed=['clip_01'],input_repaired=['clip_01'])
             return result
     monkeypatch.setattr(flow,'EpisodeTools',Tools)
-    monkeypatch.setattr(flow,'_pending_input_continuations',lambda *a:True)
+    monkeypatch.setattr(episode_resume_inputs,'pending_input_continuations',lambda *a:True)
     monkeypatch.setattr(native_episode,'prepare',lambda *a:calls.append('native_prepare') or {'ready':False,'stage':'preparation'})
-    monkeypatch.setattr(flow,'run_session',lambda *a,**kw:pytest.fail('Agent before video'))
+    monkeypatch.setattr(episode_turns,'run_session',lambda *a,**kw:pytest.fail('Agent before video'))
     result=flow.run_episode(ctx,config={**config,'production_mode':'pipeline_review'})
     assert calls.index('apply')<calls.index('native_prepare')
     assert 'render' not in calls and result['status']=='blocked'
@@ -97,7 +101,7 @@ def test_confirmed_semantic_exception_can_start_repair_agent_before_video(ctx,co
         calls.append('semantic_agent')
         atomic_write_json(work/'episode-session.json',{'session_id':'same-session'})
         return fake_attempt(ctx,1)
-    monkeypatch.setattr(flow,'run_session',session)
+    monkeypatch.setattr(episode_turns,'run_session',session)
     result=flow.run_episode(ctx,config={**config,'production_mode':'pipeline_review','agent_invocations_per_slice':1})
     assert calls.count('semantic_agent')==int(not production_only) and result['status']=='deferred'
     assert result.get('pipeline_phase')=='input_repair'
@@ -108,7 +112,7 @@ def test_bulk_asset_wait_defers_without_agent_or_generation(ctx,config,monkeypat
     calls=install_fake_runtime(monkeypatch,ctx)
     monkeypatch.setattr(native_episode,'prepare',lambda *a:{'ready':False,'status':'waiting_assets',
         'waiting_assets':['/book/series_assets/locations/location_001/establishing.jpeg']})
-    monkeypatch.setattr(flow,'run_session',lambda *a,**k:pytest.fail('image waiting is not repair work'))
+    monkeypatch.setattr(episode_turns,'run_session',lambda *a,**k:pytest.fail('image waiting is not repair work'))
     result=flow.run_episode(ctx,config={**config,'production_mode':'pipeline_review'})
     assert result['status']=='deferred' and result['phase']=='waiting_assets'
     assert result['pipeline_phase']=='production' and result['remaining_seconds']>0
@@ -132,7 +136,7 @@ def test_first_pass_semantic_exception_can_repair_inputs_in_production_host(ctx,
         assert 'first video' in prompt and 'clip_01' in prompt
         seen.append(1)
         return fake_attempt(ctx, len(seen))
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     result = flow.run_episode(ctx, config={**config, 'production_mode': 'pipeline_review', 'agent_invocations_per_slice': 1})
     assert seen == [1] and result['status'] == 'deferred'
 
@@ -154,7 +158,7 @@ def test_mixed_first_pass_renders_before_review_and_hands_off_without_agent(ctx,
             return result
     monkeypatch.setattr(flow, 'EpisodeTools', Tools)
     monkeypatch.setattr(native_episode, 'prepare', lambda *a: {'ready': True})
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('post-render Agent stole first-pass capacity'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('post-render Agent stole first-pass capacity'))
     result = flow.run_episode(ctx, config={**config, 'production_mode': 'pipeline_review'})
     assert calls.count('render') == 1 and result['status'] == 'deferred'
     assert result['pipeline_phase'] == 'review' and not result['passed']
@@ -173,7 +177,7 @@ def test_external_batch_review_starts_at_agent_without_native_production(ctx, co
         atomic_write_json(work/'episode-session.json',{'session_id':'review-session'})
         bridges[-1].handle('finish',{})
         return fake_attempt(ctx,1)
-    monkeypatch.setattr(flow,'run_session',session)
+    monkeypatch.setattr(episode_turns,'run_session',session)
     result=flow.run_episode(ctx,config={**config,'production_mode':'batch_review'})
     assert result['passed'] and 'render' not in calls and result['batch_handoff_at']==1234
 
@@ -198,7 +202,7 @@ def test_batch_input_repair_yields_updated_plan_to_standard_producer(ctx,config,
     def session(work,prompt,**kw):
         bridges[-1].handle('apply',{'file':'output/repair.json'})
         return fake_attempt(ctx,1)
-    monkeypatch.setattr(flow,'run_session',session)
+    monkeypatch.setattr(episode_turns,'run_session',session)
     result=flow.run_episode(ctx,config={**config,'production_mode':'batch_review','agent_invocations_per_slice':1})
     assert result['status']=='deferred' and result['phase']=='waiting_pipeline'
     assert 'render' not in calls and result['remaining_seconds']>0
@@ -225,7 +229,7 @@ def test_batch_first_input_agent_repairs_missing_inputs_before_film_review(ctx,c
         else:assert 'Targets: ["clip_02"]' in prompt
         seen.append(prompt)
         return fake_attempt(ctx,1)
-    monkeypatch.setattr(flow,'run_session',session)
+    monkeypatch.setattr(episode_turns,'run_session',session)
     result=flow.run_episode(ctx,config={**config,'production_mode':'batch_review','agent_invocations_per_slice':1})
     assert result['status']=='deferred' and seen
 
@@ -234,11 +238,11 @@ def test_stop_details_distinguish_host_error_from_empty_response_with_budget_lef
     status = {'remaining_takes': {'clip_01': 1}, 'remaining_rechecks': {'clip_01': 1},
               'input_repairs': {'clip_01': {'status': 'tool_error', 'step': 'compile', 'error': 'KeyError: actor'}},
               'job': {'action': 'apply', 'result': {'blocked': {'clip_01': 'actor'}}}}
-    details = flow.stop_details(status)
+    details = episode_progress.stop_details(status)
     assert details['kind'] == 'tool_error'
     assert details['remaining_takes']['clip_01'] == 1
     assert details['input_repairs']['clip_01']['step'] == 'compile'
-    empty = flow.stop_details({'remaining_takes': {'clip_01': 1}, 'job': None})
+    empty = episode_progress.stop_details({'remaining_takes': {'clip_01': 1}, 'job': None})
     assert empty['kind'] == 'no_effective_operation'
 
 
@@ -246,13 +250,13 @@ def test_task_instructions_prevent_unguarded_automatic_source_authoring(ctx, con
     install_fake_runtime(monkeypatch, ctx)
     bridges = capture_bridge(monkeypatch)
     settings = {**config, 'agent_instructions': 'Use the approved nonsexual adaptation.'}
-    monkeypatch.setattr(flow, '_fill_missing_requests', lambda *a, **kw: pytest.fail('automatic writer ignored task instructions'))
+    monkeypatch.setattr(episode_resume_inputs, 'fill_missing_requests', lambda *a, **kw: pytest.fail('automatic writer ignored task instructions'))
     def run(work, prompt, **kwargs):
         assert settings['agent_instructions'] in prompt
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('finish', {})
         return fake_attempt(ctx, 1)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     assert flow.run_episode(ctx, config=settings)['passed']
 
 
@@ -267,7 +271,7 @@ def test_operator_pause_preserves_unspent_time_even_after_wall_deadline(ctx, con
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('finish', {})
         return fake_attempt(ctx, 1)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     assert result['passed']
 
@@ -289,7 +293,7 @@ def test_instructed_source_candidate_is_adopted_before_any_render(ctx, config, m
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('finish', {})
         return fake_attempt(ctx, 1)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     assert flow.run_episode(ctx, config=settings)['passed']
 
 
@@ -313,7 +317,7 @@ def test_malformed_saved_repair_does_not_crash_automatic_recovery(ctx, previous_
     path = ctx.work_dir/'output/repair.json'
     atomic_write_json(path, [{'clip_id': 'clip_01', 'action': 'edit', 'h3': {'shots': ['A hall.']}}])
     before = path.read_bytes()
-    assert flow._pending_structured_repairs(ctx) is False
+    assert episode_resume_inputs.pending_structured_repairs(ctx) is False
     assert path.read_bytes() == before
     assert not (ctx.work_dir/'output/resume-structured-repairs.json').exists()
 
@@ -332,7 +336,7 @@ def test_production_default_windows_apply_to_new_episode_tasks(ctx, config, monk
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('finish', {})
         return fake_attempt(ctx, 1)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=settings)
     assert result['passed']
     assert 5390 < result['deadline']-time.time() <= 5400
@@ -349,7 +353,7 @@ def test_model_queue_wait_preserves_only_unused_operation_time(ctx, config, monk
     monkeypatch.setattr(flow.time, 'monotonic', lambda: real_clock() + offset[0])
     def prepare(*args, **kwargs):
         offset[0] += 8  # Actual preparation has already used part of the 30-second window.
-    monkeypatch.setattr(flow, '_fill_missing_requests', prepare)
+    monkeypatch.setattr(episode_resume_inputs, 'fill_missing_requests', prepare)
     @contextmanager
     def occupied(*args, deadline=None, on_wait=None, **kwargs):
         on_wait()
@@ -359,7 +363,7 @@ def test_model_queue_wait_preserves_only_unused_operation_time(ctx, config, monk
         if deadline is not None and time.monotonic() >= deadline:
             raise TimeoutError('model resource wait budget exhausted')
         yield None
-    monkeypatch.setattr(resources, 'model_slot', occupied)
+    monkeypatch.setattr(episode_turns, 'model_slot', occupied)
     calls = []
     def run(work, prompt, **kwargs):
         calls.append(kwargs)
@@ -367,7 +371,7 @@ def test_model_queue_wait_preserves_only_unused_operation_time(ctx, config, monk
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('finish', {})
         return fake_attempt(ctx, 1)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     assert 97 <= result['model_wait_seconds'] < 98
     if cancelled:
@@ -401,7 +405,7 @@ def test_normal_source_draft_can_render_and_finish_without_any_agent_session(ctx
         return {'status': 'candidate'}
 
     monkeypatch.setattr(authoring, 'propose', propose)
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('normal accepted episode needs no Agent'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('normal accepted episode needs no Agent'))
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] and len(drafts) == 1
     assert calls.count('check') == calls.count('render') == calls.count('finish') == 1
@@ -431,7 +435,7 @@ def test_source_draft_at_deadline_does_not_start_render(ctx, config, monkeypatch
         return {'status': 'candidate'}
 
     monkeypatch.setattr(authoring, 'propose', propose)
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('deadline already exhausted'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('deadline already exhausted'))
     result = flow.run_episode(ctx, config=config)
     assert result['reason'] == 'episode operation timeout exhausted'
     assert 'render' not in calls
@@ -459,7 +463,7 @@ def test_completed_input_repair_after_deadline_is_retained_without_starting_new_
         bridges[-1].handle('apply', {})
         return fake_attempt(ctx, 1)
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     assert result['job']['status'] == 'completed'
     assert result['job']['result']['input_repaired'] == ['clip_01']
@@ -490,7 +494,7 @@ def test_configured_started_repair_can_finish_after_agent_window_without_new_tur
         atomic_write_json(work/'episode-session.json',{'session_id':'same-session'})
         bridges[-1].handle('apply',{})
         return fake_attempt(ctx,1,exit_code=exit_code)
-    monkeypatch.setattr(flow,'run_session',run)
+    monkeypatch.setattr(episode_turns,'run_session',run)
     result=flow.run_episode(ctx,config={**config,'complete_started_repairs':True})
     assert len(turns)==1
     assert result['passed'] is changed
@@ -507,7 +511,7 @@ def test_pending_asset_tool_resumes_saved_source_checked_work_once(ctx, source_p
         'source':{'consistent':source_passed},'resume_count':resumes,'decision':row})
     (ctx.work_dir/'output').mkdir(parents=True)
     before=receipt.read_bytes()
-    assert flow._pending_input_continuations(ctx) is expected
+    assert episode_resume_inputs.pending_input_continuations(ctx) is expected
     assert receipt.read_bytes()==before
     if expected:
         request=read_json(ctx.work_dir/'output/resume-inputs.json')['decisions'][0]
@@ -536,14 +540,14 @@ def test_pause_during_completed_repair_survives_author_timeout_and_resumes_same_
         atomic_write_json(work/'episode-session.json',{'session_id':'same-session'})
         bridges[-1].handle('apply',{})
         return fake_attempt(ctx,1,exit_code=124)
-    monkeypatch.setattr(flow,'run_session',author)
+    monkeypatch.setattr(episode_turns,'run_session',author)
     settings={**config,'complete_started_repairs':True}
     paused=flow.run_episode(ctx,config=settings)
     assert paused['status']=='paused' and 'render' not in calls
     assert paused['job']['status']=='completed'
     deadline=paused['deadline']
     marker.unlink()
-    monkeypatch.setattr(flow,'run_session',lambda *a,**k:pytest.fail('no new author window'))
+    monkeypatch.setattr(episode_turns,'run_session',lambda *a,**k:pytest.fail('no new author window'))
     resumed=flow.run_episode(ctx,config=settings)
     assert resumed['passed'] and 0 <= resumed['deadline']-deadline < 2
     assert calls.count('apply')==calls.count('render')==calls.count('finish')==1
@@ -560,7 +564,7 @@ def test_slice_drains_accepted_work_then_resumes_same_session_and_budget(ctx, co
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('render' if len(sessions) == 1 else 'finish', {})
         return fake_attempt(ctx, len(sessions))
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=options)
     assert result['status'] == 'deferred' and result['passed'] is False
     assert calls.count('render') == 1 and calls.count('finish') == 0
@@ -581,7 +585,7 @@ def test_cli_turn_limit_preserves_session_and_counts_an_empty_slice(ctx, config,
         attempt = fake_attempt(ctx, 1, exit_code=1)
         attempt.record['turn_limit_reached'] = True
         return attempt
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config={**config, 'agent_invocations_per_slice': 1})
     assert result['status'] == 'deferred' and result['exit_code'] == 0
     assert result['no_progress'] == 1 and result['fallback_invocations'] == 0
@@ -599,7 +603,7 @@ def test_normal_resumption_is_not_stopped_by_an_old_total_invocation_setting(ctx
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('finish', {})
         return fake_attempt(ctx, 3)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config={**config, 'max_agent_invocations': 2})
     assert result['passed'] is True and result['agent_seconds'] >= 17
     assert result['attempts'][:2] == ['old-1', 'old-2']
@@ -624,7 +628,7 @@ def test_repeating_the_same_failed_operation_is_not_progress_from_a_new_job_id(c
         atomic_write_json(work/'output/repair.json', {'reason': f'rephrased justification {len(calls)}'})
         bridges[-1].handle('apply', {})
         return fake_attempt(ctx, len(calls))
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     assert result['status'] == 'blocked' and result['no_progress'] == 2
     assert len(calls) == 2
@@ -634,19 +638,19 @@ def test_cached_review_with_a_new_job_id_is_not_progress(ctx):
     old = {'job': {'id': 'job-1', 'action': 'review', 'status': 'completed',
                    'result': {'ok': True, 'feedback': {'clip_01': 'same issue'}}}}
     new = {'job': {**old['job'], 'id': 'job-2'}}
-    before = flow._progress(ctx, old)
-    assert not flow._made_progress(ctx, before, old, new)
+    before = episode_progress.progress(ctx, old)
+    assert not episode_progress.made_progress(ctx, before, old, new)
     new['job']['result'] = {'ok': True, 'feedback': {}}
-    assert flow._made_progress(ctx, before, old, new)
+    assert episode_progress.made_progress(ctx, before, old, new)
 
 
 def test_doctor_report_and_new_job_id_are_not_content_repair_progress(ctx):
     old={'job':{'id':'job-1','action':'doctor','status':'completed','result':{'ok':True,'report':{'ok':False}}}}
     new={'job':{'id':'job-2','action':'doctor','status':'completed','result':{'ok':True,'report':{'ok':True}}}}
-    before=flow._progress(ctx,old)
-    assert not flow._made_progress(ctx,before,old,new)
+    before=episode_progress.progress(ctx,old)
+    assert not episode_progress.made_progress(ctx,before,old,new)
     atomic_write_json(ctx.work_dir/'output/repair.json',{'decisions':[{'clip_id':'c','action':'input','reason':'source correction'}]})
-    assert flow._made_progress(ctx,before,old,new)
+    assert episode_progress.made_progress(ctx,before,old,new)
 
 
 @pytest.mark.parametrize('status', ['completed', 'failed'])
@@ -670,7 +674,7 @@ def test_different_failed_operations_stop_across_slices(ctx, config, monkeypatch
         atomic_write_json(work/'output/repair.json', {'reason': f'new explanation {len(calls)}'})
         bridges[-1].handle('apply', {})
         return fake_attempt(ctx, len(calls))
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     options = {**config, 'agent_invocations_per_slice': 1}
     first = flow.run_episode(ctx, config=options)
     assert first['status'] == 'deferred' and first['no_progress'] == 1
@@ -683,12 +687,12 @@ def test_reused_input_receipt_does_not_reset_progress(ctx):
     old = {'job': {'id': 'job-1', 'action': 'apply', 'status': 'completed', 'result': {}}}
     new = {'job': {'id': 'job-2', 'action': 'apply', 'status': 'completed', 'result': {
         'ok': True, 'changed': [], 'input_repaired': ['clip_01'], 'input_reused': ['clip_01']}}}
-    before = flow._progress(ctx, old)
-    assert not flow._made_progress(ctx, before, old, new)
-    assert not flow._applied_repair(new['job'])
+    before = episode_progress.progress(ctx, old)
+    assert not episode_progress.made_progress(ctx, before, old, new)
+    assert not episode_progress.applied_repair(new['job'])
     new['job']['result'].update(ok=False, changed=['clip_02'], blocked={'clip_03': 'still broken'})
-    assert flow._made_progress(ctx, before, old, new)
-    assert flow._applied_repair(new['job'])
+    assert episode_progress.made_progress(ctx, before, old, new)
+    assert episode_progress.applied_repair(new['job'])
 
 
 def test_changing_argument_error_text_without_repair_is_not_progress(ctx):
@@ -696,10 +700,10 @@ def test_changing_argument_error_text_without_repair_is_not_progress(ctx):
         'ok':False,'changed':[],'argument_errors':{'clip_01':'bad wears'},'blocked':{'clip_01':'bad wears'}}}}
     new={'job':{'id':'job-2','action':'apply','status':'completed','result':{
         'ok':False,'changed':[],'argument_errors':{'clip_02':'bad phase'},'blocked':{'clip_02':'bad phase'}}}}
-    before=flow._progress(ctx,old)
-    assert not flow._made_progress(ctx,before,old,new)
+    before=episode_progress.progress(ctx,old)
+    assert not episode_progress.made_progress(ctx,before,old,new)
     new['job']['result']['changed']=['clip_03']
-    assert flow._made_progress(ctx,before,old,new)
+    assert episode_progress.made_progress(ctx,before,old,new)
 
 
 def test_argument_only_failures_stop_across_slices_without_resetting_allowances(ctx, config, monkeypatch):
@@ -721,7 +725,7 @@ def test_argument_only_failures_stop_across_slices_without_resetting_allowances(
         atomic_write_json(work/'output/repair.json',{'reason':f'rephrased {len(calls)}'})
         bridges[-1].handle('apply',{})
         return fake_attempt(ctx,len(calls))
-    monkeypatch.setattr(flow,'run_session',run)
+    monkeypatch.setattr(episode_turns,'run_session',run)
     options={**config,'agent_invocations_per_slice':1}
     first=flow.run_episode(ctx,config=options)
     assert first['status']=='deferred' and first['no_progress']==1
@@ -735,7 +739,7 @@ def test_slow_cli_yields_at_slice_timeout_without_resetting_episode_budget(ctx, 
         assert kw['timeout'] == 5
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         return fake_attempt(ctx, 1, exit_code=124)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config={**config, 'agent_slice_seconds': 5})
     assert result['status'] == 'deferred' and result['passed'] is False
     assert len(result['attempts']) == 1 and result['remaining_seconds'] <= 30
@@ -746,7 +750,7 @@ def test_repeated_time_slices_without_saved_work_stop_instead_of_requeueing_fore
     def run(work, prompt, **kw):
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         return fake_attempt(ctx, 1, exit_code=124)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     first = flow.run_episode(ctx, config={**config, 'agent_slice_seconds': 5})
     assert first['status'] == 'deferred'
     second = flow.run_episode(ctx, config={**config, 'agent_slice_seconds': 5})
@@ -768,14 +772,14 @@ def test_source_authoring_has_its_own_budget_until_plan_is_adopted(ctx, config, 
         assert kw['timeout'] == (5 if prepared or direct else 20)
         assert kw['config']['max_turns'] == (4 if prepared or direct else 12)
         if prepared:
-            assert prompt.startswith(flow.continuation_prompt())
+            assert prompt.startswith(episode_prompts.continuation_prompt())
         elif direct:
             assert 'handling an exception' in prompt
             assert 'relevant episode-production contract sections' in prompt
         atomic_write_json(work/'episode-session.json', {'session_id': 'same-session'})
         bridges[-1].handle('finish', {})
         return fake_attempt(ctx, 1)
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config={**config, 'agent_slice_seconds': 5,
         'source_agent_slice_seconds': 20, 'max_turns': 4, 'source_agent_max_turns': 12})
     assert result['passed'] is True and calls.count('finish') == 1
@@ -796,7 +800,7 @@ def test_valid_existing_requests_finish_after_host_acceptance_without_agent(ctx,
             return result
 
     monkeypatch.setattr(flow, 'EpisodeTools', Tools)
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('accepted existing requests need no Agent'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('accepted existing requests need no Agent'))
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] is True and result['agent_seconds'] == 0
     assert result['attempts'] == []
@@ -824,7 +828,7 @@ def test_retry_of_started_episode_renders_current_plan_without_readopting_a_draf
             if action == 'render': result['quality_passed'] = True
             return result
     monkeypatch.setattr(flow, 'EpisodeTools', Tools)
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('cached completed media needs no draft rewrite'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('cached completed media needs no draft rewrite'))
     result = flow.run_episode(ctx, config=config, retry_issues=True)
     assert result['passed'] and result['deadline'] > time.time()
     assert payloads == [{}]
@@ -863,7 +867,7 @@ def test_host_failures_or_technical_only_results_reach_agent_with_existing_evide
         bridges[0].handle('finish', {})
         return fake_attempt(ctx, 1)
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     assert len(sessions) == 1 and result['passed'] is False
     assert result['status'] == 'finished_with_issues'
@@ -891,7 +895,7 @@ def test_normal_tool_handoffs_can_exceed_three_invocations(ctx, config, monkeypa
         assert answer['yield'] is True and answer['status'] == 'accepted'
         return fake_attempt(ctx, len(sessions))
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] and len(sessions) == 6
     assert [row['resume'] for row in sessions] == [False, True, True, True, True, True]
@@ -941,7 +945,7 @@ def test_render_and_review_start_after_agent_model_slot_is_released(ctx, config,
         bridges[0].handle(action, {})
         return fake_attempt(ctx, len(sessions))
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     thread.join(3)
     assert not thread.is_alive() and other_acquired.is_set()
@@ -966,7 +970,7 @@ def test_pause_retains_accepted_operation_and_resumes_same_session_once(ctx, con
             bridges[-1].handle('finish', {})
         return fake_attempt(ctx, len(sessions))
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     paused = flow.run_episode(ctx, config=config)
     assert paused['status'] == 'paused' and paused['job']['status'] == 'accepted'
     assert calls.count('render') == 0
@@ -982,7 +986,7 @@ def test_duplicate_executor_does_not_start_a_model_or_change_budget(ctx, config,
     ctx.source_episode_dir.mkdir(parents=True, exist_ok=True)
     lock = ctx.source_episode_dir / '.render.lock'
     lock.write_text(str(os.getpid()))
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('duplicate model call'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('duplicate model call'))
     with pytest.raises(RuntimeError, match='already owned'):
         flow.run_episode(ctx, config=config)
     assert lock.read_text() == str(os.getpid())
@@ -1004,7 +1008,7 @@ def test_interrupted_apply_is_exposed_for_inspection_instead_of_replayed(ctx, co
         bridges[0].handle('finish', {})
         return fake_attempt(ctx, 1)
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     assert flow.run_episode(ctx, config=config)['passed']
     assert calls.count('apply') == 0
 
@@ -1041,7 +1045,7 @@ def test_restored_render_distinguishes_new_draft_from_submitted_media(ctx, confi
         bridges[0].handle('finish', {})
         return fake_attempt(ctx, 1)
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     assert flow.run_episode(ctx, config=config)['passed']
 
 
@@ -1055,7 +1059,7 @@ def test_completed_finish_receipt_recovers_after_crash_even_if_deadline_expired(
         'status': 'running', 'deadline': time.time() - 1,
         'job': {'id': 'job-8', 'action': 'finish', 'status': 'completed',
                 'result': {'ok': True, 'passed': True}}})
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('finished session resumed'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('finished session resumed'))
     monkeypatch.setattr(flow, 'EpisodeBridge', lambda *a: pytest.fail('finished tools restarted'))
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] and result['status'] == 'finished'
@@ -1069,7 +1073,7 @@ def test_pause_interrupts_waiting_for_model_without_invocation(ctx, config, monk
     marker = ctx.run_dir / 'pause'
     marker.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv('NOVEL_AGENT_PAUSE_FILE', str(marker))
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('paused model called'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('paused model called'))
     with model_slot(config['base_url']):
         timer = threading.Timer(.05, lambda: marker.write_text('pause'))
         timer.start()
@@ -1085,7 +1089,7 @@ def test_accepted_finish_settles_before_expired_deadline_or_model_admission(ctx,
     atomic_write_json(ctx.run_dir / 'agent-run.json', {
         'status': 'paused', 'deadline': time.time() - 1,
         'job': {'id': 'job-8', 'action': 'finish', 'payload': {}, 'status': 'accepted'}})
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('settled finish resumed a model'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('settled finish resumed a model'))
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] and result['status'] == 'finished'
     assert result['job']['status'] == 'completed'
@@ -1103,7 +1107,7 @@ def test_written_pass_file_without_host_finish_receipt_does_not_complete_episode
             'passed': True, 'author_session': {'session_id': 'same-session'}})
         return fake_attempt(ctx, len(sessions))
 
-    monkeypatch.setattr(flow, 'run_session', run)
+    monkeypatch.setattr(episode_turns, 'run_session', run)
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] is False and result['status'] == 'blocked'
     assert calls.count('finish') == 0

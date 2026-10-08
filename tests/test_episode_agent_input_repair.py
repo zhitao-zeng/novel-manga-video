@@ -230,7 +230,7 @@ def test_reused_input_is_explicit_in_apply_result(setup):
 
 
 def test_duplicate_shared_scope_reuse_does_not_claim_a_new_repair(setup, monkeypatch):
-    from novel_manga.application.agents.episode.flow import _made_progress, _progress
+    from novel_manga.application.agents.episode.progress import made_progress as _made_progress, progress as _progress
     ctx, _, _ = setup
     monkeypatch.setattr(input_repair, 'repair', lambda *a: {
         'changed': [], 'input_repaired': ['clip_01'], 'reused': True})
@@ -244,7 +244,7 @@ def test_duplicate_shared_scope_reuse_does_not_claim_a_new_repair(setup, monkeyp
 
 
 def test_host_continues_old_source_rejection_before_opening_agent(setup):
-    from novel_manga.application.agents.episode.flow import _pending_input_continuations
+    from novel_manga.application.agents.episode.resume_inputs import pending_input_continuations as _pending_input_continuations
     ctx, _, _ = setup
     atomic_write_json(ctx.episode_dir/'work/input_repairs/clip_01-1.json', {
         'status': 'rejected', 'step': 'source', 'clip_id': 'clip_01', 'decision': decision()})
@@ -254,7 +254,7 @@ def test_host_continues_old_source_rejection_before_opening_agent(setup):
 
 
 def test_source_recovery_reservation_survives_interrupted_judge(setup, monkeypatch):
-    from novel_manga.application.agents.episode.flow import _pending_input_continuations
+    from novel_manga.application.agents.episode.resume_inputs import pending_input_continuations as _pending_input_continuations
     ctx, _, _ = setup
     path = ctx.episode_dir/'work/input_repairs/clip_01-1.json'
     atomic_write_json(path, {'status': 'rejected', 'step': 'source', 'clip_id': 'clip_01',
@@ -295,7 +295,7 @@ def test_old_source_candidate_cannot_replace_a_newer_prepared_input(setup, monke
 
 @pytest.mark.parametrize('status,resumes,expected', [('checking', 1, True), ('incomplete', 0, True), ('incomplete', 1, False)])
 def test_reserved_source_recovery_uses_only_its_existing_continuation(setup, status, resumes, expected):
-    from novel_manga.application.agents.episode.flow import _pending_input_continuations
+    from novel_manga.application.agents.episode.resume_inputs import pending_input_continuations as _pending_input_continuations
     ctx, _, _ = setup
     atomic_write_json(ctx.episode_dir/'work/input_repairs/clip_01-1.json', {
         'status': status, 'step': 'source', 'clip_id': 'clip_01', 'decision': decision(),
@@ -903,7 +903,7 @@ def test_public_apply_reports_input_argument_errors_without_spending_input_budge
 @pytest.mark.parametrize('scope', [1, 'clip_01', {}, [], ['clip_01', 1], [None], [' '],
                                   ['clip_02'], ['clip_01', 'clip_99']])
 def test_invalid_scope_is_an_argument_failure_without_resetting_progress(setup, monkeypatch, scope):
-    from novel_manga.application.agents.episode.flow import _made_progress, _progress
+    from novel_manga.application.agents.episode.progress import made_progress as _made_progress, progress as _progress
     ctx, _, _ = setup
     monkeypatch.setattr(input_repair, 'source_check', lambda *a: pytest.fail('invalid scope reached model'))
     atomic_write_json(ctx.episode_dir/'episode_review.json', {'feedback': {'clip_01': 'input mismatch'}})
@@ -1247,7 +1247,7 @@ def test_technical_continuation_does_not_consume_the_source_revision(setup, monk
 
 
 def test_host_continues_approved_translation_but_leaves_source_and_posture_decisions_to_agent(setup):
-    from novel_manga.application.agents.episode.flow import _pending_input_continuations
+    from novel_manga.application.agents.episode.resume_inputs import pending_input_continuations as _pending_input_continuations
     ctx, _, _ = setup
     folder = ctx.episode_dir/'work/input_repairs'
     for cid, step, source in [('clip_01', 'translate:clip_01', {'consistent': True}),
@@ -1260,7 +1260,7 @@ def test_host_continues_approved_translation_but_leaves_source_and_posture_decis
 
 
 def test_authored_timing_recovery_deduplicates_the_same_asset_with_noop_source_patches(setup):
-    from novel_manga.application.agents.episode.flow import _pending_input_continuations
+    from novel_manga.application.agents.episode.resume_inputs import pending_input_continuations as _pending_input_continuations
     ctx, _, _ = setup
     ctx.input_mode = 'source'
     for i in [1, 2]:

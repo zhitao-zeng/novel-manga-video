@@ -221,7 +221,7 @@ def test_preparing_a_draft_preserves_agent_edits_and_reports_style_as_advice(tmp
 
 def test_missing_requests_use_one_bounded_parallel_draft_and_preserve_the_plan(tmp_path, monkeypatch):
     from novel_manga.application.agents.episode.inputs import _request_draft
-    from novel_manga.application.agents.episode.flow import _fill_missing_requests
+    from novel_manga.application.agents.episode.resume_inputs import fill_missing_requests as _fill_missing_requests
     ctx, plan, prompts = prepared(tmp_path, monkeypatch)
     for clip in plan['clips'][:2]:
         clip.pop('prompt_h3')
@@ -241,8 +241,8 @@ def test_missing_requests_use_one_bounded_parallel_draft_and_preserve_the_plan(t
         return True
 
     monkeypatch.setattr('novel_manga.application.rendering.h3.convert', draft)
-    _fill_missing_requests(ctx)
-    _fill_missing_requests(ctx)  # an unsuccessful first draft is handed to the Agent, not retried here
+    _fill_missing_requests(ctx, tools=EpisodeTools(ctx))
+    _fill_missing_requests(ctx, tools=EpisodeTools(ctx))  # an unsuccessful first draft is handed to the Agent, not retried here
     assert sorted(calls) == [('clip_01', 1, ctx.episode_dir), ('clip_02', 1, ctx.episode_dir)]
     output = read_json(ctx.work_dir/'output/requests.json')['prompts']
     assert output['clip_01'] == prompts['clip_01'] and output['clip_02'] == ''
@@ -403,7 +403,7 @@ def test_one_exhausted_clip_does_not_discard_other_eligible_repairs(tmp_path, mo
 
 
 def test_saved_protocol_failure_resumes_only_the_still_current_repair(tmp_path, monkeypatch):
-    from novel_manga.application.agents.episode.flow import _pending_structured_repairs
+    from novel_manga.application.agents.episode.resume_inputs import pending_structured_repairs as _pending_structured_repairs
     ctx, plan, _ = prepared(tmp_path, monkeypatch)
     row = {'clip_id': 'clip_01', 'action': 'edit', 'reason': 'fix the grip',
            'h3': {'shots': ['<Subject 2> holds the cup firmly. <DIALOGUE_1> The cup settles.']}}

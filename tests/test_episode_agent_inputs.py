@@ -1,3 +1,5 @@
+from novel_manga.application.agents.episode import resume_inputs as episode_resume_inputs
+from novel_manga.application.agents.episode import prompts as episode_prompts
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -100,8 +102,8 @@ def test_source_exception_retains_failed_script_and_merged_location_evidence(boo
     assert [r['name'] for r in read(ctx.work_dir/'input/reading/locations.json')] == ['临海书房']
     assert not (ctx.episode_dir/'chapter_script.json').exists()
     monkeypatch.setattr(authoring, 'propose', lambda *a, **kw: pytest.fail('normal writer repeated after preparation failed'))
-    assert flow._fill_missing_requests(ctx) is None
-    assert 'input/preparation/exception.json' in flow.initial_prompt(ctx)
+    assert episode_resume_inputs.fill_missing_requests(ctx, tools=flow.EpisodeTools(ctx)) is None
+    assert 'input/preparation/exception.json' in episode_prompts.initial_prompt(ctx)
 
 
 def test_source_preparation_uses_current_phase_instead_of_inherited_base_views(book):

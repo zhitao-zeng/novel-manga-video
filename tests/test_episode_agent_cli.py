@@ -1,5 +1,10 @@
 """Episode entrypoint tests without Docker, models or production services."""
 from __future__ import annotations
+from novel_manga.application.agents.episode import turns as episode_turns
+from novel_manga.application.agents.episode import runtime as episode_runtime
+from novel_manga.application.agents.episode import resume_inputs as episode_resume_inputs
+from novel_manga.application.agents.episode import prompts as episode_prompts
+from novel_manga.application.agents.episode import progress as episode_progress
 
 from dataclasses import replace
 import json
@@ -33,7 +38,7 @@ def test_refused_episode_switches_model_and_finishes_without_resetting_budget(ct
         else:
             assert bridges[0].handle('finish',{})['status']=='accepted'
         return attempt
-    monkeypatch.setattr(flow,'run_session',session)
+    monkeypatch.setattr(episode_turns,'run_session',session)
     result=flow.run_episode(ctx,config={**config,'refusal_fallback':{
         'base_url':'http://qwen.example','model':'Qwen-Flash-Next','key_var':'QWEN_TEST_KEY'}})
     assert result['passed'] is True
@@ -47,7 +52,7 @@ def test_prepare_and_status_use_no_model_and_preserve_source(ctx, monkeypatch, c
     calls = []
     monkeypatch.setattr(cli, 'create_context', lambda *args, **kwargs: ctx)
     monkeypatch.setattr(cli, 'prepare_inputs', lambda value: calls.append(value))
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('model called'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('model called'))
     monkeypatch.setattr(flow, 'EpisodeBridge', lambda *a, **k: pytest.fail('bridge started'))
     marker = ctx.source_novel_dir / 'controller.json'
     marker.write_text('{"paused": true}')
@@ -62,8 +67,8 @@ def test_prepare_and_status_use_no_model_and_preserve_source(ctx, monkeypatch, c
 
 
 def test_input_prompts_keep_script_authority(ctx):
-    source = flow.initial_prompt(ctx)
-    script = flow.initial_prompt(replace(ctx, input_mode='script', target_seconds=(63, 63)))
+    source = episode_prompts.initial_prompt(ctx)
+    script = episode_prompts.initial_prompt(replace(ctx, input_mode='script', target_seconds=(63, 63)))
     assert 'complete original chapter' in source
     assert 'screenplay' in source and 'output/episode.json' in source
     assert '120' in source and '150' in source
@@ -77,7 +82,7 @@ def test_input_prompts_keep_script_authority(ctx):
 
 
 def test_recovery_prompt_exposes_current_binding_repairs_after_a_stopped_turn(ctx):
-    prompt = flow.continuation_prompt()
+    prompt = episode_prompts.continuation_prompt()
     assert 'speaker_map' in prompt and 'in_frame' in prompt
     assert 'After adoption' in prompt and 'characters' in prompt
     assert 'previous stopped result is not acceptance' in prompt
@@ -111,8 +116,8 @@ def test_ds_qa_preset_is_available_without_private_worker(ctx, monkeypatch):
     for key in ('QWEN38_LOCAL_BASE_URL', 'QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_API_KEY_VAR',
                 'SECOND_REVIEW_JUDGE', 'NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(flow, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
-    env = flow.runtime_environment(ctx, {'base_url': 'http://172.28.4.52:8831',
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
+    env = episode_runtime.runtime_environment(ctx, {'base_url': 'http://172.28.4.52:8831',
                                        'model': 'DeepSeek-V4.1-Flash', 'key_var': 'GPU52_DEEPSEEK_API_KEY'})
     assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'deepseek'
 
@@ -122,8 +127,8 @@ def test_phanthy_transport_is_kept_for_agent_host_tools(ctx,monkeypatch):
                 'SECOND_REVIEW_JUDGE','NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key,raising=False)
     monkeypatch.setenv('QWEN38_LOCAL_STREAM','0')
-    monkeypatch.setattr(flow,'environment',lambda root:{'NOVEL_LOCAL_H3_URL':'pool'})
-    env=flow.runtime_environment(ctx,{'base_url':'http://127.0.0.1:8789',
+    monkeypatch.setattr(episode_runtime,'environment',lambda root:{'NOVEL_LOCAL_H3_URL':'pool'})
+    env=episode_runtime.runtime_environment(ctx,{'base_url':'http://127.0.0.1:8789',
         'model':'glm-5.3-flash','key_var':'PHANTHY_API_KEY'})
     assert env['SECOND_REVIEW_JUDGE']=='phanthy'
     assert env['QWEN38_LOCAL_STREAM']=='1' and env['QWEN38_LOCAL_MIN_MAX_TOKENS']=='0'
@@ -133,12 +138,12 @@ def test_secondary_translation_model_has_shared_cap_without_moving_agent_or_judg
     for key in ('QWEN38_LOCAL_BASE_URL','QWEN38_LOCAL_MODEL','QWEN38_LOCAL_API_KEY_VAR',
                 'SECOND_REVIEW_JUDGE','NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(flow, 'environment', lambda root: {
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {
         'NOVEL_LOCAL_H3_URL':'pool', 'NOVEL_MODEL_RESOURCES':json.dumps([
             {'base':'http://172.28.4.52:8831/v1','slots':8}]),
         'NOVEL_MODEL_INFLIGHT_DIR':str(ctx.run_dir/'model-slots')})
     before = dict(os.environ)
-    env = flow.runtime_environment(ctx, {'base_url':'http://172.28.4.52:8831',
+    env = episode_runtime.runtime_environment(ctx, {'base_url':'http://172.28.4.52:8831',
         'model':'DeepSeek-V4.1-Flash','key_var':'GPU52_DEEPSEEK_API_KEY',
         'h3_translation_endpoint':'flashnext','h3_request_check_endpoint':'deepseek',
         'h3_preparation_parallel':2})
@@ -178,7 +183,7 @@ def test_explicit_issue_retry_archives_old_session_and_preserves_media_budget(ct
     monkeypatch.setattr(flow, 'EpisodeBridge', make_bridge)
     def session(work, prompt, **kwargs):
         calls.append(kwargs)
-        assert prompt.startswith(flow.continuation_prompt())
+        assert prompt.startswith(episode_prompts.continuation_prompt())
         if preserve_session:
             assert read_json(work/'episode-session.json')['session_id'] == 'old-session'
         else:
@@ -186,7 +191,7 @@ def test_explicit_issue_retry_archives_old_session_and_preserves_media_budget(ct
             atomic_write_json(work/'episode-session.json', {'session_id': 'new-session'})
         assert bridges[0].handle('finish', {})['status'] == 'accepted'
         return fake_attempt(ctx, 1)
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     answer = flow.run_episode(ctx, config={**config, 'resume_session_on_retry': preserve_session,
                                          'agent_invocations_per_slice': 1}, retry_issues=True)
     assert answer['passed'] is True
@@ -202,7 +207,7 @@ def test_explicit_issue_retry_archives_old_session_and_preserves_media_budget(ct
 def test_issue_retry_never_reruns_an_accepted_episode(ctx, monkeypatch, config, preserve_session):
     install_fake_runtime(monkeypatch, ctx)
     atomic_write_json(ctx.run_dir/'agent-run.json', {'status': 'finished', 'passed': True})
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **k: pytest.fail('accepted episode must remain cached'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('accepted episode must remain cached'))
     assert flow.run_episode(ctx, config={**config, 'resume_session_on_retry': preserve_session},
                             retry_issues=True)['passed'] is True
     assert not (ctx.run_dir/'retries').exists()
@@ -213,8 +218,8 @@ def test_finish_existing_uses_host_acceptance_without_new_agent_or_render(ctx, m
     atomic_write_json(ctx.run_dir/'agent-run.json',{'status':'finished_with_issues','passed':False,
                                                  'attempts':['previous'],'agent_seconds':90,'deadline':1})
     atomic_write_json(ctx.work_dir/'episode-session.json',{'session_id':'old-session'})
-    monkeypatch.setattr(flow,'run_session',lambda *a,**k:pytest.fail('existing-media acceptance needs no Agent'))
-    monkeypatch.setattr(flow,'_fill_missing_requests',lambda *a,**k:pytest.fail('existing-media acceptance cannot rewrite requests'))
+    monkeypatch.setattr(episode_turns,'run_session',lambda *a,**k:pytest.fail('existing-media acceptance needs no Agent'))
+    monkeypatch.setattr(episode_resume_inputs,'fill_missing_requests',lambda *a,**k:pytest.fail('existing-media acceptance cannot rewrite requests'))
     result=flow.run_episode(ctx,config={**config,'finish_existing':True})
     assert result['passed'] and calls==['finish']
     assert result['attempts']==['previous'] and result['agent_seconds']==90
@@ -271,7 +276,7 @@ def test_run_waits_for_background_then_resumes_same_session(ctx, monkeypatch, co
             assert created[0].handle('finish', {})['status'] == 'accepted'
         return fake_attempt(ctx, len(sessions))
 
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] is True and result['exit_code'] == 0
     assert len(sessions) == 2
@@ -294,7 +299,7 @@ def test_old_finish_manifest_does_not_complete_new_invocation(ctx, monkeypatch, 
         sessions.append(kwargs)
         return fake_attempt(ctx, len(sessions))
 
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     result = flow.run_episode(ctx, config=config)
     assert result['status'] == 'blocked' and result['passed'] is False
     assert result['exit_code'] != 0 and len(sessions) == 2
@@ -305,8 +310,8 @@ def test_old_finish_manifest_does_not_complete_new_invocation(ctx, monkeypatch, 
 def test_nonzero_session_stops_and_restores_process_environment(ctx, monkeypatch, config):
     install_fake_runtime(monkeypatch, ctx)
     before = dict(os.environ)
-    monkeypatch.setattr(flow, 'runtime_environment', lambda *a: {**os.environ, 'EPISODE_TEMP_SETTING': 'test'})
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **kw: fake_attempt(ctx, 1, 125))
+    monkeypatch.setattr(episode_runtime, 'runtime_environment', lambda *a: {**os.environ, 'EPISODE_TEMP_SETTING': 'test'})
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **kw: fake_attempt(ctx, 1, 125))
     result = flow.run_episode(ctx, config=config)
     assert result['status'] == 'blocked' and result['passed'] is False
     assert result['session_exit'] == 125
@@ -325,7 +330,7 @@ def test_script_run_passes_requests_contract_and_preserves_controller(ctx, monke
         sessions.append(kwargs)
         return fake_attempt(ctx, len(sessions))
 
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     result = flow.run_episode(ctx, config=config)
     assert result['status'] == 'blocked'
     assert all(kw['expected_output'] == 'requests.json' for kw in sessions)
@@ -334,13 +339,13 @@ def test_script_run_passes_requests_contract_and_preserves_controller(ctx, monke
 
 def test_environment_uses_configured_qa_and_respects_explicit_h3(ctx, monkeypatch):
     settings = {'base_url': 'http://qa.service:8038', 'model': 'qa-model', 'key_var': 'QA_KEY'}
-    monkeypatch.setattr(flow, 'ENDPOINTS', {'known': {
+    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'known': {
         'QWEN38_LOCAL_BASE_URL': 'http://qa.service:8038/v1', 'QWEN38_LOCAL_MODEL': 'qa-model',
         'QWEN38_LOCAL_API_KEY_VAR': 'QA_KEY'}})
-    monkeypatch.setattr(flow, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'http://explicit-h3',
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'http://explicit-h3',
                                                         'NOVEL_REVIEW_CAST_VIDEO': '0'})
-    monkeypatch.setattr(flow, 'repair_environment', lambda *a: pytest.fail('explicit H3 overwritten'))
-    env = flow.runtime_environment(ctx, settings)
+    monkeypatch.setattr(episode_runtime, 'repair_environment', lambda *a: pytest.fail('explicit H3 overwritten'))
+    env = episode_runtime.runtime_environment(ctx, settings)
     assert env['NOVEL_LOCAL_H3_URL'] == 'http://explicit-h3'
     assert env['QWEN38_LOCAL_MODEL'] == 'qa-model'
     assert env['QWEN38_LOCAL_BASE_URL'] == 'http://qa.service:8038/v1'
@@ -351,15 +356,15 @@ def test_environment_uses_configured_qa_and_respects_explicit_h3(ctx, monkeypatc
 
 
 def test_environment_uses_existing_h3_pool_configuration(ctx, monkeypatch):
-    monkeypatch.setattr(flow, 'environment', lambda root: {})
-    monkeypatch.setattr(flow, 'repair_environment', lambda root, legacy: ({
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {})
+    monkeypatch.setattr(episode_runtime, 'repair_environment', lambda root, legacy: ({
         'NOVEL_LOCAL_H3_URL': 'pool', 'NOVEL_INFLIGHT_POOL': 'configured-pool'},
         {'pool': 'configured-pool', 'inflight': 7}))
     settings = {'base_url': 'http://configured-agent', 'model': 'qa-model', 'key_var': 'QA_KEY'}
-    monkeypatch.setattr(flow, 'ENDPOINTS', {'configured': {
+    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'configured': {
         'QWEN38_LOCAL_BASE_URL': 'http://configured-agent/v1', 'QWEN38_LOCAL_MODEL': 'qa-model',
         'QWEN38_LOCAL_API_KEY_VAR': 'QA_KEY'}})
-    env = flow.runtime_environment(ctx, settings)
+    env = episode_runtime.runtime_environment(ctx, settings)
     assert env['NOVEL_LOCAL_H3_URL'] == 'pool' and env['NOVEL_INFLIGHT_POOL'] == 'configured-pool'
     assert env['QWEN38_LOCAL_BASE_URL'] == 'http://configured-agent/v1'
 
@@ -387,21 +392,21 @@ def test_explicit_h3_still_uses_configured_review_mode(ctx, tmp_path, monkeypatc
         atomic_write_json(ctx.novel_dir/'profile.json', {'review_mode': selected_profile})
     base = {'NOVEL_LOCAL_H3_URL': 'http://explicit-h3', 'NOVEL_RENDER_INFLIGHT': '6',
             **({'NOVEL_REVIEW_MODE': explicit} if explicit else {})}
-    monkeypatch.setattr(flow, 'environment', lambda root: base.copy())
-    monkeypatch.setattr(flow, 'repair_environment', lambda *a: pytest.fail('explicit H3 routing replaced'))
-    monkeypatch.setattr(flow, 'ENDPOINTS', {'configured': {
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: base.copy())
+    monkeypatch.setattr(episode_runtime, 'repair_environment', lambda *a: pytest.fail('explicit H3 routing replaced'))
+    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'configured': {
         'QWEN38_LOCAL_BASE_URL':'http://judge/v1','QWEN38_LOCAL_MODEL':'qa-model',
         'QWEN38_LOCAL_API_KEY_VAR':'QA_KEY'}})
-    env = flow.runtime_environment(ctx, {'base_url':'http://judge','model':'qa-model','key_var':'QA_KEY'})
+    env = episode_runtime.runtime_environment(ctx, {'base_url':'http://judge','model':'qa-model','key_var':'QA_KEY'})
     assert env['NOVEL_REVIEW_MODE'] == expected
     assert env['NOVEL_LOCAL_H3_URL'] == base['NOVEL_LOCAL_H3_URL'] and env['NOVEL_RENDER_INFLIGHT'] == '6'
 
 
 def test_environment_refuses_unconfigured_judge_instead_of_localhost(ctx, monkeypatch):
-    monkeypatch.setattr(flow, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
-    monkeypatch.setattr(flow, 'ENDPOINTS', {})
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {'NOVEL_LOCAL_H3_URL': 'pool'})
+    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {})
     with pytest.raises(ValueError, match='no existing QA preset'):
-        flow.runtime_environment(ctx, {'base_url': 'http://new-agent', 'model': 'custom', 'key_var': 'KEY'})
+        episode_runtime.runtime_environment(ctx, {'base_url': 'http://new-agent', 'model': 'custom', 'key_var': 'KEY'})
 
 
 def test_qa_defaults_replace_old_dotenv_localhost_but_preserve_process_override(ctx, monkeypatch):
@@ -409,16 +414,16 @@ def test_qa_defaults_replace_old_dotenv_localhost_but_preserve_process_override(
                 'QWEN38_LOCAL_MODEL': 'configured-qa', 'QWEN38_LOCAL_API_KEY_VAR': 'QA_KEY'}
     for key in (*defaults, 'SECOND_REVIEW_JUDGE', 'NOVEL_REVIEW_VIDEO_JUDGE'):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(flow, 'ENDPOINTS', {'configured': defaults})
-    monkeypatch.setattr(flow, 'environment', lambda root: {
+    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'configured': defaults})
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: {
         'NOVEL_LOCAL_H3_URL': 'pool', 'QWEN38_LOCAL_BASE_URL': 'http://127.0.0.1:dead/v1',
         'SECOND_REVIEW_JUDGE': 'local', 'NOVEL_REVIEW_VIDEO_JUDGE': 'local'})
     config = {'base_url': 'http://qa-configured', 'model': 'configured-qa', 'key_var': 'QA_KEY'}
-    env = flow.runtime_environment(ctx, config)
+    env = episode_runtime.runtime_environment(ctx, config)
     assert env['QWEN38_LOCAL_BASE_URL'] == defaults['QWEN38_LOCAL_BASE_URL']
     assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'configured'
     monkeypatch.setenv('SECOND_REVIEW_JUDGE', 'explicit')
-    assert flow.runtime_environment(ctx, config)['SECOND_REVIEW_JUDGE'] == 'explicit'
+    assert episode_runtime.runtime_environment(ctx, config)['SECOND_REVIEW_JUDGE'] == 'explicit'
 
 
 def test_operation_continuations_are_bounded_and_keep_same_session(ctx, monkeypatch, config):
@@ -426,7 +431,7 @@ def test_operation_continuations_are_bounded_and_keep_same_session(ctx, monkeypa
     calls = []
     # Equal-size edits can share a filesystem timestamp. Progress must come
     # from the changed draft, rather than how fast this fake session returns.
-    monkeypatch.setattr(flow, '_file_stamp', lambda path: (1, 16) if path.exists() else None)
+    monkeypatch.setattr(episode_progress, 'file_stamp', lambda path: (1, 16) if path.exists() else None)
 
     def session(work, prompt, **kwargs):
         calls.append(kwargs)
@@ -434,7 +439,7 @@ def test_operation_continuations_are_bounded_and_keep_same_session(ctx, monkeypa
         atomic_write_json(work / 'output/episode.json', {'revision': len(calls)})
         return fake_attempt(ctx, len(calls))
 
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     result = flow.run_episode(ctx, config=config)
     assert result['status'] == 'blocked' and result['passed'] is False
     assert len(calls) == 3 and [kw['resume'] for kw in calls] == [False, True, True]
@@ -447,10 +452,10 @@ def test_progress_detects_equal_size_output_edits_with_unchanged_timestamp(ctx):
     path.parent.mkdir(parents=True)
     path.write_bytes(b'{"revision":1}')
     os.utime(path, ns=(1_000_000_000, 1_000_000_000))
-    before = flow._progress(ctx, {})
+    before = episode_progress.progress(ctx, {})
     path.write_bytes(b'{"revision":2}')
     os.utime(path, ns=(1_000_000_000, 1_000_000_000))
-    assert flow._progress(ctx, {}) != before
+    assert episode_progress.progress(ctx, {}) != before
 
 
 def test_unchanged_output_content_is_not_progress_when_timestamp_changes(ctx):
@@ -458,9 +463,9 @@ def test_unchanged_output_content_is_not_progress_when_timestamp_changes(ctx):
     path.parent.mkdir(parents=True)
     path.write_bytes(b'{"revision":1}')
     os.utime(path, ns=(1_000_000_000, 1_000_000_000))
-    before = flow._progress(ctx, {})
+    before = episode_progress.progress(ctx, {})
     os.utime(path, ns=(2_000_000_000, 2_000_000_000))
-    assert flow._progress(ctx, {}) == before
+    assert episode_progress.progress(ctx, {}) == before
 
 
 def test_session_exception_waits_for_accepted_host_job_before_cleanup(ctx, monkeypatch, config):
@@ -490,7 +495,7 @@ def test_session_exception_waits_for_accepted_host_job_before_cleanup(ctx, monke
 
     monkeypatch.setattr(flow, 'EpisodeTools', PendingTools)
     monkeypatch.setattr(flow, 'EpisodeBridge', make_bridge)
-    monkeypatch.setattr(flow, 'run_session', session)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
     result = flow.run_episode(ctx, config=config)
     assert result['status'] == 'blocked' and 'test CLI startup error' in result['reason']
     assert released.is_set() and bridges[0]._future.done()
@@ -500,7 +505,7 @@ def test_session_exception_waits_for_accepted_host_job_before_cleanup(ctx, monke
 def test_real_prepare_then_status_need_no_credentials_or_services(ctx, monkeypatch, capsys):
     atomic_write_json(ctx.source_episode_dir / 'segments.json', [{'segment_id': 's1', 'text': '完整原文。'}])
     atomic_write_json(ctx.source_novel_dir / 'story_bible.json', {'novel_id': 'book', 'characters': []})
-    monkeypatch.setattr(flow, 'run_session', lambda *a, **kw: pytest.fail('model called'))
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **kw: pytest.fail('model called'))
     args = ['--novel-dir', str(ctx.source_novel_dir), '--episode', '1',
             '--output-root', str(ctx.run_dir.parents[1]), '--project-root', str(ctx.project_root)]
     assert cli.main(['prepare', *args]) == 0
@@ -539,8 +544,8 @@ def test_assigned_multi_endpoint_judge_is_resolved_from_actual_runtime(ctx, monk
         monkeypatch.setenv(key, values[key])
     monkeypatch.delenv('SECOND_REVIEW_JUDGE', raising=False)
     monkeypatch.delenv('NOVEL_REVIEW_VIDEO_JUDGE', raising=False)
-    monkeypatch.setattr(flow, 'environment', lambda root: values.copy())
-    monkeypatch.setattr(flow, 'ENDPOINTS', {'group-qa': values})
+    monkeypatch.setattr(episode_runtime, 'environment', lambda root: values.copy())
+    monkeypatch.setattr(episode_runtime, 'ENDPOINTS', {'group-qa': values})
     settings = {'base_url': 'http://one.model:9000', 'model': 'qa-model', 'key_var': 'QA_KEY'}
-    env = flow.runtime_environment(ctx, settings)
+    env = episode_runtime.runtime_environment(ctx, settings)
     assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'group-qa'
