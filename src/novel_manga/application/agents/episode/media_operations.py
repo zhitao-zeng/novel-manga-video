@@ -10,6 +10,7 @@ from novel_manga.application.production.artifacts import media_started
 
 
 from .tool_state import record_state
+from novel_manga.application.production import episode_state
 from novel_manga.media.results import has_analysis
 
 
@@ -204,6 +205,8 @@ class MediaOperations:
         from novel_manga.application.review.execution import review_saved, save_result
         started = time.monotonic()
         verdicts = review_saved(self.ctx.episode_dir, fresh=False)
+        episode_state.record(self.ctx.run_dir, 'review_saved',
+                             checked=len(verdicts.get('clips') or {}), remaining=len(verdicts.get('feedback') or {}))
         report.setdefault('timing', {})['review_s'] = round(time.monotonic()-started, 3)
         report = save_result(self.ctx.episode_dir, report, verdicts, plan=read_json(path))
         if report.get('status') == 'clips_ready' and report['quality_review']['content_passed']:
@@ -225,5 +228,7 @@ class MediaOperations:
             raise ValueError('review requires an adopted episode')
         record_state(self.ctx, 'reviewing', owner='episode_agent_tools')
         review = review_saved(self.ctx.episode_dir, fresh=False)
+        episode_state.record(self.ctx.run_dir, 'review_saved',
+                             checked=len(review.get('clips') or {}), remaining=len(review.get('feedback') or {}))
         report = read_json(self.ctx.episode_dir / 'thin_media_report.json', {})
         return self.evidence.review_evidence(review, report)

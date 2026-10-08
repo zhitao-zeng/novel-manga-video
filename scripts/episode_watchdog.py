@@ -10,6 +10,10 @@ import datetime
 import json
 import time
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from novel_manga.application.production.episode_state import last_event
 
 ALERTS_FILE = 'watchdog-alerts.jsonl'
 STOPPED = {'finished', 'finished_with_issues', 'blocked', 'paused', 'deferred'}
@@ -49,6 +53,10 @@ def scan(runtime, stale_minutes=20, *, now=None):
             if _read_record(final).get('passed') is True and final.stat().st_mtime >= changed:
                 continue
         idle_minutes = (now - changed) / 60
+        event = last_event(record_path.parent)
+        if event:
+            changed = max(changed, event['ts'])
+            idle_minutes = (now - changed) / 60
         pid = state.get('pid', record.get('pid'))
         if idle_minutes <= stale_minutes or not _pid_dead(pid):
             continue
@@ -58,6 +66,7 @@ def scan(runtime, stale_minutes=20, *, now=None):
                        'run': record_path.parent.name,
                        'phase': state.get('phase', record.get('phase')),
                        'pid': pid,
+                       'last_stage': event.get('stage'),
                        'idle_minutes': round(idle_minutes, 1)})
     if alerts:
         with (runtime / ALERTS_FILE).open('a', encoding='utf-8') as stream:
