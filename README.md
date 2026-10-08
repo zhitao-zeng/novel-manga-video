@@ -103,6 +103,7 @@ NOVEL_PLANNER_ENDPOINT=deepseek .venv/bin/python scripts/plan_chapter_thin.py \
 
 正式入口保留在 `scripts/`；业务流程位于 `src/novel_manga/application/`，共享规则、媒体、模型接口和统计各自独立。
 
+- [产线全景图](docs/pipeline-overview.md)：六层流水线、瓶颈与人工闸门、本周变更——新人/新会话先读这份。
 - [当前架构与修改位置](docs/architecture.md)：职责、依赖、配置来源和产物写入者。
 - [生产经验与排查入口](docs/production-lessons.md)：身份、资产、H3、语音和修复中已踩过的坑，以及最新实拍证据的边界。
 - [测试与回归](tests/README.md)：请求、缓存、修复、媒体和看板的验证入口。
