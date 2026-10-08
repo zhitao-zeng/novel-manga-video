@@ -2,6 +2,8 @@
 from __future__ import annotations
 import copy
 from .arguments import RepairArgumentError, validate_resume
+from novel_manga.story.fields import ACTION_KEYS
+from novel_manga.story.field_validation import action_strings, wears_values, patch_turn_values, delivery_issue
 from .input_records import _phase_groups
 from novel_manga.application.identity.phases import LOOK_FIELDS
 
@@ -46,18 +48,13 @@ def normalize_arguments(row):
         for field, value in patch.items():
             if field == 'turns':
                 from novel_manga.planning.constants import DELIVERY_MODES
-                permitted={'speaker_name','delivery_mode','text','emotion','chat_target','inner_monologue'}
                 if not isinstance(value,list):
                     raise RepairArgumentError(f'{path}.turns must be an ordered list of source-correct turns')
                 for turn in value:
-                    if (not isinstance(turn,dict) or set(turn)-permitted
-                            or any(not isinstance(turn.get(k),str) for k in ('speaker_name','delivery_mode','text'))
-                            or turn['delivery_mode'] not in DELIVERY_MODES or not turn['text'].strip()):
+                    if not patch_turn_values(turn, DELIVERY_MODES):
                         raise RepairArgumentError(f'{path}.turns needs speaker_name, delivery_mode and nonempty text')
-                    if turn.get('inner_monologue') and turn['delivery_mode']!='offscreen_dialogue':
-                        raise RepairArgumentError('inner_monologue requires offscreen_dialogue')
-                    if turn['delivery_mode'] in {'silent_action','title_card'} and turn['speaker_name']:
-                        raise RepairArgumentError('silent_action/title_card have an empty speaker_name')
+                    if issue := delivery_issue(turn):
+                        raise RepairArgumentError(issue)
             elif field == 'turn_texts':
                 if not isinstance(value, list) or not value or any(not isinstance(t, str) or not t.strip() for t in value):
                     raise RepairArgumentError(f'{path}.turn_texts must list each shortened complete spoken turn in original order')
@@ -67,18 +64,13 @@ def normalize_arguments(row):
                         for k, v in value.items()):
                     raise RepairArgumentError(f'{path}.speaker_map must map existing speech owners to source-correct names')
             elif field == 'actions':
-                if not isinstance(value, list) or any(not isinstance(v, dict)
-                        or set(v) != {'actor', 'action', 'target'}
-                        or any(not isinstance(x, str) for x in v.values()) for v in value):
+                if not isinstance(value, list) or any(not action_strings(v) or set(v) != set(ACTION_KEYS) for v in value):
                     raise RepairArgumentError(f'{path}.actions must contain actor/action/target text objects')
             elif field in SHOT_NAMES:
                 if not isinstance(value, list) or any(not isinstance(v, str) or not v.strip() for v in value):
                     raise RepairArgumentError(f'{path}.{field} must be a list of nonempty names')
             elif field == 'wears':
-                if value is not None and (not isinstance(value, dict) or any(
-                        not isinstance(name, str) or not name.strip()
-                        or (prop is not None and (not isinstance(prop, str) or not prop.strip()))
-                        for name, prop in value.items())):
+                if value is not None and not wears_values(value):
                     raise RepairArgumentError(f'{path}.wears must map character names to worn prop names, '
                         'for example {"Character":"Armor"}; use {} or null to clear. '
                         'Put ordinary clothing in phases.characters.<name>.base_costume and body traits in appearance.')

@@ -11,6 +11,7 @@ import time
 from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import atomic_write_json, read_json
 from novel_manga.story.h3 import CJK
+from novel_manga.story.fields import ACTION_KEYS
 
 
 def primary_assets(catalog):
@@ -65,7 +66,7 @@ def source_schema(clip_count):
         **{k: names for k in ('segment_ids', 'in_frame', 'extras', 'props', 'scene_objects',
                              'listeners', 'independent_props')},
         'wears': {'type': 'object'},
-        'actions': {'type': 'array', 'items': obj({k: text for k in ('actor', 'action', 'target')})},
+        'actions': {'type': 'array', 'items': obj({k: text for k in ACTION_KEYS})},
         'duration_seconds': {'type': 'number'},
         'beats': {'type': 'array', 'minItems': 1, 'items': {'oneOf': [obj({'direction': english}), speech]}},
     }, ['segment_ids', 'in_frame', 'location', 'start_state', 'event', 'end_state', 'camera', 'beats'])
