@@ -360,7 +360,7 @@ def main() -> int:
         if result["skipped"]:
             print(f"  没并进去：{'、'.join(result['skipped'])}")
     if args.update_characters:
-        from novel_manga.application.review.bible import reconcile_characters
+        from novel_manga.application.review.character_updates import reconcile_characters
         names = [name.strip() for name in args.update_characters.split(",") if name.strip()]
         updates = reconcile_characters(novel_dir, names, character_facts=facts_from_export(export),
                                        source=Path(novel["source"]))

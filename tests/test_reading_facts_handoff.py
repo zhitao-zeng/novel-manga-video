@@ -1,3 +1,4 @@
+import novel_manga.application.review.character_updates as cast_character_updates
 """Real reading failures: source appearances survive attribution and casting handoff."""
 import json
 
@@ -185,7 +186,7 @@ def test_explicit_lean_character_update_passes_facts_to_existing_reconciler(tmp_
     monkeypatch.setattr(thin, "judge_settings", lambda *_a: None)
     monkeypatch.setattr(thin, "ask_json", lambda *_a, **k: export if k["name"] == "lean_merge" else {"locations": []})
     calls = []
-    monkeypatch.setattr(review, "reconcile_characters", lambda *a, **k: calls.append((a, k)) or {"updated": ["甲"]}, raising=False)
+    monkeypatch.setattr(cast_character_updates, "reconcile_characters", lambda *a, **k: calls.append((a, k)) or {"updated": ["甲"]}, raising=False)
     monkeypatch.setattr(sys, "argv", ["lean_bible_thin.py", "--novel-dir", str(tmp_path), "--chapters", "1",
                                     "--endpoints", "http://unused.invalid", "--update-characters", "甲"])
     assert thin.main() == 0

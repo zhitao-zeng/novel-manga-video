@@ -1,3 +1,4 @@
+import novel_manga.application.assets.character_design as cast_character_design
 """Whole-book casting decisions survive chapter design and bounded requests."""
 from novel_manga.application.review import bible
 from novel_manga.models.bible import StoryBible
@@ -18,7 +19,7 @@ def book():
 def test_confirmed_cast_with_an_honorific_is_designed_without_another_identity_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(bible.model_client, 'ask_json', lambda *a, **k: {'characters': [design('格朗先生')]})
     missing = {'格朗先生': {'mentions': 4, 'chapters': [14]}}
-    result, filled, refused, _ = bible.fill_characters(book(), tmp_path / 'bible.json', missing,
+    result, filled, refused, _ = cast_character_design.fill_characters(book(), tmp_path / 'bible.json', missing,
         '格朗先生坐在桌后。', ['格朗先生'])
     assert filled == ['格朗先生'] and refused == {}
     assert result.characters[0].name == '格朗先生'
@@ -26,7 +27,7 @@ def test_confirmed_cast_with_an_honorific_is_designed_without_another_identity_g
 
 def test_unconfirmed_appellation_still_needs_an_identity_decision(tmp_path, monkeypatch):
     monkeypatch.setattr(bible.model_client, 'ask_json', lambda *a, **k: {'characters': [design('青年男子')]})
-    _, filled, refused, _ = bible.fill_characters(book(), tmp_path / 'bible.json',
+    _, filled, refused, _ = cast_character_design.fill_characters(book(), tmp_path / 'bible.json',
         {'青年男子': {'mentions': 4, 'chapters': [5]}}, '青年男子走来。')
     assert filled == [] and '称呼类人物' in refused['青年男子']
 
@@ -42,7 +43,7 @@ def test_many_missing_designs_are_batched_and_cannot_repeat_the_existing_cast(tm
         return {'characters': [design(name) for name in names]}
     monkeypatch.setattr(bible.model_client, 'ask_json', reply)
     names = [f'人物{i}' for i in range(9)]
-    result, filled, refused, _ = bible.fill_characters(book(), tmp_path / 'bible.json',
+    result, filled, refused, _ = cast_character_design.fill_characters(book(), tmp_path / 'bible.json',
         {name: {'mentions': 4, 'chapters': [1]} for name in names}, '、'.join(names), names)
     assert calls == [names[:4], names[4:8], names[8:]]
     assert filled == names and len(result.characters) == 9 and not refused

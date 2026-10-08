@@ -5,7 +5,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from novel_manga.application.review.bible import grow_bible, review_bible, summarize_volume
+from novel_manga.application.identity.bible_growth import grow_bible
+from novel_manga.application.review.bible import review_bible
+from novel_manga.application.identity.volume_context import summarize_volume
 from novel_manga.application.review.cards import review_cards
 from novel_manga.application.review.execution import review_only
 from novel_manga.util import read_json

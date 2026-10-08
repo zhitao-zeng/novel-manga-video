@@ -44,7 +44,9 @@ from pathlib import Path
 from novel_manga.application.identity.ledger_store import Ledger
 from novel_manga.application.identity.ledger_views import build_index
 from novel_manga.llm.client import ask_json
-from novel_manga.application.review.bible import grow_bible, scan_chapter, summarize_volume
+from novel_manga.application.identity.bible_growth import grow_bible
+from novel_manga.application.review.entity_extraction import scan_chapter
+from novel_manga.application.identity.volume_context import summarize_volume
 
 from novel_manga.ingest import read_novel  # noqa: E402
 from novel_manga.util import atomic_write_json  # noqa: E402

@@ -9,6 +9,7 @@ back finish_reason=length with its JSON cut in half.  It looked like a slow endp
 answers the same question in 0.4 s when the switch is there.
 """
 from __future__ import annotations
+import novel_manga.application.review.entity_extraction as cast_entity_extraction
 
 import os
 
@@ -142,7 +143,7 @@ def test_the_bibles_questions_go_to_the_judge_whatever_endpoint_plans(monkeypatc
         return {"characters": []}
     monkeypatch.setattr(review_bible.model_client, "ask_json", fake_ask)
     with using_endpoint("flashnext"):
-        review_bible.extract_names("席勒站在讲台后。")
+        cast_entity_extraction.extract_names("席勒站在讲台后。")
     assert asked["settings"] is not None
     assert asked["settings"].model == "Qwen3.8-27B-Project"
 

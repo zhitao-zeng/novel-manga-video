@@ -1,3 +1,5 @@
+import novel_manga.application.review.entity_extraction as cast_entity_extraction
+import novel_manga.application.identity.volume_context as cast_volume_context
 """Review requests frozen at extraction, with explicit shot-context additions on 2026-09-27.
 
 Only model calls and frame extraction are replaced. Real card encoding, evidence
@@ -46,13 +48,13 @@ def test_review_requests_match_before_extraction(tmp_path, monkeypatch):
         (novel/'profile.json').write_text(json.dumps({'review_mode':mode}))
         (novel/'chat_screen.json').write_text(json.dumps({'render':screen,'group_name':'同门'}))
         judges.judge_clip(clip,ep/'fake.mp4',bible,{'院内':'白天'},'给你',work)
-      book.extract_names('甲将物品交给乙。');book.extract_locations('甲在院内。',['院内'])
+      cast_entity_extraction.extract_names('甲将物品交给乙。');cast_entity_extraction.extract_locations('甲在院内。',['院内'])
       judges.judge_character_cards(bible.characters[0],[ep/'frame.jpg'])
       judges.judge_location_card('院内','白天',ep/'frame.jpg')
       judges.script_check({'prompt':'主要事件是掌心裂开一张嘴。\n','segment_ids':['s1']},{'defect_issue':'掌心有嘴'},{'s1':'掌心裂开一张嘴。'})
       judges.instruction_for('丙替甲递物品','甲递物品','甲将物品交给乙。')
       (novel/'recap.json').write_text(json.dumps([{'chapter':1,'summary':'甲递物品'}]))
-      book.summarize_volume(novel,1,2)
+      cast_volume_context.summarize_volume(novel,1,2)
     expected = json.loads((Path(__file__).parent / "fixtures/review_requests_before.json").read_text())
     assert calls == expected
 

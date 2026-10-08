@@ -1,3 +1,5 @@
+import novel_manga.application.review.entity_extraction as cast_entity_extraction
+import novel_manga.application.identity.bible_growth as cast_bible_growth
 """The whole chain in one run, with the outside world stubbed: read (extract) → bible grows →
 card built (fake provider) → plan schema names the prop → packing seats its reference."""
 import json
@@ -20,14 +22,14 @@ def test_prop_chain_end_to_end(tmp_path, monkeypatch):
                                         encoding="utf-8")
 
     # 1) 读书：提取一路走到 bible.props 与生长记录（模型外部调用 stub）
-    monkeypatch.setattr(review_bible, "extract_names", lambda text: [])
-    monkeypatch.setattr(review_bible, "extract_locations", lambda text, known: [])
+    monkeypatch.setattr(cast_entity_extraction, "extract_names", lambda text: [])
+    monkeypatch.setattr(cast_entity_extraction, "extract_locations", lambda text, known: [])
     def fake_extract(text, known_props, known_names):
         return [{"name": "青铜短剑", "category": "武器", "appearance": "剑身泛青、蟠螭纹",
                  "material": "青铜", "owner": "莱恩", "quote": "抽出那柄青铜短剑",
                  "closeup": True, "wearable": False}]
-    monkeypatch.setattr(review_bible, "extract_props", fake_extract)
-    result = review_bible.grow_bible(novel, "他抽出那柄青铜短剑。", 1)
+    monkeypatch.setattr(cast_entity_extraction, "extract_props", fake_extract)
+    result = cast_bible_growth.grow_bible(novel, "他抽出那柄青铜短剑。", 1)
     assert result["props"] == ["青铜短剑"]
     bible = StoryBible.model_validate_json((novel / "story_bible.json").read_text(encoding="utf-8"))
     assert bible.props[0].closeup is True
