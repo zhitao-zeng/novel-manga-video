@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 
 from novel_manga.application.configuration import pipeline_config
+from novel_manga.application.episode_paths import book_directories, episode_directories, episode_selector, resolve_episode
+from novel_manga.episodes import episode_order
 
 MEDIA_TYPES = {".mp4": "video/mp4", ".jpeg": "image/jpeg", ".jpg": "image/jpeg",
                ".png": "image/png", ".webp": "image/webp",
@@ -21,7 +23,7 @@ MEDIA_TYPES = {".mp4": "video/mp4", ".jpeg": "image/jpeg", ".jpg": "image/jpeg",
 
 TEXT_CAP = 400_000      # a text artifact larger than this is cut, with its full size noted
 LOG_TAIL = 200          # log files ship their last lines, not the whole run
-BOOK_ID = re.compile(r"[A-Za-z0-9._-]+")
+BOOK_ID = re.compile(r"[A-Za-z0-9._:-]+")
 
 _cache: dict = {}
 _cache_lock = threading.Lock()
@@ -69,21 +71,17 @@ def book_dir(root, book_id: str) -> Path:
     """The outputs directory of a discovered book; anything else is not addressed by these pages."""
     if not BOOK_ID.fullmatch(book_id):
         raise KeyError(book_id)
-    directory = Path(root) / "outputs" / book_id
+    segments = book_id.split(":")
+    if any(part in {"", ".", ".."} for part in segments):
+        raise KeyError(book_id)
+    directory = Path(root) / "outputs" / Path(*segments)
     if not (directory / "profile.json").is_file():
         raise KeyError(book_id)
     return directory
 
 
 def _episode_dirs(directory: Path) -> list[Path]:
-    try:
-        with os.scandir(directory) as entries:
-            return sorted((Path(e.path) for e in entries if e.is_dir()
-                           and e.name.startswith(directory.name + "_")
-                           and e.name.rsplit("_", 1)[-1].isdigit()),
-                          key=lambda p: int(p.name.rsplit("_", 1)[-1]))
-    except OSError:
-        return []
+    return sorted(episode_directories(directory), key=lambda p: episode_order(p.name))
 
 
 def books(root) -> dict:
@@ -95,15 +93,11 @@ def books(root) -> dict:
     titles = {n["id"]: n.get("title", n["id"]) for n in configured}
     outputs = root / "outputs"
     rows = []
-    try:
-        with os.scandir(outputs) as entries:
-            dirs = sorted(Path(e.path) for e in entries if e.is_dir() and not e.name.startswith("_"))
-    except OSError:
-        dirs = []
+    dirs = book_directories(outputs)
     for directory in dirs:
         if not (directory / "profile.json").is_file():
             continue
-        book_id = directory.name
+        book_id = ":".join(directory.relative_to(outputs).parts)
         profile = _read_json(directory / "profile.json") or {}
         novel = _read_json(directory / "novel.json") or {}
         delivery = _read_json(directory / "delivery.json") or {}
@@ -133,7 +127,7 @@ def episodes(root, book_id: str) -> dict:
                     names = {e.name for e in entries}
             except OSError:
                 continue
-            number = int(episode_dir.name.rsplit("_", 1)[-1])
+            number = episode_selector(episode_dir.name)
             rows.append({
                 "episode": number,
                 "video": f"{episode_dir.name}.mp4" in names,
@@ -191,10 +185,9 @@ def _agent_storyboard(directory: Path) -> dict | None:
     return result
 
 
-def episode(root, book_id: str, number: int) -> dict:
-    directory = book_dir(root, book_id) / f"{book_id}_{number}"
-    if not directory.is_dir():
-        raise KeyError(number)
+def episode(root, book_id: str, number: int | str) -> dict:
+    directory = resolve_episode(book_dir(root, book_id), number)
+    number = episode_selector(directory.name)
     name = directory.name
     profile = _read_json(directory.parent / "profile.json") or {}
     plan = _read_json(directory / "clip_plan.json")
@@ -387,18 +380,18 @@ def recent(root, limit: int = 50) -> dict:
     def build():
         rows = []
         for book in books(root)["books"]:
-            directory = root / "outputs" / book["id"]
+            directory = book_dir(root, book["id"])
             for episode_dir in _episode_dirs(directory):
                 try:
                     mtime = episode_dir.stat().st_mtime
                 except OSError:
                     continue
                 rows.append({"book": book["id"], "title": book["title"], "mtime": mtime,
-                             "episode": int(episode_dir.name.rsplit("_", 1)[-1])})
+                             "episode": episode_selector(episode_dir.name)})
         rows.sort(key=lambda r: r["mtime"], reverse=True)
         shown = rows[:limit]
         for row in shown:
-            directory = root / "outputs" / row["book"] / f"{row['book']}_{row['episode']}"
+            directory = resolve_episode(book_dir(root, row["book"]), row["episode"])
             report = _read_json(directory / "chapter_script_report.json") or {}
             qc = _read_json(directory / "media_qc_report.json") or {}
             review = _read_json(directory / "episode_review.json") or {}
@@ -437,14 +430,14 @@ def health(root, book_id: str) -> dict:
         from novel_manga.application.dashboard import config as dconfig
         from novel_manga.application.dashboard import inventory
         from novel_manga.application.dashboard.store import scan_book
-        keys = dconfig._lane_keys().get(book_id, [])
+        keys = dconfig._lane_keys().get(directory.name, [])
         h3_lane = bool(keys) and all(k.get("base_url") for k in keys)
         scan = scan_book(directory)
         rows = []
         for episode_dir in _episode_dirs(directory):
             state = inventory._episode_state(episode_dir, h3_lane, scan=scan)
             rows.append({
-                "episode": int(episode_dir.name.rsplit("_", 1)[-1]),
+                "episode": episode_selector(episode_dir.name),
                 "status": state["status"], "review": state["review"],
                 "blocked": state["blocked"], "runs": state["runs"],
                 "reason": inventory.attention_reason(state, h3_lane),
