@@ -25,6 +25,15 @@ PHANROUTER_DEFAULT_BASE = "https://cloud.phanthy.com/phanrouter"
 VIDEO_TASKS_PATH = "/api/v3/contents/generations/tasks"
 IMAGE_GENERATIONS_PATH = "/v3/images/generations"
 ASR_MODEL_FILES = ("model.int8.onnx", "tokens.txt")  # what thin_asr_segments.py loads
+# The dead section of .env.example: names only, never values.
+DEPRECATED_ENV_VARS = {
+    "NOVEL_TTS_COMMAND": "old TTS backend; final audio is native dialogue",
+    "NOVEL_VOICE_MAP_JSON": "old TTS voice map; died with NOVEL_TTS_COMMAND",
+    "NOVEL_LLM_BASE_URL": "retired endpoint 127.0.0.1:18012",
+    "NOVEL_LLM_API_KEY": "paired with the retired NOVEL_LLM_BASE_URL",
+    "NOVEL_LLM_MODEL": "paired with the retired NOVEL_LLM_BASE_URL",
+    "PHANROUTER_SD25_KEY": "sd2.5 pilot key slot; PHANROUTER_API_KEY is the live one",
+}
 
 
 def _host(url: str) -> str:
@@ -166,16 +175,38 @@ def _asr_check(env):
     return {"name": name, "ok": True, "detail": f"NOVEL_SENSEVOICE_MODEL_DIR {raw}"}
 
 
+def _env_manifest_check(dotenv):
+    """Names only: deprecated variables in .env are reported, values never are."""
+    name = "env:manifest"
+    if not dotenv.is_file():
+        return {"name": name, "ok": True, "detail": f"{dotenv} absent"}
+    dead = set()
+    for line in dotenv.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key = line.split("=", 1)[0].strip().removeprefix("export ").strip()
+        if key in DEPRECATED_ENV_VARS:
+            dead.add(key)
+    if not dead:
+        return {"name": name, "ok": True, "detail": ".env names all live"}
+    listed = ", ".join(f"{key} ({DEPRECATED_ENV_VARS[key]})" for key in sorted(dead))
+    return {"name": name, "ok": False, "detail": f"deprecated in .env: {listed}"}
+
+
 def run_doctor(novel_dir, *, client=None, environ=None, timeout=TIMEOUT_SECONDS):
     """Probe every external service one episode run depends on; novel_dir anchors the run.
 
     Returns {"ok": bool, "checks": [{"name", "ok", "detail"}]}.  environ defaults to the
     project environment (process variables with the project .env as defaults), the same
-    view thin_asr_segments.py reads.
+    view thin_asr_segments.py reads.  The env_manifest row is advisory: deprecated names
+    are reported but never turn the report red.
     """
     env = environment(project_root()) if environ is None else dict(environ)
     checks = [*_text_checks(env, client, timeout),
               *_phanrouter_checks(env, client, timeout),
               *_local_image_checks(env, client, timeout),
               _asr_check(env)]
-    return {"ok": all(row["ok"] for row in checks), "checks": checks}
+    ok = all(row["ok"] for row in checks)
+    checks.append(_env_manifest_check(project_root() / ".env"))
+    return {"ok": ok, "checks": checks}

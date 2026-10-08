@@ -88,7 +88,7 @@ def test_every_check_green_means_ok(tmp_path):
     assert report["ok"] is True
     assert set(by_name(report)) == {
         "text:qwen38_local[0]", "text:qwen38_local[1]", "text:flashnext", "text:deepseek",
-        "video:phanrouter_key", "image:phanrouter_key", "asr:model_dir"}
+        "video:phanrouter_key", "image:phanrouter_key", "asr:model_dir", "env:manifest"}
     assert all(row["ok"] for row in report["checks"])
 
 
@@ -190,6 +190,35 @@ def test_asr_model_dir_must_hold_the_loaded_files(tmp_path):
     report = doctor.run_doctor(tmp_path, client=client_for(alive_routes()), environ=env)
     row = by_name(report)["asr:model_dir"]
     assert row["ok"] is False and row["detail"] == "NOVEL_SENSEVOICE_MODEL_DIR not set"
+
+
+def test_deprecated_env_names_are_flagged_without_blocking(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOVEL_PROJECT_ROOT", str(tmp_path))
+    (tmp_path / ".env").write_text(
+        "NOVEL_TTS_COMMAND=fake-old-tts-value\n"
+        "PHANROUTER_SD25_KEY=fake-old-key-value\n"
+        "PHANROUTER_API_KEY=placeholder\n"
+        "# NOVEL_VOICE_MAP_JSON=commented-out stays quiet\n",
+        encoding="utf-8")
+    report = doctor.run_doctor(tmp_path, client=client_for(alive_routes()),
+                               environ=base_env(make_model_dir(tmp_path)))
+    row = by_name(report)["env:manifest"]
+    assert row["ok"] is False
+    assert "NOVEL_TTS_COMMAND" in row["detail"] and "PHANROUTER_SD25_KEY" in row["detail"]
+    assert "NOVEL_VOICE_MAP_JSON" not in row["detail"]  # commented lines are not set
+    assert "fake-old-tts-value" not in row["detail"]  # values are never reported
+    assert "fake-old-key-value" not in row["detail"]
+    assert report["ok"] is True  # advisory: deprecated names never block
+
+
+def test_env_manifest_stays_quiet_without_deprecated_names(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOVEL_PROJECT_ROOT", str(tmp_path))
+    (tmp_path / ".env").write_text("PHANROUTER_API_KEY=placeholder\n", encoding="utf-8")
+    report = doctor.run_doctor(tmp_path, client=client_for(alive_routes()),
+                               environ=base_env(make_model_dir(tmp_path)))
+    row = by_name(report)["env:manifest"]
+    assert row["ok"] is True and "deprecated" not in row["detail"]
+    assert "placeholder" not in row["detail"]
 
 
 def test_dispatch_accepts_the_doctor_action(tmp_path, monkeypatch):
