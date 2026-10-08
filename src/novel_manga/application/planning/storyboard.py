@@ -4,7 +4,7 @@ import json
 
 from novel_manga.planning.storyboard import read_workbook, import_script, fidelity_report, render_import
 from novel_manga.util import atomic_write_json
-from novel_manga.application.planning.flow import PlanningInputError
+from novel_manga.application.planning.errors import PlanningInputError
 
 
 def run(args) -> int:

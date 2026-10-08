@@ -11,7 +11,8 @@ from novel_manga.application.profiles import style_names
 from novel_manga.util import load_dotenv
 from novel_manga.planning.context import PlannerContext
 from novel_manga.application.planning.requests import qwen_default
-from novel_manga.application.planning.flow import run, PlanningInputError
+from novel_manga.application.planning.flow import run
+from novel_manga.application.planning.errors import PlanningInputError
 from novel_manga.planning.methods import METHODS
 
 def planner_endpoint():
