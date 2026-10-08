@@ -10,7 +10,7 @@ from novel_manga.story import lean_reading as lean
 from novel_manga.story.reading_facts import (
     apply_known_facts, facts_for_name, facts_from_export, merge_character_facts,
 )
-import scripts.lean_bible_thin as thin
+from novel_manga.application.planning import lean_bible as thin
 
 
 SCAR = "他的脸一直到胸脯上都是一块斑驳的疤痕，容貌丑陋到了极点。"

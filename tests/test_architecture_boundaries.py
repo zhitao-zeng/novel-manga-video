@@ -5,6 +5,10 @@ from pathlib import Path
 
 def test_production_dependencies_have_no_cycles_or_upward_rule_imports():
     root = Path(__file__).resolve().parents[1]
+    for command in (root / 'scripts').glob('*_thin.py'):
+        tree = ast.parse(command.read_text())
+        assert not any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                       for node in ast.walk(tree)), command
     source = root / 'src'
     modules = {}
     for path in (source / 'novel_manga').rglob('*.py'):

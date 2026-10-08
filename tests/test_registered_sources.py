@@ -3,7 +3,7 @@ from pathlib import Path
 from docx import Document
 from novel_manga.ingest import read_novel, chapter_table
 from novel_manga.planning.authored_brief import chapter_text
-from scripts.lean_bible_thin import chapter_texts
+from novel_manga.application.planning.lean_bible import chapter_texts
 from novel_manga.splitting import split_episodes, visible_count
 from novel_manga.planning import parts
 from novel_manga.application.planning.parts import _prompt
