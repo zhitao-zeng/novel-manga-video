@@ -1,33 +1,11 @@
 #!/usr/bin/env python3
-"""Thin media runner: clip_plan.json -> assets -> Seedance 2.5 clips -> ASR -> episode.
-
-  1. build series assets only up to the highest character/location the clips
-     reference (asset ids follow StoryBible order, so ids stay stable)
-  2. one Seedance request per clip: official-layout prompt + ordered reference images
-  3. per clip: native audio, speech chunking (ffmpeg silencedetect), SenseVoice ASR
-     per chunk, protected-name correction, hard gate (voice energy, CER <= 0.5),
-     one regeneration on failure
-  4. subtitles from ASR chunks, normalise to 1080x1920/25fps, crossfade join,
-     ASS burn-in, loudnorm; cover and ending cards from real frames; media QC
-Every remote task keeps its .task.json sidecar and every step skips work whose
-output already exists, so a rerun resumes instead of paying again.
-"""
 from __future__ import annotations
-from novel_manga.media import generation
-from novel_manga.application.configuration import project_root
+from . import requests, submission, clip_analysis, cached_takes
+from .setup import create_context
 from novel_manga.media import retries as clip_retries
 import novel_manga.application.rendering.attempt as clip_attempts
-from novel_manga.media.issues import QualityIssue
-import novel_manga.media.asset_inspection as asset_inspection
 import novel_manga.media.asset_repair as asset_repair
 
-import json
-import copy
-import os
-import re
-import shlex
-import sys
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -35,31 +13,16 @@ from pathlib import Path
 
 from novel_manga.config import Settings
 from novel_manga.models.bible import StoryBible
-from novel_manga.story.dialogue import rewritten_dialogue
-from novel_manga.media.common import log, reference_digests
-from novel_manga.media.adapters import FramedPhanRouter, FramedLocalH3
-from novel_manga.media.asset_builder import FramedAssetFactory
-from novel_manga.media.asset_inspection import cards_sheet
-from novel_manga.media.asset_records import load_privacy_ok, record_privacy_ok
-from novel_manga.media.asset_repair import wait_for_inflight_redraws
+from novel_manga.media.common import log
+from novel_manga.media.asset_records import record_privacy_ok
 from novel_manga.media import assets as media_assets
-from novel_manga.media.asset_style import AssetStyle, image_backend
-from novel_manga.media.context import RenderContext, ClipResult, AssemblyResult
-from novel_manga.media.resources import acquire_inflight_slot, release_inflight_slot
-from novel_manga.media.policy import COMPLIANCE_SUFFIX, INPUT_TEXT_MARKER, PRIVACY_MARKER, MAX_ATTEMPTS_FREE, OUTPUT_MODERATION_MARKERS, PRESCREEN_RISK, RETRY_SUFFIX, RETRY_SUFFIX_H3, SUBMIT_BACKOFF_SECONDS
-from novel_manga.media.subtitles import MIN_LINE_SIMILARITY
-from novel_manga.media import policy as media_policy
-from novel_manga.media import generation, cache, postprocess, subtitles
-from novel_manga.media import analysis as media_analysis
-from novel_manga.media.postprocess import BatchRenderer
-from novel_manga.media.cache import CacheMiss
-from novel_manga.media.policy import takes_past_cache, soften_prompt, resubmittable
+from novel_manga.media.results import ClipResult, AssemblyResult
+from novel_manga.media import cache, postprocess
 from novel_manga.qc import inspect_media
-from novel_manga.util import atomic_write_json, media_duration
+from novel_manga.util import atomic_write_json
 import novel_manga.application.rendering.moderation as moderation_repair
-from dataclasses import replace as dc_replace
 
-from novel_manga.application.profiles import effective_profile, frame_spec, h3_prompt_fingerprint, load_genre, load_profile, load_style, plan_fingerprint, styled_bible
+from novel_manga.application.profiles import h3_prompt_fingerprint, plan_fingerprint
 from novel_manga.application.profiles import MAX_HOLD_SECONDS, media_qc_ignores
 
 POLICY = "thin-media-v22-coverage-gate"
@@ -73,7 +36,7 @@ CHAT_HISTORY_EPISODES = 3   # how far back to look for them
 MAX_CER = 0.5          # kept in the report; no longer gates
 
 
-PLAN_WRITE_LOCK = threading.Lock()
+
 # An English prompt (local H3) gets its retake note in English: H3 speaks what is written in Chinese, and
 # read the note above out as dialogue - 雾月 58, 59, 97, 1262 and 1736 kept such takes.
 
@@ -81,428 +44,64 @@ PLAN_WRITE_LOCK = threading.Lock()
 FEEDBACK_FILE = "review_feedback.json"  # {clip_id: 导演修正}, written by the automatic episode review
 
 
-def lexicon_aliases() -> dict[str, str]:
-    raw = os.getenv("NOVEL_ASR_PROTECTED_LEXICON_JSON", "{}")
-    try:
-        table = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    aliases: dict[str, str] = {}
-    if isinstance(table, dict):
-        for canonical, values in table.items():
-            if isinstance(values, list):
-                for alias in values:
-                    aliases[str(alias)] = str(canonical)
-    return aliases
 
 
-def prescreen_prompt(prompt: str) -> float:
-    """Ask the local Qwen whether the prompt is likely to trip the video service's
-    content filter (violence, gore, sexual content, gambling, drugs, politics)."""
-    try:
-        from novel_manga.llm.client import ask_json, obj
-        verdict = ask_json([{"type": "text", "text": (
-            "下面是一段给视频生成模型的提示词。判断它被平台内容审核拒绝的可能性（暴力打斗细节、血腥伤势、色情或挑逗台词、赌博、毒品、自残、敏感政治），"
-            "risk 为 0 到 1，reason 一句话。只输出JSON。\n\n" + prompt[:6000])}], obj({"risk": {"type": "number"}, "reason": {"type": "string"}}), name="prescreen", max_tokens=120)
-        return float(verdict.get("risk", 0.0))
-    except Exception as error:  # noqa: BLE001 - the prescreen is advisory
-        log(f"prescreen skipped ({type(error).__name__})")
-        return 0.0
 
 
 class ThinMediaRunner:
     def __init__(self, *, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False, moderation_repair: bool = True, cache_only: bool = False, retake_failed: bool = False):
-        self.context = RenderContext()
-        self.context.cache_only = cache_only  # rebuild from clips already rendered; never generate
-        self.context.novel_dir = novel_dir
-        self.context.source_novel_dir = Path(os.environ.get('NOVEL_SOURCE_NOVEL_DIR') or novel_dir)
-        self.context.inflight = inflight  # global cap on clips in flight across every runner of this novel (0 = none)
-        self.context.prescreen = prescreen
-        self.context.moderation_repair = moderation_repair
-        self.context.episode_dir = episode_dir
-        self.context.profile = copy.deepcopy(profile) if profile else load_profile(novel_dir)
-        # Named frame_spec: ``self.frame`` is the frame-extraction method.
-        self.context.frame_spec = dict(frame_spec(self.context.profile))
-        # Canvas follows the frame; everything downstream (mux scale/crop, ASS
-        # PlayRes, QC resolution) reads settings.width/height.
-        self.context.settings = dc_replace(settings, width=self.context.frame_spec["width"], height=self.context.frame_spec["height"])
-        self.context.bible = styled_bible(bible, self.context.profile, novel_dir) if (novel_dir / "profile.json").is_file() else bible
-        effective = effective_profile(self.context.profile)
-        self.context.fast = effective["resolution"] == "480p"  # legacy alias for media/assets.py
-        self.context.expressions = effective["expressions"]
-        genre = load_genre(self.context.profile)
-        self.context.asset_style = AssetStyle.for_genre(genre, frame_text=self.context.frame_spec["text"],
-                                                        style=load_style(self.context.profile, novel_dir),
-                                                        backend=image_backend(self.context.settings))
-        self.context.softening_rules = [*media_policy.SOFTEN, *((re.compile(pattern), replacement) for pattern, replacement in genre.get('soften', []))]
-        self.context.voice_budget = generation.voice_budget_seconds()
-        self.context._workers_arg = workers  # resolved after clip_plan is loaded (0 = one slot per clip)
-        # Every tier gets a second attempt, but only when the first one failed
-        # the speech gate (the retry loop runs on gate failures alone): a line
-        # the model did not speak costs the line and its subtitles.
-        self.context.max_attempts = max_attempts
-        # On a free lane (local H3) a clip whose cached takes all failed gets fresh ones on a later run,
-        # not the same verdict again (process_clip); a paid lane leaves further takes to a person.
-        self.context.free_retries = takes_past_cache(self.context.settings, retake_failed, cache_only)
-        resolution = effective["resolution"]
-        local = self.context.settings.local_h3_base_url
-        self.context.provider = (FramedLocalH3(self.context.settings, self.context.frame_spec, local, resolution=resolution)
-                         if local else FramedPhanRouter(self.context.settings, self.context.frame_spec, resolution=resolution))
-        from novel_manga.application.rendering import probe
-        self.context.provider.before_video_submit = lambda: probe.check_before_submit(self.context)
-        self.context.provider.prompt_aliases = {str(k): str(v) for k, v in (self.context.profile.get("prompt_aliases") or {}).items()}
-        self.context.renderer = BatchRenderer(self.context.settings)
-        self.context.work = episode_dir / "work"
-        self.context.work.mkdir(parents=True, exist_ok=True)
-        chat_screen_path = novel_dir / "chat_screen.json"
-        self.context.chat_screen = json.loads(chat_screen_path.read_text(encoding="utf-8")) if chat_screen_path.is_file() else {}
-        self.context.clip_plan = json.loads((episode_dir / "clip_plan.json").read_text(encoding="utf-8"))
-        self.context.script = json.loads((episode_dir / "chapter_script.json").read_text(encoding="utf-8"))
-        video_clips = [c for c in self.context.clip_plan["clips"] if c["kind"] == "video"]
-        self.context.workers = self.context._workers_arg if self.context._workers_arg > 0 else max(1, len(video_clips))  # no second wave
-        # Director corrections from the automatic episode review stay part of the
-        # episode's state: they change the prompt (hence the cache key) of the
-        # clips they name, so a corrected clip is regenerated exactly once.
-        feedback_path = episode_dir / FEEDBACK_FILE
-        self.context.feedback = json.loads(feedback_path.read_text(encoding="utf-8")) if feedback_path.is_file() else {}
-        from novel_manga.application.repair.history import load as repair_history_load, generation_counts, generation_limit
-        history_record=repair_history_load(episode_dir)
-        counts=generation_counts(episode_dir, history_record)
-        managed={cid for trial in history_record.get('trials',[]) if trial.get('managed')
-                 and trial['expected_plan']==plan_fingerprint(self.context.clip_plan)
-                 and trial['expected_notes']==self.context.feedback for cid in trial['clips']}
-        from novel_manga.util import read_json
-        grants = read_json(episode_dir / 'repair_budget_grants.json', {}) if managed else {}
-        self.context._managed_remaining={cid:max(0,generation_limit(episode_dir,cid,grants=grants)-counts.get(cid,0)) for cid in managed}
-        technical_path = episode_dir / "technical_repair.json"
-        self.context.black_checks = set(json.loads(technical_path.read_text()).get("black_clips", [])) if technical_path.is_file() else set()
-        self.context.speech_checks = set(json.loads(technical_path.read_text()).get("speech_clips", [])) if technical_path.is_file() else set()
-        asr_command = os.environ.get("NOVEL_ASR_COMMAND", "")
-        self.context.asr_python = shlex.split(asr_command)[0] if asr_command else sys.executable
-        self.context.asr_helper = (project_root() / 'scripts') / "thin_asr_segments.py"
-        self.context.protected_terms = list(dict.fromkeys([
-            *(c.name for c in bible.characters), *(l.split("：", 1)[0] for l in bible.locations),
-            *(name for prop in bible.props for name in (prop.name, *prop.aliases))]))
-        self.context.aliases = lexicon_aliases()
-        alias_path = novel_dir / 'asr_aliases.json'
-        if alias_path.is_file():
-            self.context.aliases.update(json.loads(alias_path.read_text()))
+        self.context = create_context(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings,
+            bible=bible, workers=workers, max_attempts=max_attempts, profile=profile,
+            inflight=inflight, prescreen=prescreen, moderation_repair=moderation_repair,
+            cache_only=cache_only, retake_failed=retake_failed)
 
     # ---- assets ----
     def build_assets(self, clips=None):
         return media_assets.build_assets(self.context, clips)
 
     def save_clip_plan(self) -> None:
-        """Write the plan back without the runner's own bookkeeping keys."""
-        with PLAN_WRITE_LOCK:
-            plan = {**self.context.clip_plan, "clips": [{k: v for k, v in clip.items() if not k.startswith("_")} for clip in self.context.clip_plan["clips"]]}
-            atomic_write_json(self.context.episode_dir / "clip_plan.json", plan)
+        return requests.save_clip_plan(self.context)
 
     def repair_refused_prompt(self, clip: dict, attempt: int) -> bool:
-        """Rewrite a prompt the text filter refuses, verified before it is paid for."""
-        def assemble(base: str) -> str:
-            saved = clip["prompt"]
-            clip["prompt"] = base
-            try:
-                return self.clip_prompt(clip) + self.retry_suffix(clip, attempt) + (COMPLIANCE_SUFFIX if clip.get("_compliance") else "")
-            finally:
-                clip["prompt"] = saved
-
-        # A guest character may be renamed to get past the filter (the card binding
-        # is by image index, so the picture does not change), but the series leads
-        # may not: their names run through every episode's plan and review.
-        leads = tuple(c.name for c in self.context.bible.characters if str(getattr(c, "role", "")) in {"主角", "女主角", "男主角"})
-        repaired = moderation_repair.repair(
-            clip["prompt"], self.context.settings, assemble=assemble, protect=leads,
-            log=lambda message: log(f"{clip['clip_id']}: {message}"))
-        if not repaired:
-            return False
-        text, line_edits = repaired
-        clip.setdefault("prompt_before_repair", clip["prompt"])
-        clip["prompt"] = text
-        # Subtitles, speech evaluation and H3 bindings must describe the same accepted words.
-        clip.update(rewritten_dialogue(clip, line_edits))
-        if line_edits:
-            log(f"{clip['clip_id']}: repaired lines {[e['new'] for e in line_edits]}")
-        # The plan is the cache key of a clip: keeping the accepted wording there
-        # means a later run reuses this video instead of paying for it again.
-        self.save_clip_plan()
-        return True
+        return requests.repair_refused_prompt(self.context, clip, attempt)
 
     # ---- one clip ----
 
 
     def retry_suffix(self, clip: dict, attempt: int) -> str:
-        return generation.retry_suffix(self.context, clip, attempt)
+        return requests.retry_suffix(self.context, clip, attempt)
 
     def english_correction_for_new_take(self, clip: dict) -> bool:
-        """Keep old passed caches; a new corrected H3 take must use its English version."""
-        note = str(self.context.feedback.get(clip['clip_id']) or '').strip()
-        if not self.context.settings.local_h3_base_url or not note:
-            return False
-        from novel_manga.application.profiles import h3_prompt_outdated
-        if h3_prompt_outdated(clip, note):
-            raise RuntimeError('H3 correction needs a current English translation before generating a new take')
-        if generation.uses_h3_prompt(self.context, clip):
-            return False
-        clip.pop('prompt_h3_skip', None)
-        self.save_clip_plan()
-        return True
+        return requests.english_correction_for_new_take(self.context, clip)
 
 
     def cached_take(self, clip: dict, attempt: int) -> bool:
         return cache.cached_take(self.context, clip, attempt)
 
     def correct_speech_request(self, clip: dict, analysis: dict) -> bool:
-        """One corrected request within the existing take limit, never a blind seed retry."""
-        from novel_manga.media.speech_repair import correction, merge_note
-        from novel_manga.application.rendering.h3 import convert
-        from novel_manga.application.profiles import h3_prompt_outdated
-        from novel_manga.story.h3 import request_issues
-        old_note = str(self.context.feedback.get(clip['clip_id']) or '')
-        note = merge_note(old_note, correction(clip, analysis))
-        if not note or note == old_note:
-            return False
-        candidate = copy.deepcopy(clip)
-        convert(candidate, note=note)
-        if (h3_prompt_outdated(candidate, note, strict=True) or request_issues(candidate)
-                or candidate.get('prompt_h3') == clip.get('prompt_h3')):
-            return False
-        with PLAN_WRITE_LOCK:
-            before_plan = copy.deepcopy(self.context.clip_plan)
-            before_notes = dict(self.context.feedback)
-            clip.update(candidate)
-            self.context.feedback[clip['clip_id']] = note
-            atomic_write_json(self.context.episode_dir / FEEDBACK_FILE, self.context.feedback)
-            from novel_manga.application.repair.history import refresh_prepared_plan
-            refresh_prepared_plan(self.context.episode_dir, before_plan, self.context.clip_plan, before_notes, after_notes=self.context.feedback)
-        self.save_clip_plan()
-        log(f"{clip['clip_id']}: extra speech; corrected the English request before the next take")
-        return True
+        return requests.correct_speech_request(self.context, clip, analysis)
 
     def approved_cached_take(self, clip: dict) -> dict | None:
-        """Reuse proof from an existing take, never issue a new over-budget request."""
-        from novel_manga.application.profiles import h3_prompt_outdated
-        if self.context.settings.local_h3_base_url and h3_prompt_outdated(clip, str(self.context.feedback.get(clip["clip_id"], ""))):
-            return None
-        for path in sorted((self.context.work / "clips" / clip["clip_id"]).glob("attempt_*/asr.json")):
-            try:
-                record = json.loads(path.read_text(encoding="utf-8"))
-                attempt = int(path.parent.name.split("_")[-1])
-                if self.cached_take(clip, attempt):
-                    record = self.recheck_speech(clip, record, path.with_name('clip.mp4'))
-                    record = self.check_clip_black(clip, record, path.with_name("clip.mp4"))
-                    if record["passed"]:
-                        return {**record, "clip_id": clip["clip_id"], "video": str(path.with_name("clip.mp4"))}
-            except (OSError, ValueError):
-                continue
-        return None
+        return cached_takes.approved_cached_take(self.context, clip)
 
     def prescreens(self, clip: dict) -> bool:
-        """Whether the clip's wording is scored for content-filter risk, and softened, before its first submission.
-        Not an English (H3) prompt: the local model has no filter to get past, and the softening - Chinese
-        substitutions and a Chinese compliance paragraph - rewrote its <d> lines and was read out as dialogue (雾月,
-        2026-09-11/12: 329 clips in finals carried it, 30 of them audibly)."""
-        return (self.context.prescreen and not self.context.cache_only and not generation.uses_h3_prompt(self.context, clip)
-                and not clip.get("_softened") and not clip.get("_prescreened"))
+        return requests.prescreens(self.context, clip)
 
     def clip_prompt(self, clip: dict) -> str:
-        return generation.clip_prompt(self.context, clip)
+        return requests.clip_prompt(self.context, clip)
 
 
     def generate_clip(self, clip: dict, attempt: int) -> Path:
-        preparation_started = time.monotonic()
-        if not self.context.cache_only:
-            from novel_manga.application.preparation.readiness import reference_issues
-            reasons = getattr(self.context, "_blocked_clips", {}).get(clip["clip_id"], []) or reference_issues(clip, self.context.novel_dir)
-            if reasons:
-                if not hasattr(self.context, "_blocked_clips"):
-                    self.context._blocked_clips = {}
-                self.context._blocked_clips[clip["clip_id"]] = reasons
-                raise RuntimeError("request blocked before generation: " + "; ".join(reasons))
-        clip["_generated"] = False  # set once a new video is actually made: process_clip counts only those
-        directory = self.context.work / "clips" / clip["clip_id"] / f"attempt_{attempt:02d}"
-        directory.mkdir(parents=True, exist_ok=True)
-        output = directory / "clip.mp4"
-        episode_dir = self.context.work.parent
-        request, references, digests, retry = generation.build_request(self.context, clip, attempt)
-        prompt = request['prompt']
-        import novel_manga.application.repair.history as repair_history
-        cached = cache.current_video(self.context, clip, attempt, directory, references, digests, repair_history)
-        if cached is not None:
-            if not self.context.cache_only:
-                repair_history.complete_generation(episode_dir, clip['clip_id'], cached)
-            return cached
-        if getattr(self.context, 'first_pass_only', False):
-            from novel_manga.application.preparation.store import unfilmed_video_clips
-            if clip['clip_id'] not in unfilmed_video_clips(episode_dir, {'clips': [clip]}):
-                raise ValueError('first pass defers retakes of existing video to the repair queue')
-        if self.prescreens(clip):
-            clip["_prescreened"] = True
-            risk = prescreen_prompt(prompt)
-            if risk >= PRESCREEN_RISK:
-                clip["_softened"] = True
-                log(f"{clip['clip_id']}: prescreen risk {risk:.2f}; softening the wording before the first submission")
-                prompt = self.clip_prompt(clip) + retry
-                request["prompt"] = prompt
-        # Earlier runs (or the pre-v11 privacy retry) may hold the matching video
-        # under another attempt directory; use it rather than paying again.
-        cached = cache.other_video(self.context, clip, attempt, directory, references, digests)
-        if cached is not None:
-            if not self.context.cache_only:
-                repair_history.complete_generation(episode_dir, clip['clip_id'], cached)
-            return cached
-        if self.context.cache_only:
-            raise CacheMiss(f"{clip['clip_id']} attempt {attempt}: not in the cache")
-        if self.english_correction_for_new_take(clip):
-            return self.generate_clip(clip, attempt)
-        if self.context.settings.local_h3_base_url and not self.context.cache_only:
-            # About to submit a NEW request on an H3 lane: the caches above did not hold.  Two ways
-            # to submit the wrong words - clip_base falls back to the Chinese prompt when there is
-            # no current English one (H3 then recites stage directions as dialogue), or uses an
-            # English one made from an earlier Chinese prompt (a re-pack or a new correction).  The
-            # correction gate above only guarded takes that carried a note; this closes the gap for
-            # every entry point.  Old passed caches never reach here - they returned above.
-            from novel_manga.application.profiles import h3_prompt_outdated
-            note = str(self.context.feedback.get(clip['clip_id']) or '').strip()
-            if not generation.uses_h3_prompt(self.context, clip) or h3_prompt_outdated(clip, note, strict=True):
-                why = ('no English prompt yet' if not clip.get('prompt_h3')
-                       else 'prompt_h3_skip is set on a clip that has no matching cache to reuse'
-                       if clip.get('prompt_h3_skip')
-                       else 'its English prompt predates the current Chinese one (re-packed or re-corrected)')
-                raise RuntimeError(f"{clip['clip_id']}: H3 lane cannot submit a new request from stale words ({why}); "
-                                   "run scripts/build_h3_prompts.py for this chapter first")
-        if generation.uses_h3_prompt(self.context, clip):
-            from novel_manga.story.h3 import request_issues
-            contradictions = request_issues(clip)
-            if contradictions:
-                if not hasattr(self.context, '_blocked_clips'):
-                    self.context._blocked_clips={}
-                self.context._blocked_clips[clip['clip_id']]=['request: '+issue for issue in contradictions]
-                raise ValueError('H3 request needs identity repair: '+'; '.join(contradictions))
-        remaining=getattr(self.context, '_managed_remaining',{}).get(clip['clip_id'])
-        needs_extra = remaining is not None and remaining <= 0
-        if needs_extra and not repair_history.extra_take_ready(episode_dir, clip['clip_id']):
-            if repair_history.conditional_extra(episode_dir, clip['clip_id']):
-                raise ValueError('extra take requires a validated edit/input/retake and remaining authorization; '
-                                 'a risk-only acceptance does not activate it')
-            raise ValueError('effective clip retry budget used; current cached take retained')
-        wait_for_inflight_redraws(references)
-        if getattr(self.context, 'prepared_requests_only', False):
-            request, references, digests, retry = generation.build_request(self.context, clip, attempt)
-        if generation.uses_h3_prompt(self.context, clip):
-            from novel_manga.application.preparation.request_check import before_generation
-            before_generation(self.context, clip, request)
-        if needs_extra:
-            if not generation.uses_h3_prompt(self.context, clip) or not repair_history.activate_extra_take(episode_dir, clip['clip_id']):
-                raise ValueError('reviewed extra-take authorization unavailable after input preflight')
-            self.context._managed_remaining[clip['clip_id']] = max(0, repair_history.generation_limit(
-                episode_dir, clip['clip_id']) - repair_history.generation_counts(episode_dir).get(clip['clip_id'], 0))
-        task_path = output.with_suffix(output.suffix + ".task.json")
-        from novel_manga.util import read_json
-        prior_task = read_json(task_path, {}).get('task_id')
-        request = repair_history.generation_request(episode_dir, output, request,
-            expected_plan=plan_fingerprint(self.context.clip_plan), expected_notes=self.context.feedback)
-        atomic_write_json(directory / "request.json", request)
-        log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
-        started = time.monotonic()
-        slot = acquire_inflight_slot(self.context.novel_dir, self.context.inflight)
-        admitted = time.monotonic()
-        timings = {'started_at': time.time()-(admitted-preparation_started),
-                   'preparation_s': round(started-preparation_started, 3),
-                   'admission_wait_s': round(admitted-started, 3)}
-        try:
-          for wait in (*SUBMIT_BACKOFF_SECONDS, None):
-            try:
-                generation.submit(self.context, clip, request, output, references)
-                break
-            except RuntimeError as error:
-                # Throttled at submission (higher --parallel): wait and resubmit
-                # instead of failing the clip; content errors propagate at once.
-                # An unconfirmed submission may already be a paid task: never resent from here.
-                if wait is None or not resubmittable(error):
-                    raise
-                log(f"{clip['clip_id']} attempt {attempt}: video service throttled or H3 pool full ({str(error)[:80]}); retrying in {wait}s")
-                time.sleep(wait)
-        finally:
-            release_inflight_slot(slot)
-            receipt = read_json(task_path, {})
-            timings.update(provider_elapsed_s=round(time.monotonic()-admitted, 3),
-                           video_present=output.is_file(),
-                           provider=receipt.get('resume_timing') or receipt.get('client_timing') or {},
-                           service=receipt.get('service_timing') or {})
-            atomic_write_json(directory/'generation-timing.json', timings)
-        # A resumed task may have used an older sampler than today's target.
-        # generation.submit retained its actual parameters without changing ownership.
-        atomic_write_json(directory / 'request.json', request)
-        current_task = read_json(task_path, {}).get('task_id')
-        owner = request.get(repair_history.GENERATION_FIELD) or {}
-        if current_task and current_task != prior_task and (not owner or owner.get('take')):
-            # The provider discarded an old legacy task and really submitted a
-            # new one. That new task belongs to the current managed trial.
-            request = repair_history.generation_request(episode_dir, output, request,
-                expected_plan=plan_fingerprint(self.context.clip_plan), expected_notes=self.context.feedback, fresh_task=True)
-            atomic_write_json(directory / "request.json", request)
-        clip["_generated"] = not (prior_task and current_task == prior_task
-                                   and not request.get(repair_history.GENERATION_FIELD))
-        seconds = media_duration(output)
-        completion = repair_history.complete_generation(episode_dir, clip['clip_id'], output, duration=seconds)
-        if remaining is not None:
-            if completion is not None:
-                counts = repair_history.generation_counts(episode_dir)
-                self.context._managed_remaining[clip['clip_id']] = max(0, repair_history.generation_limit(
-                    episode_dir, clip['clip_id']) - counts.get(clip['clip_id'], 0))
-            elif clip['_generated']:
-                self.context._managed_remaining[clip['clip_id']]-=1
-        finished = time.monotonic()
-        log(f"{clip['clip_id']} attempt {attempt}: video ready in {finished - started:.0f}s "
-            f"(admission {timings['admission_wait_s']:.0f}s, "
-            f"instance wait {timings['provider'].get('pool_wait_s', 0):.0f}s, "
-            f"provider {timings['provider_elapsed_s']:.0f}s, {seconds:.1f}s long)")
-        return output
+        return submission.generate_clip(self.context, clip, attempt)
 
     def analyse_clip(self, clip: dict, video: Path) -> dict:
-        from novel_manga.application.profiles import speech_gate_result
-        from novel_manga.story.voice_delivery import postmixed, visual_request
-        sampling = cache.sampling_report(self.context, video)
-        if postmixed(clip):
-            visual = visual_request(clip)
-            raw = media_analysis.analyse_clip(self.context, visual, video)
-            raw = self.check_clip_black(visual, raw, video)
-            if not raw['passed']:
-                return {**raw, **sampling}
-            from novel_manga.media.inner_voice import mix
-            mixed = mix(self.context, clip, video)
-            final = media_analysis.analyse_clip(self.context, clip, mixed)
-            return {**speech_gate_result(self.context.novel_dir, final, self.context.episode_dir),
-                    **sampling, 'video': str(video), 'postmix_video': str(mixed), 'audio_source': 'postmixed_inner_voice'}
-        raw = media_analysis.analyse_clip(self.context, clip, video)
-        return {**speech_gate_result(self.context.novel_dir, self.check_clip_black(clip, self.recheck_speech(clip, raw, video), video), self.context.episode_dir),
-                **sampling}
+        return clip_analysis.analyse_clip(self.context, clip, video)
 
     def recheck_speech(self, clip: dict, analysis: dict, video: Path) -> dict:
-        return media_analysis.recheck_speech(self.context, clip, analysis, video)
+        return clip_analysis.recheck_speech(self.context, clip, analysis, video)
 
     def check_clip_black(self, clip: dict, analysis: dict, video: Path) -> dict:
-        """Targeted black-frame recovery must reject a black take before assembly."""
-        if clip['clip_id'] not in getattr(self.context, 'black_checks', set()) or analysis.get('black_check_policy') == 3:
-            return analysis
-        from novel_manga.application.repair.recovery import black_ranges, brighten_dark_scene
-        ranges = black_ranges(video, 0.2)
-        # Use the same one-second threshold as final-media QC.
-        issues = [issue for issue in analysis.get('issues') or [] if issue != QualityIssue.BLACK_FRAMES.code]
-        exposure = False
-        if ranges and any(end - start >= 1.0 for start, end in ranges):
-            exposure = brighten_dark_scene(video, [(a,b) for a,b in ranges if b-a >= 1.0], self.context.episode_dir, clip['clip_id'])
-            if exposure:
-                ranges = []
-                log(f"{clip['clip_id']}: restored detail in an underexposed scene; original archived, audio unchanged")
-        if any(end - start >= 1.0 for start, end in ranges):
-            issues.append(QualityIssue.BLACK_FRAMES.code)
-        result = {**analysis, 'black_checked': True, 'black_check_policy': 3, 'black_ranges': ranges, 'issues': issues, 'passed': not issues,
-                  **({'exposure_gamma': 1.6} if exposure else {})}
-        atomic_write_json(video.parent / 'asr.json', result)
-        return result
+        return clip_analysis.check_clip_black(self.context, clip, analysis, video)
 
     def repair_rejected_reference(self, clip: dict, index: int) -> list[str]:
         return asset_repair.repair_rejected_reference(self.context, clip, index)
@@ -519,7 +118,7 @@ class ThinMediaRunner:
         rendered.  Any other failure is reported per clip instead of taking
         the whole episode down; the clips in flight still finish and cache.
         """
-        if getattr(self.context, 'first_pass_only', False):
+        if self.context.options.first_pass_only:
             from novel_manga.application.preparation.store import clip_video
             existing = clip_video(self.context.episode_dir, clip['clip_id'])
             if existing is not None:
@@ -527,18 +126,18 @@ class ThinMediaRunner:
                 # claiming that this deferred old take passes the current inputs.
                 return {'clip_id': clip['clip_id'], 'attempts': [], 'review_deferred': True,
                         'selected': {'video': str(existing), 'passed': False}}
-            selected = getattr(self.context, 'first_pass_clips', None)
+            selected = self.context.options.first_pass_clips
             if selected is not None and clip['clip_id'] not in selected:
                 return {'clip_id': clip['clip_id'], 'attempts': [], 'preparation_deferred': True,
                         'selected': None}
-        cached = getattr(self.context, "_approved_cached", {}).get(clip["clip_id"])
-        if not self.context.cache_only and clip["clip_id"] in getattr(self.context, "_blocked_clips", {}):
-            reasons = self.context._blocked_clips[clip["clip_id"]]
+        cached = self.context.state.approved_cached.get(clip["clip_id"])
+        if not self.context.options.cache_only and clip["clip_id"] in self.context.state.blocked_clips:
+            reasons = self.context.state.blocked_clips[clip["clip_id"]]
             log(f"{clip['clip_id']}: waiting for plan/assets: {'; '.join(reasons)}")
             return {"clip_id": clip["clip_id"], "attempts": [], "selected": None,
                     "error": "request blocked before generation", "blocked": reasons}
         attempts: list[dict] = []
-        state = clip_retries.RetryState(attempt=1, limit=self.context.max_attempts)
+        state = clip_retries.RetryState(attempt=1, limit=self.context.options.max_attempts)
         try:
             from novel_manga.story.voice_delivery import postmixed
             if postmixed(clip):
@@ -563,8 +162,8 @@ class ThinMediaRunner:
             while state.attempt <= state.limit:
                 outcome = clip_attempts.generate_attempt(self, clip, state.attempt)
                 if outcome.error is not None:
-                    steps = clip_retries.recovery_steps(outcome.error, clip, state,
-                                                       moderation_repair=self.context.moderation_repair)
+                    steps = clip_retries.recovery_steps(outcome.error, self.context.state.clip(clip['clip_id']), state,
+                                                       moderation_repair=self.context.options.moderation_repair)
                     retry = False
                     for step in steps:
                         if clip_attempts.apply_recovery(self, clip, state, step):
@@ -575,10 +174,10 @@ class ThinMediaRunner:
                     raise outcome.error
                 video = outcome.video
                 analysis = self.analyse_clip(clip, video)
-                analysis = {**analysis, "generated_this_run": bool(clip.get("_generated", False))}
-                if not hasattr(self.context, "_ok_assets"):
-                    self.context._ok_assets = set()
-                self.context._ok_assets.update(ref["path"] for ref in clip.get("references", []))
+                analysis = {**analysis, "generated_this_run": bool((self.context.state.clip(clip['clip_id']).generated if self.context.state.clip(clip['clip_id']).generated is not None else False))}
+                if not hasattr(self.context.state, 'ok_assets'):
+                    self.context.state.ok_assets = set()
+                self.context.state.ok_assets.update(ref["path"] for ref in clip.get("references", []))
                 record_privacy_ok(self.context.novel_dir, (ref["path"] for ref in clip.get("references", []) if ref.get("role") != "voice"))
                 attempts.append(analysis)
                 log(f"{clip['clip_id']} attempt {state.attempt}: cer={analysis['cer']} peak={analysis['max_volume_db']} dB issues={analysis['issues']}")
@@ -588,11 +187,11 @@ class ThinMediaRunner:
                     log(f"{clip['clip_id']}: deferring failed take to the repair agent; no inner quality retry")
                     break
                 decision = clip_retries.after_analysis(state, analysis,
-                    generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries,
+                    generated=bool((self.context.state.clip(clip['clip_id']).generated if self.context.state.clip(clip['clip_id']).generated is not None else True)), free_retries=self.context.options.free_retries,
                     local_h3=bool(self.context.settings.local_h3_base_url))
                 if decision.action == 'check_cache':
                     decision = clip_retries.after_analysis(state, analysis,
-                        generated=bool(clip.get('_generated', True)), free_retries=self.context.free_retries,
+                        generated=bool((self.context.state.clip(clip['clip_id']).generated if self.context.state.clip(clip['clip_id']).generated is not None else True)), free_retries=self.context.options.free_retries,
                         next_cached=self.cached_take(clip, state.attempt + 1),
                         local_h3=bool(self.context.settings.local_h3_base_url))
                 if decision.action == 'correct_request' and not self.correct_speech_request(clip, analysis):
@@ -638,27 +237,27 @@ class ThinMediaRunner:
     def run(self, *, assemble: bool = True) -> dict:
         started = time.monotonic()
         clips = [clip for clip in self.context.clip_plan["clips"] if clip["kind"] == "video"]
-        self.context._blocked_clips = {}
-        self.context._approved_cached = {}
-        if not self.context.cache_only:  # cached clips need no cards built (and none redrawn)
+        self.context.state.blocked_clips = {}
+        self.context.state.approved_cached = {}
+        if not self.context.options.cache_only:  # cached clips need no cards built (and none redrawn)
             from novel_manga.application.preparation.readiness import plan_issues, reference_issues, render_risk_report, worn_reference_pairs
             from novel_manga.application.preparation.wearer_cards import check_references
-            self.context._blocked_clips = plan_issues(self.context.clip_plan, self.context.script)
+            self.context.state.blocked_clips = plan_issues(self.context.clip_plan, self.context.script)
             for clip in clips:
-                reasons = self.context._blocked_clips.get(clip["clip_id"])
+                reasons = self.context.state.blocked_clips.get(clip["clip_id"])
                 if reasons and all(r.startswith("duration:") for r in reasons):
                     cached = self.approved_cached_take(clip)
                     if cached:
-                        self.context._approved_cached[clip["clip_id"]] = cached
-                        self.context._blocked_clips.pop(clip["clip_id"])
-            eligible = [clip for clip in clips if clip["clip_id"] not in self.context._blocked_clips and clip["clip_id"] not in self.context._approved_cached]
-            if getattr(self.context, 'first_pass_only', False):
+                        self.context.state.approved_cached[clip["clip_id"]] = cached
+                        self.context.state.blocked_clips.pop(clip["clip_id"])
+            eligible = [clip for clip in clips if clip["clip_id"] not in self.context.state.blocked_clips and clip["clip_id"] not in self.context.state.approved_cached]
+            if self.context.options.first_pass_only:
                 from novel_manga.application.preparation.store import unfilmed_video_clips
                 pending = unfilmed_video_clips(self.context.episode_dir, self.context.clip_plan)
-                if self.context.first_pass_clips is not None:
-                    pending &= self.context.first_pass_clips
+                if self.context.options.first_pass_clips is not None:
+                    pending &= self.context.options.first_pass_clips
                 eligible = [clip for clip in eligible if clip['clip_id'] in pending]
-            if eligible and not self.context.prepared_requests_only:
+            if eligible and not self.context.options.prepared_requests_only:
                 try:
                     self.build_assets(clips=eligible)
                 except (RuntimeError, TimeoutError, OSError) as error:
@@ -668,27 +267,27 @@ class ThinMediaRunner:
             for clip in eligible:
                 missing = reference_issues(clip, self.context.novel_dir)
                 if missing:
-                    self.context._blocked_clips[clip["clip_id"]] = missing
-            ready = [clip for clip in eligible if clip['clip_id'] not in self.context._blocked_clips]
+                    self.context.state.blocked_clips[clip["clip_id"]] = missing
+            ready = [clip for clip in eligible if clip['clip_id'] not in self.context.state.blocked_clips]
             # Inspect the final, available images once. Asset declarations are
             # inputs for selection, not proof that the current picture matches.
-            if not self.context.prepared_requests_only:
+            if not self.context.options.prepared_requests_only:
                 check_references(self.context.novel_dir, worn_reference_pairs({'clips': ready}, self.context.script))
             for cid, reasons in render_risk_report(self.context.episode_dir, self.context.clip_plan).items():
-                if cid not in self.context._approved_cached:
-                    self.context._blocked_clips.setdefault(cid, []).extend(reasons)
-        with ThreadPoolExecutor(max_workers=self.context.workers) as pool:
+                if cid not in self.context.state.approved_cached:
+                    self.context.state.blocked_clips.setdefault(cid, []).extend(reasons)
+        with ThreadPoolExecutor(max_workers=self.context.options.workers) as pool:
             results = list(pool.map(self.process_clip, clips))
         errored = [r["clip_id"] for r in results if r.get("error") or not r.get("selected")]
         failed = [r["clip_id"] for r in results if r.get("selected") and not r["selected"]["passed"]]
-        if self.context.cache_only and errored:
+        if self.context.options.cache_only and errored:
             # Nothing is written: the episode keeps the report and final it had.
             log(f"cache-only: {len(errored)} clip(s) not in the cache ({', '.join(errored)}); episode left as it was")
             return {"status": "cache_miss", "elapsed_seconds": round(time.monotonic() - started, 1), "failed_clips": errored,
                     "gate_failed_clips": failed, "assembly": None, "clips": results}
-        if not self.context.cache_only:
+        if not self.context.options.cache_only:
             from novel_manga.application.preparation.readiness import save_check
-            save_check(self.context.episode_dir, self.context.clip_plan, self.context._blocked_clips)
+            save_check(self.context.episode_dir, self.context.clip_plan, self.context.state.blocked_clips)
         report = {
             "policy": POLICY, "episode": self.context.episode_dir.name,
             # Batch drivers compare this with the current clip_plan.json to tell
@@ -698,7 +297,7 @@ class ThinMediaRunner:
             "prompt_h3_fingerprint": h3_prompt_fingerprint(self.context.clip_plan) if self.context.settings.local_h3_base_url else None,
             "review_feedback": self.context.feedback,
             "clips": results, "failed_clips": errored, "gate_failed_clips": failed,
-            "blocked_clips": self.context._blocked_clips,
+            "blocked_clips": self.context.state.blocked_clips,
         }
         if errored:
             log(f"{len(errored)} clip(s) have no video ({', '.join(errored)}); episode not assembled, re-run to retry only those")

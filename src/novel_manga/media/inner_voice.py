@@ -85,11 +85,11 @@ def prepare(ctx, clip):
         raise RuntimeError('后期心声需要现有 Demucs 人声分离环境，尚未配置')
     source = ctx.novel_dir / info['source_audio'] if info.get('source_audio') else cached_recording(ctx, clip)
     generated = 0
-    if source is None and ctx.cache_only:
+    if source is None and ctx.options.cache_only:
         raise RuntimeError('cache-only: 缺少可复用的独立心声录音')
     if source is None:
         audio_clip = voice_clip(clip)
-        for attempt in range(1, ctx.max_attempts + 1):
+        for attempt in range(1, ctx.options.max_attempts + 1):
             take = directory / f'voice_take_{attempt:02d}'; take.mkdir(exist_ok=True)
             description = ('<Subject 1> faces the camera against a plain, uncluttered background and speaks '
                            'the bound lines quietly and evenly. The mouth follows only those lines.')

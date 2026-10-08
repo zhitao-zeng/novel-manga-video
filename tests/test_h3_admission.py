@@ -1,3 +1,5 @@
+from novel_manga.media import generation as owner_generation
+import novel_manga.application.rendering.submission as owner_submission
 """The H3 admission gate: a local-H3 lane never submits a NEW request from the Chinese prompt.
 
 Every entry point used to share one gap: english_correction_for_new_take guarded only takes that
@@ -39,7 +41,7 @@ def runner_for(tmp_path, monkeypatch, clip, *, plan=None):
     r.context.episode_dir, r.context.novel_dir = directory, directory.parent
     r.context.work = directory / "work"
     r.context.clip_plan, r.context.script, r.context.feedback = plan, {"shots": []}, {}
-    r.context.cache_only, r.context.max_attempts = False, 1
+    r.context.options.cache_only, r.context.options.max_attempts = False, 1
     r.context.settings = SimpleNamespace(local_h3_base_url="http://h3.local")
     monkeypatch.setattr(r, "prescreens", lambda c: False)
     return r
@@ -115,9 +117,9 @@ def test_current_translation_still_submits(tmp_path, monkeypatch):
         def __exit__(self, *exc):
             return False
 
-    monkeypatch.setattr(rendering, "wait_for_inflight_redraws", lambda refs: None)
-    monkeypatch.setattr(rendering, "acquire_inflight_slot", lambda *a, **kw: Slot())
-    monkeypatch.setattr(rendering.generation, "submit",
+    monkeypatch.setattr(owner_submission, "wait_for_inflight_redraws", lambda refs: None)
+    monkeypatch.setattr(owner_submission, "acquire_inflight_slot", lambda *a, **kw: Slot())
+    monkeypatch.setattr(owner_generation, "submit",
                         lambda ctx, clip, request, output, refs: submitted.append(request))
     monkeypatch.setattr(rendering.time, "sleep", lambda s: None)
     try:
@@ -134,9 +136,9 @@ def test_current_translation_still_submits(tmp_path, monkeypatch):
         def __exit__(self, *exc):
             return False
 
-    monkeypatch.setattr(rendering, "wait_for_inflight_redraws", lambda refs: None)
-    monkeypatch.setattr(rendering, "acquire_inflight_slot", lambda *a, **kw: Slot())
-    monkeypatch.setattr(rendering.generation, "submit",
+    monkeypatch.setattr(owner_submission, "wait_for_inflight_redraws", lambda refs: None)
+    monkeypatch.setattr(owner_submission, "acquire_inflight_slot", lambda *a, **kw: Slot())
+    monkeypatch.setattr(owner_generation, "submit",
                         lambda ctx, clip, request, output, refs: submitted.append(request))
     monkeypatch.setattr(rendering.time, "sleep", lambda s: None)
     try:
@@ -170,11 +172,11 @@ def test_wrong_reference_request_is_blocked_before_video_slot_or_attempt_charge(
     monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k:
                         {'observations': ['参考衣着与请求不符'], 'findings': [{'basis': 'reference', 'aspect': 'appearance',
                           'picture': 1, 'lines': [1], 'subject_specific': True, 'relation': 'contradiction', 'reason': '图1是马甲，请求写西装'}]})
-    monkeypatch.setattr(rendering, 'acquire_inflight_slot', lambda *a, **k: pytest.fail('must not use a video slot'))
-    monkeypatch.setattr(rendering, 'wait_for_inflight_redraws', lambda *a: None)
+    monkeypatch.setattr(owner_submission, 'acquire_inflight_slot', lambda *a, **k: pytest.fail('must not use a video slot'))
+    monkeypatch.setattr(owner_submission, 'wait_for_inflight_redraws', lambda *a: None)
     with pytest.raises(ValueError, match='reference mismatch'):
         r.generate_clip(clip, 1)
-    assert clip['_generated'] is False and r.context._blocked_clips['clip_01']
+    assert r.context.state.clip(clip['clip_id']).generated is False and r.context.state.blocked_clips['clip_01']
 
 
 def _outdated(clip) -> bool:

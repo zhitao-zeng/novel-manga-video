@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """Episode doctor: liveness is measured with minimal real probes, never a listing.
 
 Everything rides httpx.MockTransport; conftest fails any test that touches a
@@ -226,7 +227,7 @@ def test_dispatch_accepts_the_doctor_action(tmp_path, monkeypatch):
     run.mkdir()
     episode_dir = tmp_path / "book" / "book_1"
     episode_dir.mkdir(parents=True)
-    ctx = SimpleNamespace(novel_dir=tmp_path / "book", run_dir=run, episode_dir=episode_dir)
+    ctx = SimpleNamespace(novel_dir=tmp_path / 'book', run_dir=run, episode_dir=episode_dir)
     calls = []
 
     def fake_run_doctor(novel_dir):

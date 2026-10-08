@@ -8,6 +8,7 @@ import httpx
 import pytest
 import novel_manga.application.packing.assets as packing
 import novel_manga.application.rendering.flow as flow
+from novel_manga.application.rendering import requests as render_requests
 from novel_manga.story.h3 import request_issues
 from novel_manga.config import Settings
 from novel_manga.media.adapters import FramedPhanRouter
@@ -31,7 +32,7 @@ def test_moderation_edit_updates_persisted_dialogue_fields(monkeypatch):
     clip = {'clip_id': 'clip_01', 'prompt': '旧提示', 'lines': [{'speaker_name': '甲', 'text': '原来台词'}],
             'spoken_text': '原来台词', 'dialogue_bindings': [{'stage': 1, 'speaker_name': '甲', 'text': '原来台词'}]}
     saved = []
-    runner.save_clip_plan = lambda: saved.append(copy.deepcopy(clip))
+    monkeypatch.setattr(render_requests, "save_clip_plan", lambda ctx: saved.append(copy.deepcopy(clip)))
     monkeypatch.setattr(flow.moderation_repair, 'repair', lambda *a, **k:
                         ('新提示', [{'old': '原来台词', 'new': '新的对白'}]))
     assert runner.repair_refused_prompt(clip, 2)

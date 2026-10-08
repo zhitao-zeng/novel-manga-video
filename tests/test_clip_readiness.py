@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 import novel_manga.application.production.render as production_render
 
 from support.render_context import uninitialized_runner
@@ -62,7 +63,7 @@ def runner_for(episode, monkeypatch):
     r.context.episode_dir, r.context.novel_dir = directory, directory.parent
     r.context.work = directory / "work"
     r.context.clip_plan, r.context.script, r.context.feedback = plan, script, {}
-    r.context.cache_only, r.context.max_attempts, r.context.free_retries, r.context.workers = False, 1, False, 2
+    r.context.options.cache_only, r.context.options.max_attempts, r.context.options.free_retries, r.context.options.workers = False, 1, False, 2
     r.context.settings = SimpleNamespace(local_h3_base_url="")
     requested = []
     monkeypatch.setattr(r, "build_assets", lambda **kw: None)
@@ -121,7 +122,7 @@ def test_reused_passed_video_restores_pruned_audio_before_assembly(episode, monk
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(video)], check=True)
     record = {"passed": True, "video": str(video), "cer": 0, "max_volume_db": -5, "issues": []}
     (attempt / "asr.json").write_text(json.dumps(record))
-    r.context._approved_cached = {"clip_01": record}
+    r.context.state.approved_cached = {"clip_01": record}
     monkeypatch.setattr(r, "analyse_clip", rendering.ThinMediaRunner.analyse_clip.__get__(r))
     result = r.process_clip(plan["clips"][0])
     assert result["selected"]["passed"] and not requested
@@ -150,7 +151,7 @@ def batch_for(episode):
     batch.episode_dir = lambda n: directory
     batch.render_status = lambda n: episode_status(directory, False)
     batch.rows, batch.expressions, batch.reviewing = {1: {}}, True, False
-    batch.args = SimpleNamespace(cache_only=False, no_render=False, dry_run=False, rerender=False, retake_failed=False)
+    batch.args = SimpleNamespace(no_render=False, dry_run=False, rerender=False, retake_failed=False, cache_only=False)
     return batch
 
 
@@ -198,7 +199,7 @@ def test_plan_or_script_change_releases_a_waiting_request(episode):
 
 def test_last_submission_boundary_refuses_a_missing_image_before_touching_cache(tmp_path):
     r = uninitialized_runner()
-    r.context.cache_only, r.context.novel_dir = False, tmp_path
+    r.context.options.cache_only, r.context.novel_dir = False, tmp_path
     c = clip()
     c["references"] = [{"role": "character", "path": "missing.jpeg"}]
     with pytest.raises(RuntimeError, match="blocked before generation"):

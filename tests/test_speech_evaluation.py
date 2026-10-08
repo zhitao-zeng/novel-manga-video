@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 import copy
 import json
 from pathlib import Path
@@ -17,7 +18,7 @@ from novel_manga.runtime_backends import correct_protected_lexicon
 def test_confirmed_wordless_detection_keeps_asr_calls_and_thresholds(tmp_path, monkeypatch, reference, heard, level, issues):
     video = tmp_path / 'clip.mp4'; video.write_bytes(b'video')
     (tmp_path / 'native.wav').write_bytes(b'audio')
-    ctx = SimpleNamespace(asr_python='test-python', asr_helper='test-asr', protected_terms=[], aliases={})
+    ctx = RenderContext(asr_python='test-python', asr_helper='test-asr', protected_terms=[], aliases={})
     monkeypatch.setattr(analysis, 'media_duration', lambda *a: 10)
     monkeypatch.setattr(analysis, 'audio_levels', lambda *a: (level, level))
     calls = []

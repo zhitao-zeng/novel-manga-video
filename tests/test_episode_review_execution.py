@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 import copy
 import json
 from types import SimpleNamespace
@@ -102,7 +103,7 @@ def test_cache_miss_does_not_even_adopt_old_history_or_start_review(tmp_path, mo
     atomic_write_json(tmp_path / 'thin_media_report.json', media)
     before = {p: p.read_bytes() for p in tmp_path.rglob('*.json')}
     monkeypatch.setattr(reviewed, '_review', forbid)
-    ctx = SimpleNamespace(episode_dir=tmp_path, clip_plan=plan, cache_only=True)
+    ctx = RenderContext(episode_dir=tmp_path, clip_plan=plan, options=RenderOptions(cache_only=True))
     result = reviewed.run(SimpleNamespace(context=ctx, run=lambda: {'status': 'cache_miss'}))
     assert result['quality_review']['passed'] is False
     assert before == {p: p.read_bytes() for p in tmp_path.rglob('*.json')}
@@ -118,7 +119,7 @@ def test_source_acceptance_without_new_render_uses_the_published_verdict(tmp_pat
         atomic_write_json(tmp_path / 'episode_review.json', passed)
         return {'changed': [], 'accepted': ['a'], 'skip_render': True}
     monkeypatch.setattr(reviewed.managed, 'prepare', prepare)
-    ctx = SimpleNamespace(episode_dir=tmp_path, clip_plan=plan, cache_only=False)
+    ctx = RenderContext(episode_dir=tmp_path, clip_plan=plan, options=RenderOptions(cache_only=False))
     result = reviewed.run(SimpleNamespace(context=ctx, run=forbid), repair_existing=True)
     assert result['quality_review']['passed']
     assert result['quality_review']['remaining'] == []
@@ -132,7 +133,7 @@ def test_full_cache_review_stops_without_repair_or_new_trials(tmp_path, monkeypa
     monkeypatch.setattr(reviewed.managed, 'candidates', lambda *a: (['a'], {}))
     monkeypatch.setattr(reviewed.managed, 'prepare', forbid)
     monkeypatch.setattr(reviewed.history, 'begin_trial', forbid)
-    ctx = SimpleNamespace(episode_dir=tmp_path, clip_plan=plan, cache_only=True)
+    ctx = RenderContext(episode_dir=tmp_path, clip_plan=plan, options=RenderOptions(cache_only=True))
     result = reviewed.run(SimpleNamespace(context=ctx, run=lambda: media))
     assert not result['quality_review']['passed']
     assert result['quality_review']['generated_counts'] == {'a': 2, 'b': 1}

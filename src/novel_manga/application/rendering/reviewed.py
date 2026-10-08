@@ -12,7 +12,7 @@ def _load_current(runner):
     ctx.script = read_json(ctx.episode_dir / 'chapter_script.json', {})
     ctx.feedback = read_json(ctx.episode_dir / 'review_feedback.json', {})
     counts = history.generation_counts(ctx.episode_dir)
-    ctx._managed_remaining = {c['clip_id']: max(0, managed.generation_limit(ctx.episode_dir, c['clip_id'])-counts.get(c['clip_id'],0))
+    ctx.state.remaining = {c['clip_id']: max(0, managed.generation_limit(ctx.episode_dir, c['clip_id'])-counts.get(c['clip_id'],0))
                               for c in ctx.clip_plan['clips'] if c.get('kind') == 'video'}
 
 
@@ -29,7 +29,7 @@ def run(runner, *, repair_existing=False):
         if (report.get('review_feedback') or {}) != read_json(directory / 'review_feedback.json', {}):
             raise ValueError('existing media predates these corrections; render --review first')
     else:
-        if not ctx.cache_only:
+        if not ctx.options.cache_only:
             history.adopt_reviewed_run(directory)
             ids = {c['clip_id'] for c in ctx.clip_plan['clips'] if c.get('kind') == 'video'}
             history.begin_trial(directory, ids, 'reviewed_render', after_plan=ctx.clip_plan, after_notes=ctx.feedback)
@@ -45,7 +45,7 @@ def run(runner, *, repair_existing=False):
     rounds, corrected, blocked = [], [], {}
     for _ in range(managed.MAX_GENERATED_TAKES):
         input_blocked = {}
-        if report.get('blocked_clips') and not ctx.cache_only:
+        if report.get('blocked_clips') and not ctx.options.cache_only:
             prepared_input = managed.prepare_request_conflicts(directory, report)
             input_blocked = prepared_input.get('blocked') or {}
             blocked = input_blocked
@@ -58,7 +58,7 @@ def run(runner, *, repair_existing=False):
                 continue
         eligible, blocked = managed.candidates(directory, review)
         blocked = {**input_blocked, **blocked}
-        if ctx.cache_only or not eligible:
+        if ctx.options.cache_only or not eligible:
             break
         prepared = managed.prepare(directory, eligible)
         rounds.append(prepared); blocked.update(prepared.get('blocked') or {})

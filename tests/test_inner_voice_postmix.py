@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 import copy
 import json
 from types import SimpleNamespace
@@ -36,7 +37,7 @@ def test_packing_preserves_thought_for_postmix_but_not_for_h3(tmp_path, monkeypa
 
 
 def test_cached_only_never_generates_a_missing_voice(tmp_path, monkeypatch):
-    ctx = SimpleNamespace(work=tmp_path, novel_dir=tmp_path, cache_only=True, voice_budget=15)
+    ctx = RenderContext(work=tmp_path, novel_dir=tmp_path, options=RenderOptions(cache_only=True, voice_budget=15))
     clip = {'clip_id': 'c', 'inner_voice': {'speaker': '林凡', 'text': '你好', 'voice_references': []}}
     monkeypatch.setattr(inner_voice, 'cached_recording', lambda *args: None)
     monkeypatch.setenv('NOVEL_DEMUCS_COMMAND', str(tmp_path / 'demucs'))

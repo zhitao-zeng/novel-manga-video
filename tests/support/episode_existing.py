@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from novel_manga.application.agents.episode.media_operations import MediaOperations
 """Prepared-script fixture shared by episode agent integration tests."""
 from pathlib import Path
@@ -18,10 +19,7 @@ def prepared(tmp_path, monkeypatch, *, old_english=True):
     (work / 'output').mkdir(parents=True)
     original = tmp_path / 'original/test-book_7'
     original.mkdir(parents=True)
-    ctx = SimpleNamespace(project_root=Path(__file__).resolve().parents[2],
-                          source_novel_dir=original.parent, source_episode_dir=original,
-                          run_dir=run, novel_dir=book, episode_dir=directory, work_dir=work,
-                          input_mode='script', target_seconds=120, clip_seconds_max=15)
+    ctx = SimpleNamespace(project_root=Path(__file__).resolve().parents[2], source_novel_dir=original.parent, source_episode_dir=original, run_dir=run, novel_dir=book, episode_dir=directory, work_dir=work, input_mode='script', target_seconds=120, clip_seconds_max=15)
     script, plan = contracts.adopt(episode(), catalog=CATALOG, source_segments=SOURCES, profile={})
     script['author_extra'] = {'approved': ['retain source and camera']}
     plan['original_bookkeeping'] = {'keep': True}
@@ -42,7 +40,7 @@ def prepared(tmp_path, monkeypatch, *, old_english=True):
 
     class Runner:
         def __init__(self):
-            self.context = SimpleNamespace(episode_dir=directory)
+            self.context = RenderContext(episode_dir=directory)
 
         def run(self, *, assemble=True):
             return {'status': 'assembled', 'clips': [], 'failed_clips': [],

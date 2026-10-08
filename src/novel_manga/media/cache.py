@@ -126,7 +126,7 @@ def current_video(ctx, clip, attempt, directory, references, digests, history):
         if request_matches(ctx, clip, saved, references, digests, video=output):
             log(f"{clip['clip_id']} attempt {attempt}: clip matches this request, skipping generation")
             return output
-        if ctx.cache_only:
+        if ctx.options.cache_only:
             # Looking at the cache must not change it: the clip stays where it is (a --prune after this run
             # deletes whatever was set aside).
             log(f"{clip['clip_id']} attempt {attempt}: the cached clip was made from another request (cache-only: left in place)")

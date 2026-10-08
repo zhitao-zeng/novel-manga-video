@@ -1,3 +1,5 @@
+import novel_manga.application.profiles as book_profiles
+from novel_manga.application.rendering import submission as render_submission
 import ast
 import copy
 import json
@@ -23,15 +25,15 @@ from support.render_context import media_runner as runner, video_clip as clip
 
 def test_first_pass_defers_unprepared_clip_before_model_or_video_work(tmp_path,monkeypatch):
     r=runner(tmp_path/'book',local='http://unused.invalid')
-    r.context.first_pass_only=True
-    r.context.first_pass_clips={'other'}
+    r.context.options.first_pass_only=True
+    r.context.options.first_pass_clips={'other'}
     monkeypatch.setattr(r,'generate_clip',lambda *a:pytest.fail('unprepared generation'))
     result=r.process_clip(clip())
     assert result['preparation_deferred'] and result['selected'] is None
 
 
 def test_alternating_operations_do_not_share_profiles_frame_or_mutable_state(tmp_path, monkeypatch):
-    monkeypatch.setattr(flow, 'load_genre', lambda profile: {
+    monkeypatch.setattr(book_profiles, 'load_genre', lambda profile: {
         'card_style_suffix_3d': 'A-style' if profile['frame'] == '16:9' else 'B-style',
         'location_policy': 'sparse' if profile['frame'] == '16:9' else 'empty',
         'soften': [['独有词', 'A']] if profile['frame'] == '16:9' else []})
@@ -43,8 +45,8 @@ def test_alternating_operations_do_not_share_profiles_frame_or_mutable_state(tmp
     assert b.context.asset_style.card_style_suffix_3d == 'B-style'
     assert len(a.context.softening_rules) == len(b.context.softening_rules) + 1
     b.context.feedback['a'] = '乙的新备注'
-    b.context._blocked_clips['a'] = ['missing image']
-    assert not a.context.feedback and not a.context._blocked_clips
+    b.context.state.blocked_clips['a'] = ['missing image']
+    assert not a.context.feedback and not a.context.state.blocked_clips
     assert build_request(a.context, clip(), 1)[0] == first
     assert first['seed_variant'] == 200
     assert 'seed_variant' not in build_request(b.context, clip(), 1)[0]
@@ -54,23 +56,23 @@ def test_alternating_operations_do_not_share_profiles_frame_or_mutable_state(tmp
 def test_slot_release_and_actual_generation_accounting(tmp_path, monkeypatch, outcome):
     r = runner(tmp_path / 'book'); submitted = []; slots = []
     token = object()
-    monkeypatch.setattr(flow, 'acquire_inflight_slot', lambda *a: slots.append('acquire') or token)
-    monkeypatch.setattr(flow, 'release_inflight_slot', lambda handle: slots.append('release') if handle is token else pytest.fail('wrong slot'))
-    monkeypatch.setattr(flow, 'media_duration', lambda path: 5)
+    monkeypatch.setattr(render_submission, 'acquire_inflight_slot', lambda *a: slots.append('acquire') or token)
+    monkeypatch.setattr(render_submission, 'release_inflight_slot', lambda handle: slots.append('release') if handle is token else pytest.fail('wrong slot'))
+    monkeypatch.setattr(render_submission, 'media_duration', lambda path: 5)
     def generate(prompt, image, output, **kwargs):
         submitted.append(kwargs)
         if outcome == 'uncertain': raise SubmissionUncertain('submission may already exist')
         if outcome == 'error': raise RuntimeError('terminal generation error')
         output.write_bytes(b'video'); return output
     r.context.provider = SimpleNamespace(create_video=generate)
-    r.context._managed_remaining = {'a': 1}
+    r.context.state.remaining = {'a': 1}
     item = clip()
     if outcome == 'success':
         r.generate_clip(item, 1)
-        assert item['_generated'] and r.context._managed_remaining['a'] == 0
+        assert r.context.state.clip(item['clip_id']).generated and r.context.state.remaining['a'] == 0
     else:
         with pytest.raises(RuntimeError): r.generate_clip(item, 1)
-        assert not item['_generated'] and r.context._managed_remaining['a'] == 1
+        assert not r.context.state.clip(item['clip_id']).generated and r.context.state.remaining['a'] == 1
     assert slots == ['acquire', 'release'] and len(submitted) == 1
     timing = json.loads((r.context.work/'clips/a/attempt_01/generation-timing.json').read_text())
     assert timing['video_present'] == (outcome == 'success')
@@ -79,7 +81,7 @@ def test_slot_release_and_actual_generation_accounting(tmp_path, monkeypatch, ou
 
 
 def test_cache_only_miss_does_not_touch_existing_movie_report_or_generator(tmp_path, monkeypatch):
-    r = runner(tmp_path / 'book'); r.context.cache_only = True
+    r = runner(tmp_path / 'book'); r.context.options.cache_only = True
     existing = r.context.episode_dir / 'existing.mp4'; existing.write_bytes(b'old movie')
     report = r.context.episode_dir / 'thin_media_report.json'; report.write_text('{"status":"assembled"}')
     r.context.clip_plan = {'clips': [clip()]}
@@ -93,7 +95,7 @@ def test_cache_only_miss_does_not_touch_existing_movie_report_or_generator(tmp_p
 
 def test_first_pass_cannot_submit_a_retake_even_when_old_take_no_longer_matches(tmp_path, monkeypatch):
     r = runner(tmp_path/'book')
-    r.context.first_pass_only = True
+    r.context.options.first_pass_only = True
     old = r.context.work/'clips/a/attempt_01/clip.mp4'
     old.parent.mkdir(parents=True); old.write_bytes(b'old take')
     monkeypatch.setattr(flow.cache, 'current_video', lambda *a: None)
@@ -104,7 +106,7 @@ def test_first_pass_cannot_submit_a_retake_even_when_old_take_no_longer_matches(
 
 
 def test_first_pass_leaves_existing_clip_audio_and_review_for_later(tmp_path, monkeypatch):
-    r = runner(tmp_path/'book'); r.context.first_pass_only = True
+    r = runner(tmp_path/'book'); r.context.options.first_pass_only = True
     old = r.context.work/'clips/a/attempt_01/clip.mp4'
     old.parent.mkdir(parents=True); old.write_bytes(b'existing first video')
     monkeypatch.setattr('novel_manga.story.voice_delivery.postmixed', lambda *a: True)
@@ -124,9 +126,9 @@ def test_first_pass_cli_uses_existing_take_history_and_never_assembles(tmp_path,
     atomic_write_json(directory/'chapter_script.json',{'shots':[]})
     history.save(directory,{'trials':[],'prior_generation_counts':{'clips':{'a':2}}})
     def generate(self,*,assemble=True):
-        assert assemble is False and self.context.first_pass_only
-        assert self.context.workers==1 and self.context.max_attempts==1
-        assert self.context._managed_remaining['a']==1
+        assert assemble is False and self.context.options.first_pass_only
+        assert self.context.options.workers==1 and self.context.options.max_attempts==1
+        assert self.context.state.remaining['a']==1
         p=directory/'work/clips/a/attempt_01/clip.mp4';p.parent.mkdir(parents=True);p.write_bytes(b'first available take')
         return {'status':'clips_ready','clips':[{'clip_id':'a','attempts':[],'selected':{'video':str(p),'passed':True}}],
             'failed_clips':[],'gate_failed_clips':[],'assembly':None,'elapsed_seconds':1}
@@ -142,7 +144,7 @@ def test_first_pass_cli_uses_existing_take_history_and_never_assembles(tmp_path,
 
 
 def test_clips_only_execution_persists_results_and_leaves_assembly_to_the_caller(tmp_path, monkeypatch):
-    r=runner(tmp_path/'book');r.context.cache_only=True
+    r=runner(tmp_path/'book');r.context.options.cache_only=True
     r.context.clip_plan={'clips':[clip()]}
     monkeypatch.setattr(r,'process_clip',lambda c:{'clip_id':c['clip_id'],
         'selected':{'video':'current.mp4','passed':False},'attempts':[]})

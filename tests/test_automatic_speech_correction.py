@@ -21,11 +21,11 @@ def test_correction_runs_before_second_take_and_does_not_add_a_third(tmp_path, m
     runner = uninitialized_runner(); ctx = runner.context
     ctx.episode_dir = tmp_path / 'book' / 'book_1'; ctx.episode_dir.mkdir(parents=True)
     ctx.novel_dir = ctx.episode_dir.parent; ctx.work = ctx.episode_dir / 'work'
-    ctx.settings = SimpleNamespace(local_h3_base_url='pool'); ctx.max_attempts = 2
-    ctx.free_retries = True
+    ctx.settings = SimpleNamespace(local_h3_base_url='pool'); ctx.options.max_attempts = 2
+    ctx.options.free_retries = True
     order = []
     def generate(clip, attempt):
-        order.append(('generate', attempt)); clip['_generated'] = True
+        order.append(('generate', attempt)); runner.context.state.clip(clip['clip_id']).generated = True
         return tmp_path / f'take{attempt}.mp4'
     monkeypatch.setattr(runner, 'generate_clip', generate)
     monkeypatch.setattr(runner, 'analyse_clip', lambda clip, video: {
@@ -69,11 +69,11 @@ def test_agent_backend_defers_first_failed_take_without_inner_retries(tmp_path, 
     runner = uninitialized_runner(); ctx = runner.context
     ctx.episode_dir = tmp_path/'book'/'book_1'; ctx.episode_dir.mkdir(parents=True)
     ctx.novel_dir = ctx.episode_dir.parent; ctx.work = ctx.episode_dir/'work'
-    ctx.settings = SimpleNamespace(local_h3_base_url='pool'); ctx.max_attempts = 2
-    ctx.free_retries = True; ctx.profile = {'repair_backend':'sandbox_agent'}
+    ctx.settings = SimpleNamespace(local_h3_base_url='pool'); ctx.options.max_attempts = 2
+    ctx.options.free_retries = True; ctx.profile = {'repair_backend':'sandbox_agent'}
     calls=[]
     def generate(clip,attempt):
-        calls.append(attempt);clip['_generated']=True;return tmp_path/f'{attempt}.mp4'
+        calls.append(attempt);runner.context.state.clip(clip['clip_id']).generated=True;return tmp_path/f'{attempt}.mp4'
     monkeypatch.setattr(runner,'generate_clip',generate)
     monkeypatch.setattr(runner,'analyse_clip',lambda *a:{'video':'v','passed':False,'cer':1.2,
                          'max_volume_db':-2,'issues':['excess_unplanned_speech']})

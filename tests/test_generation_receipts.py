@@ -1,3 +1,5 @@
+import novel_manga.application.rendering.submission as owner_submission
+from novel_manga.application.rendering import submission as render_submission
 import copy
 import json
 import subprocess
@@ -32,10 +34,10 @@ def episode(tmp_path, monkeypatch):
     (directory / 'clip_plan.json').write_text(json.dumps(plan))
     (directory / 'chapter_script.json').write_text('{"shots": []}')
     add_trial(directory, plan)
-    monkeypatch.setattr(flow, 'acquire_inflight_slot', lambda *a: object())
-    monkeypatch.setattr(flow, 'release_inflight_slot', lambda *a: None)
-    monkeypatch.setattr(flow, 'wait_for_inflight_redraws', lambda *a: None)
-    monkeypatch.setattr(flow, 'media_duration', lambda *a: 5.0)
+    monkeypatch.setattr(render_submission, 'acquire_inflight_slot', lambda *a: object())
+    monkeypatch.setattr(render_submission, 'release_inflight_slot', lambda *a: None)
+    monkeypatch.setattr(owner_submission, 'wait_for_inflight_redraws', lambda *a: None)
+    monkeypatch.setattr(render_submission, 'media_duration', lambda *a: 5.0)
     monkeypatch.setattr(flow, 'record_privacy_ok', lambda *a: None)
     from novel_manga.application.preparation import readiness
     monkeypatch.setattr(readiness, 'plan_issues', lambda *a: {})
@@ -54,7 +56,7 @@ def runner(directory, clip, provider):
     r.context.clip_plan = {'clips': [copy.deepcopy(clip)]}
     r.context.script = {'shots': []}
     r.context.provider = SimpleNamespace(create_video=provider)
-    r.context._managed_remaining = {'c': max(0, 3 - history.generation_counts(directory).get('c', 0))}
+    r.context.state.remaining = {'c': max(0, 3 - history.generation_counts(directory).get('c', 0))}
     r.build_assets = lambda *a, **kw: None
     r.english_correction_for_new_take = lambda *a: False
     r.assemble = lambda *a: {'final_video': str(directory / 'candidate.mp4')}
@@ -103,7 +105,7 @@ def test_asr_failure_still_charges_completed_video_after_report(episode, monkeyp
     report = r.run()
     assert report['status'] == 'clips_failed'
     assert report['clips'][0]['attempts'] == [] and report['clips'][0]['selected'] is None
-    assert calls == ['task-1'] and r.context._managed_remaining == {'c': 2}
+    assert calls == ['task-1'] and r.context.state.remaining == {'c': 2}
     assert managed.generated_counts(history.load(directory)) == {'c': 1}
     assert events == ['recorded after report']
 
@@ -126,7 +128,7 @@ def test_interrupted_generation_is_charged_once_when_resumed_from_cache(episode,
     assert not (directory / 'thin_media_report.json').exists()
     add_trial(directory, plan)
     resumed = runner(directory, clip, lambda *a, **kw: pytest.fail('cache resume must not submit again'))
-    assert resumed.context._managed_remaining == {'c': 2}
+    assert resumed.context.state.remaining == {'c': 2}
     report = resumed.run()
     assert report['clips'][0]['selected']['generated_this_run'] is False
     state = history.load(directory)
@@ -184,7 +186,7 @@ def test_legacy_cached_material_is_never_retroactively_owned(episode, has_video)
     assert report['clips'][0]['selected']['generated_this_run'] is False
     assert history.GENERATION_FIELD not in read_json(attempt / 'request.json')
     assert history.generation_counts(directory) == {}
-    assert r.context._managed_remaining == {'c': 3}
+    assert r.context.state.remaining == {'c': 3}
 
 
 def test_provider_replacing_legacy_pending_task_is_a_genuine_new_owned_generation(episode):
@@ -211,7 +213,7 @@ def test_owned_task_without_a_completed_nonempty_video_does_not_spend_budget(epi
     report = r.run()
     assert report['status'] == 'clips_failed'
     assert history.generation_counts(directory) == {}
-    assert r.context._managed_remaining == {'c': 3}
+    assert r.context.state.remaining == {'c': 3}
 
 
 def test_archived_and_redownloaded_material_keeps_one_canonical_generation(episode):
@@ -250,7 +252,7 @@ def test_pending_completion_enforces_cap_before_another_request(episode):
     assert history.generation_counts(directory) == {'c': 3}
     resumed = runner(directory, clip, lambda *a, **kw: pytest.fail('budget exhausted'))
     reviewed._load_current(resumed)
-    assert resumed.context._managed_remaining == {'c': 0}
+    assert resumed.context.state.remaining == {'c': 0}
     with pytest.raises(ValueError, match='retry budget used'):
         resumed.generate_clip({**clip, 'repair_take': 4}, 4)
     assert len(calls) == 3

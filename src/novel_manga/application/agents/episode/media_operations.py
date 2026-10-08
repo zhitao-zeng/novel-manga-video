@@ -10,6 +10,7 @@ from novel_manga.application.production.artifacts import media_started
 
 
 from .tool_state import record_state
+from novel_manga.media.results import has_analysis
 
 
 class MediaOperations:
@@ -36,7 +37,7 @@ class MediaOperations:
             profile=read_json(self.ctx.novel_dir / 'profile.json'))
         runner.context.asr_helper = self.ctx.project_root / 'scripts/thin_asr_segments.py'
         runner.context.source_novel_dir = getattr(self.ctx, 'source_novel_dir', None) or self.ctx.novel_dir
-        runner.context.first_pass_only = os.environ.get('NOVEL_FIRST_PASS_ONLY') == '1'
+        runner.context.options.first_pass_only = os.environ.get('NOVEL_FIRST_PASS_ONLY') == '1'
         return runner
 
 
@@ -55,7 +56,7 @@ class MediaOperations:
         hydrated = False
         for row in report['clips']:
             selected = row.get('selected')
-            if not selected or isinstance(selected.get('chunks'), list):
+            if not selected or has_analysis(selected):
                 continue
             # First-pass reports can retain only video/passed. The ordinary
             # analyser reads ASR beside this selected take and refreshes it for

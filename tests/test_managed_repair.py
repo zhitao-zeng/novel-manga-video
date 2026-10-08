@@ -1,3 +1,4 @@
+import novel_manga.application.rendering.submission as owner_submission
 from novel_manga.application.preparation import request_check
 from support.managed_episode import fixture_episode
 from novel_manga.media import cache
@@ -178,17 +179,17 @@ def test_contradictory_request_is_blocked_before_acquiring_a_generation_slot(tmp
     import novel_manga.application.rendering.flow as render
     from novel_manga.application.profiles import h3_stamp
     r=uninitialized_runner()
-    r.context.work=tmp_path/'work';r.context.novel_dir=tmp_path;r.context.cache_only=False;r.context.feedback={};r.context.prescreen=False
+    r.context.work=tmp_path/'work';r.context.novel_dir=tmp_path;r.context.options.cache_only=False;r.context.feedback={};r.context.options.prescreen=False
     r.context.settings=SimpleNamespace(local_h3_base_url='pool')
     r.clip_prompt=lambda clip:clip['prompt_h3']
     clip={'clip_id':'c','request_seconds':5,'references':[],
           'prompt_h3':'detailed_description:\nTwo <Subject 2> stand up.'}
     # a current v2 stamp, so the admission gate passes and the identity check is what blocks
     clip['prompt_h3_of']=h3_stamp(clip)
-    monkeypatch.setattr(render,'acquire_inflight_slot',lambda *a:pytest.fail('must not take a generation slot'))
+    monkeypatch.setattr(owner_submission,'acquire_inflight_slot',lambda *a:pytest.fail('must not take a generation slot'))
     with pytest.raises(ValueError,match='identity repair'):
         r.generate_clip(clip,1)
-    assert r.context._blocked_clips['c'][0].startswith('request:')
+    assert r.context.state.blocked_clips['c'][0].startswith('request:')
 
 
 def test_one_render_is_recorded_for_every_prepared_clip_and_counted_once(tmp_path):

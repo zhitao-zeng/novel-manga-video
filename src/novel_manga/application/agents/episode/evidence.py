@@ -1,5 +1,6 @@
 """EpisodeEvidence: existing episode operations with explicit service dependencies."""
 from __future__ import annotations
+from novel_manga.media.results import selected_video
 
 from pathlib import Path
 import re
@@ -47,7 +48,7 @@ class EpisodeEvidence:
         missing = []
         for row in report.get('clips', []):
             selected = row.get('selected') or {}
-            video = selected.get('postmix_video') or selected.get('video')
+            video = selected_video(selected)
             if not video or not (path := Path(video)).is_file():
                 continue
             verdict = (review.get('clips') or {}).get(row['clip_id'], {})

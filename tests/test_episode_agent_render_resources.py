@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 """Episode media admission settings without constructing any service clients."""
 from types import SimpleNamespace
 
@@ -12,8 +13,7 @@ from novel_manga.util import atomic_write_json
 
 @pytest.fixture
 def runner_arguments(tmp_path, monkeypatch):
-    ctx = SimpleNamespace(novel_dir=tmp_path / 'book', episode_dir=tmp_path / 'book/book_1',
-                          run_dir=tmp_path, project_root=tmp_path / 'runtime')
+    ctx = SimpleNamespace(novel_dir=tmp_path / 'book', episode_dir=tmp_path / 'book/book_1', run_dir=tmp_path, project_root=tmp_path / 'runtime')
     ctx.episode_dir.mkdir(parents=True)
     atomic_write_json(ctx.novel_dir / 'story_bible.json', {'novel_id': 'book'})
     atomic_write_json(ctx.novel_dir / 'profile.json', {'speech_gate': 'enforce', 'frame': 'portrait'})
@@ -23,7 +23,7 @@ def runner_arguments(tmp_path, monkeypatch):
 
     def runner(**kwargs):
         arguments.append(kwargs)
-        return SimpleNamespace(context=SimpleNamespace(workers=kwargs['workers']))
+        return SimpleNamespace(context=RenderContext(options=RenderOptions(workers=kwargs['workers'])))
 
     monkeypatch.setattr(flow, 'ThinMediaRunner', runner)
     for key in ('NOVEL_RENDER_WORKERS', 'NOVEL_RENDER_INFLIGHT', 'NOVEL_AGENT_MANAGED'):

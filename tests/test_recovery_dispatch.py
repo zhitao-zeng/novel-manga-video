@@ -12,7 +12,6 @@ import subprocess
 
 import novel_manga.repair.scheduling as schedule_rules
 import novel_manga.application.repair.manager_flow as repair_manager_flow
-import novel_manga.application.repair.manager_workers as repair_manager_workers
 import novel_manga.application.repair.recovery as recovery
 
 
@@ -110,7 +109,7 @@ def test_black_detector_locates_actual_black_media(tmp_path):
 def test_black_take_cannot_pass_on_cached_speech_result(tmp_path, monkeypatch):
     import novel_manga.application.rendering.flow as renderer
     runner = uninitialized_runner()
-    runner.context.black_checks = {'clip_02'}
+    runner.context.state.black_checks = {'clip_02'}
     runner.context.episode_dir = tmp_path
     monkeypatch.setattr(recovery, 'black_ranges', lambda *a: [(3.0, 4.2)])
     monkeypatch.setattr(recovery, 'brighten_dark_scene', lambda *a: False)

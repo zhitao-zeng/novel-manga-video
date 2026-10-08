@@ -18,7 +18,7 @@ def build_assets(ctx, clips=None):
                        if ref.get("role") in {"character", "location"}}
     # Construction with expression cards may use/build the second view even if
     # this particular clip references only the primary.  Lean production never does.
-    if ctx.expressions:
+    if ctx.options.expressions:
         built_characters = {f"character_{i:03d}" for i, _ in enumerate(ctx.bible.characters, 1)}
         required_images.update(ctx.novel_dir / "series_assets" / "characters" / asset / name
                                for asset in character_ids & built_characters for name in ("turnaround.jpeg", "expressions.jpeg"))
@@ -36,7 +36,7 @@ def build_assets(ctx, clips=None):
     for attempt in range(1, ASSET_BUILD_ROUNDS + 1):
         try:
             manifest = factory.build_selected(ctx.novel_dir / "series_assets", ctx.bible, character_ids, location_ids,
-                                              expressions=ctx.expressions, prop_ids=prop_ids)
+                                              expressions=ctx.options.expressions, prop_ids=prop_ids)
         except ModerationRejected:
             raise
         except (RuntimeError, TimeoutError, OSError) as error:

@@ -27,17 +27,17 @@ class Recovery:
     reference_slot: str | None = None
 
 
-def recovery_steps(error: RuntimeError, clip: dict, state: RetryState, *, moderation_repair: bool) -> list[Recovery]:
+def recovery_steps(error: RuntimeError, runtime, state: RetryState, *, moderation_repair: bool) -> list[Recovery]:
     text = str(error)
     steps = []
     if PRIVACY_MARKER in text and state.privacy_repairs < 2:
         index = re.search(r'content\[(\d+)\]', text)
         steps.append(Recovery('reference', index.group(1) if index else None))
-    if policy.INPUT_TEXT_MARKER in text and not clip.get('_softened'):
+    if policy.INPUT_TEXT_MARKER in text and not runtime.softened:
         steps.append(Recovery('soften'))
-    if policy.INPUT_TEXT_MARKER in text and moderation_repair and not clip.get('_repaired'):
+    if policy.INPUT_TEXT_MARKER in text and moderation_repair and not runtime.repaired:
         steps.append(Recovery('rewrite'))
-    if any(marker in text for marker in policy.OUTPUT_MODERATION_MARKERS) and not clip.get('_compliance'):
+    if any(marker in text for marker in policy.OUTPUT_MODERATION_MARKERS) and not runtime.compliance:
         steps.append(Recovery('compliance'))
     return steps
 

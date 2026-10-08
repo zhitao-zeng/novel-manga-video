@@ -111,7 +111,7 @@ def analyse_clip(ctx, clip: dict, video: Path) -> dict:
     return result
 
 def recheck_speech(ctx, clip: dict, analysis: dict, video: Path) -> dict:
-    if clip['clip_id'] not in getattr(ctx, 'speech_checks', set()) or analysis.get('speech_recheck_policy') == speech.RECHECK_POLICY:
+    if clip['clip_id'] not in ctx.state.speech_checks or analysis.get('speech_recheck_policy') == speech.RECHECK_POLICY:
         return analysis
     result = speech.recheck(clip.get('spoken_text', ''), analysis, ctx.protected_terms, ctx.aliases,
                             vocalizations=speech.planned_vocalizations(clip))

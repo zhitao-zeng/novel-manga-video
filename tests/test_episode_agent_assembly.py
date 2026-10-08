@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from novel_manga.application.agents.episode.media_operations import MediaOperations
 from novel_manga.application.agents.episode.evidence import EpisodeEvidence
 """Review precedes expensive assembly; delivery still requires full technical QC."""
@@ -36,7 +37,7 @@ def host(tmp_path, monkeypatch):
 
     class Runner:
         def __init__(self):
-            self.context = SimpleNamespace(episode_dir=ctx.episode_dir)
+            self.context = RenderContext(episode_dir=ctx.episode_dir)
 
         def run(self, *, assemble=True):
             events.append('render')

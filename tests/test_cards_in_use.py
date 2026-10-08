@@ -2,6 +2,8 @@
 Seedance rejects a clip, not by the card remediation, and the backfill records the cards existing
 renders used."""
 from __future__ import annotations
+from novel_manga.media.context import RenderContext
+import novel_manga.media.asset_records as owner_asset_records
 import novel_manga.media.asset_repair as asset_repair
 
 import json
@@ -33,7 +35,7 @@ def test_privacy_repair_leaves_proven_cards_alone(tmp_path, monkeypatch):
     redrawn = []
     monkeypatch.setattr(asset_repair, 'stylize_card', lambda provider, path: redrawn.append(path.parent.name))
     render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
-    runner = SimpleNamespace(novel_dir=root, provider=None, _ok_assets=set())
+    runner = RenderContext(novel_dir=root, provider=None)
     clip = {"clip_id": "clip_01", "references": [ref("character_001"), ref("character_002")]}
     # one card unproven: only that one is restyled
     assert asset_repair.repair_privacy_cards(runner, clip) == ["character_002/turnaround.jpeg"]
@@ -50,7 +52,7 @@ def test_named_rejected_reference_is_not_redrawn_when_proven(tmp_path, monkeypat
     redrawn = []
     monkeypatch.setattr(asset_repair, 'stylize_card', lambda provider, path: redrawn.append(path.parent.name))
     render_flow_thin.record_privacy_ok(root, [ref("character_001")["path"]])
-    runner = SimpleNamespace(novel_dir=root, provider=None, _ok_assets=set())
+    runner = RenderContext(novel_dir=root, provider=None)
     clip = {"clip_id": "clip_01", "references": [ref("character_001"), ref("character_002")]}
     assert asset_repair.repair_rejected_reference(runner, clip, 0) == []
     assert redrawn == [] and (root / "series_assets/characters/character_001/turnaround.jpeg").is_file()
@@ -87,5 +89,5 @@ def test_backfill_records_referenced_cards(tmp_path, monkeypatch):
         "series_assets/characters/character_001/turnaround.jpeg", "series_assets/locations/location_003/establishing.jpeg"]}))
     monkeypatch.setattr(sys, "argv", ["mark_cards_in_use.py", "--novel-dir", str(root), "--apply"])
     assert mark_cards_in_use.main() == 0
-    assert render_flow_thin.load_privacy_ok(root) == {
+    assert owner_asset_records.load_privacy_ok(root) == {
         "series_assets/characters/character_001/turnaround.jpeg", "series_assets/locations/location_003/establishing.jpeg"}

@@ -1,3 +1,4 @@
+from novel_manga.media.context import RenderContext, RenderOptions, RenderState
 from novel_manga.application.agents.episode.media_operations import MediaOperations
 from types import SimpleNamespace
 import pytest
@@ -7,9 +8,7 @@ from novel_manga.util import atomic_write_json, read_json
 
 
 def context(tmp_path):
-    ctx=SimpleNamespace(run_dir=tmp_path/'run',episode_dir=tmp_path/'run/book/book_1',
-        novel_dir=tmp_path/'run/book',work_dir=tmp_path/'run/sandbox',
-        source_episode_dir=tmp_path/'original/book_1',input_mode='source')
+    ctx=SimpleNamespace(run_dir=tmp_path / 'run', episode_dir=tmp_path / 'run/book/book_1', novel_dir=tmp_path / 'run/book', work_dir=tmp_path / 'run/sandbox', source_episode_dir=tmp_path / 'original/book_1', input_mode='source')
     ctx.episode_dir.mkdir(parents=True)
     (ctx.work_dir/'output').mkdir(parents=True)
     (ctx.work_dir/'input').mkdir(parents=True)

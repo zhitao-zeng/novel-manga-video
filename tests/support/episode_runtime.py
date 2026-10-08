@@ -1,3 +1,4 @@
+from novel_manga.application import resolved_settings
 """Host-session fixtures shared by episode CLI and resource handoff regressions."""
 from novel_manga.application.agents.episode import runtime as episode_runtime
 from novel_manga.application.agents.episode import lifecycle as episode_lifecycle
@@ -29,7 +30,7 @@ def sandbox_config():
 
 
 def install_fake_runtime(monkeypatch, ctx):
-    monkeypatch.setattr(episode_runtime, 'runtime_environment', lambda *args: dict(os.environ))
+    monkeypatch.setattr(episode_lifecycle, 'resolve_agent_environment', lambda *args: dict(os.environ))
     monkeypatch.setattr(episode_lifecycle, 'prepare_inputs', lambda context: (
         (context.work_dir / 'input').mkdir(parents=True, exist_ok=True),
         (context.work_dir / 'output').mkdir(parents=True, exist_ok=True)))

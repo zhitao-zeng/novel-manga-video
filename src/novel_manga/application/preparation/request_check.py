@@ -198,9 +198,9 @@ def current_request(directory, clip):
 
 def before_generation(ctx, clip, request):
     answer = cached_consistency(ctx.novel_dir, ctx.work, clip, request,
-                                require_cached=getattr(ctx, 'prepared_requests_only', False))
+                                require_cached=ctx.options.prepared_requests_only)
     if answer.get('consistent') is not True or answer.get('problems'):
         problems = answer.get('problems') or ['请求与参考图未得到一致结论']
-        ctx._blocked_clips[clip['clip_id']] = ['request: ' + p for p in problems]
+        ctx.state.blocked_clips[clip['clip_id']] = ['request: ' + p for p in problems]
         raise ValueError('H3 request/reference mismatch: ' + '；'.join(problems))
     return answer

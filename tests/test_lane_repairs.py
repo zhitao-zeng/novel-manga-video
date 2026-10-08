@@ -2,6 +2,10 @@
 blocks, English (H3) prompts and their voices, retakes, the render-run count, corrections, card reuse,
 the card manifest, review errors and the voice bank."""
 from __future__ import annotations
+import novel_manga.media.policy as owner_policy
+import novel_manga.media.common as owner_common
+import novel_manga.media.asset_builder as owner_asset_builder
+import novel_manga.application.rendering.submission as owner_submission
 from novel_manga.media import cache, generation
 import novel_manga.application.production.conductor_dispatch as conductor_dispatch
 import novel_manga.application.production.conductor_state as conductor_state
@@ -323,9 +327,9 @@ def runner(tmp_path: Path, local: str | None = "pool") -> rc.ThinMediaRunner:
     r.context.novel_dir = tmp_path / NOVEL
     r.context.novel_dir.mkdir(parents=True, exist_ok=True)
     r.context.settings = types.SimpleNamespace(local_h3_base_url=local)
-    r.context.feedback, r.context.max_attempts, r.context.free_retries = {}, 2, bool(local)
+    r.context.feedback, r.context.options.max_attempts, r.context.options.free_retries = {}, 2, bool(local)
     r.context.work = r.context.novel_dir / f"{NOVEL}_1" / "work"
-    r.context.prescreen, r.context.inflight, r.context.moderation_repair, r.context.cache_only = False, 0, True, False
+    r.context.options.prescreen, r.context.options.inflight, r.context.options.moderation_repair, r.context.options.cache_only = False, 0, True, False
     return r
 
 
@@ -333,10 +337,10 @@ def test_local_retries_do_not_add_spoken_director_notes(tmp_path):
     h3, seedance = runner(tmp_path), runner(tmp_path, local=None)
     clip = video_clip(prompt_h3="english")
     assert h3.retry_suffix(clip, 1) == h3.retry_suffix(clip, 2) == h3.retry_suffix(clip, 3) == ""
-    assert seedance.retry_suffix(clip, 2) == seedance.retry_suffix(clip, 3) == rc.RETRY_SUFFIX
-    for suffix in (h3.retry_suffix(clip, 2), h3.retry_suffix(clip, 4), rc.RETRY_SUFFIX):
+    assert seedance.retry_suffix(clip, 2) == seedance.retry_suffix(clip, 3) == owner_policy.RETRY_SUFFIX
+    for suffix in (h3.retry_suffix(clip, 2), h3.retry_suffix(clip, 4), owner_policy.RETRY_SUFFIX):
         assert cache.without_retry('prompt' + suffix) == "prompt"
-    assert cache.without_retry('prompt' + rc.RETRY_SUFFIX_H3 + ' This is take 4.') == 'prompt'
+    assert cache.without_retry('prompt' + owner_policy.RETRY_SUFFIX_H3 + ' This is take 4.') == 'prompt'
 
 
 def test_a_free_lane_gives_cached_failures_fresh_takes(tmp_path, monkeypatch):
@@ -345,7 +349,7 @@ def test_a_free_lane_gives_cached_failures_fresh_takes(tmp_path, monkeypatch):
 
         def generate(clip, attempt):
             made.append(attempt)
-            clip["_generated"] = attempt > 2  # takes 1 and 2 come from the cache
+            r.context.state.clip(clip['clip_id']).generated = attempt > 2  # takes 1 and 2 come from the cache
             return tmp_path / f"take{attempt}.mp4"
         monkeypatch.setattr(r, "generate_clip", generate)
         monkeypatch.setattr(r, "analyse_clip", lambda clip, video: {"passed": False, "cer": 1.0, "max_volume_db": -3.0, "issues": ["missing"]})
@@ -393,7 +397,7 @@ def test_a_video_of_a_redrawn_card_is_not_taken_from_another_attempt(tmp_path, m
     card.parent.mkdir(parents=True)
     card.write_bytes(b"old card")
     clip = video_clip(references=[{"role": "character", "name": "林凡", "path": "series_assets/characters/character_001/turnaround.jpeg"}])
-    old = rc.reference_digests([card])
+    old = owner_common.reference_digests([card])
     for attempt in (1, 2):
         directory = r.context.work / "clips" / "clip_01" / f"attempt_{attempt:02d}"
         directory.mkdir(parents=True)
@@ -409,8 +413,8 @@ def test_a_video_of_a_redrawn_card_is_not_taken_from_another_attempt(tmp_path, m
             made.append(prompt)
             output.write_bytes(b"new video")
     r.context.provider = Provider()
-    monkeypatch.setattr(rc, "wait_for_inflight_redraws", lambda paths: [])
-    monkeypatch.setattr(rc, "media_duration", lambda path: 10.0)
+    monkeypatch.setattr(owner_submission, "wait_for_inflight_redraws", lambda paths: [])
+    monkeypatch.setattr(owner_submission, "media_duration", lambda path: 10.0)
     video = r.generate_clip(clip, 1)
     assert made and video.read_bytes() == b"new video"
 
@@ -418,18 +422,18 @@ def test_a_video_of_a_redrawn_card_is_not_taken_from_another_attempt(tmp_path, m
 def test_parallel_card_builds_keep_each_others_manifest_records(tmp_path):
     root = tmp_path / NOVEL / "series_assets"
     bible = types.SimpleNamespace(characters=[], locations=["大殿", "山门"], visual_style="2D", style_fingerprint="fp")
-    factory = rc.FramedAssetFactory(types.SimpleNamespace(style_master_path=None), None)
+    factory = owner_asset_builder.FramedAssetFactory(types.SimpleNamespace(style_master_path=None), None)
     factory._location_prompt = lambda bible, location: f"{location}的空镜"
 
     def ensure_card(prompt, output, reference=None, aspect_ratio=None):
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(b"card")
         if output.parent.name == "location_001":  # another process finishes its card meanwhile
-            rc.FramedAssetFactory.build_selected(factory, root, bible, set(), {"location_002"})
+            owner_asset_builder.FramedAssetFactory.build_selected(factory, root, bible, set(), {"location_002"})
         from novel_manga.providers.base import ImageResult
         return ImageResult(path=output)
     factory.ensure_card = ensure_card
-    rc.FramedAssetFactory.build_selected(factory, root, bible, set(), {"location_001"})
+    owner_asset_builder.FramedAssetFactory.build_selected(factory, root, bible, set(), {"location_001"})
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     assert [row["asset_id"] for row in manifest["locations"]] == ["location_001", "location_002"]
 

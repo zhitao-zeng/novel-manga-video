@@ -1,6 +1,8 @@
 """split_long_stages.py: an old plan's clamped clips become the parts the packer now cuts them into, and nothing
 else about the episode changes - the other clips keep their entries and their rendered videos."""
 from __future__ import annotations
+import novel_manga.media.policy as owner_policy
+import novel_manga.media.cache as owner_cache
 import copy
 import pytest
 from dataclasses import replace
@@ -96,7 +98,7 @@ def runner(tmp_path, cache_only=False) -> rc.ThinMediaRunner:
     r.context.novel_dir, r.context.work = tmp_path / "nov", tmp_path / "nov" / "nov_1" / "work"
     r.context.episode_dir = r.context.work.parent
     r.context.settings = types.SimpleNamespace(local_h3_base_url=None)
-    r.context.feedback, r.context.prescreen, r.context.cache_only = {}, False, cache_only
+    r.context.feedback, r.context.options.prescreen, r.context.options.cache_only = {}, False, cache_only
     return r
 
 
@@ -109,7 +111,7 @@ def test_cache_only_leaves_a_clip_from_another_request_where_it_is(tmp_path):
     clip = {"clip_id": "clip_01", "kind": "video", "prompt": "【阶段1】林凡走进大殿。", "request_seconds": 10, "references": []}
     try:
         r.generate_clip(clip, 1)
-    except rc.CacheMiss:
+    except owner_cache.CacheMiss:
         pass
     assert (attempt / "clip.mp4").read_bytes() == b"old take" and not (attempt / "clip.stale.mp4").exists()
 
@@ -131,8 +133,8 @@ def test_a_cached_asr_record_gives_the_take_beside_it_not_the_path_inside(tmp_pa
 
 def test_fresh_takes_past_the_cache_are_free_lanes_or_asked_for():
     local, paid = types.SimpleNamespace(local_h3_base_url="pool"), types.SimpleNamespace(local_h3_base_url=None)
-    assert rc.takes_past_cache(local, False, False) and not rc.takes_past_cache(paid, False, False)
-    assert rc.takes_past_cache(paid, True, False) and not rc.takes_past_cache(local, True, True)
+    assert owner_policy.takes_past_cache(local, False, False) and not owner_policy.takes_past_cache(paid, False, False)
+    assert owner_policy.takes_past_cache(paid, True, False) and not owner_policy.takes_past_cache(local, True, True)
 
 
 def test_thin_batch_retake_failed_takes_a_paid_final_back(tmp_path, monkeypatch):
@@ -172,9 +174,9 @@ def test_a_clip_the_output_filter_passed_with_the_compliance_line_is_a_cache_hit
     attempt = r.context.work / "clips" / "clip_01" / "attempt_01"
     attempt.mkdir(parents=True)
     (attempt / "clip.mp4").write_bytes(b"take that passed the filter")
-    (attempt / "request.json").write_text(json.dumps({"prompt": clip["prompt"] + rc.COMPLIANCE_SUFFIX, "references": [],
+    (attempt / "request.json").write_text(json.dumps({"prompt": clip["prompt"] + owner_policy.COMPLIANCE_SUFFIX, "references": [],
                                                       "reference_sha256": [], "duration": 10}, ensure_ascii=False), encoding="utf-8")
-    assert rc.soften_prompt(clip["prompt"]) != clip["prompt"] + rc.COMPLIANCE_SUFFIX  # softening would have changed it
+    assert owner_policy.soften_prompt(clip["prompt"]) != clip["prompt"] + owner_policy.COMPLIANCE_SUFFIX  # softening would have changed it
     assert r.generate_clip(clip, 1).read_bytes() == b"take that passed the filter"
 
 
