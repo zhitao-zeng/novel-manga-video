@@ -504,6 +504,15 @@ class EpisodeTools:
                     'voice_recording_blocked': voice_blocked, 'blocked': voice_blocked,
                     'can_adopt_draft': not self._main_media_started(),
                     'generation_counts': history.generation_counts(self.ctx.episode_dir)}
+        from . import probe
+        try:
+            verdict = probe.maybe_probe(self.ctx)
+        except Exception as error:  # noqa: BLE001 - a probe failure never blocks filming
+            probe.record_probe_error(self.ctx, error)
+            verdict = None
+        if verdict and verdict.get('match') is False:
+            return {'ok': False, 'error': 'resolution_mismatch',
+                    'requested': verdict.get('requested'), 'actual': verdict.get('actual')}
         history.adopt_reviewed_run(self.ctx.episode_dir)
         history.begin_trial(self.ctx.episode_dir, {c['clip_id'] for c in plan['clips']},
             'episode_agent_tool_render', after_plan=plan,
