@@ -53,7 +53,7 @@ def host(tmp_path, monkeypatch):
                 video.write_bytes(b'current selected video')
                 history.complete_generation(ctx.episode_dir,cid,video,duration=15)
                 rows.append({'clip_id':cid,'attempts':[], 'selected':{'video':str(video),
-                    'passed':cid not in state['speech_failed'], 'duration':15}})
+                    'passed':cid not in state['speech_failed'], 'duration':15, 'chunks':[]}})
             report = {'status':'clips_failed' if state['missing'] else 'clips_ready',
                 'clips':rows,'failed_clips':list(state['missing']),
                 'gate_failed_clips':list(state['speech_failed']),'blocked_clips':{},

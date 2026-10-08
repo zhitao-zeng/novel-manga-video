@@ -60,5 +60,6 @@ class FramedLocalH3(FramedPhanRouter):
     def create_video(self, prompt, image, output, duration, additional_images=(), reference_audios=(), seed_variant=0):
         for old, new in self.prompt_aliases.items():
             prompt = prompt.replace(old, new)
+        self.local.before_video_submit = getattr(self, 'before_video_submit', None)
         return self.local.create_video(prompt, image, output, duration,
                                        additional_images=additional_images, reference_audios=reference_audios, seed_variant=seed_variant)

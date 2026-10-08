@@ -108,6 +108,19 @@ def cast_of(plan: dict) -> set[str]:
     return names
 
 
+def selected_takes_reviewed(media: dict, review: dict, expected: set[str]) -> bool:
+    """A review of the actual inputs remains valid when encoding finishes later."""
+    from novel_manga.review.storage import take_identity
+    selected = {row['clip_id']: row.get('selected') or {} for row in media.get('clips') or []}
+    for cid in expected:
+        current, verdict = selected.get(cid, {}), (review.get('clips') or {}).get(cid, {})
+        video = current.get('postmix_video') or current.get('video')
+        if (not video or not Path(video).is_file() or verdict.get('video') != video
+                or verdict.get('take') != take_identity(Path(video))):
+            return False
+    return bool(expected)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
@@ -153,18 +166,27 @@ def main() -> int:
         if status in {"done", "done_with_warnings"} and final.is_file():
             review_state = "pending"
             mode = review_mode(d/'work/review/current') or review.get('review_mode')
-            if current_review(review,mode) and mtime(d / "episode_review.json") >= mtime(final):
+            media = load(d / 'thin_media_report.json') or {}
+            takes_reviewed = selected_takes_reviewed(media, review, expected)
+            stamped_takes = any(row.get('take') is not None for row in clips.values() if isinstance(row, dict))
+            recorded = (load(d/'episode_execution.json') or {}).get('passed') is True
+            recorded &= (media.get('quality_review') or {}).get('passed') is True
+            # Preserve formally accepted historical episodes while requiring
+            # unchanged actual takes. An old unaccepted review is still pending.
+            accepted_record = recorded and takes_reviewed
+            timely = takes_reviewed if stamped_takes else mtime(d / "episode_review.json") >= mtime(final)
+            if (current_review(review,mode) and timely) or accepted_record:
                 if any(c.get("severity") == "review_error" for c in clips.values() if isinstance(c, dict)):
                     review_state = "error"
                 elif expected and all(clips.get(cid, {}).get("severity") in {"pass", "minor", "fail"} for cid in expected):
-                    review_state = "reviewed"
+                    review_state = "reviewed" if current_review(review,mode) else "recorded_acceptance"
 
         body = chapters.get(n, "")
         ghosts = sorted(name for name in cast & measurable if body and not any(f in body for f in forms[name]))
 
         tech = status == "done"
         from novel_manga.application.repair.delivery import publication_pending
-        reviewed_clean = review_state == "reviewed" and not feedback and not publication_pending(d)
+        reviewed_clean = review_state in {"reviewed", "recorded_acceptance"} and not feedback and not publication_pending(d)
         script_ok = not ghosts
         why = [w for w, bad in (("技术", not tech), ("审查", not reviewed_clean)) if bad]
         rows.append({

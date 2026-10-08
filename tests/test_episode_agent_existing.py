@@ -10,6 +10,130 @@ from novel_manga.util import atomic_write_json, read_json
 from support.episode_existing import prepared
 
 
+def _retained_asr_assembly(tmp_path, monkeypatch, cache_state='current'):
+    """Use the real analyser and subtitle boundary; only encoding/ASR service are fakes."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from novel_manga.config import Settings
+    from novel_manga.application.rendering.flow import ThinMediaRunner
+    from novel_manga.application.profiles import plan_fingerprint, h3_prompt_fingerprint
+    from novel_manga.media import analysis, postprocess, speech
+    from novel_manga.media.context import RenderContext
+
+    ctx, plan, _ = prepared(tmp_path, monkeypatch)
+    clip = plan['clips'][0]
+    plan['clips'] = [clip]
+    if cache_state in {'silent', 'speech_failed'}:
+        clip.update(spoken_text='', lines=[], dialogue_bindings=[])
+    atomic_write_json(ctx.episode_dir/'clip_plan.json', plan)
+    video = ctx.episode_dir/'work/clips/clip_01/attempt_02/clip.mp4'
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b'the already selected take')
+    (video.parent/'native.wav').write_bytes(b'existing complete audio')
+    foreign = video.parent.parent/'attempt_01'
+    foreign.mkdir()
+    atomic_write_json(foreign/'asr.json', {'chunks': [{'start':0, 'end':1, 'hypothesis':'另一take的台词'}]})
+    words = clip['spoken_text']
+    chunks = [] if cache_state == 'silent' else [
+        {'start':0.5, 'end':2.5, 'hypothesis':words, 'raw_hypothesis':words}]
+    cached = {'clip_id':'old_clip_id', 'video':str(foreign/'clip.mp4'),
+              'duration':15.0, **speech.evaluate(words, chunks, -20, -4)}
+    if cache_state == 'stale_reference':
+        cached.update(reference='old script wording', speech_evaluation_policy=-1,
+                      passed=False, issues=['missing_dialogue'])
+    if cache_state == 'speech_failed':
+        cached.update(passed=False, issues=['excess_unplanned_speech'])
+    if cache_state != 'missing':
+        atomic_write_json(video.parent/'asr.json', cached)
+
+    runner = object.__new__(ThinMediaRunner)
+    runner.context = RenderContext(episode_dir=ctx.episode_dir, novel_dir=ctx.novel_dir,
+        work=ctx.episode_dir/'work', settings=Settings(), clip_plan=plan,
+        script=read_json(ctx.episode_dir/'chapter_script.json'),
+        asr_python='fixture-asr-python', asr_helper=tmp_path/'fixture-asr-helper.py',
+        renderer=SimpleNamespace(mux_visual_group=lambda video, wav, target:(video, 15.0)))
+    monkeypatch.setattr(analysis, 'media_duration', lambda path:15.0)
+    monkeypatch.setattr(analysis, 'audio_levels', lambda wav:(-20, -4))
+    monkeypatch.setattr(analysis, 'speech_chunks', lambda wav:[[0.5, 2.5]])
+    asr_calls, analysed, subtitles = [], [], []
+
+    def transcribe(command, **kwargs):
+        assert command[0] == 'fixture-asr-python'
+        asr_calls.append(command)
+        atomic_write_json(Path(command[-1]), {'segments':chunks})
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(analysis.subprocess, 'run', transcribe)
+    original_analyse = runner.analyse_clip
+
+    def analyse(current, selected):
+        analysed.append(selected)
+        return original_analyse(current, selected)
+
+    runner.analyse_clip = analyse
+    runner.generate_clip = lambda *a, **kw:pytest.fail('assembly generated a new video')
+    runner.run = lambda *a, **kw:pytest.fail('assembly restarted rendering')
+
+    def encode(records):
+        # story_segments really calls subtitle_events(..., selected), including chunks access.
+        segments = postprocess.story_segments(runner.context, records)
+        subtitles.extend(event for segment in segments for event in segment['subtitle_events'])
+        return {'thin_passed':True, 'subtitle_events':len(subtitles)}
+
+    runner.assemble = encode
+    monkeypatch.setattr(EpisodeTools, '_runner', lambda self:runner)
+    history.save(ctx.episode_dir, {'trials':[], 'prior_generation_counts':{'clips':{'clip_01':2}}})
+    report = {'status':'clips_ready', 'clip_plan_fingerprint':plan_fingerprint(plan),
+              'prompt_h3_fingerprint':h3_prompt_fingerprint(plan), 'review_feedback':{},
+              'clips':[{'clip_id':'clip_01', 'attempts':[], 'selected':{
+                  'video':str(video), 'passed':True, 'duration':15, 'generated_this_run':False}}],
+              'failed_clips':[], 'gate_failed_clips':[], 'assembly':None}
+    atomic_write_json(ctx.episode_dir/'thin_media_report.json', report)
+    return ctx, report, video, analysed, asr_calls, subtitles, cached
+
+
+@pytest.mark.parametrize('cache_state', ['current', 'stale_reference', 'missing', 'silent'])
+def test_assembly_restores_selected_take_asr_at_real_subtitle_boundary(tmp_path, monkeypatch, cache_state):
+    ctx, report, video, analysed, asr_calls, subtitles, _ = _retained_asr_assembly(
+        tmp_path, monkeypatch, cache_state)
+    counts = history.generation_counts(ctx.episode_dir)
+    movie = video.read_bytes()
+    result = EpisodeTools(ctx)._assemble(report)
+    selected = result['clips'][0]['selected']
+    assert analysed == [video]
+    assert len(asr_calls) == (1 if cache_state == 'missing' else 0)
+    assert selected['video'] == str(video) and selected['clip_id'] == 'clip_01'
+    assert selected['generated_this_run'] is False
+    assert selected['passed'] and result['gate_failed_clips'] == []
+    assert selected['reference'] == read_json(ctx.episode_dir/'clip_plan.json')['clips'][0]['spoken_text']
+    if cache_state == 'silent':
+        assert selected['chunks'] == [] and subtitles == []
+    else:
+        assert subtitles and all(s['subtitle_source'] == 'native_audio_asr' for s in subtitles)
+        assert all('另一take' not in s['text'] for s in subtitles)
+    assert 'chunks' in read_json(ctx.episode_dir/'thin_media_report.json')['clips'][0]['selected']
+    assert video.read_bytes() == movie and history.generation_counts(ctx.episode_dir) == counts
+
+
+def test_assembly_keeps_complete_analysis_without_repeating_asr(tmp_path, monkeypatch):
+    ctx, report, video, analysed, asr_calls, subtitles, cached = _retained_asr_assembly(tmp_path, monkeypatch)
+    report['clips'][0]['selected'].update(cached, video=str(video), clip_id='clip_01')
+    EpisodeTools(ctx)._assemble(report)
+    assert analysed == [] and asr_calls == [] and subtitles
+
+
+def test_restored_asr_failure_still_blocks_content_acceptance(tmp_path, monkeypatch):
+    from novel_manga.application.review.execution import save_result
+    ctx, report, video, _, _, _, _ = _retained_asr_assembly(tmp_path, monkeypatch, 'speech_failed')
+    counts = history.generation_counts(ctx.episode_dir)
+    result = EpisodeTools(ctx)._assemble(report)
+    assert result['clips'][0]['selected']['passed'] is False
+    assert result['gate_failed_clips'] == ['clip_01']
+    accepted = save_result(ctx.episode_dir, result, {'clips':{'clip_01':{'severity':'pass'}}, 'feedback':{}})
+    assert accepted['quality_review']['passed'] is False
+    assert history.generation_counts(ctx.episode_dir) == counts and video.is_file()
+
+
 def test_adopt_validates_and_saves_without_rendering_or_spending_a_take(tmp_path, monkeypatch):
     ctx, before, _ = prepared(tmp_path, monkeypatch)
     monkeypatch.setattr(EpisodeTools, '_runner', lambda *a: pytest.fail('adoption started video'))

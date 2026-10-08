@@ -139,6 +139,19 @@ def container_running(name: str) -> bool:
     return name in result.stdout.split()
 
 
+def provider_container_args(config: dict) -> list[str]:
+    """Provider-specific network/request options; credentials stay in the environment."""
+    args = []
+    if config.get('docker_network'):
+        args.extend(['--network', str(config['docker_network'])])
+    body = dict(config.get('extra_body') or {})
+    if config.get('chat_template_kwargs') is not None:
+        body['chat_template_kwargs'] = config['chat_template_kwargs']
+    if body:
+        args.extend(['-e', 'CLAUDE_CODE_EXTRA_BODY='+json.dumps(body)])
+    return args
+
+
 def run_agent(run: str, *, skills: str = "", config: dict | None = None, model: str = "",
               timeout: int = 0, prompt: Path | None = None, replace_skills: bool = False,
               log=print) -> Attempt:
@@ -178,6 +191,7 @@ def run_agent(run: str, *, skills: str = "", config: dict | None = None, model: 
         "--user", "1001:1001", "-e", "HOME=/work/.agent-home",
         "-v", f"{run_dir}:/work", "-w", "/work",
         "-e", f"ANTHROPIC_BASE_URL={config['base_url']}", "-e", "ANTHROPIC_AUTH_TOKEN",
+        *provider_container_args(config),
         *sum((["-e", f"{name}={model}"] for name in (
             "ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
             "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")), []),

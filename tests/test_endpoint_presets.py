@@ -45,7 +45,7 @@ def clean():
     transport._UNREACHABLE.clear()
 
 
-@pytest.mark.parametrize("name", sorted(ENDPOINTS))
+@pytest.mark.parametrize("name", ['local','flashnext','deepseek'])
 def test_the_thinking_switch_reaches_the_endpoint(name):
     client = Recorder()
     with using_endpoint(name):
@@ -58,7 +58,7 @@ def test_the_thinking_switch_reaches_the_endpoint(name):
     assert client.sent.get("chat_template_kwargs") == {"enable_thinking": False}
 
 
-@pytest.mark.parametrize("name", sorted(ENDPOINTS))
+@pytest.mark.parametrize("name", ['local','flashnext','deepseek'])
 def test_no_preset_lets_the_transport_raise_the_token_budget(name):
     """The streaming path floors max_tokens at 50,000; a 700-token question must stay one."""
     client = Recorder()
@@ -115,6 +115,22 @@ def test_named_settings_leave_the_process_environment_alone(monkeypatch):
     settings = endpoint_settings("flashnext")
     assert settings.model == "Qwen3.8-Flash-Next" and settings.endpoints == ("http://172.28.4.81:8038/v1",)
     assert os.environ["QWEN38_LOCAL_BASE_URL"] == "http://was-here:1/v1"
+
+
+def test_phanthy_is_a_peer_with_low_effort_and_no_output_budget_floor(monkeypatch):
+    monkeypatch.setenv('PHANTHY_API_KEY','fake-test-credential')
+    settings=endpoint_settings('phanthy')
+    assert settings.model=='glm-5.3-flash'
+    assert settings.endpoints==('http://127.0.0.1:8789/v1',)
+    assert settings.key=='fake-test-credential'
+    assert settings.stream and settings.reasoning=='low' and settings.min_max_tokens==0
+    client=Recorder()
+    with using_endpoint('phanthy'):
+        try:transport.post_any(client,list(settings.endpoints),{},dict(REQUEST),settings=settings)
+        except httpx.HTTPError:pass
+    assert client.streamed and client.sent['max_tokens']==700
+    assert client.sent['reasoning_effort']=='low'
+    assert 'chat_template_kwargs' not in client.sent
 
 
 def test_the_bibles_questions_go_to_the_judge_whatever_endpoint_plans(monkeypatch):

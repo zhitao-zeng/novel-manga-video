@@ -56,6 +56,22 @@ def wait_job(server, expected):
     pytest.fail(f'job did not reach {expected}')
 
 
+def test_doctor_cli_roundtrip_yields_then_runs_on_host(tmp_path, monkeypatch, capsys):
+    tools = FakeTools()
+    tools.release.set()
+    with running_server(tmp_path, tools) as server:
+        server.begin_turn()
+        monkeypatch.setattr(client, 'DEFAULT_SOCKET', server.socket_path)
+        assert client.main(['doctor']) == 0
+        answers = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith('{')]
+        assert any(row.get('action')=='doctor' and row.get('yield') is True for row in answers)
+        assert not tools.calls
+        server.end_turn()
+        result = wait_job(server, 'completed')
+        assert result['job']['result']['action']=='doctor'
+        assert ('doctor', {}) in tools.calls
+
+
 def test_check_roundtrip_and_slow_job_busy_completion(tmp_path):
     tools = FakeTools()
     with running_server(tmp_path, tools) as server:

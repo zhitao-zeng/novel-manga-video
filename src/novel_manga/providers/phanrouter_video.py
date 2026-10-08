@@ -67,7 +67,7 @@ def video_payload(
     }
 
 
-def generate_video(settings, client, video_headers, payload, output, additional_images=(), reference_audios=()):
+def generate_video(settings, client, video_headers, payload, output, additional_images=(), reference_audios=(), *, before_submit=None):
     request_sha256 = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
@@ -102,6 +102,8 @@ def generate_video(settings, client, video_headers, payload, output, additional_
             # not be this clip.  Keep the record aside and submit afresh.
             task_path.replace(task_path.with_suffix(".stale.json"))
     if not task_id:
+        if before_submit is not None:
+            before_submit()
         task_id = submit_recorded(submit, task_path, {"request_sha256": request_sha256, "kind": "video",
                                                             "model": settings.video_model})
         if task_id:
@@ -182,4 +184,3 @@ def audio_data_url(path: Path) -> str:
     if len(payload) > 10 * 1024 * 1024:
         raise ValueError(f"reference audio exceeds 10 MiB: {path}")
     return "data:audio/wav;base64," + base64.b64encode(payload).decode("ascii")
-

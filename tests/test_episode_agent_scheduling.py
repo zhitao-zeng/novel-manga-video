@@ -642,6 +642,15 @@ def test_cached_review_with_a_new_job_id_is_not_progress(ctx):
     assert flow._made_progress(ctx, before, old, new)
 
 
+def test_doctor_report_and_new_job_id_are_not_content_repair_progress(ctx):
+    old={'job':{'id':'job-1','action':'doctor','status':'completed','result':{'ok':True,'report':{'ok':False}}}}
+    new={'job':{'id':'job-2','action':'doctor','status':'completed','result':{'ok':True,'report':{'ok':True}}}}
+    before=flow._progress(ctx,old)
+    assert not flow._made_progress(ctx,before,old,new)
+    atomic_write_json(ctx.work_dir/'output/repair.json',{'decisions':[{'clip_id':'c','action':'input','reason':'source correction'}]})
+    assert flow._made_progress(ctx,before,old,new)
+
+
 @pytest.mark.parametrize('status', ['completed', 'failed'])
 def test_different_failed_operations_stop_across_slices(ctx, config, monkeypatch, status):
     install_fake_runtime(monkeypatch, ctx)

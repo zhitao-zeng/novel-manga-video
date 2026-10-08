@@ -87,6 +87,9 @@ def runtime_environment(ctx, config):
     if preset is None:
         raise ValueError('The configured sandbox endpoint has no existing QA preset; '
                          'set SECOND_REVIEW_JUDGE and NOVEL_REVIEW_VIDEO_JUDGE to existing presets.')
+    from novel_manga.llm.config import TRANSPORT_ENV
+    transport = ENDPOINTS.get(preset, {})
+    env.update({name:transport[name] for name in TRANSPORT_ENV if name in transport})
     env['SECOND_REVIEW_JUDGE'] = os.environ.get('SECOND_REVIEW_JUDGE') or preset
     env['NOVEL_REVIEW_VIDEO_JUDGE'] = os.environ.get('NOVEL_REVIEW_VIDEO_JUDGE') or preset
     from novel_manga.llm.config import endpoint_settings
@@ -135,6 +138,8 @@ def initial_prompt(ctx):
         'speech rules, source evidence and remaining generation budgets. '
         'Commands are python3 /work/tools/episode.py check, render, apply, review, finish. '
         'check/render take an optional file; apply defaults to output/repair.json. '
+        'Use doctor to request host service diagnostics when an endpoint fails; '
+        'yield for its result like other host jobs. Diagnostics do not prove content acceptance. '
         'Use these commands to check, render, review, apply supported repairs, '
         'and finish this episode. When a tool returns yield=true, end this CLI turn immediately. '
         'The host will execute it and resume this same session with the result; it owns waiting. '
@@ -533,6 +538,8 @@ def _made_progress(ctx, before, before_status, status):
             return False
         if job.get('action') == 'apply' and 'changed' in outcome:
             return False
+        if job.get('action') == 'doctor':
+            return before[0] != _progress(ctx, status)[0]
         if job.get('action') == 'review':
             return before[0] != _progress(ctx, status)[0] or outcome != (prior.get('result') or {})
         if job.get('action') == 'render' and 'generation_counts' in before_status and 'generation_counts' in status:

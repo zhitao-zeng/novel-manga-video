@@ -9,7 +9,7 @@ import hashlib
 # jobs - the planner, the H3 prompt translation and the judge - so moving one of them used to move all
 # three.  A command applies the preset it wants to its own process, and nothing else changes.
 #
-# Neither streams.  The streaming transport was written for a platform model behind a proxy: it drops
+# The local vLLM presets do not stream. The streaming transport for hosted models drops
 # chat_template_kwargs as "vLLM-only" and raises max_tokens to a floor of 50,000, because such a model
 # counts its reasoning inside the budget.  Flash-Next is vLLM, reached directly, and chat_template_kwargs
 # is where every request in this project says enable_thinking: False.  With the field stripped it thought
@@ -26,7 +26,13 @@ ENDPOINTS = {
     "deepseek": {"QWEN38_LOCAL_BASE_URL": "http://172.28.4.52:8831/v1",
                  "QWEN38_LOCAL_MODEL": "DeepSeek-V4.1-Flash",
                  "QWEN38_LOCAL_API_KEY_VAR": "GPU52_DEEPSEEK_API_KEY", "QWEN38_LOCAL_STREAM": "0"},
+    "phanthy": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8789/v1",
+                "QWEN38_LOCAL_MODEL": "glm-5.3-flash",
+                "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
+                "QWEN38_LOCAL_REASONING": "low", "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
 }
+
+TRANSPORT_ENV = ('QWEN38_LOCAL_STREAM', 'QWEN38_LOCAL_REASONING', 'QWEN38_LOCAL_MIN_MAX_TOKENS')
 
 
 def planner_endpoint_name(environ=None) -> str:

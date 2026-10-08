@@ -82,6 +82,9 @@ def server_env(conductor, server: dict) -> dict:
     env = {"QWEN38_LOCAL_BASE_URL": server["base"], "QWEN38_LOCAL_MODEL": server["model"],
            "NOVEL_LLM_BASE_URL": server["base"].split(",")[0], "NOVEL_LLM_MODEL": server["model"]}
     env["QWEN38_LOCAL_API_KEY_VAR"] = server.get("key_var", "")  # named, never the key itself
+    from novel_manga.llm.config import ENDPOINTS, TRANSPORT_ENV
+    preset = ENDPOINTS.get(server.get('endpoint'), {})
+    env.update({name:preset[name] for name in TRANSPORT_ENV if name in preset})
     if getattr(conductor,'workspaces',None) and server.get('endpoint'):
         endpoint=server['endpoint']
         env.update({key:endpoint for key in ('NOVEL_PLANNER_ENDPOINT','SECOND_REVIEW_JUDGE',

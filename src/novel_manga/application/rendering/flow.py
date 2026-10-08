@@ -115,6 +115,7 @@ class ThinMediaRunner:
         self.context = RenderContext()
         self.context.cache_only = cache_only  # rebuild from clips already rendered; never generate
         self.context.novel_dir = novel_dir
+        self.context.source_novel_dir = Path(os.environ.get('NOVEL_SOURCE_NOVEL_DIR') or novel_dir)
         self.context.inflight = inflight  # global cap on clips in flight across every runner of this novel (0 = none)
         self.context.prescreen = prescreen
         self.context.moderation_repair = moderation_repair
@@ -147,6 +148,8 @@ class ThinMediaRunner:
         local = self.context.settings.local_h3_base_url
         self.context.provider = (FramedLocalH3(self.context.settings, self.context.frame_spec, local, resolution=resolution)
                          if local else FramedPhanRouter(self.context.settings, self.context.frame_spec, resolution=resolution))
+        from novel_manga.application.agents.episode import probe
+        self.context.provider.before_video_submit = lambda: probe.check_before_submit(self.context)
         self.context.provider.prompt_aliases = {str(k): str(v) for k, v in (self.context.profile.get("prompt_aliases") or {}).items()}
         self.context.renderer = BatchRenderer(self.context.settings)
         self.context.work = episode_dir / "work"

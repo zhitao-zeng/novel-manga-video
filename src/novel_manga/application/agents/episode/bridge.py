@@ -11,8 +11,8 @@ import time
 
 from novel_manga.util import atomic_write_json, read_json
 
-ACTIONS = {'check', 'adopt', 'render', 'review', 'apply', 'status', 'finish'}
-SLOW_ACTIONS = {'adopt', 'render', 'review', 'apply', 'finish'}
+ACTIONS = {'check', 'adopt', 'render', 'review', 'apply', 'status', 'finish', 'doctor'}
+SLOW_ACTIONS = {'adopt', 'render', 'review', 'apply', 'finish', 'doctor'}
 MAX_REQUEST_BYTES = 65536
 
 
@@ -24,7 +24,7 @@ def parse_request(raw):
     except (ValueError, UnicodeDecodeError) as error:
         raise ValueError('episode tool request must be JSON') from error
     if not isinstance(request, dict) or not isinstance(request.get('action'), str) or request['action'] not in ACTIONS:
-        raise ValueError('choose check, render, review, apply, status or finish')
+        raise ValueError('choose check, adopt, render, review, apply, status, finish or doctor')
     payload = request.get('payload', {})
     if not isinstance(payload, dict):
         raise ValueError('episode tool payload must be an object')

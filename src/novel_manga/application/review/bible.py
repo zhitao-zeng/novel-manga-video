@@ -1,5 +1,6 @@
 """Existing book scanning, bounded bible growth and volume recap workflow."""
 from __future__ import annotations
+from novel_manga.story.source_context import excerpts
 
 import fcntl
 import json
@@ -46,9 +47,6 @@ def extract_names(chapter_text: str) -> list[dict]:
     return model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.NAME_SCHEMA, name="names", max_tokens=1500, settings=bible_settings()).get("characters", [])
 
 
-def excerpts(text: str, name: str, limit: int = 12) -> str:
-    sentences = [s for s in re.split(r"(?<=[。！？])", text) if name in s]
-    return "".join(sentences[:limit])[:1600]
 
 
 def reading_decisions(novel_dir: Path) -> dict:

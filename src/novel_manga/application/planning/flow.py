@@ -459,8 +459,9 @@ def run(args, ctx: PlannerContext) -> int:
         return 0
 
     started = time.monotonic()
+    gate_run = pc_gate_stats.begin_gate_run(novel_dir, episode.index, episode=episode_dir.name)
     attempts: list[dict] = []
-    last_issues: list = []  # the latest validation's issues; re-recorded as fatal if the chapter fails
+    last_issues: list = []  # final verdict is recorded separately from each firing
     repair: dict | None = None
     final_errors: list[str] = []
     result = None
@@ -485,7 +486,7 @@ def run(args, ctx: PlannerContext) -> int:
             checked.issues.extend(issues_for_grades(checked.shots, grades, everyone))
         last_issues = checked.issues
         for issue in checked.issues:
-            pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=False)
+            pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, run_id=gate_run, attempt=attempt)
         return checked
 
     def compress_duration(draft, checked, attempt):
@@ -531,6 +532,7 @@ def run(args, ctx: PlannerContext) -> int:
         return draft, checked
 
     for attempt in range(1, args.max_redo + 2):
+        last_issues = []
         request_payload = {**payload, **({"repair": repair} if repair else {})}
         atomic_write_json(episode_dir / f"request_attempt_{attempt:02d}.json", request_payload)
         raw_path = episode_dir / f"response_attempt_{attempt:02d}.raw.json"
@@ -695,7 +697,7 @@ def run(args, ctx: PlannerContext) -> int:
             strict = pc_validation.strict_plan_issues(shots, episode.source_text, segments, raw, ctx=ctx)
             strict_decision = pc_decisions.decide_strict(strict, final_attempt=attempt == args.max_redo + 1)
             for issue in strict:
-                pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=False)
+                pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, run_id=gate_run, attempt=attempt)
             if strict_decision.strict_waived:
                 warnings = [*warnings, *strict_decision.warnings]
                 attempts[-1]["strict_waived"] = strict_decision.strict_waived
@@ -737,7 +739,7 @@ def run(args, ctx: PlannerContext) -> int:
                     # defects (a suit apart from its wearer, the visor, lips during an inner voice) were none of
                     # the kinds it checks.  What it finds is for a person to read, in the report.
                     for issue in retained_issues:
-                        pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=False)
+                        pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, run_id=gate_run, attempt=attempt)
                     reported = [issue.message for issue in retained_issues]
                     warnings = [*warnings, *('report only (保留内容审查): ' + m for m in reported)]
                     attempts[-1]["retention_reported"] = reported
@@ -752,8 +754,6 @@ def run(args, ctx: PlannerContext) -> int:
         break
 
     if result is None:
-        for issue in last_issues:
-            pc_gate_stats.record_gate_event(novel_dir, episode.index, issue.code.code, fatal=True)
         failure = {
             "status": "planning_failed",
             "policy": ctx.policy,
@@ -764,6 +764,8 @@ def run(args, ctx: PlannerContext) -> int:
         }
         atomic_write_json(episode_dir / "planning_failed.json", failure)
         print(json.dumps({"status": "planning_failed", "errors": final_errors}, ensure_ascii=False, indent=2))
+        pc_gate_stats.finish_gate_run(novel_dir, episode.index, gate_run, passed=False,
+                                     fatal_codes=[issue.code.code for issue in last_issues])
         return 2
 
     raw, shots, warnings = result
@@ -830,4 +832,5 @@ def run(args, ctx: PlannerContext) -> int:
         (episode_dir / 'scene_script.md').write_text(render_screenplay(ctx.story_blueprint), encoding='utf-8')
     (episode_dir / 'planning_failed.json').unlink(missing_ok=True)
     print(json.dumps({"status": "passed", "episode_dir": str(episode_dir), "metrics": report_metrics, "elapsed_seconds": report["elapsed_seconds"]}, ensure_ascii=False, indent=2))
+    pc_gate_stats.finish_gate_run(novel_dir, episode.index, gate_run, passed=True)
     return 0

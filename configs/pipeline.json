@@ -119,6 +119,13 @@
         "key_var": "GPU81_QWEN_API_KEY",
         "slots": 3,
         "note": "别人的机器；2026-09-28 用户确认可开到 3 个请求"
+      },
+      "phanthy": {
+        "endpoint": "phanthy",
+        "base": "http://127.0.0.1:8789/v1",
+        "model": "glm-5.3-flash",
+        "key_var": "PHANTHY_API_KEY",
+        "slots": 1
       }
     }
   },
