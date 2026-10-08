@@ -134,3 +134,12 @@ Agent将生命周期、启动接续、单回合资源与提示词分开；八个
 修复、证据、收尾与状态服务组合。共用探针属于rendering，开拍/归档属于production。
 原native_episode适配器归Agent自身的pipeline_preparation，公共生产能力不调用Agent私有方法。
 详见[固定结构债清单与本轮边界](structure-debt-20261008.md)。本轮没有改变生成/审修策略。
+
+## 渲染状态、共用契约与产物定位（2026-10-08）
+
+本次有效配置由resolved_settings解析；渲染请求/缓存/提交/分析各有实现，flow只协调。
+RenderContext、RenderOptions、RenderState分别承担资料、选项和临时状态，片段输入不承载生成标记。
+动作/穿戴/对白的共用语义在story字段与值校验中，接口独有约束保留。人物库抽取/设计/增量写回分开。
+media/results声明已有结果契约，review/acceptance计算技术和内容结果，流程负责写回。
+普通书、分集、嵌套Agent集合由episode_paths定位；工作台和声线采集消费同一份定位实现。
+范围、回归和剩余三项见[固定清单](structure-debt-20261008.md#第二批6–12)。
