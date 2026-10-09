@@ -32,3 +32,20 @@ def run_resolve(novel_dir: Path, chapters: list[int], workers: int, texts: dict[
             summary = ledger_resolution.resolve_chapter(ledger, c, texts[c], workers=workers)
         if summary:
             print(f"  ch{c}: 指称 {summary['mentions']}，新记录 {summary['new'][:5]}，判断 {dict(summary['claims'])}，丢弃 {summary['dropped']}", flush=True)
+
+
+def adopt_roster(novel_dir: Path, roster: dict, aliases: dict | None = None) -> dict:
+    """Adopt only source-backed readings, and publish current views even for a new book."""
+    texts = ledger_store.novel_texts(novel_dir)
+    with ledger_store.ledger_lock(novel_dir):
+        ledger = ledger_store.Ledger(novel_dir)
+        known = set(ledger.by_name)
+        aliases = {**ledger_store.read_json(Path(novel_dir) / 'bible_aliases.json', {}),
+                   **(aliases or {}), **(roster.get('aliases') or {})}
+        aliased = {name for name, target in aliases.items() if target in known}
+        missing = [name for name in roster.get('characters', []) if name and name not in known and name not in aliased]
+        candidates = ledger_extraction.seed_candidates(ledger, missing, texts)
+        for name, row in candidates.items():
+            ledger._add_entity(name, row['kind'], row['named'], row['description'], row['chapter'], row['evidence'], row['span'])
+        ledger.save()
+    return {'seeded': list(candidates), 'unresolved': [name for name in missing if name not in candidates]}

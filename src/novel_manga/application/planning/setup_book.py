@@ -220,24 +220,12 @@ def main() -> int:
     log(f"完成：圣经 {len(bible['characters'])} 人 {len(bible['locations'])} 地点｜"
         f"读书名单 {len(roster['characters'])} 人｜别名 {len(aliases)} 条")
 
-    # 5. 名单 vs 台账对账:roster 全员在台账落实体。初始台账只从初始圣经播种,
-    # 圣经后来长出来的人不会自动进台账,绑定沿别名走到空处,章节卡死
-    # (十日终焉 2026-09-29,地牛案例)。播种只做"存在",外貌仍由读书逐章补。
-    from novel_manga.application.identity.ledger_store import Ledger, ledger_lock
-    with ledger_lock(novel_dir):
-        ledger = Ledger(novel_dir)
-        known = {ledger.name_of(eid) for eid in ledger.by_id}
-        known |= set(ledger.by_name)
-        aliased = set(roster.get("aliases") or {}) | set(aliases)
-        seeded = []
-        for name in roster.get("characters", []):
-            # 指称别名不播种:它们由别名解析命中正名实体,单独成实体反而污染台账。
-            if name and name not in known and name not in aliased:
-                ledger._add_entity(name, "person", True, f"读书名单在册（播种于 setup 对账）", 0)
-                seeded.append(name)
-        if seeded:
-            ledger.save()
-    log(f"台账对账：在册 {len(roster['characters'])} 人，补播种 {len(seeded)} 人"
-        + (f"：{'、'.join(seeded[:8])}{'…' if len(seeded) > 8 else ''}" if seeded else ""))
+    # 5. Reuse source-backed adoption; a roster label alone cannot establish a person.
+    from novel_manga.application.identity.ledger_flow import adopt_roster
+    adoption = adopt_roster(novel_dir, roster, aliases)
+    seeded = adoption['seeded']
+    unresolved = adoption['unresolved']
+    log(f"台账对账：在册 {len(roster['characters'])} 项，按原文补录 {len(seeded)} 项，待核对 {len(unresolved)} 项"
+        + (f"：{'、'.join(unresolved[:8])}{'…' if len(unresolved) > 8 else ''}" if unresolved else ""))
     log(f"下一步：{python} scripts/thin_batch.py --novel-dir {novel_dir} --chapters {args.chapters} --stage plan")
     return 0

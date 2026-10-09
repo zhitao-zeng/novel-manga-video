@@ -19,25 +19,11 @@ sys.path.insert(0, str(ROOT / "src"))
 import argparse
 import json
 
-from novel_manga.application.identity.ledger_store import Ledger, ledger_lock
+from novel_manga.application.identity.ledger_store import Ledger
 from novel_manga.entities import contracts as entity_contracts
-from novel_manga.entities.evidence import ground
 from novel_manga.application.identity.ledger_store import novel_texts, read_json
-
-
-def seed_candidates(ledger, missing, texts):
-    """Adopt explicit source readings, never infer person/named from roster membership."""
-    candidates = {}
-    for path in sorted((ledger.base / 'raw').glob('ch_*.json')):
-        chapter = int(path.stem[3:])
-        raw = read_json(path, {})
-        explicit = [r for r in raw.get('new_entities', [])
-                    if r.get('name') in missing and isinstance(r.get('named'), bool)
-                    and r.get('kind') in {'person', 'animal', 'spirit', 'other'}]
-        _, rows, _, _ = ground(chapter, texts.get(chapter, ''), {'new_entities': explicit})
-        for row in rows:
-            candidates.setdefault(row['name'], row)
-    return candidates
+from novel_manga.application.identity.ledger_extraction import seed_candidates
+from novel_manga.application.identity.ledger_flow import adopt_roster
 
 
 def main() -> int:
@@ -75,16 +61,10 @@ def main() -> int:
         print("\n变身类证据的已接受合并: 无")
 
     if args.fix and candidates:
-        with ledger_lock(novel_dir):
-            ledger = Ledger(novel_dir)
-            known = {ledger.name_of(eid) for eid in ledger.by_id} | set(ledger.by_name)
-            candidates = {name: row for name, row in candidates.items() if name not in known}
-            for name, row in candidates.items():
-                ledger._add_entity(name, row['kind'], row['named'], row['description'], row['chapter'], row['evidence'], row['span'])
-            ledger.save()
-        print(f"\n已采用 {len(candidates)} 项。")
-    remaining = [name for name in unresolved if not (args.fix and name in candidates)]
-    return 1 if (suspicious or remaining) else 0
+        result = adopt_roster(novel_dir, roster)
+        unresolved = result['unresolved']
+        print(f"\n已采用 {len(result['seeded'])} 项。")
+    return 1 if (suspicious or unresolved) else 0
 
 
 if __name__ == "__main__":

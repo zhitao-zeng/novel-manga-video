@@ -22,7 +22,7 @@ def make_ledger(path, merged=False):
             {'entity': eid, 'form': name, 'chapter': chapter, 'kind': 'proper',
              'presence': 'on_stage', 'evidence': f'{name}在第{chapter}章出现。'} for eid, name in people])
     store.write_json(base / 'relations/ch_0004.json', [{'from': 'e001', 'to': 'e004',
-        'chapter': 4, 'base': 'unknown', 'stance': 'neutral', 'address': '老友'}])
+        'chapter': 4, 'base': 'unknown', 'stance': 'neutral', 'address': '老友', 'hidden_from_reader': False}])
     ledger = store.Ledger(path)
     ledger.claims = [{'id': 'c0001-01', 'chapter': 1, 'type': 'same_as', 'subject': 'e001',
         'object': 'e002', 'status': 'pending', 'verdict': 'insufficient', 'source': 'text',
