@@ -46,6 +46,10 @@ def invoke(ctx, bridge, state, config, prompt, resume, remaining):
             if remaining <= 0:
                 raise TimeoutError('episode operation timeout exhausted')
             bridge.update_state(phase='agent_running', waiting_for=None)
+            from .bounded_recovery import record_proposal
+            record_proposal(ctx)
+            persisted=read_json(ctx.run_dir/'agent-run.json',{})
+            if persisted.get('upstream_recovery'):result['upstream_recovery']=persisted['upstream_recovery']
             bridge.begin_turn()
             started = time.monotonic()
             # Initial adaptation includes reading the source and pictures and

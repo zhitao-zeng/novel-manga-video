@@ -13,51 +13,7 @@ INPUT_LIMIT = 2
 SOURCE_REVIEW_POLICY = 2
 
 
-def asset_configuration_recoverable(ctx, record):
-    """One unchanged continuation for the observed pre-request image-port failure."""
-    if (record.get('status') != 'incomplete' or record.get('step') != 'assets'
-            or record.get('published') or record.get('asset_configuration_recovery')
-            or (record.get('source') or {}).get('consistent') is not True
-            or 'image helper exited' not in str(record.get('error', ''))):
-        return False
-    names=set((_phase_groups(record.get('decision') or {}).get('characters') or {}))
-    if not names:
-        return False
-    from novel_manga.llm.resources import _endpoint
-    base=os.environ.get('NOVEL_LOCAL_QWEN_IMAGE_URL','')
-    try:
-        if base:_endpoint(base)
-    except ValueError:
-        return False
-    log=ctx.run_dir/'input-assets.log'
-    if not log.is_file():return False
-    prefix=f'-agent-{ctx.episode_dir.name}-{record["clip_id"]}-'
-    latest={}
-    for line in log.read_text().splitlines():
-        try:row=json.loads(line)
-        except ValueError:continue
-        if (isinstance(row,dict) and row.get('name') in names
-                and prefix in str(row.get('asset_id',''))):
-            latest[row['name']]=row
-    return names==set(latest) and all(
-        'model resource endpoint has an invalid port' in str(row.get('status',''))
-        and row.get('seconds') == 0 for row in latest.values())
-
-
-def source_review_recoverable(record):
-    """Only a saved rejection from before defect confirmation needs rechecking."""
-    return (record.get('status') == 'rejected' and record.get('step') == 'source'
-            and bool(record.get('decision')) and not record.get('published')
-            and int(record.get('source_review_policy', 1)) < SOURCE_REVIEW_POLICY)
-
-
-def posture_protocol_recoverable(record):
-    """One same-candidate continuation after replacing the roster-echo protocol."""
-    error = str(record.get('error', ''))
-    return (record.get('status') == 'incomplete' and record.get('step') == 'compile'
-            and not record.get('published') and not record.get('posture_protocol_recovery')
-            and bool(record.get('decision')) and (record.get('source') or {}).get('consistent') is True
-            and '姿态台账镜' in error and '入镜名单不符' in error)
+from .input_recovery_policy import asset_configuration_recoverable, source_review_recoverable, posture_protocol_recoverable
 
 
 def latest_input_records(episode_dir):
@@ -70,28 +26,7 @@ def latest_input_records(episode_dir):
     return records
 
 
-def _phase_groups(row):
-    phases = copy.deepcopy(row.get('phases') or {})
-    characters = phases.get('characters') if isinstance(phases, dict) else None
-    if isinstance(characters, dict):
-        for name, value in characters.items():
-            if isinstance(value, dict):
-                characters[name] = [value]
-    return phases
-
-
-def effects(row):
-    result = {'shots': sorted(row.get('shots') or [], key=lambda shot: shot['index']),
-              'phases': _phase_groups(row), 'locations': row.get('locations') or {}}
-    if row.get('characters'):
-        result['characters'] = row['characters']
-    if row.get('clip_ids'):
-        result['clip_ids'] = sorted(row['clip_ids'])
-    if isinstance(result['phases'], dict) and not any(result['phases'].values()):
-        result['phases'] = {}
-    if not any(result.values()):
-        result['clip_id'] = row.get('clip_id')  # a wearing check without edits belongs to this clip
-    return result
+from .input_effects import _phase_groups, effects
 
 
 def remaining_input_attempts(ctx, clip_ids, *, records=None):
@@ -122,7 +57,7 @@ def input_records(ctx):
     return records
 
 
-def input_route(ctx, cid, row=None, *, records=None, image_review_policy=None):
+def _standard_input_route(ctx, cid, row=None, *, records=None, image_review_policy=None):
     """Select the legal receipt operation without changing a candidate or its counts.
 
     row=None asks which route a different source-backed proposal would use.
@@ -178,6 +113,18 @@ def input_route(ctx, cid, row=None, *, records=None, image_review_policy=None):
     return 'new', ctx.episode_dir/'work/input_repairs'/f'{cid}-{attempt}.json', {}
 
 
+def input_route(ctx,cid,row=None,*,records=None,image_review_policy=None):
+    try:
+        return _standard_input_route(ctx,cid,row,records=records,image_review_policy=image_review_policy)
+    except ValueError:
+        from .bounded_recovery import input_operation
+        if row is not None and input_operation(ctx,cid,row)['allowed']:
+            own=list((ctx.episode_dir/'work/input_repairs').glob(f'{cid}-*.json'))
+            number=max((int(p.stem.rsplit('-',1)[1])for p in own),default=0)+1
+            return 'upstream_recovery',ctx.episode_dir/'work/input_repairs'/f'{cid}-{number}.json',{}
+        raise
+
+
 def input_operations(ctx, cid, *, records=None):
     records = input_records(ctx) if records is None else records
     result = {mode: {'allowed': False} for mode in ('new', 'revise', 'resume')}
@@ -198,6 +145,10 @@ def input_operations(ctx, cid, *, records=None):
             result['resume']['reason'] = str(error)
     else:
         result['resume']['reason'] = 'no incomplete input repair is available to resume'
+    from .bounded_recovery import input_operation
+    grant=read_json(ctx.episode_dir/'repair_budget_grants.json',{}).get(cid,{}).get('upstream_recovery',{}).get('input')or{}
+    if grant.get('candidate') and input_operation(ctx,cid,grant['candidate'])['allowed']:
+        result['recovery']={'allowed':True,'candidate':grant['candidate']}
     return result
 
 
@@ -226,6 +177,12 @@ def input_receipt(ctx, cid, row, *, image_review_policy=None, check_only=False):
         record['status'] = 'checking'
     elif route == 'resume' and record.get('status') not in {'checking', 'published'}:
         record['resume_count'] = int(record.get('resume_count', 0)) + 1
+    elif route == 'upstream_recovery':
+        from .bounded_recovery import input_operation
+        permit=input_operation(ctx,cid,row,consume=not check_only)
+        if not permit['allowed']:raise ValueError('input recovery was already used')
+        record={'status':'checking','clip_id':cid,'reason':row['reason'],'source_quote':row['source_quote'],
+                'resume_count':1,'revision_count':1,'upstream_recovery':permit['grant']}
     elif route == 'new':
         record = {'status': 'checking', 'clip_id': cid, 'reason': row['reason'],
                   'source_quote': row['source_quote'], 'resume_count': 0}

@@ -210,6 +210,11 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         recovered = recovery.resume_summary_loop(ctx, config, saved)
         if recovered is not None:
             config, saved = recovered
+    from .bounded_recovery import resume_window
+    recovered_window=resume_window(ctx,saved)
+    if recovered_window is not None:saved=recovered_window
+    if saved.get('upstream_recovery') and saved.get('status') in {'blocked','finished_with_issues'}:
+        return BootstrapResult(completed=saved)
     if saved.get('status') == 'deferred':
         # Waiting behind other episodes consumes no active operation allowance.
         # Media, retry counters and the persisted Agent UUID are unchanged.
@@ -262,6 +267,8 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
               'idle_turns': saved.get('idle_turns',0),
               'agent_seconds': saved.get('agent_seconds', 0),
               'model_wait_seconds': saved.get('model_wait_seconds', 0)}
+    if saved.get('upstream_recovery'):
+        result['upstream_recovery']=saved['upstream_recovery']
     if saved.get('model_switch'):
         result['model_switch'] = saved['model_switch']
     if saved.get('source_review_recovery'):
