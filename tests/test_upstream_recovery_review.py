@@ -130,3 +130,11 @@ def test_failed_asset_without_window_not_reselected(ctx_pair,approved_source,fak
     assert current['recovery_failed']
     picked,held = upstream_batch.eligible_rows([{'episode':7}],lambda r:current)
     assert not picked and held
+
+
+def test_batch_triage_does_not_recompute_unneeded_full_episode_status(ctx_pair,monkeypatch):
+    from novel_manga.application.agents.episode.tools import EpisodeTools
+    ctx=ctx_pair[0]
+    monkeypatch.setattr(upstream_batch,'context',lambda *a:ctx)
+    monkeypatch.setattr(EpisodeTools,'status',lambda *a:pytest.fail('batch selection needs saved upstream evidence only'))
+    assert upstream_batch.inspect_row({'episode':7},ctx.novel_dir)['upstream_action'] is None

@@ -32,7 +32,6 @@ def context(row,novel_dir):
 def inspect_row(row,novel_dir):
     from novel_manga.application.production.runs import episode_status
     from novel_manga.application.production.common import pid_alive
-    from novel_manga.application.agents.episode.tools import EpisodeTools
     from novel_manga.application.agents.episode.recovery import upstream_route
     ctx=context(row,novel_dir);saved=read_json(ctx.run_dir/'agent-run.json',{})
     media=read_json(ctx.episode_dir/'thin_media_report.json',{});manifest=read_json(ctx.run_dir/'final-candidate/manifest.json',{})
@@ -40,7 +39,9 @@ def inspect_row(row,novel_dir):
     live=bool(owner.isdigit() and int(owner)>0 and pid_alive(int(owner)))
     accepted=manifest.get('passed')is True and (media.get('quality_review')or{}).get('passed')is True and episode_status(ctx.episode_dir,True)=='done'
     failed=bool(saved.get('upstream_recovery')and saved.get('status')in {'blocked','finished_with_issues'})
-    status=EpisodeTools(ctx).status({});route=upstream_route(ctx,status)
+    # Full status only distinguishes the two ordinary non-upstream fallbacks;
+    # neither is eligible here. The route reads its concrete candidates itself.
+    route=upstream_route(ctx,{})
     action=route if route.get('decision') and route.get('kind')in {'asset','repack','input_recovery'} else None
     if action:
         from novel_manga.application.agents.episode.upstream_assets import failed_attempt
