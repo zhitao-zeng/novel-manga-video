@@ -427,6 +427,7 @@ def test_review_restores_partial_first_pass_audio_before_judging(host,monkeypatc
     atomic_write_json(path,media)
     calls=[]
     class Analyser:
+        def __init__(self):self.context=RenderContext(episode_dir=ctx.episode_dir)
         def analyse_clip(self,clip,video):
             calls.append((clip['clip_id'],str(video)))
             return {'passed':True,'chunks':[],'reference':clip.get('spoken_text',''),'issues':[]}
@@ -441,3 +442,29 @@ def test_review_restores_partial_first_pass_audio_before_judging(host,monkeypatc
         assert restored['gate_failed_clips']==[]
     assert history.generation_counts(ctx.episode_dir)==before
     assert events==['render','review']
+
+
+def test_review_analysis_cannot_generate_voice_or_brighten_a_take(host,monkeypatch):
+    from novel_manga.application.rendering.clip_analysis import check_clip_black
+    ctx,tools,_,_=host
+    monkeypatch.setenv('NOVEL_FIRST_PASS_ONLY','1');tools.dispatch('render')
+    monkeypatch.setenv('NOVEL_FIRST_PASS_ONLY','0')
+    path=ctx.episode_dir/'thin_media_report.json';report=read_json(path)
+    report['clips'][0]['selected'].pop('chunks');atomic_write_json(path,report)
+    before=Path(report['clips'][0]['selected']['video']).read_bytes()
+    class Analyser:
+        def __init__(self):
+            self.context=RenderContext(episode_dir=ctx.episode_dir)
+            self.context.state.black_checks={'clip_01'}
+        def analyse_clip(self,clip,video):
+            assert self.context.options.cache_only, 'independent voice preparation must not submit'
+            return check_clip_black(self.context,clip,{'passed':True,'chunks':[],'issues':[]},video)
+    runner=Analyser()
+    monkeypatch.setattr(tools.media,'runner',lambda:runner)
+    monkeypatch.setattr('novel_manga.application.rendering.reviewed._load_current',lambda r:None)
+    monkeypatch.setattr('novel_manga.application.repair.recovery.black_ranges',lambda *a:[(0,2)])
+    monkeypatch.setattr('novel_manga.application.repair.recovery.brighten_dark_scene',lambda *a:pytest.fail('review changed video'))
+    result=tools.dispatch('review')
+    assert 'error' not in result, result.get('error')
+    assert not runner.context.options.cache_only and runner.context.state.black_checks=={'clip_01'}
+    assert Path(report['clips'][0]['selected']['video']).read_bytes()==before

@@ -62,7 +62,15 @@ class MediaOperations:
             # First-pass reports can retain only video/passed. The ordinary
             # analyser reads ASR beside this selected take and refreshes it for
             # the current dialogue; another take's cached path is never used.
-            analysis = runner.analyse_clip(clips[row['clip_id']], Path(selected['video']))
+            cached_only = runner.context.options.cache_only
+            black_checks = runner.context.state.black_checks
+            runner.context.options.cache_only = True
+            runner.context.state.black_checks = set()
+            try:
+                analysis = runner.analyse_clip(clips[row['clip_id']], Path(selected['video']))
+            finally:
+                runner.context.options.cache_only = cached_only
+                runner.context.state.black_checks = black_checks
             row['selected'] = {**selected, **analysis}
             failed = report.setdefault('gate_failed_clips', [])
             if analysis.get('passed') is False:
