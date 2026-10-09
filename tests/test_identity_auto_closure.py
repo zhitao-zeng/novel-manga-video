@@ -222,6 +222,29 @@ def test_binding_failure_retains_actual_reviewer_candidate_for_next_repair(tmp_p
     assert not(ep/'identity_context.json').exists()
 
 
+def test_body_collision_feedback_identifies_the_actual_conflicting_source_actor(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'云和云苍冥站在桥上。'}])
+    actors=[actor('云'),{**actor('云苍冥'),'source_id':2}]
+    bad={'actors':actors,'bindings':[{'source_id':sid,'entity_id':'e001','decision':'catalogue',
+        'paragraphs':[1],'reason':'错误同人'}for sid in [1,2]]}
+    corrected=copy.deepcopy(bad);corrected['bindings'][1]['entity_id']='e002'
+    calls=[];errors=[]
+    def ask(parts,schema,**kwargs):
+        calls.append(kwargs['name'])
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':actors}
+        if kwargs['name']=='chapter_binding_review_correction':
+            payload=json.loads(parts[0]['text'].split('\n')[-1]);errors.append(payload['validation_error'])
+            return corrected
+        return {'approved':calls.count('chapter_binding_review')>1,'reason':'按原文两人分别绑定',
+            'correction':None if calls.count('chapter_binding_review')>1 else bad}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert result['semantic_review']['approved']
+    assert '"source_id": 2'in errors[0]and'云苍冥'in errors[0]and'"requested_entity": "e001"'in errors[0]
+    assert {m['entity_id']for m in result['mentions']}=={'e001','e002'}
+
+
 def test_unnamed_actor_becomes_a_reviewed_extra_without_global_renaming(tmp_path,monkeypatch):
     ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
     store.write_json(ep/'segments.json',[{'text':'持令牌的少女走到前面。'}])

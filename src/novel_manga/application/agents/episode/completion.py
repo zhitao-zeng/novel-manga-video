@@ -36,7 +36,7 @@ class EpisodeCompletion:
             return {'ok': False, 'error': 'stale_review', 'required_action': 'review',
                     'message': 'Run review with the current policy and configured mode before finishing existing video.',
                     'review_policy': review.get('policy'), 'expected_review_policy': REVIEW_POLICY}
-        if report.get('status') == 'clips_ready':
+        if report.get('status') == 'clips_ready' or (report.get('assembly')or{}).get('needs_subtitle_refresh'):
             if not media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {})):
                 return {'ok': False, 'error': 'stale_media', 'required_action': 'render',
                         'message': 'Current requests need render before existing takes can be assembled.'}

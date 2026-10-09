@@ -50,6 +50,11 @@ def refresh_speech_evidence(directory):
             continue
         row['selected'] = speech.refresh(clip.get('spoken_text', ''), selected, terms, aliases,
                                         vocalizations=speech.planned_vocalizations(clip))
+        if media.get('assembly')and any(c.get('subtitle')=='rejected_unplanned_speech'for c in selected.get('chunks',[])):
+            from novel_manga.media.subtitles import align_chunks
+            aligned=align_chunks([clip.get('spoken_text','')],row['selected'].get('chunks',[]))
+            if any(c.get('subtitle')=='rejected_unplanned_speech'and text for c,text,score,pieces in aligned):
+                media['assembly']['needs_subtitle_refresh']=True
         changed = True
     if changed:
         selected = {r['clip_id']: r.get('selected') or {} for r in media['clips']}

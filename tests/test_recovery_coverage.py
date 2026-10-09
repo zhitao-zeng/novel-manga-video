@@ -97,6 +97,44 @@ def test_finish_does_not_treat_old_omission_receipt_as_media_defect(ctx_pair,mon
     assert not result['passed']
 
 
+def test_refreshed_asr_rejoin_marks_existing_movie_for_subtitle_rebuild(ctx_pair):
+    from novel_manga.application.profiles import plan_fingerprint,h3_prompt_fingerprint
+    from novel_manga.application.review.execution import refresh_speech_evidence
+    ctx=ctx_pair[0];filmed(ctx,[])
+    plan=read_json(ctx.episode_dir/'clip_plan.json')
+    reference='这些人都来过这里。甲和乙之前分别做过很多不同的事情。但是，他们居然拿走了我的法杖去换晚餐！'
+    plan['clips'][0]['spoken_text']=reference
+    atomic_write_json(ctx.episode_dir/'clip_plan.json',plan)
+    media=read_json(ctx.episode_dir/'thin_media_report.json')
+    media.update(clip_plan_fingerprint=plan_fingerprint(plan),prompt_h3_fingerprint=h3_prompt_fingerprint(plan),
+        review_feedback={},assembly={'final_video':'existing.mp4'})
+    media['clips'][0]['selected'].update(reference=reference,speech_evaluation_policy=7,
+        mean_volume_db=-20,max_volume_db=-3,issues=['excess_unplanned_speech'],chunks=[
+        {'start':0,'end':2,'hypothesis':'这些人都来过这里','subtitle':'script_span'},
+        {'start':3,'end':5,'hypothesis':'但他们居然拿走了我的法杖去换晚餐','subtitle':'rejected_unplanned_speech'}])
+    atomic_write_json(ctx.episode_dir/'thin_media_report.json',media)
+    assert refresh_speech_evidence(ctx.episode_dir)
+    after=read_json(ctx.episode_dir/'thin_media_report.json')
+    assert after['clips'][0]['selected']['passed']
+    assert after['assembly']['needs_subtitle_refresh']
+
+
+def test_finish_rebuilds_changed_subtitles_without_submitting_video(ctx_pair,monkeypatch):
+    ctx=ctx_pair[0];tools=EpisodeTools(ctx);calls=[]
+    plan=read_json(ctx.episode_dir/'clip_plan.json')
+    from novel_manga.application.profiles import plan_fingerprint,h3_prompt_fingerprint
+    media={'status':'assembled','clips':[{'clip_id':'clip_01','selected':{}}], 'assembly':{'needs_subtitle_refresh':True},
+        'clip_plan_fingerprint':plan_fingerprint(plan),'prompt_h3_fingerprint':h3_prompt_fingerprint(plan)}
+    atomic_write_json(ctx.episode_dir/'thin_media_report.json',media)
+    def assemble(report):
+        calls.append('assemble');return {**report,'assembly':{}}
+    monkeypatch.setattr(tools.media,'assemble',assemble)
+    monkeypatch.setattr(tools.media,'runner',lambda:pytest.fail('generation from finish'))
+    result=tools.dispatch('finish',{})
+    assert calls==['assemble']
+    assert not result['passed']  # Rebuilding does not waive independent checks.
+
+
 def test_prepared_asset_is_adopted_before_any_redraw(ctx_pair,approved_source,fake_image):
     ctx=ctx_pair[0]
     upstream_assets.apply_to_snapshot(ctx,upstream_assets.prepare(ctx,row()))

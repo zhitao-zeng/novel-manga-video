@@ -5,6 +5,7 @@ from novel_manga.media.evidence_backends import edit_distance, normalize_text
 from novel_manga.media.pagination import timed_subtitle_pages
 
 MIN_LINE_SIMILARITY = 0.35
+MIN_CLAUSE_REJOIN_SIMILARITY = 0.65
 
 CAPTION_LINE_CHARS = 18
 
@@ -132,8 +133,9 @@ def align_chunks(lines: list[str], chunks: list[dict], threshold: float = MIN_LI
 
     The script is flattened to one normalised character sequence (numbers in
     their spoken form) with a pointer back to the original text.  For every
-    chunk the best span is searched from the cursor to the end of the script
-    (skipping ahead costs a small penalty per skipped line), so one noisy
+    chunk first searches from the cursor and later line starts. If that fails,
+    a strong match may resume at a later clause within the current line.
+    Skipping ahead costs a small penalty per skipped line, so one noisy
     chunk cannot derail the lines that follow, and the order constraint lets
     the acceptance threshold sit well below a free-text match.  A span end
     that lands within three characters of a clause boundary snaps to it, so
@@ -191,15 +193,22 @@ def align_chunks(lines: list[str], chunks: list[dict], threshold: float = MIN_LI
             continue
         current_line = flat[cursor][1]
         candidates = [(cursor, 0)] + [(pos, li - current_line) for li, pos in line_starts.items() if pos > cursor]
-        best = (0.0, None, None)
-        for start, skipped in candidates:
-            low = max(2, int(len(hypothesis) * 0.6))
-            high = min(len(keys) - start, int(len(hypothesis) * 1.5) + 2)
-            for width in range(low, high + 1):
-                span = keys[start:start + width]
-                score = 1.0 - edit_distance(span, hypothesis) / max(len(span), len(hypothesis)) - 0.04 * skipped
-                if score > best[0]:
-                    best = (score, start, width)
+        def search(starts):
+            best=(0.0,None,None)
+            for start,skipped in starts:
+                low=max(2,int(len(hypothesis)*0.6))
+                high=min(len(keys)-start,int(len(hypothesis)*1.5)+2)
+                for width in range(low,high+1):
+                    span=keys[start:start+width]
+                    score=1.0-edit_distance(span,hypothesis)/max(len(span),len(hypothesis))-0.04*skipped
+                    if score>best[0]:best=(score,start,width)
+            return best
+        best=search(candidates)
+        if best[0]<threshold:
+            starts=[(pos,0)for pos in range(cursor+1,len(flat))
+                    if flat[pos][1]==current_line and boundary_after[pos-1]]
+            resumed=search(starts)
+            if resumed[0]>=max(threshold,MIN_CLAUSE_REJOIN_SIMILARITY):best=resumed
         score, start, width = best
         if start is None or score < threshold:
             results.append((chunk, None, round(max(score, 0.0), 3), []))

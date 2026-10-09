@@ -9,6 +9,27 @@ from novel_manga.media import analysis, speech
 from novel_manga.media.evidence_backends import correct_protected_lexicon
 
 
+def test_resumed_clause_after_omission_is_not_classified_as_new_speech():
+    from novel_manga.media.subtitles import align_chunks
+    reference='这些人都来过这里。甲和乙之前分别做过很多不同的事情。但是，他们居然拿走了我的法杖去换晚餐！'
+    rows=[{'start':0,'end':2,'hypothesis':'这些人都来过这里'},
+          {'start':3,'end':5,'hypothesis':'但他们居然拿走了我的法杖去换晚餐'}]
+    result=speech.evaluate(reference,rows,-20,-3)
+    assert 'excess_unplanned_speech'not in result['issues']
+    assert result['missing']>0  # The skipped dialogue is still measured.
+    matched=align_chunks([reference],rows)
+    assert matched[-1][1]and'法杖'in matched[-1][1]
+    assert matched[-1][2]>=.65
+
+
+@pytest.mark.parametrize('utterance',['请点赞并订阅我们的视频频道','这些人都来过这里'])
+def test_clause_rejoin_cannot_hide_adlib_or_repeat(utterance):
+    reference='这些人都来过这里。甲和乙之前分别做过很多不同的事情。但是，他们拿走了法杖。'
+    rows=[{'start':0,'end':2,'hypothesis':'这些人都来过这里'},
+          {'start':3,'end':5,'hypothesis':utterance}]
+    assert 'excess_unplanned_speech'in speech.evaluate(reference,rows,-20,-3)['issues']
+
+
 @pytest.mark.parametrize('reference,heard,level,issues', [
     ('', '', -99, []),
     ('', '我来给你讲故事', -20, ['unscripted_speech']),

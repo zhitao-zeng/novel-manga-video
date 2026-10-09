@@ -24,11 +24,15 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
                               'correction': {'anyOf': [schema, {'type': 'null'}]}})
     current = deepcopy(candidate)
     for attempt in range(2):
-        prompt = ('按完整小说原文核对身份资料，输出JSON。判断资料是否会让演员、数量、种类、名字、关系或在场状态出错。'
+        prompt = ('按完整小说原文核对本章规划使用的actors和bindings，输出JSON。判断资料是否会让实际演员、数量、种类、名字或在场状态出错。'
             '依据连续事件、对话问答和代词的自然指向识别个体；连续两句“她是甲的女儿，父亲说……”中的父亲可以确定为甲。'
+            '“甲的姐夫乙”中甲与乙是两个人，乙与“甲的姐夫”同指；不能把甲本人的名字误当作乙的别名。'
+            '当前actors是本章主体；catalogue/record_origins是查找背景资料，不能把历史档案的重复条目误当作当前actors重复。'
             '原文已经清楚的同指正常采用，只有确有多种合理解释时才留未知；临时个体可以无名。'
             '原文已支持且不会误导演员的候选填approved=true、correction=null。实际有错才填false，按原结构修订已指出的问题并保留其他正确字段。'
-            '人物、群体、物件和声源分别登记，同人关系有具体两端。引用对应章节/段落原句，已有确证关系保持。\n'
+            '人物、群体、物件和声源分别登记。此候选没有relations字段，不负责补齐全书亲属关系或归并历史档案；未登记背景关系不构成本章绑定错误。'
+            '只被提及且不出场的未知身份允许保留，不能以此否决规划。个体按individual理解，count=0不表示没有这个演员。'
+            '引用对应章节/段落原句，已有确证身份保持。\n'
             + json.dumps({'evidence': context, 'candidate': current}, ensure_ascii=False))
         options = {'settings': settings} if settings is not None else {}
         answer = client.ask_json([{'type': 'text', 'text': prompt}], reply_schema,
@@ -183,8 +187,13 @@ def bindings(directory, answer, catalog, segments, mapped, *, cached=None, alias
         checked = {**value, 'actors': actors}
         targets = {r['source_id']: r['entity_id'] for r in value['bindings']}
         resolved = map_source_reading(cleaned, catalog, segments, aliases, approved_bindings=targets)
-        if any(m['entity_id'] != targets[m['source_actor']] for m in resolved['mentions']):
-            raise ValueError('semantic binding collapses distinct source actors; correction must preserve their bodies')
+        changed={m['source_actor']:m['entity_id']for m in resolved['mentions']
+                 if m['entity_id']!=targets[m['source_actor']]}
+        if changed:
+            conflicts=[{'source_id':sid,'name':next(a['name']for a in actors if a['source_id']==sid),
+                        'requested_entity':targets[sid],'resolved_entity':eid}for sid,eid in changed.items()]
+            raise ValueError('semantic binding collapses distinct source actors; correction must preserve their bodies: '
+                +json.dumps(conflicts,ensure_ascii=False)+'. Keep individual bodies distinct; an anonymous group can use decision=extra rather than sharing a person id.')
         return checked
     value, review = close(candidate,context,schema,name='chapter_binding_review',cached=cached,validate=validate,
                           record=Path(directory)/'identity_binding_review.json')
