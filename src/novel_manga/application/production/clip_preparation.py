@@ -19,7 +19,7 @@ def preflight(directory, clip):
     cid = clip['clip_id']
     if h3_prompt_outdated(clip, str(notes.get(cid) or ''), strict=True) or clip.get('prompt_h3_skip'):
         raise ValueError('H3 request is missing or stale')
-    if (history.generation_counts(directory).get(cid, 0) >= history.generation_limit(directory, cid)
+    if (history.remaining_takes(directory,cid)<=0
             and not history.extra_take_ready(directory, cid)):
         raise ValueError('effective clip retry budget used; requires a validated input change and existing authorization')
     ctx = RenderContext(novel_dir=directory.parent, work=directory/'work', feedback=notes,

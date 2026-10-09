@@ -31,8 +31,17 @@ def generation_limit(directory: Path, cid: str, *, grants: dict | None = None) -
 
 
 def conditional_extra(directory: Path, cid: str, *, grants=None) -> dict:
-    grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants
-    extra = grants.get(cid, {}).get('conditional_extra') or {}
+    grants=read(directory/'repair_budget_grants.json',{}) if grants is None else grants
+    scope=source_budget(directory,cid,preparation=True,grants=grants)
+    if scope['roots']:
+        extras=[(root,grants.get(root,{}).get('conditional_extra')or{})for root in scope['roots']]
+        extras=[(root,e)for root,e in extras if e.get('authorization') and e.get('reason')]
+        if not extras:return {}
+        root,extra=extras[0]
+        prepared=all(cid in e.get('prepared_clips',[r] if e.get('prepared')else []) for r,e in extras)
+        return {**copy.deepcopy(extra),'source_limit':extra['limit'],'scope_roots':[r for r,e in extras],
+                'prepared':prepared,'limit':generation_counts(directory).get(cid,0)+scope['remaining']}
+    extra=grants.get(cid,{}).get('conditional_extra')or{}
     return extra if extra.get('authorization') and extra.get('reason') else {}
 
 
@@ -50,6 +59,9 @@ def grant_conditional_extra(directory: Path, cid: str, *, authorization: str, re
         raise ValueError('conditional take requires an explicit authorization and reason')
     if cid not in {c['clip_id'] for c in read(directory/'clip_plan.json', {}).get('clips', [])}:
         raise ValueError(f'unknown episode clip: {cid}')
+    scope=source_budget(directory,cid,preparation=True)
+    if scope['roots']:
+        return _grant_scope_extra(directory,cid,authorization,reason)
     with (directory/'repair_budget_grants.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = directory/'repair_budget_grants.json'
@@ -98,23 +110,20 @@ def recheck_limit(directory: Path, cid: str, *, grants=None):
 
 
 def mark_extra_prepared(directory: Path, cids):
-    """Only the host calls this after accepting a concrete edit/input/retake."""
-    if not cids:
-        return
-    path = directory/'repair_budget_grants.json'
-    if not any(conditional_extra(directory, cid) for cid in cids):
-        return
-    with (directory/'repair_budget_grants.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        grants = read(path, {})
-        changed = False
+    if not cids:return
+    with (directory/'repair_budget_grants.lock').open('a')as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX);path=directory/'repair_budget_grants.json';grants=read(path,{})
+        changed=False
         for cid in cids:
-            extra = conditional_extra(directory, cid, grants=grants)
-            if extra and not extra.get('prepared'):
-                extra.update(prepared=True, prepared_at=time.strftime('%F %T'))
-                changed = True
-        if changed:
-            atomic_write_json(path, grants)
+            scope=source_budget(directory,cid,preparation=True,grants=grants)
+            for root in scope['roots'] or [cid]:
+                extra=grants.get(root,{}).get('conditional_extra')or{}
+                if not extra.get('authorization'):continue
+                extra['prepared']=True
+                if scope['roots']:
+                    extra['prepared_clips']=sorted(set(extra.get('prepared_clips',[]))|{cid})
+                changed=True
+        if changed:atomic_write_json(path,grants)
 
 
 def extra_take_ready(directory: Path, cid: str) -> bool:
@@ -124,6 +133,8 @@ def extra_take_ready(directory: Path, cid: str) -> bool:
 
 def activate_extra_take(directory: Path, cid: str) -> bool:
     """Called after the normal final-request/reference preflight, immediately before sampling."""
+    if source_budget(directory,cid)['roots']:
+        return _activate_scope_extra(directory,cid)
     with (directory/'repair_budget_grants.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         path = directory/'repair_budget_grants.json'
@@ -150,6 +161,90 @@ def activate_extra_take(directory: Path, cid: str) -> bool:
                      preflight='normal final H3 request and actual-reference checks passed')
         atomic_write_json(path, grants)
         return True
+
+
+def generation_scope(directory, cid, *, record=None):
+    from .repack_budget import members
+    return members(directory,cid,record)
+
+
+def source_budget(directory, cid, *, preparation=False, grants=None):
+    from .repack_budget import group_for, balances
+    grants=read(directory/'repair_budget_grants.json',{}) if grants is None else grants
+    group=group_for(directory,cid)
+    limits={root:generation_limit(directory,root,grants=grants) for root in group['source_budget']['roots']} if group else {}
+    return balances(directory,cid,generation_counts(directory),grants,limits,preparation=preparation)
+
+
+def remaining_takes(directory, cid, *, preparation=False):
+    limit=preparation_limit(directory,cid) if preparation else generation_limit(directory,cid)
+    own=max(0,limit-generation_counts(directory).get(cid,0))
+    budget=source_budget(directory,cid,preparation=preparation)
+    return min(own,budget['remaining']) if budget['roots'] else own
+
+
+def reserve_scope_submission(directory, output, request):
+    from .repack_budget import FIELD
+    budget=source_budget(directory,request['clip_id'])
+    if not budget['roots']:return request
+    with (directory/'repair_budget_grants.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        path=output.parent/'request.json';previous=read(path,{})
+        receipt=previous.get(FIELD) or {}
+        if receipt.get('status') in {'reserved','unknown'}:
+            if {k:v for k,v in previous.items()if k!=FIELD}!={k:v for k,v in request.items()if k!=FIELD}:
+                raise ValueError('reconcile the prior source submission before changing its request')
+            return {**request,FIELD:receipt}
+        if remaining_takes(directory,request['clip_id'])<=0:raise ValueError('source range video budget used')
+        receipt={'roots':budget['roots'],'before_count':generation_counts(directory).get(request['clip_id'],0),'status':'reserved'}
+        result={**request,FIELD:receipt};atomic_write_json(path,result);return result
+
+
+def finish_scope_submission(directory, output, *, outcome):
+    from .repack_budget import FIELD
+    with (directory/'repair_budget_grants.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX);path=output.parent/'request.json';request=read(path,{})
+        if FIELD in request:
+            request[FIELD]['status']=outcome;atomic_write_json(path,request)
+
+
+def _grant_scope_extra(directory,cid,authorization,reason):
+    with (directory/'repair_budget_grants.lock').open('a')as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX);path=directory/'repair_budget_grants.json';grants=read(path,{})
+        scope=source_budget(directory,cid,preparation=True,grants=grants)
+        for root in scope['roots']:
+            extra=grants.get(root,{}).get('conditional_extra')or{}
+            if extra and scope['constraints'][root]['remaining']==0:
+                raise ValueError('source range already used or reserved its conditional extra')
+        if scope['remaining']>0:return conditional_extra(directory,cid,grants=grants) or {'limit':preparation_limit(directory,cid,grants=grants),'reason':'existing unspent source allowance'}
+        used_inputs=sum(read(p,{}).get('operation')!='upstream_asset' and read(p,{}).get('status')!='tool_error'
+                        for p in (directory/'work/input_repairs').glob(f'{cid}-*.json'))
+        for root, constraint in scope['constraints'].items():
+            if constraint['remaining']>0:continue
+            extra={'authorization':authorization,'reason':reason,'limit':constraint['used']+constraint['pending']+1,
+                   'baseline_count':constraint['used'],'baseline_limit':constraint['limit'],'prepared':False,'activated':False,
+                   'input_limit':max(2,used_inputs+1),'recheck_limit':int(recheck_limit(directory,cid,grants=grants)or 0)+1,
+                   'authorized_at':time.strftime('%F %T'),'prepared_clips':[],'source_scope':root}
+            grants.setdefault(root,{})['conditional_extra']=extra
+        atomic_write_json(path,grants);return conditional_extra(directory,cid,grants=grants)
+
+
+def _activate_scope_extra(directory,cid):
+    with (directory/'repair_budget_grants.lock').open('a')as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX);path=directory/'repair_budget_grants.json';grants=read(path,{})
+        view=conditional_extra(directory,cid,grants=grants)
+        if not view.get('prepared') or generation_counts(directory).get(cid,0)>=int(view['limit']):return False
+        old_limits={c['clip_id']:generation_limit(directory,c['clip_id'],grants=grants)for c in read(directory/'clip_plan.json',{}).get('clips',[])}
+        needed=max([generation_counts(directory).get(cid,0)+1,*[int(grants[r]['conditional_extra']['limit'])for r in view['scope_roots']]])
+        common=grants.get('*',{})
+        if common.get('reason') and common.get('limit',needed)<needed:
+            for child,limit in old_limits.items():grants.setdefault(child,{}).update(limit=limit,reason=grants.get(child,{}).get('reason')or'Preserve other clip allowance')
+            common['limit']=needed
+        for root in view['scope_roots']:
+            extra=grants[root]['conditional_extra'];grants[root].update(limit=int(extra['limit']),reason=extra['reason'])
+            extra.update(activated=True,activated_at=time.strftime('%F %T'),preflight='source-family request and references passed')
+        grants.setdefault(cid,{}).update(limit=max(int(grants.get(cid,{}).get('limit',0)),old_limits[cid],generation_counts(directory).get(cid,0)+1),reason=view['reason'])
+        atomic_write_json(path,grants);return True
 
 
 def generated_counts(record: dict) -> dict[str, int]:
@@ -179,7 +274,7 @@ def generation_request(directory: Path, output: Path, request: dict, *, expected
     """Own a new submission, preserving the owner of a task being resumed."""
     previous = read(output.parent / "request.json", {})
     task = read(output.with_suffix(output.suffix + ".task.json"), {})
-    metadata = {GENERATION_FIELD, "clip_id", "attempt", "workflow"}
+    metadata = {GENERATION_FIELD, "clip_id", "attempt", "workflow", "_repack_budget"}
     same = {k: v for k, v in previous.items() if k not in metadata} == {
         k: v for k, v in request.items() if k not in metadata}
     if not fresh_task and task.get("task_id") and same:
@@ -191,6 +286,9 @@ def generation_request(directory: Path, output: Path, request: dict, *, expected
                   if trial.get("managed") and request["clip_id"] in trial.get("clips", [])
                   and trial.get("expected_plan") == expected_plan
                   and trial.get("expected_notes") == expected_notes), None)
+    if owner is None and source_budget(directory,request['clip_id'])['roots']:
+        owner=next((t for t in reversed(load(directory).get('trials',[])) if t.get('managed')
+                    and request['clip_id'] in t.get('clips',[])),None)
     return {**request, **({GENERATION_FIELD: {"trial": owner["id"], "clip_id": request["clip_id"]}} if owner else {})}
 
 

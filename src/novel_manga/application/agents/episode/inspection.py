@@ -36,7 +36,7 @@ class EpisodeInspection:
         records = input_records(self.ctx)
         input_ops = {cid: input_states.get(cid, {}).get('operations')
                      or input_operations(self.ctx, cid, records=records) for cid in clip_ids}
-        take_left = {cid: max(0, history.preparation_limit(self.ctx.episode_dir, cid)-counts.get(cid, 0))
+        take_left = {cid: history.remaining_takes(self.ctx.episode_dir,cid,preparation=True)
                      for cid in clip_ids}
         check_left = {cid: max(0, int(limit)-rechecks[cid]) for cid, limit in limits.items() if limit is not None}
         eligible = (set(review.get('feedback') or {}) | set(media.get('failed_clips') or [])

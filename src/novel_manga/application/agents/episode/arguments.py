@@ -40,4 +40,4 @@ def spent_video_budget(ctx,clip_ids):
     from novel_manga.application.repair import history
     counts=history.generation_counts(ctx.episode_dir)
     return {cid:'effective clip retry budget used' for cid in clip_ids
-            if counts.get(cid,0)>=history.preparation_limit(ctx.episode_dir,cid)}
+            if history.remaining_takes(ctx.episode_dir,cid,preparation=True)<=0}

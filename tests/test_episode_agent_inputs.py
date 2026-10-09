@@ -375,8 +375,8 @@ def test_saved_thirty_second_clip_with_existing_take_keeps_cuts_and_source(book)
     ctx = context.create_context(source, 2)
     take = ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4'
     take.parent.mkdir(parents=True); take.write_bytes(b'existing take')
-    with pytest.raises(ValueError, match='H3 requires repacking'):
-        prepare_inputs(ctx)
+    prepare_inputs(ctx)
+    assert read(ctx.work_dir/'input/repack-needed.json')['clips']
     assert read(episode / 'chapter_script.json') == script
     assert read(episode / 'clip_plan.json') == plan
 

@@ -84,7 +84,7 @@ def compile_input(case: InputCompilation, receipt, record, progress) -> Compiled
     verified_dependencies=set(structural.pop('_posture_dependent_clips', []))
     if extra and set(extra) <= verified_dependencies:
         first_pass_scope(ctx, set(extra))
-        exhausted = [key for key in extra if counts.get(key,0) >= history.preparation_limit(directory,key)]
+        exhausted = [key for key in extra if history.remaining_takes(directory,key,preparation=True)<=0]
         if exhausted:
             raise CompileConflict('dependent input repair exceeds remaining video budget: '+', '.join(exhausted),
                 {'kind': 'dependency_budget', 'requested_clips': sorted(targets), 'extra_clips': extra,

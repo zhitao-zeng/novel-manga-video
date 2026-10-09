@@ -106,8 +106,13 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
                 ctx.state.blocked_clips={}
             ctx.state.blocked_clips[clip['clip_id']]=['request: '+issue for issue in contradictions]
             raise ValueError('H3 request needs identity repair: '+'; '.join(contradictions))
+    task_path = output.with_suffix(output.suffix + ".task.json")
+    from novel_manga.util import read_json
+    saved_request=read_json(output.parent/'request.json',{})
+    resume_scope=bool(saved_request.get('_repack_budget') and read_json(task_path,{}).get('task_id')
+        and cache.request_matches(ctx,clip,saved_request,references,digests))
     remaining=ctx.state.remaining.get(clip['clip_id'])
-    needs_extra = remaining is not None and remaining <= 0
+    needs_extra = not resume_scope and ((remaining is not None and remaining <= 0) or repair_history.remaining_takes(episode_dir,clip['clip_id'])<=0)
     if needs_extra and not repair_history.extra_take_ready(episode_dir, clip['clip_id']):
         if repair_history.conditional_extra(episode_dir, clip['clip_id']):
             raise ValueError('extra take requires a validated edit/input/retake and remaining authorization; '
@@ -140,9 +145,11 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
     try:
       for wait in (*SUBMIT_BACKOFF_SECONDS, None):
         try:
+            request=repair_history.reserve_scope_submission(episode_dir,output,{**request,'clip_id':clip['clip_id']})
             generation.submit(ctx, clip, request, output, references)
             break
         except RuntimeError as error:
+            repair_history.finish_scope_submission(episode_dir,output,outcome='not_accepted' if resubmittable(error) else 'unknown')
             # Throttled at submission (higher --parallel): wait and resubmit
             # instead of failing the clip; content errors propagate at once.
             # An unconfirmed submission may already be a paid task: never resent from here.
@@ -160,6 +167,7 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
         atomic_write_json(directory/'generation-timing.json', timings)
     # A resumed task may have used an older sampler than today's target.
     # generation.submit retained its actual parameters without changing ownership.
+    request={**request,**({'_repack_budget':read_json(directory/'request.json',{}).get('_repack_budget')} if read_json(directory/'request.json',{}).get('_repack_budget') else {})}
     atomic_write_json(directory / 'request.json', request)
     current_task = read_json(task_path, {}).get('task_id')
     owner = request.get(repair_history.GENERATION_FIELD) or {}
@@ -176,8 +184,7 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
     if remaining is not None:
         if completion is not None:
             counts = repair_history.generation_counts(episode_dir)
-            ctx.state.remaining[clip['clip_id']] = max(0, repair_history.generation_limit(
-                episode_dir, clip['clip_id']) - counts.get(clip['clip_id'], 0))
+            ctx.state.remaining[clip['clip_id']] = repair_history.remaining_takes(episode_dir,clip['clip_id'])
         elif ctx.state.clip(clip['clip_id']).generated:
             ctx.state.remaining[clip['clip_id']]-=1
     finished = time.monotonic()
@@ -185,4 +192,5 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
         f"(admission {timings['admission_wait_s']:.0f}s, "
         f"instance wait {timings['provider'].get('pool_wait_s', 0):.0f}s, "
         f"provider {timings['provider_elapsed_s']:.0f}s, {seconds:.1f}s long)")
+    repair_history.finish_scope_submission(episode_dir,output,outcome='completed')
     return output

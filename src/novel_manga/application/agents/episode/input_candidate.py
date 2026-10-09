@@ -126,7 +126,7 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
     from .arguments import first_pass_scope
     first_pass_scope(ctx,targets)
     counts = history.generation_counts(directory)
-    exhausted = sorted(key for key in targets if counts.get(key, 0) >= history.preparation_limit(directory, key))
+    exhausted = sorted(key for key in targets if history.remaining_takes(directory,key,preparation=True)<=0)
     if exhausted:
         raise ValueError('input repair cannot render affected clips within remaining video budget: '
                          + ', '.join(exhausted) + '. If the new state starts later, provide source-supported clip_ids for that state.')
