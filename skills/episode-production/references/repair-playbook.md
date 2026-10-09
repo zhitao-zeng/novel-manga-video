@@ -95,3 +95,15 @@ episode. Keep the original evidence, and let formal finish determine acceptance.
 repack仅改明确源范围，保留其他请求和视频；新子段共用原来源额度和正在提交的占位，不能靠新镜号拿默认次数。同一范围只续这一轮，已用的条件补拍不能再自动加。英语翻译和输入预检由正常准备程序完成。
 
 原活动时间耗尽时，只有宿主确认的新图片/输入/误判或明确已修故障才能恢复一次。局部600秒、源稿1200秒为整个专项活动窗口，最多两提案；等资源不计时，重启不重发，旧input/video/voice计数保留。候选仍失败必须报告具体字段和当前回执，不能仅写no_progress或把未完成修法记成成功。
+
+
+### Recovery coverage: current targets and native stages
+
+- A prepared host candidate with independent source/image evidence may repair its selected seed clip even when the old review did not list that clip. Use the exact saved candidate; check and apply share target eligibility. Self-reported verification is insufficient.
+- Apply may fix one issue. Unsubmitted unresolved clips remain pending; they do not veto this operation and are not accepted. Final review still covers the episode.
+- Repack all current overlong ranges together, retaining unaffected cuts, takes and inherited source budgets. Do not repack an already recut source again.
+- Missing plans, assets, English requests and first takes return to existing native stages. An exhausted Agent conversation does not stop ordinary first production. Semantic repairs still use the existing Agent allowance and actual video budget.
+- A stopped conversation slice resumes its saved session/time; it does not repeat successful upstream work. Both recorded slice-deferred reasons are supported, with at most three slices inside a finite attempt.
+- A historical finished marker cannot certify changed inputs. Only actual changed renderable clips reopen; once current media matches, that stale-input route closes.
+- Preparation failure retains selected takes and unrelated real blockers. An old omitted-decision receipt is not independent evidence of a movie defect.
+- Candidate readiness, input compilation, generated clips and formal episode acceptance are separate outcomes. Never report a new image or successful dispatch as an accepted movie.

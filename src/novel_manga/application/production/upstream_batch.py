@@ -9,6 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from novel_manga.util import read_json,atomic_write_json,load_dotenv
+from .recovery_context import context
 
 
 def eligible_rows(rows,inspect):
@@ -20,14 +21,6 @@ def eligible_rows(rows,inspect):
             held.append({'episode':row['episode'],'reason':current['reason']})
         else:selected.append({**row,'upstream_action':current['upstream_action']})
     return selected,held
-
-
-def context(row,novel_dir):
-    from novel_manga.application.agents.episode.context import create_context
-    run=Path(row['run_dir'])
-    ctx=create_context(novel_dir,row['episode'],output_root=run.parents[1],input_mode=row['input_mode'])
-    if ctx.run_dir.resolve()!=run.resolve():raise ValueError('recovery must retain the original run directory')
-    return ctx
 
 
 def inspect_row(row,novel_dir):
@@ -56,11 +49,14 @@ def inspect_row(row,novel_dir):
 
 
 def execute_row(row,novel_dir,out):
+    if row['upstream_action']['kind']not in {'asset','repack','input_recovery','verified_input'}:
+        from .recovery_coverage import execute_standard
+        return execute_standard(row,novel_dir,out)
     from novel_manga.application.agents.episode import lifecycle,runtime,bounded_recovery
     from novel_manga.application.agents.episode.inputs import prepare_inputs
     from novel_manga.application.agents.episode.tools import EpisodeTools
     from novel_manga.application.agents.episode.flow import run_episode
-    from novel_manga.application.agents.episode.recovery import remaining_at_stop
+    from novel_manga.application.agents.episode.recovery import remaining_at_stop,conversation_deferred
     from novel_manga.application.agents.sandbox import load_config
     from novel_manga.application.repair import history
     root=Path(os.environ['NOVEL_PROJECT_ROOT']);load_dotenv(root/'.env')
@@ -74,6 +70,12 @@ def execute_row(row,novel_dir,out):
         env=resolve_agent_environment(ctx,config)
         with runtime.process_environment(env):
             route=row['upstream_action'];decision=route['decision']
+            if route['kind']in {'input_recovery','verified_input'}:
+                from novel_manga.application.agents.episode.input_records import _standard_input_route
+                try:_standard_input_route(ctx,decision['clip_id'],decision)
+                except ValueError:
+                    proof=bounded_recovery.evidence(ctx,decision['clip_id'])
+                    if proof:bounded_recovery.grant(ctx,decision['clip_id'],proof,kind='input')
             path='output/upstream-batch.json';atomic_write_json(ctx.work_dir/path,{'decisions':[decision]})
             tools=EpisodeTools(ctx);check=tools.check({'file':path});result['check']=check
             if check.get('valid'):
@@ -114,8 +116,7 @@ def execute_row(row,novel_dir,out):
                 retry_issues=slice_number==0 and saved.get('status')!='deferred')
             saved=read_json(ctx.run_dir/'agent-run.json',final)
             remaining=remaining_at_stop(saved)
-            if not (final.get('status')=='deferred' and final.get('phase')=='deferred'
-                    and str(final.get('reason')or'').startswith('Agent slice completed') and remaining>0):break
+            if not(conversation_deferred(final)and remaining>0):break
         result['slices']=slice_number+1
         result.update(status=final.get('status'),passed=final.get('passed'),reason=final.get('reason'))
     else:result.update(status='held',passed=False,reason='No evidenced remaining activity window; original budget was not renewed')
@@ -127,7 +128,7 @@ def execute_row(row,novel_dir,out):
     return result
 
 
-def main(argv=None):
+def main(argv=None,*,coverage=False):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--inventory',type=Path,required=True);parser.add_argument('--novel-dir',type=Path,required=True)
     parser.add_argument('--result-dir',type=Path,required=True);parser.add_argument('--project-root',type=Path,required=True)
@@ -136,9 +137,24 @@ def main(argv=None):
     os.environ['NOVEL_PROJECT_ROOT']=str(args.project_root)
     rows=read_json(args.inventory)['episodes'];args.result_dir.mkdir(parents=True,exist_ok=True)
     if args.one is not None:
-        result=execute_row(next(r for r in rows if r['episode']==args.one),args.novel_dir,args.result_dir)
-        print(json.dumps({k:result.get(k)for k in ('episode','status','passed','reason','counts_preserved')},ensure_ascii=False));return 0
-    selected,held=eligible_rows(rows,lambda row:inspect_row(row,args.novel_dir))
+        row=next(r for r in rows if r['episode']==args.one)
+        try:result=execute_row(row,args.novel_dir,args.result_dir)
+        except Exception as error:
+            import traceback
+            result={'episode':row['episode'],'run_dir':row['run_dir'],'status':'failed','passed':False,
+                'reason':f'{type(error).__name__} during {row["upstream_action"]["kind"]}',
+                'counts_preserved':None,'code_frames':[{'file':f.filename,'line':f.lineno,'function':f.name}
+                    for f in traceback.extract_tb(error.__traceback__)]}
+            atomic_write_json(args.result_dir/f"{row['episode']}.json",result)
+        print(json.dumps({k:result.get(k)for k in ('episode','status','passed','reason','counts_preserved')},ensure_ascii=False));return int(result.get('status')=='failed')
+    def inspect(row):
+        if not coverage:return inspect_row(row,args.novel_dir)
+        from .recovery_coverage import inspect_context
+        route=inspect_context(context(row,args.novel_dir));kind=route['kind']
+        return {'accepted':kind=='accepted','live_owner':kind=='live_owner',
+            'recovery_failed':kind in {'activity_exhausted','needs_diagnosis'},
+            'upstream_action':route,'reason':route.get('reason')or kind}
+    selected,held=eligible_rows(rows,inspect)
     atomic_write_json(args.result_dir/'triage.json',{'selected':selected,'held':held})
     (args.result_dir/'triage.json').chmod(0o600)
     print(json.dumps({'selected':len(selected),'held':len(held),'execute':args.execute}))

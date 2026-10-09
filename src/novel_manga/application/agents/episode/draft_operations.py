@@ -131,17 +131,26 @@ class DraftOperations:
                             raise RepairArgumentError('edit the provisional draft directly; apply accepts asset input requests before adoption')
                         validate_request(self.ctx, row)
                     elif action == 'input':
+                        from .repair_targets import validate_target
+                        validate_target(self.ctx,normalize_arguments(row))
                         from .input_repair import repair
                         repair(self.ctx,row,check_only=True)
                     elif action == 'accept_risk':
+                        from .repair_targets import validate_target
+                        validate_target(self.ctx,row)
                         from novel_manga.application.preparation.readiness import validate_render_risks
                         validate_render_risks(self.ctx.episode_dir,clips[cid],row.get('risks'),row['reason'])
                     elif action == 'edit':
+                        from .repair_targets import validate_target
+                        validate_target(self.ctx,row)
                         self.edit_prompt(clips[cid],row)
                     elif action == 'retake' and not clips[cid].get('prompt_h3'):
                         raise RepairArgumentError('clip has no English request; use edit to supply it before retake')
                     elif action not in {'keep','stop','retake','accept_risk'}:
                         raise RepairArgumentError('choose input, edit, retake, keep, accept_risk or stop')
+                    elif action in {'keep','stop','retake'}:
+                        from .repair_targets import validate_target
+                        validate_target(self.ctx,row)
                 except (ValueError, KeyError, TypeError, OSError) as error:
                     errors[str(cid or number)] = str(error)
             return {'ok': not errors, 'valid': not errors, 'kind': 'repair_arguments',

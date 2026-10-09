@@ -204,6 +204,15 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         config,saved=recovery.protocol_fallback(ctx,config,saved)
     if saved.get('model_switch') and config.get('refusal_fallback'):
         config = {**config, 'model_slots_reserved_for_tools': 0, **config['refusal_fallback']}
+    stale_completed=False
+    if saved.get('status')=='finished' and saved.get('passed')is True:
+        from novel_manga.application.production.runs import episode_status
+        current=episode_status(ctx.episode_dir,True)
+        stale_completed=current=='stale'
+        if stale_completed:
+            saved={**saved,'status':'finished_with_issues','passed':False,
+                   'previous_delivery_status':current}
+            if (saved.get('job')or{}).get('action')=='finish':saved['job']=None
     if config.get('finish_existing'):
         return BootstrapResult(completed=finish_existing(ctx, saved, runtime, tools_factory))
     if retry_issues:
@@ -247,7 +256,7 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
     if saved.get('status') in {'finished', 'finished_with_issues'}:
         return BootstrapResult(completed=saved)
     previous_job = saved.get('job') or {}
-    if (previous_job.get('action') == 'finish' and previous_job.get('status') == 'completed'
+    if (not stale_completed and previous_job.get('action') == 'finish' and previous_job.get('status') == 'completed'
             and type((previous_job.get('result') or {}).get('passed')) is bool):
         manifest = read_json(ctx.work_dir / 'input/latest-finish.json', {})
         current_session = read_json(ctx.work_dir / SESSION_FILE, {}).get('session_id')

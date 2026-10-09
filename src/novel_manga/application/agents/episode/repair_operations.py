@@ -74,25 +74,8 @@ class RepairOperations:
                     'next': 'Read new images in input/catalog.json and bind their IDs in the draft before render.'}
         review = read_json(self.ctx.episode_dir / 'episode_review.json', {})
         report = read_json(self.ctx.episode_dir / 'thin_media_report.json', {})
-        allowed = (set(review.get('feedback') or {}) | set(report.get('gate_failed_clips') or [])
-            | set(report.get('failed_clips') or []) | set(report.get('blocked_clips') or {})
-            | {cid for cid, row in (review.get('clips') or {}).items()
-               if row.get('severity') == 'review_error'})
-        if self.evidence.clip_technical_issues(report):
-            from novel_manga.application.review.execution import media_matches
-            plan = read_json(self.ctx.episode_dir/'clip_plan.json', {})
-            if media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {})):
-                videos = {c['clip_id'] for c in plan.get('clips', []) if c.get('kind') == 'video'}
-                # The Agent locates the source defect. Unselected good clips do
-                # not acquire an artificial mandatory keep/repair decision.
-                allowed.update(row['clip_id'] for row in answer['decisions'] if row['clip_id'] in videos)
-        if (review.get('review_mode') == 'verify' and self.evidence.current_review(review)
-                and (report.get('assembly') or {}).get('pending_publish')):
-            from novel_manga.application.repair.delivery import precise_review_blockers
-            from novel_manga.application.review.store import current_takes
-            plan = read_json(self.ctx.episode_dir/'clip_plan.json', {})
-            expected = [c['clip_id'] for c in plan.get('clips', []) if c.get('kind') == 'video']
-            allowed.update(precise_review_blockers(review, current_takes(self.ctx.episode_dir, plan, review), expected))
+        from .repair_targets import eligible_targets,validate_target
+        allowed = eligible_targets(self.ctx,self.evidence)
         counts = history.generation_counts(self.ctx.episode_dir)
         if os.environ.get('NOVEL_FIRST_PASS_ONLY') == '1':
             from .arguments import first_pass_scope
@@ -120,7 +103,6 @@ class RepairOperations:
         input_argument_errors = {}
         if input_rows:
             from .input_repair import repair, effects, normalize_arguments
-            unfilmed = self.evidence.unfilmed_clips(read_json(self.ctx.episode_dir/'clip_plan.json', {}), report)
             handled_effects = []
             reused_effects = []
             for row in input_rows:
@@ -129,11 +111,8 @@ class RepairOperations:
                     raise ValueError('input decision must name each eligible clip at most once')
                 input_handled.add(cid)
                 try:
-                    if cid not in allowed and cid not in unfilmed:
-                        raise RepairArgumentError(
-                            f'{cid} has no eligible unresolved issue; choose an eligible target: '
-                            + ', '.join(sorted(allowed)))
                     row = normalize_arguments(row)
+                    validate_target(self.ctx,row,allowed=allowed,evidence=self.evidence)
                     if not row.get('resume') and effects(row) in handled_effects:
                         repaired.append(cid)
                         if effects(row) in reused_effects:
@@ -266,8 +245,7 @@ class RepairOperations:
                 blocked[cid] = str(error)
                 if isinstance(error, RepairArgumentError):
                     argument_errors[cid] = str(error)
-        for cid in allowed - seen:
-            blocked[cid] = 'agent omitted a decision'
+        pending=sorted(allowed-seen)
         if changed:
             proposal = RepairProposal(
                 result={'changed': changed}, script=read_json(directory / 'chapter_script.json'),
@@ -278,5 +256,6 @@ class RepairOperations:
             record['trials'][-1]['managed'] = True
             history.save(directory, record)
         return {'changed': changed, 'accepted': kept, 'blocked': blocked, 'risk_accepted': risk_accepted,
+                'pending':pending,
                 **({'argument_errors': argument_errors} if argument_errors else {}),
                 **({'keep_checks': keep_checks} if keep_checks else {})}

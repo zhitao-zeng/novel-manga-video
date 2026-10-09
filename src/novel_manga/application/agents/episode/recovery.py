@@ -233,6 +233,11 @@ def remaining_at_stop(saved):
     return max(0, float(stored or 0))
 
 
+def conversation_deferred(saved):
+    return(saved.get('status')=='deferred' and saved.get('phase')=='deferred'
+        and str(saved.get('reason')or'').startswith(('Agent slice completed','Agent reached this slice time limit')))
+
+
 @lru_cache(maxsize=256)
 def completed_idle(directory):
     """Observed output/handoff facts, not the wording of the final answer."""
@@ -428,11 +433,13 @@ def upstream_route(ctx,status):
     from .bounded_recovery import evidence,input_operation
     plan=read_json(ctx.episode_dir/'clip_plan.json',{})
     source=(ctx.run_dir/'source.txt').read_text()if(ctx.run_dir/'source.txt').is_file()else ''
+    long=[c['clip_id']for c in plan.get('clips',[])if c.get('kind')=='video'
+          and c.get('request_seconds',0)>ctx.clip_seconds_max]
+    if long:
+        return {'kind':'repack','decision':{'clip_id':long[0],'action':'repack','clip_ids':long,
+            'reason':'Current saved ranges exceed H3 clip limit','source_quote':source[:180]}}
     for clip in plan.get('clips',[]):
         cid=clip['clip_id']
-        if clip.get('request_seconds',0)>ctx.clip_seconds_max:
-            return {'kind':'repack','decision':{'clip_id':cid,'action':'repack','clip_ids':[cid],
-                    'reason':'Current saved range exceeds H3 clip limit','source_quote':source[:180]}}
         proof=evidence(ctx,cid)
         if proof and input_operation(ctx,cid,proof['candidate'])['allowed']:
             return {'kind':'input_recovery','decision':proof['candidate'],'evidence':proof}

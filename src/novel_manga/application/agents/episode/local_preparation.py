@@ -101,8 +101,10 @@ def ensure_requests(ctx):
 
 
 def _blocked(ctx, problems, *, source_audit=None):
-    report={'status':'inputs_failed','clips':[], 'failed_clips':[], 'gate_failed_clips':[],
-            'blocked_clips':problems}
+    prior=read_json(ctx.episode_dir/'thin_media_report.json',{})
+    report={**prior,'status':'inputs_failed','clips':prior.get('clips',[]),
+            'failed_clips':prior.get('failed_clips',[]),'gate_failed_clips':prior.get('gate_failed_clips',[]),
+            'blocked_clips':{**(prior.get('blocked_clips')or{}),**problems}}
     atomic_write_json(ctx.episode_dir/'thin_media_report.json',report)
     answer={'ok':False,'error':'local_preparation_required','blocked':problems,
             'source_audit':source_audit,'next':'Repair these existing inputs with apply; retain cuts and unaffected requests.'}

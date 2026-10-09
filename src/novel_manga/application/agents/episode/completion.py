@@ -48,7 +48,10 @@ class EpisodeCompletion:
             for cid in (row.get('changed', []) + row.get('accepted', [])
                         + row.get('input_repaired', []) + row.get('risk_accepted', [])):
                 blocked.pop(cid, None)
-            blocked.update(row.get('blocked') or {})
+            # Older batches required a proposal for every failed clip. An
+            # unsubmitted operation is pending work, not independent defect evidence.
+            blocked.update({cid:reason for cid,reason in (row.get('blocked')or{}).items()
+                            if reason!='agent omitted a decision'})
         report = save_result(self.ctx.episode_dir, report, review, plan=plan, rounds=rounds,
             corrections=[cid for row in rounds for cid in row.get('changed', [])], blocked=blocked)
         quality = report.get('quality_review') or {}

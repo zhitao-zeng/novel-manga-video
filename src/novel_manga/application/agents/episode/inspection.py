@@ -39,9 +39,8 @@ class EpisodeInspection:
         take_left = {cid: history.remaining_takes(self.ctx.episode_dir,cid,preparation=True)
                      for cid in clip_ids}
         check_left = {cid: max(0, int(limit)-rechecks[cid]) for cid, limit in limits.items() if limit is not None}
-        eligible = (set(review.get('feedback') or {}) | set(media.get('failed_clips') or [])
-                    | set(media.get('gate_failed_clips') or []) | set(media.get('blocked_clips') or {})
-                    | set((media.get('quality_review') or {}).get('remaining') or []))
+        from .repair_targets import eligible_targets
+        eligible = eligible_targets(self.ctx,self.evidence)
         publication = []
         if (review.get('review_mode') == 'verify' and self.evidence.current_review(review)
                 and (media.get('assembly') or {}).get('pending_publish')):
