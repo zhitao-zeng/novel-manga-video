@@ -163,7 +163,18 @@ def test_changed_delivery_opens_only_actual_changed_clips(ctx_pair):
     assert eligible_targets(ctx)==set()
 
 
-def test_native_first_pass_does_not_renew_spent_agent_time(ctx_pair,monkeypatch,tmp_path):
+def test_failed_finish_snapshot_cannot_strand_stale_media_without_agent_targets(ctx_pair,monkeypatch):
+    ctx=ctx_pair[0];filmed(ctx,[])
+    atomic_write_json(ctx.run_dir/'agent-run.json',{'status':'finished_with_issues','remaining_seconds':0})
+    atomic_write_json(ctx.run_dir/'final-candidate/clip_plan.json',read_json(ctx.episode_dir/'clip_plan.json'))
+    monkeypatch.setattr('novel_manga.application.profiles.h3_prompt_outdated',lambda *a,**kw:False)
+    monkeypatch.setattr('novel_manga.story.h3.request_issues',lambda *a:[])
+    monkeypatch.setattr('novel_manga.application.review.execution.media_matches',lambda *a,**kw:False)
+    assert recovery_coverage.inspect_context(ctx)['kind']=='render_current'
+
+
+@pytest.mark.parametrize('kind',['native_first_pass','render_current'])
+def test_native_render_does_not_renew_spent_agent_time(ctx_pair,monkeypatch,tmp_path,kind):
     import os
     from contextlib import nullcontext
     from novel_manga.application.production import upstream_batch
@@ -181,12 +192,12 @@ def test_native_first_pass_does_not_renew_spent_agent_time(ctx_pair,monkeypatch,
         def __init__(self,*a):pass
         def dispatch(self,action,*a):
             calls.append(action)
-            if action=='render':assert os.environ['NOVEL_FIRST_PASS_ONLY']=='1'
+            if action=='render':assert os.environ['NOVEL_FIRST_PASS_ONLY']==('1'if kind=='native_first_pass'else'0')
             return {'ok':False,'passed':False,'error':'real defect remains'}
     monkeypatch.setattr('novel_manga.application.agents.episode.tools.EpisodeTools',Tools)
     old={'status':'blocked','remaining_seconds':0,'attempts':['old']}
     atomic_write_json(ctx.run_dir/'agent-run.json',old);out=tmp_path/'results';out.mkdir()
-    result=recovery_coverage.execute_standard({'episode':7,'config':'unused','upstream_action':{'kind':'native_first_pass'}},ctx.novel_dir,out)
+    result=recovery_coverage.execute_standard({'episode':7,'config':'unused','upstream_action':{'kind':kind}},ctx.novel_dir,out)
     assert calls==['render','review','finish'] and not result['passed']
     assert read_json(ctx.run_dir/'agent-run.json')==old
 

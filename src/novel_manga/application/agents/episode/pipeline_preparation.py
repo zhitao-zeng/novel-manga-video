@@ -9,6 +9,8 @@ from pathlib import Path
 from novel_manga.application.preparation.flow import prepare_one
 from novel_manga.application.agents.episode.input_repair import refresh_inputs
 from novel_manga.llm.client import ask_json, obj
+from novel_manga.application.profiles import h3_stamp, h3_prompt_outdated
+from novel_manga.story.h3 import request_issues
 from novel_manga.util import atomic_write_json, read_json
 
 from novel_manga.application.production.artifacts import media_started, archive_adoption
@@ -124,6 +126,24 @@ def patch_inputs(ctx, drafts, repairs, failure):
     atomic_write_json(ctx.work_dir/path,{'decisions':decisions})
     checked=drafts.check({'file':path})
     return repairs.apply({'file':path}) if checked.get('valid') is True else checked
+
+
+def correct_requests(ctx,drafts,repairs,blocked):
+    """One structural correction for failed English preparation, without new authoring."""
+    path=ctx.episode_dir/'clip_plan.json';plan=read_json(path)
+    notes=read_json(ctx.episode_dir/'review_feedback.json',{})
+    due={c['clip_id']:c for c in plan['clips']if c['clip_id']in blocked and
+         (h3_prompt_outdated(c,notes.get(c['clip_id'],''),strict=True)or request_issues(c))}
+    targets={cid:blocked[cid]for cid,c in due.items()if not c.get('prompt_h3')or request_issues(c)}
+    stamp={cid:h3_stamp(due[cid],notes.get(cid,''))for cid in targets}
+    receipt=ctx.run_dir/'native-request-correction.json';previous=read_json(receipt,{})
+    if targets and previous.get('inputs')!=stamp:
+        atomic_write_json(receipt,{'inputs':stamp,'status':'attempted'})
+        result=patch_inputs(ctx,drafts,repairs,{'status':'needs_repair','request_errors':targets})
+        atomic_write_json(receipt,{'inputs':stamp,'status':'completed','result':result})
+    current={c['clip_id']:c for c in read_json(path)['clips']}
+    return {cid:why for cid,why in blocked.items()if cid in current and
+            (h3_prompt_outdated(current[cid],notes.get(cid,''),strict=True)or request_issues(current[cid]))}
 
 
 def prepare(ctx, drafts, repairs):

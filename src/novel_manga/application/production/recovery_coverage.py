@@ -65,6 +65,11 @@ def inspect_context(ctx):
         return route('finish_existing')
     # Other confirmed defects enter the ordinary Agent path, not the asset-only filter.
     allowed=eligible_targets(ctx,ev)
+    if not matching and media.get('clips') and not allowed:
+        # A failed finish snapshots the current plan too. It cannot identify
+        # which takes predate that plan; the existing renderer compares actual
+        # saved requests, reuses matches and obeys the original video limits.
+        return route('render_current',targets=[])
     if remaining>0 and allowed:
         window=saved.get('upstream_recovery')or{}
         if window.get('proposals',0)<2:return route('agent_repair',targets=sorted(allowed))
@@ -106,11 +111,16 @@ def execute_standard(row,novel_dir,out):
             if ready and kind in {'native_plan','native_assets','native_requests','native_first_pass'}:
                 from novel_manga.application.agents.episode.local_preparation import ensure_requests
                 result['request_blocks']=ensure_requests(ctx)
+                if result['request_blocks']:
+                    from novel_manga.application.agents.episode.pipeline_preparation import correct_requests
+                    result['request_blocks']=correct_requests(ctx,tools.drafts,tools.repairs,result['request_blocks'])
                 from novel_manga.application.preparation.store import unfilmed_video_clips
                 if unfilmed_video_clips(ctx.episode_dir):
                     # Existing filmed clips remain cached; ordinary retakes belong to the Agent.
                     with runtime.process_environment({'NOVEL_FIRST_PASS_ONLY':'1'}):
                         result['render']=tools.dispatch('render',{})
+            if ready and kind=='render_current':
+                result['render']=tools.dispatch('render',{})
             if ready and kind!='agent_repair':
                 result['review']=tools.dispatch('review',{})
                 final=tools.dispatch('finish',{});result['finish']=final

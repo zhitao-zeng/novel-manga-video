@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from novel_manga.application.agents.episode import local_preparation
+from novel_manga.application.agents.episode import local_preparation, pipeline_preparation
 from novel_manga.application.agents.episode.tools import EpisodeTools
 from novel_manga.util import atomic_write_json, read_json
 from support.episode_existing import prepared
@@ -16,6 +16,32 @@ def local_case(tmp_path, monkeypatch):
     atomic_write_json(ctx.work_dir/'input/preparation/exception.json', {
         'status':'needs_repair','failure':{'reason':'English prompt incomplete'}})
     return ctx, plan
+
+
+def test_missing_english_gets_one_structural_correction_without_rewriting_siblings(tmp_path,monkeypatch):
+    ctx,plan=local_case(tmp_path,monkeypatch);calls=[]
+    def patch(ctx,drafts,repairs,failure):
+        calls.append(failure)
+        after=read_json(ctx.episode_dir/'clip_plan.json');after['clips'][0]['prompt_h3']='Correct English'
+        atomic_write_json(ctx.episode_dir/'clip_plan.json',after)
+        return {'ok':True}
+    monkeypatch.setattr('novel_manga.application.agents.episode.pipeline_preparation.patch_inputs',patch)
+    monkeypatch.setattr(pipeline_preparation,'h3_prompt_outdated',lambda clip,*a,**kw:not clip.get('prompt_h3'))
+    monkeypatch.setattr(pipeline_preparation,'request_issues',lambda clip:[])
+    blocked={'clip_01':'Automatic translation already attempted'}
+    assert pipeline_preparation.correct_requests(ctx,None,None,blocked)=={}
+    assert read_json(ctx.episode_dir/'clip_plan.json')['clips'][1:]==plan['clips'][1:]
+    assert pipeline_preparation.correct_requests(ctx,None,None,blocked)=={} and len(calls)==1
+
+
+def test_failed_structural_correction_does_not_repeat_same_request(tmp_path,monkeypatch):
+    ctx,plan=local_case(tmp_path,monkeypatch);calls=[]
+    monkeypatch.setattr('novel_manga.application.agents.episode.pipeline_preparation.patch_inputs',
+        lambda *a:calls.append(1)or{'ok':False})
+    blocked={'clip_01':'Missing English'}
+    assert pipeline_preparation.correct_requests(ctx,None,None,blocked)==blocked
+    assert pipeline_preparation.correct_requests(ctx,None,None,blocked)==blocked
+    assert len(calls)==1 and read_json(ctx.episode_dir/'clip_plan.json')==plan
 
 
 def test_staging_retains_plan_without_english_and_without_video(tmp_path, monkeypatch):
