@@ -68,6 +68,18 @@ _UNREACHABLE: dict[str, float] = {}
 UNREACHABLE_COOLDOWN = float(os.environ.get("NOVEL_ENDPOINT_COOLDOWN_SECONDS", "300"))
 
 
+def _meter(url: str, request: dict, body: dict) -> None:
+    """One usage row per answered call; never raises into the transport path."""
+    try:
+        from . import usage as llm_usage
+        rf = request.get('response_format') or {}
+        name = ((rf.get('json_schema') or {}).get('name')) or rf.get('type') or 'chat'
+        llm_usage.record(name=name, model=str(request.get('model') or ''),
+                         usage=body.get('usage'), url=url)
+    except Exception:  # noqa: BLE001 - metering must never break a model call
+        pass
+
+
 def reachable_first(base_urls):
     """The same endpoints, with the ones in cooldown moved to the back rather than dropped.
 
@@ -99,11 +111,15 @@ def post_any(client, base_urls, headers, request, *, settings=None, deadline=Non
                     options['timeout'] = remaining
                 url = f"{base_url.rstrip('/')}/chat/completions"
                 if settings.stream if settings else streaming_wanted():
-                    return stream_completion(client, url, headers, request, settings=settings, **options)
+                    body = stream_completion(client, url, headers, request, settings=settings, **options)
+                    _meter(url, request, body)
+                    return body
                 response = send_json(client, url, headers, request, **options)
                 response.raise_for_status()
                 _UNREACHABLE.pop(base_url, None)   # it answered: whatever we believed about it is stale
-                return response.json()
+                body = response.json()
+                _meter(url, request, body)
+                return body
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.RemoteProtocolError) as error:
             _UNREACHABLE[base_url] = time.monotonic() + UNREACHABLE_COOLDOWN
             last = error

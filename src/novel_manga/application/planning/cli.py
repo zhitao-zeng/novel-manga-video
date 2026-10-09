@@ -106,6 +106,8 @@ def _plan(context: PlannerContext | None = None) -> int:
         parser.error('--compress-existing 用于普通改编草稿，不能同时回放或绑定作者分镜')
 
     try:
-        return run(args, ctx)
+        from novel_manga.llm import usage as llm_usage
+        with llm_usage.scope(novel=args.novel_id, episode=args.episode_index, stage='plan'):
+            return run(args, ctx)
     except PlanningInputError as error:
         parser.error(str(error))

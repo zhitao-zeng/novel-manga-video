@@ -16,6 +16,12 @@ from novel_manga.application.review import cast_video
 
 
 def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bool | None = None) -> dict:
+    from novel_manga.llm import usage as llm_usage
+    with llm_usage.scope(novel=episode_dir.parent.name, episode=episode_dir.name, stage='review'):
+        return _review_episode(episode_dir, video_name, fresh=fresh)
+
+
+def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bool | None = None) -> dict:
     novel_dir = episode_dir.parent
     rules = review_evidence.load_review_rules(novel_dir)
     bible = review_models_StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
