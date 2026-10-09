@@ -216,6 +216,10 @@ class Ledger:
             return local_new[name]
         if name in self.by_name:
             return self.canonical(self.by_name[name]["id"])
+        # Only exact, recorded proper forms; contextual descriptions remain chapter-specific.
+        owners = {self.canonical(eid) for eid, forms in self.forms.items() if name in forms}
+        if len(owners) == 1:
+            return owners.pop()
         return None
 
     # ---- stages

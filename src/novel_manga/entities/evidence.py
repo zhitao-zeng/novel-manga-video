@@ -65,7 +65,13 @@ def ground(chapter: int, chapter_text: str, raw: dict) -> tuple[list[dict], list
         if span is None or c.get("type") not in entity_contracts.CLAIM_TYPES:
             dropped.append({"chapter": chapter, "what": "claim", "type": c.get("type"), "why": "证据不在本章"})
             continue
-        claims.append({"chapter": chapter, "type": c["type"], "subject": str(c.get("subject") or "").strip(), "object": str(c.get("object") or "").strip(),
+        subject, object_ = str(c.get('subject') or '').strip(), str(c.get('object') or '').strip()
+        missing = {'', 'UNCERTAIN'}
+        if subject in missing or (c['type'] not in entity_contracts.ONE_SIDED and object_ in missing):
+            dropped.append({'chapter': chapter, 'what': 'claim', 'type': c['type'], 'subject': subject, 'object': object_,
+                            'evidence': str(c.get('evidence') or '')[:160], 'why': '关系候选没有具体两端；未知指称留在章节mentions，不确证身份关系'})
+            continue
+        claims.append({"chapter": chapter, "type": c["type"], "subject": subject, "object": object_,
                        "scope": c.get("scope") or "reality", "hidden_from_reader": bool(c.get("hidden_from_reader")),
                        "evidence": str(c.get("evidence"))[:160], "span": list(span)})
     return mentions, news, claims, dropped

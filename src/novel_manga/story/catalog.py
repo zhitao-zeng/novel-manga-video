@@ -35,6 +35,16 @@ class IdentityCatalog:
             'design': {'name': '无名群声', 'role': '原文群体共同发言的画外声，不绑定单个人物外貌'}, 'forms': {'无名群声'}}
         self.by_name = {r['name']: r for r in self.entities.values()}
         self.by_name.update({name: self.entities[eid] for name, eid in original_names.items()})
+        # Accepted identity merges also retain a descriptor/name that never had its own bible card.
+        for record in ledger:
+            if not record.get('merged_into'):
+                continue
+            owner, seen = record, set()
+            while owner.get('merged_into') in by_id and owner['id'] not in seen:
+                seen.add(owner['id']); owner = by_id[owner['merged_into']]
+            if owner['id'] in self.entities:
+                self.by_name.setdefault(record['canonical'], self.entities[owner['id']])
+                self.entities[owner['id']]['forms'].add(record['canonical'])
         self.aliases = {str(a): str(b) for a, b in aliases.items()}
         for row in index.get('characters', []):
             if row['name'] in self.by_name:

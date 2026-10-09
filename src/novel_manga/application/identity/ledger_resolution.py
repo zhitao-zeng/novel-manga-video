@@ -254,26 +254,30 @@ def resolve_candidate(ledger, chapter: int, text: str, raw: dict | None = None, 
             ledger_store.write_json(ledger.raw_path(chapter), again)
             raw = again
     mentions, news, claims, dropped = entity_evidence.ground(chapter, text, raw)
+    chapter_aliases = (ledger_store.read_json(ledger.novel_dir / 'reading_cast.json', {}).get('chapter_aliases') or {}).get(str(chapter), {})
+    confirmed = {form: ledger.canonical(ledger.by_name[name]['id']) for form, name in chapter_aliases.items()
+                 if name in ledger.by_name}
     with ledger.lock:
         ledger.dropped.extend(dropped)
-        local_new: dict[str, str] = {}
+        local_new: dict[str, str] = dict(confirmed)
         created: list[dict] = []
         relinks: list[tuple[dict, dict, list[dict]]] = []  # (mention, assigned record, records the form's pieces name)
         for n in news:
-            if n["name"] in ledger.by_name:
-                local_new[n["name"]] = ledger.canonical(ledger.by_name[n["name"]]["id"])
+            existing = ledger._resolve_ref(n['name'], local_new)
+            if existing is not None:
+                local_new[n["name"]] = existing
                 continue
             created.append(ledger._add_entity(n["name"], n["kind"], n["named"], n["description"], chapter, n["evidence"], n["span"]))
             local_new[n["name"]] = created[-1]["id"]
         for m in mentions:
-            eid = ledger._resolve_ref(m["entity"], local_new)
+            eid = confirmed.get(m['form']) or ledger._resolve_ref(m["entity"], local_new)
             if eid is None and m["entity"].startswith("NEW:"):
                 name = m["entity"][4:].strip() or m["form"]
                 created.append(ledger._add_entity(name, "person", m["kind"] == "proper", "", chapter, m["evidence"], m["span"]))
                 eid = created[-1]["id"]
                 local_new[name] = eid
             claimed = re.sub(r"[（(].*$", "", m.pop("entity_name", "")).strip()  # the prompt shows 名字（身份）
-            if eid and claimed and ledger.name_of(eid) != claimed and claimed not in ledger.forms.get(eid, ()):
+            if m['form'] not in confirmed and eid and claimed and ledger.name_of(eid) != claimed and claimed not in ledger.forms.get(eid, ()):
                 # the id and the name the model copied disagree: the name is the safer half of a slipped row
                 other = ledger.by_name.get(claimed)
                 ledger.dropped.append({"chapter": chapter, "what": "mention", "form": m["form"], "why": f"编号 {eid} 与名字 {claimed} 不符",
