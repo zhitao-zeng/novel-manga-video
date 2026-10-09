@@ -37,7 +37,8 @@ def prepare(ctx,status,diagnosis,memories):
             or not r.get('clips') or selected.intersection(r['clips'])]
     files=[f'input/{name}' for name in ('source.txt','segments.json','chapter_script.json',
         'clip_plan.json','catalog.json','latest-preparation.json','latest-render.json','latest-review.json',
-        'preparation/exception.json','source-draft-check.json','request-draft.json','manifest.json')
+        'preparation/exception.json','source-draft-check.json','request-draft.json','manifest.json',
+        'reading/identity_binding_review.json')
         if (ctx.work_dir/'input'/name).is_file()]
     if not adopted and (ctx.work_dir/'output/episode.json').is_file():files.append('output/episode.json')
     recent=[summarize_case(memory) for memory in memories[:2]]

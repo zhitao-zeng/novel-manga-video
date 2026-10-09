@@ -196,8 +196,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",
@@ -423,8 +422,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",
@@ -719,8 +717,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",
@@ -877,8 +874,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",
@@ -1151,8 +1147,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",
@@ -1279,8 +1274,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",
@@ -1582,8 +1576,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",
@@ -1710,8 +1703,7 @@
                   },
                   "count": {
                     "type": "integer",
-                    "minimum": 0,
-                    "maximum": 100000
+                    "minimum": 0
                   },
                   "presence": {
                     "type": "string",

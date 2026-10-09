@@ -4,16 +4,22 @@ from copy import deepcopy
 from pathlib import Path
 import json
 import novel_manga.episodes as episodes
+from novel_manga.util import atomic_write_json
 from novel_manga.llm import client
 from novel_manga.entities import contracts, evidence
 from novel_manga.application.identity import ledger_store
 
 
-def close(candidate, context, schema, *, name, cached=None, settings=None, validate=lambda value: value):
+def close(candidate, context, schema, *, name, cached=None, settings=None, validate=lambda value: value, record=None):
     """Review once; a proposed correction must pass the same review before adoption."""
     inputs = {'context': context, 'candidate': candidate}
     if cached and cached.get('approved') and cached.get('inputs') == inputs:
         return deepcopy(cached.get('result', candidate)), cached
+    trace={'inputs':inputs,'approved':False,'steps':[]}
+    def note(kind, **details):
+        if record is not None:
+            trace['steps'].append({'kind':kind,**deepcopy(details)})
+            atomic_write_json(record,trace)
     reply_schema = client.obj({'approved': {'type': 'boolean'}, 'reason': {'type': 'string'},
                               'correction': {'anyOf': [schema, {'type': 'null'}]}})
     current = deepcopy(candidate)
@@ -27,10 +33,13 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
         options = {'settings': settings} if settings is not None else {}
         answer = client.ask_json([{'type': 'text', 'text': prompt}], reply_schema,
                                  name=name, max_tokens=6500, timeout=240, **options)
+        note('review',candidate=current,answer=answer)
         if answer.get('approved'):
             if answer.get('correction') is not None:
                 raise ValueError('identity reviewer approved a different, unreviewed correction')
             current = validate(current)
+            trace.update(approved=True,result=current)
+            if record is not None:atomic_write_json(record,trace)
             return current, {'approved': True, 'reason': answer.get('reason', ''), 'inputs': inputs, 'result': current}
         proposal = answer.get('correction')
         if attempt or proposal is None:
@@ -38,6 +47,7 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
         try:
             current = validate(proposal)
         except ValueError as error:
+            note('validation_error',candidate=proposal,error=str(error))
             # Correct the concrete rejected proposal once, before final review.
             # A failed protocol correction never renews the semantic review loop.
             repair_prompt=('修正下面身份修订的具体校验错误，只输出原结构JSON。引用仅能使用原文逐字存在的'
@@ -46,6 +56,7 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
                               'validation_error':str(error)},ensure_ascii=False))
             repaired=client.ask_json([{'type':'text','text':repair_prompt}],schema,
                 name=name+'_correction',max_tokens=6500,timeout=240,**options)
+            note('protocol_correction',candidate=repaired)
             current=validate(repaired)
     raise AssertionError('bounded review did not return')
 
@@ -123,10 +134,11 @@ def book(ledger, chapter, text, raw, *, texts=None, original_records=None):
 def bindings(directory, answer, catalog, segments, mapped, *, cached=None, aliases=None):
     from novel_manga.story.source_identity import source_schema, clean_reading, map_source_reading
     ids = {a['source_id'] for a in answer['actors']}
+    by_source={a['source_id']:a for a in answer['actors']}
     old = {m['source_actor']: m['entity_id'] for m in mapped['mentions']}
     candidate = {'actors': answer['actors'], 'bindings': [
         {'source_id': sid, 'entity_id': old.get(sid, 'UNKNOWN'),
-         'entity_kind': next((r.get('kind','other') for r in catalog.records if r['id']==old.get(sid)), 'other'),
+         'entity_kind': 'other'if by_source[sid]['kind']in {'group','object'}else next((r.get('kind','other') for r in catalog.records if r['id']==old.get(sid)), 'other'),
          'decision': 'catalogue' if old.get(sid, 'UNKNOWN') != 'UNKNOWN' else 'unknown',
          'paragraphs': next(a['paragraphs'] for a in answer['actors'] if a['source_id']==sid), 'reason': ''}
         for sid in sorted(ids)]}
@@ -144,7 +156,7 @@ def bindings(directory, answer, catalog, segments, mapped, *, cached=None, alias
     context = {'chapter':chapter, 'source':context_sources(Path(directory).parent,chapter,text,catalog.records,refs),
                'catalogue': [{'id':r['id'],'name':r['name'],'forms':sorted(r['forms'])} for r in catalog.entities.values()],
                'record_origins':catalogue_rows(catalog.records),
-               'binding_rules': '逐个核对bindings的decision，这决定下游能否规划。catalogue=已有具体个体，entity_id填其已有编号；extra=本章临时个体/群体/物件，不需真名或永久卡；named_missing=原文明示的新人物名但库里尚无；unknown=归属仍有多种解释，暂时无法决定如何入剧本。extra、named_missing、unknown的entity_id均填UNKNOWN。库里没有姓名不是unknown的理由；持令牌的少女、侍女等可依据局部指称表演的无名主体应为extra。候选把这类主体写成unknown时，需以correction改decision并复核，不可直接批准。同一具体人物的多个叫法放在一个actor的forms；分身或其他独立身体各自绑定。只在本章核对，不把临时描述做全局别名。原文群体/物件保持kind/count，不能额外制造演员。'}
+               'binding_rules': '按实际下游用途核对bindings。catalogue=已有具体主体，entity_id填已有编号；extra=本章临时个体/群体/物件，不需真名或永久卡；named_missing=本章原文明示的新人物名但库里尚无；unknown=归属仍不能确定。extra、named_missing、unknown的entity_id均填UNKNOWN。仅被提及而不出场的主体允许unknown，不因此阻塞拍摄；在场或发声的无名个体应为extra，不能因为无真名写unknown。同一具体人物的叫法放在一个actor的forms；独立身体各自绑定。forms必须逐字来自本章，不用人物库规范名替换原文称谓，不能因相邻章出现姓名就给本章无名群体编造姓名。record_origins是历史资料，不是本章结果；下游以actors.kind/count决定当前群体/物件的表现，不能因旧库kind=person断言本章会把树或器物画成人。bindings.entity_kind仅用于named_missing的新建档分类，group/object填other，不改旧库；person/animal/spirit是个体类别，与actors.kind=individual是两层分类。群体、物件保持原文kind/count，数量可超过十万；不为提及的国家/军队建立演员卡。'}
     def validate(value):
         cleaned, rejected, unresolved = clean_reading({'actors':value['actors']},segments)
         actors = cleaned['actors']
@@ -174,7 +186,8 @@ def bindings(directory, answer, catalog, segments, mapped, *, cached=None, alias
         if any(m['entity_id'] != targets[m['source_actor']] for m in resolved['mentions']):
             raise ValueError('semantic binding collapses distinct source actors; correction must preserve their bodies')
         return checked
-    value, review = close(candidate,context,schema,name='chapter_binding_review',cached=cached,validate=validate)
+    value, review = close(candidate,context,schema,name='chapter_binding_review',cached=cached,validate=validate,
+                          record=Path(directory)/'identity_binding_review.json')
     return value, review
 
 

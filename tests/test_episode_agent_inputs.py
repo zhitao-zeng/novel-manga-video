@@ -66,6 +66,20 @@ def test_preparation_carries_the_book_asr_aliases_into_the_isolated_runtime(book
     assert read(source/'asr_aliases.json') == aliases
 
 
+def test_current_identity_failure_evidence_refreshes_for_the_repair_agent(book):
+    source,episode,root=book
+    old={'approved':False,'steps':[{'answer':{'reason':'旧卡点'}}]}
+    write(episode/'identity_binding_review.json',old)
+    ctx=context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepare_inputs(ctx)
+    assert read(ctx.work_dir/'input/reading/identity_binding_review.json')==old
+    current={'approved':False,'steps':[{'answer':{'reason':'当前数量与类型冲突'}}]}
+    write(ctx.episode_dir/'identity_binding_review.json',current)
+    manifest=prepare_inputs(ctx)
+    assert read(ctx.work_dir/'input/reading/identity_binding_review.json')==current
+    assert 'input/reading/identity_binding_review.json'in manifest['reading']
+
+
 def test_preparation_cannot_stamp_old_actor_evidence_as_current_source(book):
     source,episode,root=book
     old_inputs={'segments':[{'segment_id':'original-2-1','text':'上一章的陌生人'}],'data':{}}

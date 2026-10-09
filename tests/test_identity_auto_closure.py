@@ -170,6 +170,58 @@ def test_binding_protocol_correction_is_bounded_and_cannot_approve_itself(monkey
     assert calls==['review','review_correction']
 
 
+def test_source_schema_preserves_a_real_large_mentioned_population(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'海城私军有三十万人。'}])
+    a=actor('海城私军');a.update(kind='group',count=300000,presence='mentioned')
+    def ask(parts,schema,**kwargs):
+        if kwargs['name']=='chapter_identity_source':
+            count=schema['properties']['actors']['items']['properties']['count']
+            assert count.get('maximum',300000)>=300000,'schema cannot represent the actual source count'
+            return {'source_readable':True,'source_problem':'','actors':[a]}
+        return {'approved':True,'reason':'只被提及的群体，不需要演员卡','correction':None}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert result['source_actors'][0]['count']==300000
+    assert active_cast_names(result)==set()
+
+
+def test_source_object_type_is_distinct_from_legacy_catalogue_label(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'云是一株青气缭绕的树，众人打量它的枝叶。'}])
+    a=actor('云');a.update(kind='object')
+    calls=[]
+    def ask(parts,schema,**kwargs):
+        calls.append(kwargs['name'])
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[a]}
+        payload=json.loads(parts[0]['text'].split('\n')[-1]);candidate=payload['candidate']
+        assert candidate['bindings'][0]['entity_kind']=='other'
+        assert '仅被提及' in payload['evidence']['binding_rules']
+        assert '下游以actors.kind/count' in payload['evidence']['binding_rules']
+        return {'approved':True,'reason':'当前源文类型决定本章表现','correction':None}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert context_views.typed_entities(ledger.novel_dir,result)['云']['kind']=='object'
+    assert store.Ledger(ledger.novel_dir).by_name['云']['kind']=='person'
+    assert calls==['chapter_identity_source','chapter_binding_review']
+
+
+def test_binding_failure_retains_actual_reviewer_candidate_for_next_repair(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'云柔站在父亲身旁。'}])
+    def ask(*args,**kwargs):
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor()]}
+        return {'approved':False,'reason':'未能确认','correction':None}
+    monkeypatch.setattr(client,'ask_json',ask)
+    with pytest.raises(ValueError,match='未能确认'):flow.resolve_chapter(ep)
+    receipt=store.read_json(ep/'identity_binding_review.json',{})
+    assert not receipt['approved']
+    assert receipt['steps'][0]['answer']['reason']=='未能确认'
+    assert receipt['steps'][0]['candidate']['actors'][0]['name']=='云柔'
+    assert receipt['inputs']['context']['source']['1']=='云柔站在父亲身旁。'
+    assert not(ep/'identity_context.json').exists()
+
+
 def test_unnamed_actor_becomes_a_reviewed_extra_without_global_renaming(tmp_path,monkeypatch):
     ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
     store.write_json(ep/'segments.json',[{'text':'持令牌的少女走到前面。'}])

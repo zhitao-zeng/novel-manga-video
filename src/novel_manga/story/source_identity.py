@@ -20,7 +20,7 @@ def source_schema(paragraphs):
             'forms': {'type': 'array', 'maxItems': 8, 'items': obj({
                 'form': {'type': 'string'}, 'kind': {'type': 'string', 'enum': ['proper','contextual']}, 'paragraphs': refs})},
             'kind': {'type': 'string', 'enum': ['individual','group','object']},
-            'count': {'type': 'integer', 'minimum': 0, 'maximum': 100000},
+            'count': {'type': 'integer', 'minimum': 0},
             'presence': {'type': 'string', 'enum': ['on_stage','voice','mentioned']},
             'appearance': {'type': 'string', 'maxLength': 180}, 'source_id': sid})},
     })

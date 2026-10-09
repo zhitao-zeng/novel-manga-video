@@ -18,7 +18,7 @@ BOOK_FILES = ('novel.json', 'story_bible.json', 'bible_aliases.json', 'bible_gro
               'visual_grammar.json', 'chat_screen.json', 'asr_aliases.json', 'entity/entities.json',
               'entity/claims.json', 'entity/types.json')
 READING_FILES = ('identity_source_reading.json', 'identity_context.json', 'source_reading.json',
-                 'source_speaker_contract.json')
+                 'source_speaker_contract.json', 'identity_binding_review.json')
 SCRIPT_FILES = ('chapter_script.json', 'clip_plan.json', 'episode_plan.json', 'scene_outline.json',
                 'scene_script.json', 'clip_overrides.json', 'visor_states.json', 'posture_states.json')
 SKILL_REFERENCES = {
@@ -430,7 +430,10 @@ def prepare_inputs(ctx: EpisodeContext):
         _copy(ctx.source_episode_dir / name, ctx.episode_dir / name)
         if bound or name != 'identity_context.json':
             target = ctx.work_dir / 'input/reading' / name
-            if _copy(ctx.episode_dir / name, target):
+            if name=='identity_binding_review.json'and(ctx.episode_dir/name).is_file():
+                atomic_write_json(target,read_json(ctx.episode_dir/name))
+                reading.append(str(target.relative_to(ctx.work_dir)))
+            elif _copy(ctx.episode_dir / name, target):
                 reading.append(str(target.relative_to(ctx.work_dir)))
     script, plan = {}, {}
     if ctx.input_mode == 'script':
