@@ -22,6 +22,7 @@ def prepare(ctx,status,diagnosis,memories):
             'references':[{k:r[k] for k in ('name','role','asset_id','image') if k in r}
                           for r in clip.get('references',[])],
             'actions':actions.get(cid,[]),
+            'upstream_actions':(status.get('upstream_actions')or{}).get(cid,[]),
             'risk_choices':(status.get('risk_choices') or {}).get(cid,{}),
             'remaining_takes':(status.get('remaining_takes') or {}).get(cid),
             'input':{'operations':(status.get('input_operations') or {}).get(cid, {}),
@@ -46,6 +47,7 @@ def prepare(ctx,status,diagnosis,memories):
         if isinstance(outcome.get(field),dict):last['result'][field]={k:v for k,v in outcome[field].items() if k in selected}
     brief={'phase':read_json(ctx.work_dir/'input/manifest.json',{}).get('agent_phase'),
         'mode':'adopted_repair' if adopted else 'provisional_draft',
+        'upstream_route':status.get('upstream_route'),
         'targets':targets,'issues':issues,'last_operation':last,'evidence_files':files,
         'full_status':'input/current-status.json','reference_catalog':'input/catalog.json','related_history':recent,
         'tool_source':'/opt/novel-code/novel_manga/application/agents/episode',
@@ -61,6 +63,7 @@ def prepare(ctx,status,diagnosis,memories):
             'Related history distinguishes changed operations, independently accepted clips and failed attempts. '
             'An accepted episode does not prove every attempted remedy worked. Match the concrete issue to current evidence; '
             'not_recorded means no repair recipe was retained, and unresolved cases are not verified recipes.',
+            'repair_assets/repack are separate upstream operations; source/image candidates do not grant video or certify acceptance.',
             'For deterministic tool bugs, inspect the read-only source and report the concrete failing field; do not repeat the same rejected operation.']}
     playbook=read_json(ctx.work_dir/'input/manifest.json',{}).get('skill_references',{}).get('repair_playbook')
     if playbook:

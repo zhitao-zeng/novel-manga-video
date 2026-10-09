@@ -420,3 +420,42 @@ def switch_for_refusal(ctx, config, result, attempt, before, after):
     atomic_write_json(archive/'switch.json', record)
     result.update(model_switch=record, no_progress=0, fallback_invocations=0, summary_only_turns=0,idle_turns=0)
     return {**config, 'model_slots_reserved_for_tools': 0, **fallback}
+
+
+
+def upstream_route(ctx,status):
+    """Current source-level route; it is a proposal, never an automatic acceptance."""
+    from .bounded_recovery import evidence,input_operation
+    plan=read_json(ctx.episode_dir/'clip_plan.json',{})
+    source=(ctx.run_dir/'source.txt').read_text()if(ctx.run_dir/'source.txt').is_file()else ''
+    for clip in plan.get('clips',[]):
+        cid=clip['clip_id']
+        if clip.get('request_seconds',0)>ctx.clip_seconds_max:
+            return {'kind':'repack','decision':{'clip_id':cid,'action':'repack','clip_ids':[cid],
+                    'reason':'Current saved range exceeds H3 clip limit','source_quote':source[:180]}}
+        proof=evidence(ctx,cid)
+        if proof and input_operation(ctx,cid,proof['candidate'])['allowed']:
+            return {'kind':'input_recovery','decision':proof['candidate'],'evidence':proof}
+    records=sorted((ctx.episode_dir/'work/input_repairs').glob('clip_*-*.json'),key=lambda p:p.stat().st_mtime_ns)
+    for path in reversed(records):
+        r=read_json(path,{})
+        if r.get('operation')=='upstream_asset':continue
+        row=r.get('decision')or{}
+        if r.get('status')not in {'incomplete','rejected'} or not row.get('source_quote') or row['source_quote']not in source:continue
+        clip=next((c for c in plan.get('clips',[])if c['clip_id']==r.get('clip_id')),None)
+        if not clip:continue
+        people=(row.get('phases')or{}).get('characters')or row.get('characters')or{}
+        locations=row.get('locations')or{}
+        for ref in clip.get('references',[]):
+            fields=None
+            if ref.get('role')=='character' and ref.get('name')in people:
+                value=people[ref['name']];value=value[0]if isinstance(value,list)else value
+                if value.get('reuse_asset_id'):continue
+                from novel_manga.application.identity.phases import LOOK_FIELDS
+                fields={k:v for k,v in value.items()if k in LOOK_FIELDS}
+            elif ref.get('role')=='location' and ref.get('name')in locations:fields={'description':locations[ref['name']]}
+            if fields:
+                return {'kind':'asset','decision':{'clip_id':clip['clip_id'],'action':'repair_assets',
+                    'asset_id':ref['asset_id'],'reason':row['reason'],'source_quote':row['source_quote'],'fields':fields}}
+    return {'kind':'episode_repair' if any(status.get('repair_actions',{}).values())else 'needs_evidence',
+            'reason':'Use current legal actions; no new source-supported upstream candidate was retained.'}

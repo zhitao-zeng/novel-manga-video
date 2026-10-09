@@ -620,7 +620,8 @@ def test_pending_extra_explicitly_permits_apply_before_it_permits_generation(set
     history.save(ctx.episode_dir, {'trials':[], 'prior_generation_counts':{'clips':{'clip_01':2,'clip_02':2}}})
     status = EpisodeTools(ctx).status({})
     assert {'edit','retake','input'} <= set(status['repair_actions']['clip_01'])
-    assert status['repair_actions'].get('clip_02', []) == []
+    assert status['repair_actions'].get('clip_02', []) == ['repair_assets']
+    assert history.generation_limit(ctx.episode_dir,'clip_02') == 2
     assert 'limit' not in status['retry_policy']
     assert history.generation_limit(ctx.episode_dir, 'clip_01') == 2
 

@@ -61,5 +61,7 @@ def apply(ctx,row):
     history.mark_extra_prepared(ctx.episode_dir,set(proposal.changed))
     from .input_repair import refresh_inputs
     refresh_inputs(ctx,proposal.plan,proposal.script)
+    if all(c.get('request_seconds',0)<=ctx.clip_seconds_max for c in proposal.plan['clips'] if c.get('kind')=='video'):
+        (ctx.work_dir/'input/repack-needed.json').unlink(missing_ok=True)
     return {'ok':True,'changed':proposal.changed,'repacked':proposal.structural_repair,
             'next':'Native preparation translates and checks new cuts; old source quota remains shared.'}

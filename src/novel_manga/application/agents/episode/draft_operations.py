@@ -105,12 +105,23 @@ class DraftOperations:
                     if not row.get('reason'):
                         raise RepairArgumentError('repair decision needs a reason')
                     action = row.get('action')
+                    if action in {'repair_assets','repack'}:
+                        if len(draft['decisions'])!=1:raise RepairArgumentError('submit one upstream operation separately')
+                        if action=='repair_assets':
+                            from .upstream_assets import validate
+                        else:
+                            from .scoped_repack import validate
+                        validate(self.ctx,row)
+                        continue
                     if not provisional:
                         from .arguments import first_pass_scope,spent_video_budget
                         first_pass_scope(self.ctx,[cid])
                         if action in {'edit','retake','input','accept_risk'}:
                             spent=spent_video_budget(self.ctx,[cid])
-                            if spent:raise RepairArgumentError(spent[cid])
+                            if spent:
+                                from .bounded_recovery import input_operation
+                                if action!='input' or not input_operation(self.ctx,cid,row)['allowed']:
+                                    raise RepairArgumentError(spent[cid])
                     if action in {'replan','recheck_input'}:
                         from novel_manga.application.agents.episode.pipeline_preparation import validate_editorial_request
                         validate_editorial_request(self.ctx,row)

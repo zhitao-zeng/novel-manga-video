@@ -126,11 +126,32 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                         lifecycle.record_finish(result, manifest)
                         result['method'] = 'existing requests executed and accepted by host'
                         break
+                outcome=job.get('result')or{}
+                if outcome.get('upstream_action')=='repair_assets' and outcome.get('input_decision') and outcome.get('ok'):
+                    path='output/upstream-input-'+job['id']+'.json'
+                    atomic_write_json(ctx.work_dir/path,{'decisions':[outcome['input_decision']]})
+                    checked=bridge.tools.check({'file':path})
+                    if checked.get('valid'):
+                        bridge.handle('apply',{'file':path});bridge.update_state(phase='tool_running');continue
+                    result['upstream_input_check']=checked
+                if outcome.get('repacked'):
+                    from .pipeline_preparation import prepare_repacked
+                    prepared=prepare_repacked(ctx,outcome.get('changed',[]))
+                    if not prepared.get('ready'):
+                        result['repacked_preparation']=prepared
+                        job={**job,'result':{**outcome,'changed':[]}}
                 if (progress_rules.applied_repair(job)
                         and (time.monotonic() < state.deadline or config.get('complete_started_repairs'))):
                     bridge.handle('render', {})
                     bridge.update_state(phase='tool_running')
                     continue
+                if (result.get('upstream_recovery')or{}).get('proposals',0)>=2:
+                    finished=bridge.tools.dispatch('finish',{})
+                    if finished.get('passed'):
+                        lifecycle.record_finish(result,read_json(ctx.work_dir/'input/latest-finish.json',{}))
+                    else:
+                        result.update(reason='bounded recovery completed two proposal turns',bounded_finish=finished)
+                    break
                 before = progress_rules.progress(ctx, status)
                 before_status = status
                 remaining = int(state.deadline - time.monotonic())
@@ -183,6 +204,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                 atomic_write_json(ctx.run_dir/'recovery-diagnosis.json', diagnosis)
                 memories = recovery.recall(ctx, diagnosis)
                 from .current_task import prepare as current_task
+                status['upstream_route']=recovery.upstream_route(ctx,status)
                 task=current_task(ctx,status,diagnosis,memories)
                 prompt += ('\nCurrent task (input/current-task.json); full state is in input/current-status.json. '
                            'Use current targets and exact choices, not historical instructions:\n'

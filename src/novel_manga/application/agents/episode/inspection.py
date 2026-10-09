@@ -60,6 +60,11 @@ class EpisodeInspection:
         unfilmed = self.evidence.unfilmed_clips(plan, media)
         for clip in plan.get('clips', []):
             cid = clip['clip_id']; allowed = []
+            if cid in eligible or cid in unfilmed:
+                if any(r.get('role') in {'character','location'} for r in clip.get('references',[])):
+                    allowed.append('repair_assets')
+                if float(clip.get('request_seconds')or 0)>self.ctx.clip_seconds_max:
+                    allowed.append('repack')
             if cid in eligible:
                 choices=render_risk_choices(self.ctx.episode_dir,clip)
                 if take_left[cid] and any(choices.values()):
@@ -71,7 +76,7 @@ class EpisodeInspection:
                         allowed.append('retake')
                 if cid in videos and (limits[cid] is None or check_left[cid]):
                     allowed.append('keep')
-            if (cid in eligible or cid in unfilmed) and take_left[cid] and (
+            if (cid in eligible or cid in unfilmed) and (take_left[cid] or input_ops[cid].get('recovery',{}).get('allowed')) and (
                     any(operation['allowed'] for operation in input_ops[cid].values())):
                 allowed.append('input')
             actions[cid] = allowed
@@ -107,7 +112,7 @@ class EpisodeInspection:
                     'instruction': 'Use repair_actions to submit apply now. A pending extra is permission to prepare '
                                    'an edit/input/retake; the host activates generation after validation and input preflight. '
                                    'Do not infer a hard limit from historical counts or previous stop messages.'},
-                'repair_actions': actions,
+                'repair_actions': actions, 'upstream_actions':{cid:[a for a in ops if a in {'repair_assets','repack'}]for cid,ops in actions.items()},
                 'risk_choices':{cid:v for cid,v in risk_choices.items() if 'accept_risk' in actions[cid]},
                 'publication_blockers': publication,
                 'remaining_input_attempts': input_left,

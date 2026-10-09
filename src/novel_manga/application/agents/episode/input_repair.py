@@ -370,7 +370,7 @@ def repair(ctx, row, *, check_only=False):
             atomic_write_json(phase_path, ledger)
             if phases:
                 copy_registered_assets(ctx, set(phases) | {p.get('wears') for es in phases.values() for p in es})
-                build_phases(ctx, set(phases))
+                build_phases(ctx, set(phases)-set(reused))
             if locations:
                 from .input_assets import build_locations
                 build_locations(ctx, set(locations))

@@ -30,6 +30,28 @@ class RepairOperations:
             raise ValueError('each repair decision requires an object and clip_id')
         if len({row['clip_id'] for row in answer['decisions']}) != len(answer['decisions']):
             raise ValueError('repair decision must name each eligible clip at most once')
+        if any(row.get('action') in {'repair_assets','repack'} for row in answer['decisions']):
+            if len(answer['decisions'])!=1:raise ValueError('submit one upstream operation separately')
+            row=answer['decisions'][0]
+            if row['action']=='repair_assets':
+                from . import upstream_assets
+                result=upstream_assets.prepare(self.ctx,row)
+                if result.get('asset'):result=upstream_assets.apply_to_snapshot(self.ctx,result)
+                if result.get('input_decision'):
+                    from .bounded_recovery import evidence,grant
+                    from .input_records import _standard_input_route
+                    candidate=result['input_decision']
+                    try:_standard_input_route(self.ctx,row['clip_id'],candidate)
+                    except ValueError:
+                        proof=evidence(self.ctx,row['clip_id'])
+                        if proof:grant(self.ctx,row['clip_id'],proof,kind='input')
+            else:
+                from .scoped_repack import apply
+                result=apply(self.ctx,row)
+            result.update(upstream_action=row['action'],submission_id=payload.get('submission_id'),submitted_decisions=answer['decisions'])
+            path=self.ctx.run_dir/'tool-repair-decisions.json';rounds=read_json(path,[]);rounds.append(result);atomic_write_json(path,rounds)
+            record_state(self.ctx,'upstream_'+row['action'],changed=result.get('changed',[]),kind=result.get('kind'))
+            return result
         if any(row.get('action') in {'replan','recheck_input'} for row in answer['decisions']):
             if len(answer['decisions'])!=1:
                 raise ValueError('submit one editorial operation separately from clip patches')
@@ -86,6 +108,10 @@ class RepairOperations:
         from .arguments import spent_video_budget
         exhausted = spent_video_budget(self.ctx,[row['clip_id'] for row in answer['decisions']
             if row.get('action') in {'edit','retake','input','accept_risk'}])
+        from .bounded_recovery import input_operation
+        for row in answer['decisions']:
+            if row.get('action')=='input' and input_operation(self.ctx,row['clip_id'],row)['allowed']:
+                exhausted.pop(row['clip_id'],None)
         # A spent clip must not veto a different clip's permitted repair.
         answer = {**answer, 'decisions': [row for row in answer['decisions'] if row['clip_id'] not in exhausted]}
         input_rows = [row for row in answer['decisions'] if row.get('action') == 'input']

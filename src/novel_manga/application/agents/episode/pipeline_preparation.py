@@ -130,6 +130,8 @@ def prepare(ctx, drafts, repairs):
     """Keep filmed work intact; use bounded native stages for unfilmed inputs."""
     path=ctx.run_dir/'pipeline-production.json'
     prior=read_json(path,{})
+    if (ctx.work_dir/'input/repack-needed.json').exists():
+        return {'ready':False,'status':'semantic_repair','needs_semantic_repair':True,'stage':'repack'}
     if media_started(ctx.episode_dir):
         return {'ready':True,'existing_media':True}
     def save(status, **details):
@@ -286,3 +288,26 @@ def begin_review(ctx):
         session.rename(ctx.run_dir/'pipeline-authoring-session.json')
     atomic_write_json(marker,{'phase':'review','at':time.time(),'previous_session':previous})
     return True
+
+
+
+def prepare_repacked(ctx,clip_ids):
+    """Translate only new cuts even when another preserved clip already has media."""
+    from novel_manga.application.rendering.h3 import convert
+    from novel_manga.story.h3 import request_issues
+    plan=read_json(ctx.episode_dir/'clip_plan.json');script=read_json(ctx.episode_dir/'chapter_script.json')
+    try:
+        ensure_cards(ctx,plan)
+        problems={}
+        for clip in plan['clips']:
+            if clip['clip_id']not in clip_ids or clip.get('kind')!='video':continue
+            errors=[];convert(clip,note='',episode_dir=ctx.episode_dir,source_script=script,problems=errors)
+            errors.extend(request_issues(clip))
+            if errors:problems[clip['clip_id']]=errors
+        atomic_write_json(ctx.episode_dir/'clip_plan.json',plan)
+        refresh_inputs(ctx,plan,script)
+        if problems:
+            preparation_targets(ctx,{'request_errors':problems,'reason':'New cuts require targeted request correction'})
+            return {'ready':False,'problems':problems}
+        return {'ready':True}
+    except Exception as error:return {'ready':False,'error':f'{type(error).__name__}: {error}'}

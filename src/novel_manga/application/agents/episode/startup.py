@@ -76,6 +76,8 @@ def prepare_operations(ctx, bridge, state):
             bridge.handle('adopt' if config.get('agent_instructions') else 'render',
                           {'file': 'output/episode.json'})
             bridge.update_state(phase='tool_running')
+    if (ctx.work_dir/'input/repack-needed.json').exists():
+        return None,None
     native_block = None
     native_wait = None
     if (native_mode and not external_pipeline and not lifecycle.paused() and (first_pass_only or not (ctx.run_dir/'pipeline-review-started.json').exists())

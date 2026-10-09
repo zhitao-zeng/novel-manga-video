@@ -16,7 +16,7 @@ def ctx_pair(tmp_path, monkeypatch):
     shared = tmp_path/'shared-book'; shared.mkdir()
     contexts = []
     bible = {'novel_title':'测试','genre':'奇幻','visual_style':'3D','palette':'蓝',
-             'characters':[{'name':'甲','gender':'女','age':'成年','appearance':'黑发',
+             'style_fingerprint':'existing', 'characters':[{'name':'甲','gender':'女','age':'成年','appearance':'黑发',
                             'wardrobe':'白袍','voice_profile_id':'voice-old'},
                            {'name':'乙','appearance':'白发','wardrobe':'黑袍'}],
              'locations':['房间：石墙']}

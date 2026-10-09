@@ -50,13 +50,15 @@ def validate(ctx, row):
         old = next((s.partition('：')[2] for s in bible.get('locations',[]) if s.partition('：')[0]==ref['name']), '')
         design = fields.get('description',old)
     affected = [c['clip_id'] for c in plan['clips'] if any(
-        r.get('name')==ref['name'] and r.get('role')==ref['role'] for r in c.get('references',[]))]
+        r.get('asset_id')==ref['asset_id'] and r.get('role')==ref['role'] for r in c.get('references',[]))]
     scope = affected if row.get('clip_ids') is None else row['clip_ids']
-    if not isinstance(scope,list) or set(scope)!=set(affected):
+    if not isinstance(scope,list) or not scope or row['clip_id'] not in scope or set(scope)-set(affected):
         raise RepairArgumentError('include all current clips that use this actor or setting: '+', '.join(affected))
-    return {**copy.deepcopy(row),'fields':fields,'source_quote':quote,'source_text':source,
+    registered=read_json(ctx.novel_dir/'series_assets/manifest.json',{})
+    owner=next((r.get('name')for group in ('characters','locations')for r in registered.get(group,[])if r.get('asset_id')==ref['asset_id']),None)
+    return {**copy.deepcopy(row),'registered_owner':owner,'fields':fields,'source_quote':quote,'source_text':source,
             'role':ref['role'],'name':ref['name'],'picture':str(picture),'design':design,
-            'affected_clips':affected,'fact_scope':row.get('fact_scope','chapter')}
+            'affected_clips':list(scope),'fact_scope':row.get('fact_scope','chapter')}
 
 
 def diagnose(ctx, row):
@@ -68,13 +70,12 @@ def diagnose(ctx, row):
         '核对此次字段与直接依赖，不提出额外剧情；不能凭Agent申请就默认缺陷成立。'
         '有明确事实依据的design/image须给逐字source_quote；binding_shots仅给有源依据的原镜修正，'
         '每项含index与现有入镜/说话人字段，不修改机位或事件；不能判断则uncertain。\n'
-        +json.dumps({k:row[k] for k in ('source_text','source_quote','reason','role','name','fields','design')},ensure_ascii=False))
+        +json.dumps({k:row[k] for k in ('source_text','source_quote','reason','role','name','fields','design','registered_owner')},ensure_ascii=False))
     answer=ask_json([{'type':'text','text':prompt},image_part(Path(row['picture']),1024)],
         obj({'kind':{'type':'string','enum':['binding','design','image','false_positive','uncertain']},
              'reason':{'type':'string'},'source_quote':{'type':'string'},
              'replacement_asset_id':{'type':'string'},
-             'binding_shots':{'type':'array','items':obj({'index':{'type':'integer'},
-                 'in_frame':{'type':'array','items':{'type':'string'}}})}}),
+             'binding_shots':{'type':'array','items':{'type':'object','additionalProperties':False,'required':['index'],'properties':{'index':{'type':'integer'},'in_frame':{'type':'array','items':{'type':'string'}},'speaker_map':{'type':'object','additionalProperties':{'type':'string'}},'listeners':{'type':'array','items':{'type':'string'}}}}}}),
         name='upstream_asset_diagnosis',max_tokens=1500,timeout=180,settings=judge_settings())
     quote=str(answer.get('source_quote') or '').strip()
     if answer['kind'] in {'design','image','binding'} and (not quote or quote not in row['source_text']):
@@ -122,7 +123,8 @@ def prepare(ctx, row):
                 phases={'characters':{diagnosis['name']:[diagnosis['fields']]}} if diagnosis['role']=='character' else {}
                 locations={diagnosis['name']:diagnosis['design']} if diagnosis['role']=='location' else {}
                 record['source']=source_check(checked['source_text'],diagnosis['source_quote'],
-                    diagnosis.get('binding_shots') or [],phases,locations)
+                    diagnosis.get('binding_shots') or [],phases,locations,
+                    [shot for shot in read_json(ctx.episode_dir/'chapter_script.json')['shots'] if shot['index'] in {i for c in read_json(ctx.episode_dir/'clip_plan.json')['clips'] if c['clip_id']in checked['affected_clips'] for i in c.get('shot_indexes',[])}])
                 outcome['source']=record['source'];atomic_write_json(path,record)
             if diagnosis['kind'] in {'image','design'}:
                 from .draft_assets import _asset
