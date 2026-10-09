@@ -77,6 +77,21 @@ def apply_check_policy(checks: dict, ignored) -> dict | None:
             'checks': result}
 
 
+def black_frame_check(intervals, duration, silent_outro_seconds=0.0):
+    """Keep recorded story darkness strict; an authored end card has its own check."""
+    if not 0 <= silent_outro_seconds < duration:
+        raise ValueError('silent outro must be shorter than the video')
+    end = duration - silent_outro_seconds
+    scoped = [{'start': row['start'], 'end': min(row['end'], end),
+               'seconds': round(min(row['end'], end)-row['start'], 6)}
+              for row in intervals if row['start'] < end]
+    maximum = max((row['seconds'] for row in scoped), default=0.0)
+    return {'passed': maximum < 1.0, 'detail': {'max_black_seconds': maximum, 'intervals': scoped,
+        'max_interval': max(scoped, key=lambda row: row['seconds'], default=None),
+        'scope': 'story' if silent_outro_seconds else 'full_video', 'end_seconds': round(end, 6),
+        'excluded_outro_seconds': silent_outro_seconds, 'full_video_intervals': intervals}}
+
+
 def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: Settings, report: Path,
                   *, silent_outro_seconds: float = 0.0, ignore_checks: tuple[str, ...] = (),
                   subtitles_required: bool = True) -> dict:
@@ -124,8 +139,11 @@ def inspect_media(video: Path, cover: Path, ending: Path, ass: Path, settings: S
     black_intervals = [{'start': float(start), 'end': float(end), 'seconds': float(seconds)}
                        for start, end, seconds in re.findall(
                            r'black_start:([0-9.]+)\s+black_end:([0-9.]+)\s+black_duration:([0-9.]+)', black.stderr)]
-    checks["black_frames"] = {"passed": max_black < 1.0, "detail": {"max_black_seconds": max_black,
-        'intervals': black_intervals, 'max_interval': max(black_intervals, key=lambda row: row['seconds'], default=None)}}
+    checks["black_frames"] = black_frame_check(black_intervals, duration, silent_outro_seconds)
+    if durations and not black_intervals:
+        # An unlocated detection cannot be assigned to the card by assumption.
+        checks['black_frames'] = {'passed': max_black < 1.0,
+            'detail': {'max_black_seconds': max_black, 'scope': 'full_video', 'intervals': []}}
 
     volume = subprocess.run([
         "ffmpeg", "-v", "info", "-i", str(video),

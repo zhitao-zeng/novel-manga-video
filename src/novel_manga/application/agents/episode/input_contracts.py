@@ -8,7 +8,8 @@ from .input_records import _phase_groups
 from novel_manga.application.identity.phases import LOOK_FIELDS
 
 SHOT_NAMES = {'in_frame', 'extras', 'listeners'}
-SHOT_FIELDS = {'location', 'light', 'wears', 'props', 'scene_objects', 'visual_prompt', 'motion_prompt',
+SHOT_FIELDS = {'location', 'light', 'scene_id', 'scene_time', 'scene_transition',
+               'wears', 'props', 'scene_objects', 'visual_prompt', 'motion_prompt',
                'start_state', 'event', 'end_state', 'sfx', 'actions', 'speaker_map', 'turn_texts', 'turns', *SHOT_NAMES}
 
 

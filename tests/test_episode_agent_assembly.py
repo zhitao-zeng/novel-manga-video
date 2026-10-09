@@ -386,3 +386,27 @@ def test_finish_rechecks_existing_movie_when_book_qc_policy_changes(host, monkey
         atomic_write_json(ctx.novel_dir/'profile.json',{'frame':'16:9','qc_ignore':[]})
         assert tools.dispatch('finish')['passed'] is False
         assert calls==[]  # the original measurement survives turning the advisory back off
+
+
+def test_finish_rescopes_retained_black_interval_without_reencoding_or_waiving(host, monkeypatch):
+    ctx, tools, _, state = host
+    state['technical_passed'] = False
+    tools.dispatch('render')
+    path = ctx.episode_dir/'thin_media_report.json'
+    media = read_json(path)
+    media['assembly'].update(duration=140.352, silent_outro_seconds=4,
+        media_qc={'passed': False, 'checks': {
+            'ending_screen': {'passed': True}, 'audio_level': {'passed': True},
+            'black_frames': {'passed': False, 'detail': {'max_black_seconds': 3.6,
+                'intervals': [{'start': 135.56, 'end': 139.16, 'seconds': 3.6}]}},
+            'long_freeze': {'passed': True, 'detail': {'max_freeze_seconds': 0}}}})
+    atomic_write_json(path, media)
+    original = Path(media['assembly']['final_video']).read_bytes()
+    monkeypatch.setattr('novel_manga.media.quality.inspect_media', lambda *a, **kw: pytest.fail('retained intervals suffice'))
+    monkeypatch.setattr(MediaOperations, 'runner', lambda *a: pytest.fail('no new render'))
+    result = tools.dispatch('finish')
+    assert result['ok'] and result['passed']
+    check = read_json(path)['assembly']['media_qc']['checks']['black_frames']
+    assert check['passed'] and not check.get('waived')
+    assert check['detail']['max_black_seconds'] == pytest.approx(.792)
+    assert Path(media['assembly']['final_video']).read_bytes() == original

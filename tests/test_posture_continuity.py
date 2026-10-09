@@ -232,3 +232,18 @@ def test_lighting_repair_reuses_stated_pose_facts_but_rechecks_time_boundary(tmp
     assert after['stages']['2']['start']['席勒']['posture'] is None
     assert after['stages']['3']['start']['席勒']['posture'] is None
     assert after['stages']['2']['reading']['people'][0]['start']['posture'] == '未写明'
+
+
+def test_authored_start_and_event_are_pose_evidence_not_unavailable_fields(tmp_path):
+    from novel_manga.story.posture import resolve
+    script = {'shots': [{'index': 1, 'in_frame': ['席勒'], 'location': '诊所',
+        'start_state': '席勒坐在椅子上', 'event': '席勒站起来走到窗边', 'end_state': '席勒站在窗边'}]}
+    rows = posture.material(script)
+    assert rows[0]['start_state'] == script['shots'][0]['start_state']
+    assert rows[0]['event'] == script['shots'][0]['event']
+    good = answer(1, '坐', boundary='reset', entry='reset', end='站', transition='席勒站起来走到窗边')
+    good['people'][0]['start']['quote'] = '席勒坐在椅子上'
+    good['people'][0]['end']['quote'] = '席勒站在窗边'
+    readings = posture.checked_answers(rows, {'stages': [good]})
+    _, issues, _ = resolve(rows, readings)
+    assert not issues

@@ -5,6 +5,7 @@ import copy
 
 POLICY = 'posture-states-v2-continuity'
 POSTURES = ('站', '坐', '蹲', '跪', '躺', '悬空', '走动', '未写明')
+POSE_TEXT_FIELDS = ('start_state', 'visual_prompt', 'event', 'motion_prompt', 'end_state')
 SAID = dict(zip(POSTURES[:-1], ('站着', '坐着', '蹲着', '跪着', '躺着', '悬在空中', '在走动')))
 
 
@@ -45,12 +46,12 @@ def resolve(rows, answers, previous=None):
             changed_at_start = carry and before.get('posture') and stated and pose != before['posture']
             changed_inside = pose and final_pose and pose != final_pose
             if (changed_at_start or changed_inside) and person['transition']:
-                text = '；'.join(str(shot.get(k) or '') for k in ('visual_prompt', 'motion_prompt', 'end_state'))
+                text = '；'.join(str(shot.get(k) or '') for k in POSE_TEXT_FIELDS)
                 if person['transition'] not in text:
                     issues.append({'index': index, 'kind': 'reading',
                                    'detail': f'镜{index} {name}的姿态改变证据不在本镜中：'
                                              f'transition={person["transition"]!r}；'
-                                             '应从该镜visual_prompt/motion_prompt/end_state逐字截取本人的改变动作，'
+                                             '应从该镜start_state/event/end_state或旧格式visual_prompt/motion_prompt逐字截取本人的改变动作，'
                                              '不要引用source原文、前后镜或改写句子'})
             elif not person['transition']:
                 if changed_at_start:

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from novel_manga.llm.client import ask_json, obj
 from novel_manga.review.endpoints import judge_settings
-from novel_manga.story.posture import POLICY, POSTURES, people, resolve, phrase
+from novel_manga.story.posture import POLICY, POSTURES, POSE_TEXT_FIELDS, people, resolve, phrase
 from novel_manga.story.sources import segment_ids
 from novel_manga.util import atomic_write_json, read_json
 
@@ -26,6 +26,7 @@ _TEXT = {'type': 'string'}
 def material(script, segments=()):
     source = {s['segment_id']: s['text'] for s in segments}
     return [{**{k: copy.deepcopy(shot.get(k)) for k in FIELDS},
+             **{k: copy.deepcopy(shot[k]) for k in ('start_state', 'event') if k in shot},
              'index': int(shot.get('index', i)), 'in_frame': people(shot),
              'source': [{'segment_id': sid, 'text': source.get(sid, '')} for sid in segment_ids([shot])]}
             for i, shot in enumerate(script.get('shots') or [], 1)]
@@ -35,7 +36,7 @@ def schema(rows):
     stages = {}
     for shot in rows:
         quotes = list(dict.fromkeys(['', *[str(shot.get(k) or '') for k in
-                                          ('visual_prompt', 'motion_prompt', 'end_state')]]))
+                                          POSE_TEXT_FIELDS]]))
         quote = {'type': 'string', 'enum': quotes}
         state = obj({'quote': quote, 'posture': {'type': 'string', 'enum': list(POSTURES)},
                      'where': _TEXT})
@@ -62,7 +63,7 @@ def question(inputs):
             'start/end只摘取本镜文字明确写的姿势、位置；未写姿势填未写明，位置留空，程序再按已确认的连续关系继承。'
             'where仅记桌后椅子上、窗边等场景位置，不继承画面左侧、前景等随机位改变的构图坐标。'
             'quote和transition只选择Schema枚举里的本镜原字段完整文字或空字符串，不截取、不改写。'
-            '先写quote，再按quote填写posture/where。quote必须逐字引用本镜visual_prompt/motion_prompt/end_state中的依据，'
+            '先写quote，再按quote填写posture/where。quote必须逐字引用本镜start_state/event/end_state或旧格式visual_prompt/motion_prompt中的依据，'
             '不得引用前镜或原文来冒充本镜明写；没有坐站位置的本镜依据就quote留空、posture填未写明、where留空。'
             '例如前镜坐着，本镜只写“抬起一根手指”，本镜start.posture必须是未写明、quote为空，entry可填continue。'
             '例如本镜写“站在窗边看报告”，start应摘录站，quote填该原字段完整文字；end未单独交代则填未写明。'
@@ -103,7 +104,7 @@ def checked_answers(rows, answer):
                              f'期望{shot["in_frame"]}；实际{names}')
         if row.get('boundary') not in {'continuous', 'reset', 'unknown'}:
             raise ValueError('姿态台账缺少连续性判断')
-        text = '；'.join(str(shot.get(k) or '') for k in ('visual_prompt', 'motion_prompt', 'end_state'))
+        text = '；'.join(str(shot.get(k) or '') for k in POSE_TEXT_FIELDS)
         for person in row['people']:
             if person['entry'] not in {'continue', 'reset', 'unknown'} or any(
                     person[k]['posture'] not in POSTURES for k in ('start', 'end')):
@@ -161,7 +162,7 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
                         answer['stages'][i] = copy.deepcopy(old)
                     elif old and not previous.get('issues') and all(
                             old_by_index.get(index, {}).get(key) == batch[i].get(key)
-                            for key in ('in_frame', 'visual_prompt', 'motion_prompt', 'end_state', 'actions')):
+                            for key in ('in_frame', *POSE_TEXT_FIELDS, 'actions')):
                         # Lighting/scene corrections may change continuity, but cannot
                         # make unchanged authored pose text a newly stated pose. Resolve
                         # inherited states again using the new boundary/entry decisions.

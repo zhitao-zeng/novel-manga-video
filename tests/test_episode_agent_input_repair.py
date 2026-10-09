@@ -1419,3 +1419,9 @@ def test_exhausted_posture_dependency_reports_scope_and_remaining_allowance(setu
     assert saved['error_details'] == {'kind': 'dependency_budget', 'requested_clips': ['clip_01'],
         'extra_clips': ['clip_02'], 'exhausted_clips': ['clip_02'],
         'generation_counts': {'clip_02': 0}, 'preparation_limits': {'clip_02': 0}}
+
+
+def test_source_checked_scene_boundary_fields_are_available_to_input_agent(setup):
+    row = decision(shots=[{'index': 1, 'scene_id': 'hall', 'scene_time': '同一时刻',
+        'scene_transition': '同一场景的连续镜头，地点标签纠正，未跳时'}])
+    assert input_contracts.normalize_arguments(row) == row

@@ -91,13 +91,20 @@ class MediaOperations:
         from novel_manga.application.profiles import frame_spec, load_profile, media_qc_ignores, MAX_HOLD_SECONDS
         from novel_manga.application.review.execution import media_matches
         from novel_manga.config import Settings
-        from novel_manga.media.quality import apply_check_policy, inspect_media
+        from novel_manga.media.quality import apply_check_policy, inspect_media, black_frame_check
         assembly = report.get('assembly') or {}
         checks = (assembly.get('media_qc') or {}).get('checks') or {}
         ignored = set(media_qc_ignores(self.ctx.novel_dir, self.ctx.episode_dir))
         ignored.update(value.strip() for value in os.environ.get('NOVEL_QC_IGNORE', '').split(',') if value.strip())
         previous = {name for name, row in checks.items() if row.get('waived')}
-        if not checks or ignored.intersection(checks) == previous:
+        black = checks.get('black_frames') or {}
+        detail = black.get('detail') or {}
+        duration = float(assembly.get('duration') or 0)
+        outro = float(assembly.get('silent_outro_seconds') or 0)
+        scope_changed = (0 < outro < duration and black.get('passed') is False
+                         and detail.get('scope') != 'story'
+                         and checks.get('ending_screen', {}).get('passed') is True)
+        if not checks or (ignored.intersection(checks) == previous and not scope_changed):
             return report
         if not media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {})):
             return report
@@ -105,7 +112,12 @@ class MediaOperations:
         if not movie.is_file():
             raise ValueError('existing movie is missing; cannot re-evaluate its quality policy')
         record_state(self.ctx, 'checking_existing_media', owner='episode_agent_tools')
-        qc = apply_check_policy(checks, ignored)
+        if scope_changed:
+            intervals = detail.get('full_video_intervals', detail.get('intervals'))
+            if intervals or (intervals == [] and detail.get('max_black_seconds') == 0):
+                checks = {**checks, 'black_frames': black_frame_check(intervals, duration, outro)}
+                scope_changed = False
+        qc = None if scope_changed else apply_check_policy(checks, ignored)
         if qc is None:
             # Older waived reports did not retain the measured boolean. Only
             # withdrawing one of those waivers needs another decode of the movie.
