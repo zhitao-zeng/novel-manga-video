@@ -245,11 +245,13 @@ def propose_episode(novel_dir: Path, index: int, **kwargs) -> RepairProposal:
 
 def repair_episode(novel_dir: Path, index: int, apply: bool, *, use_history=True, reframe=False,
                    identity=False, source_issues=None, return_proposal=False, require_structure=False, episode_dir=None) -> dict:
-    candidate = propose_episode(novel_dir, index, save_evidence=apply,
-                                use_history=use_history, reframe=reframe,
-                                identity=identity, source_issues=source_issues, require_structure=require_structure, episode_dir=episode_dir)
-    if apply and candidate.changed:
-        from novel_manga.application.repair.publication import publish_rewrite
-        publish_rewrite(Path(episode_dir) if episode_dir is not None else novel_dir / f'{novel_dir.name}_{index}', candidate,
-                        use_history=use_history, identity=identity, reframe=reframe)
-    return candidate.as_result(return_proposal)
+    from novel_manga.llm import usage as llm_usage
+    with llm_usage.scope(novel=novel_dir.name, episode=index, stage='repair'):
+        candidate = propose_episode(novel_dir, index, save_evidence=apply,
+                                    use_history=use_history, reframe=reframe,
+                                    identity=identity, source_issues=source_issues, require_structure=require_structure, episode_dir=episode_dir)
+        if apply and candidate.changed:
+            from novel_manga.application.repair.publication import publish_rewrite
+            publish_rewrite(Path(episode_dir) if episode_dir is not None else novel_dir / f'{novel_dir.name}_{index}', candidate,
+                            use_history=use_history, identity=identity, reframe=reframe)
+        return candidate.as_result(return_proposal)
