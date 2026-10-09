@@ -2,7 +2,7 @@
 from __future__ import annotations
 import re
 from novel_manga.media.evidence_backends import normalize_text
-from .dialogue import BOUND_SPEECH, character_pictures, indexed_pictures, speech_is_offscreen, subject_map
+from .dialogue import BOUND_SPEECH, character_pictures, indexed_pictures, speech_is_offscreen, subject_map,effective_crowd_roles
 
 # One subject can be shown by more than one picture, so the declaration names them all.  The pattern
 # still matches the older one-picture wording, which is what every saved request contains.
@@ -114,7 +114,7 @@ def asset_subjects(clip: dict) -> list[tuple[int, int, dict]]:
     """Official Subject labels cover scenes and assets too; actor IDs keep their existing order."""
     start = len(subject_map(clip)) + 1
     refs = [(picture, ref) for picture, ref in indexed_pictures(clip)
-            if ref.get('role') != 'character' or ref.get('name') in clip.get('crowd_roles', {})]
+            if ref.get('role') != 'character' or ref.get('name') in effective_crowd_roles(clip)]
     return [(number, picture, ref) for number, (picture, ref) in enumerate(refs, start)]
 
 
@@ -127,7 +127,7 @@ def subject_lines(clip: dict) -> tuple[list[str], dict]:
             for name in ref.get('wearers', [])}
     for picture, ref in indexed_pictures(clip):
         if ref.get("role") == "character":
-            crowd=clip.get('crowd_roles',{}).get(ref['name'])
+            crowd=effective_crowd_roles(clip).get(ref['name'])
             if crowd:
                 defs.append(f"<Subject {asset_ids[picture]}> is the shared clothing design in <Picture {picture}> for {crowd['count'] or 'several'} distinct unnamed supporting people. "
                             'Each supporting person has a distinct face and hairstyle. '

@@ -225,6 +225,10 @@ def h3_compile_inputs(clip: dict) -> dict:
     from novel_manga.story.voice_delivery import visual_request
     clip = visual_request(clip)
     inputs: dict = {'compiler_policy': 'h3-unified-direction-v2', 'references': [(r.get('role'), r.get('name'), r.get('path')) for r in (clip.get('references') or [])]}
+    speakers={r.get('speaker_name')for r in clip.get('dialogue_bindings',[])}
+    individual=sorted(name for name,role in (clip.get('crowd_roles')or{}).items()
+                      if role.get('count')==0 and name in speakers)
+    if individual:inputs['individual_zero_crowd_speakers']=individual
     if clip.get('render_family') or clip.get('animation_style'):
         inputs['render_family'] = str(clip.get('render_family') or clip.get('animation_style'))
     if clip.get('h3_style_line'):

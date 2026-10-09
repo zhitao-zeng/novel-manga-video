@@ -173,6 +173,13 @@ def indexed_pictures(clip: dict):
     return enumerate((r for r in clip.get('references', []) if r.get('role') in IMAGE_ROLES), 1)
 
 
+def effective_crowd_roles(clip: dict) -> dict:
+    """A zero-count roster hint cannot erase an explicitly bound individual speaker."""
+    speakers={t.get('speaker_name')for t in clip.get('dialogue_bindings',[])}
+    return {name:role for name,role in (clip.get('crowd_roles')or{}).items()
+            if not(role.get('count')==0 and name in speakers)}
+
+
 def character_pictures(clip: dict) -> dict:
     """name -> [(picture number, reference)] for every picture that shows that character.
 
@@ -183,7 +190,7 @@ def character_pictures(clip: dict) -> dict:
     """
     out: dict[str, list] = {}
     for picture, ref in indexed_pictures(clip):
-        if ref.get('role') == 'character' and ref['name'] not in clip.get('crowd_roles', {}):
+        if ref.get('role') == 'character' and ref['name'] not in effective_crowd_roles(clip):
             out.setdefault(ref['name'], []).append((picture, ref))
     return out
 
