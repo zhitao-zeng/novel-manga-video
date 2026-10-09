@@ -13,3 +13,9 @@
 运行证据：主项目.runtime/guangming-audit-host-recovery-20261009，remaining-current-diagnosis/held-current/inventory/controller-state/results与两个测试XML。生产服务guangming-audit-recovery-20261009，实际从该目录code运行，老code-c8acddb-recovery未覆盖。源码未提交、未合main、未push；本目录文字卡点尚未全部解决，不把部署成功作为全书完成。
 
 最新收口快照：2026-10-09 18:28:00，正式通过708/800，未通过92，主目录675。本轮通过[798, 163]；批次状态{'accepted': 2, 'running': 8, 'held_after_bounded_recovery': 11, 'pending': 39}。798未新增拍摄，163已发布；34个原始挂起项与本轮未闭环项的具体证据均留原目录。后续数值以observer-state.json为准。
+
+## 上游与耗尽恢复实施（2026-10-09）
+
+共享源审/图审资产候选已接入普通输入编译和生成；地点、人物均明确复用已审图，阶段外貌按当前选中卡保留。输入采用不覆盖资产审核回执。已有长片段走原打包器局部切分，子段共享父来源余额，原task续取保留提交占位和实际计数。一次源支持输入/活动窗口恢复与视频授权分离；中断不能重新发时间，未成功的相同资产候选不能再次入批。
+
+用户核定Native实施和一次独立审查；审查7项Important已逐项复现修正，真实只读上下文的资产根路径也补回归。合入main调用计量，全量3097项通过，无推送。当前部署前709正式通过/91未过，676主目录/33待发布；实际有限恢复与发布结果见主项目.runtime/guangming-upstream-recovery-20261009，代码测试不代替真实图片或成片验收。

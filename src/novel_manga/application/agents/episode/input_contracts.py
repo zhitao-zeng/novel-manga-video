@@ -100,7 +100,10 @@ def normalize_arguments(row):
                 raise RepairArgumentError(f'phases.characters.{name}.wears must be a registered worn prop name')
     locations = row.get('locations')
     if locations is not None and (not isinstance(locations,dict) or any(
-            not isinstance(name,str) or not isinstance(value,str) for name,value in locations.items())):
+            not isinstance(name,str) or not (isinstance(value,str) or
+                isinstance(value,dict) and set(value)=={'reuse_asset_id'} and
+                isinstance(value['reuse_asset_id'],str) and value['reuse_asset_id'].strip())
+            for name,value in locations.items())):
         raise RepairArgumentError('locations must map selected location names to empty-setting descriptions')
     if 'characters' in row:
         from novel_manga.models.bible import Character

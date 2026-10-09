@@ -79,9 +79,10 @@ def check_image(path, role, name, design):
     return answer
 
 
-def _asset(ctx, role, name, design, *, base_asset=None):
+def _asset(ctx, role, name, design, *, base_asset=None, asset_root=None):
     """One shared image per accepted design, retaining unfinished supplier receipts."""
-    root = ctx.asset_snapshot_dir/'series_assets/draft-assets'
+    asset_root = ctx.asset_snapshot_dir if asset_root is None else Path(asset_root)
+    root = asset_root/'series_assets/draft-assets'
     root.mkdir(parents=True, exist_ok=True)
     index = root/'index.json'
     from .input_assets import style_key
@@ -109,10 +110,10 @@ def _asset(ctx, role, name, design, *, base_asset=None):
         if rejected.get('image_review_policy') == IMAGE_REVIEW_POLICY:
             raise UnsupportedInput(rejected['error'])
         built = read_json(directory/'built.json', {})
-        image = ctx.asset_snapshot_dir/built['path'] if built else None
+        image = asset_root/built['path'] if built else None
         if image is None or not image.is_file():
             image = build(ctx, directory, role, name, design)
-            atomic_write_json(directory/'built.json', {'path': str(image.relative_to(ctx.asset_snapshot_dir))})
+            atomic_write_json(directory/'built.json', {'path': str(image.relative_to(asset_root))})
         try:
             review = check_image(image, role, name, {'source_design': design, 'production_style': style})
         except UnsupportedInput as error:
@@ -120,7 +121,7 @@ def _asset(ctx, role, name, design, *, base_asset=None):
                 'image_review_policy': IMAGE_REVIEW_POLICY,
                 **({'previous_error': rejected['error']} if rejected else {})})
             raise
-        accepted = {**row, 'asset_id': row['id'], 'path': str(image.relative_to(ctx.asset_snapshot_dir)),
+        accepted = {**row, 'asset_id': row['id'], 'path': str(image.relative_to(asset_root)),
                     'image_review': review, 'image_review_policy': IMAGE_REVIEW_POLICY}
         atomic_write_json(receipt, accepted)
         return accepted

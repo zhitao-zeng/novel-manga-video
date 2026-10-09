@@ -18,6 +18,7 @@ class PreparedInput:
     bible: dict
     base_ids: dict
     reused: dict
+    reused_locations: dict
 
 
 def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching):
@@ -62,6 +63,17 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
                 '; include the required shared-shot clips in clip_ids and preserve their existing cuts')
     phases = copy.deepcopy(raw_phases.get('characters', {}))
     locations = copy.deepcopy(row.get('locations') or {})
+    registered_locations = read_json(ctx.novel_dir/'series_assets/phases.json',{}).get('locations',{})
+    reused_locations = {}
+    for name,value in locations.items():
+        if isinstance(value,dict):
+            asset_id=value.get('reuse_asset_id')
+            saved=next((p for p in registered_locations.get(name,[]) if p.get('asset_id')==asset_id),None)
+            card=ctx.novel_dir/'series_assets/locations'/str(asset_id)/'establishing.jpeg'
+            if not saved or not card.is_file():
+                raise RepairArgumentError(f'locations.{name}.reuse_asset_id must select a registered setting with an existing image')
+            reused_locations[name]=copy.deepcopy(saved)
+            locations[name]=saved['description']
     selected_locations = {str(shots[i].get('location') or '') for i in addresses}
     if (not isinstance(locations, dict) or any(not isinstance(name, str) or not name.strip()
             or '：' in name or not isinstance(description, str) or not description.strip()
@@ -133,4 +145,4 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
                          + ', '.join(exhausted) + '. If the new state starts later, provide source-supported clip_ids for that state.')
     case = InputCompilation(ctx, row, plan, script, candidate_script, shots, patches,
         target, targets, counts, scope, phases, locations, characters, cid)
-    return PreparedInput(case, submitted_row, chapter, bible, base_ids, reused)
+    return PreparedInput(case, submitted_row, chapter, bible, base_ids, reused, reused_locations)

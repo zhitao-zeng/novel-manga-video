@@ -36,12 +36,19 @@ def inspect_row(row,novel_dir):
     from novel_manga.application.agents.episode.recovery import upstream_route
     ctx=context(row,novel_dir);saved=read_json(ctx.run_dir/'agent-run.json',{})
     media=read_json(ctx.episode_dir/'thin_media_report.json',{});manifest=read_json(ctx.run_dir/'final-candidate/manifest.json',{})
-    lock=ctx.source_episode_dir/'.render.lock';owner=lock.read_text().strip()if lock.exists()else '0'
-    live=bool(owner.isdigit() and pid_alive(int(owner)))
+    lock=ctx.source_episode_dir/'.render.lock';owner=lock.read_text().strip()if lock.exists()else ''
+    live=bool(owner.isdigit() and int(owner)>0 and pid_alive(int(owner)))
     accepted=manifest.get('passed')is True and (media.get('quality_review')or{}).get('passed')is True and episode_status(ctx.episode_dir,True)=='done'
     failed=bool(saved.get('upstream_recovery')and saved.get('status')in {'blocked','finished_with_issues'})
     status=EpisodeTools(ctx).status({});route=upstream_route(ctx,status)
     action=route if route.get('decision') and route.get('kind')in {'asset','repack','input_recovery'} else None
+    if action:
+        from novel_manga.application.agents.episode.upstream_assets import failed_attempt
+        failed=failed or failed_attempt(ctx,action['decision'])
+        previous=read_json(ctx.run_dir/'upstream-batch-attempt.json',{})
+        operation=lambda d:{k:v for k,v in d.items() if k!='reason'}
+        failed=failed or bool(previous.get('completed') and not previous.get('passed')
+            and operation(previous.get('decision')or{})==operation(action['decision']))
     return {'accepted':accepted,'live_owner':live,'recovery_failed':failed,'upstream_action':action,
             'reason':saved.get('reason')or route.get('reason')or'No current upstream repair evidence'}
 
@@ -95,6 +102,8 @@ def execute_row(row,novel_dir,out):
     after=history.generation_counts(ctx.episode_dir);result.update(after_counts=after,
         counts_preserved=all(after.get(cid,0)>=used for cid,used in before.items()))
     atomic_write_json(out/f"{row['episode']}.json",result)
+    atomic_write_json(ctx.run_dir/'upstream-batch-attempt.json',{'decision':decision,'completed':True,
+        'passed':result.get('passed')is True,'reason':result.get('reason')})
     return result
 
 

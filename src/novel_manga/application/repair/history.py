@@ -280,8 +280,8 @@ def generation_request(directory: Path, output: Path, request: dict, *, expected
     if not fresh_task and task.get("task_id") and same:
         # A legacy pending task predates ownership tracking. Finishing it is
         # cache recovery, not a new submission by the current managed trial.
-        return {**request, **({GENERATION_FIELD: copy.deepcopy(previous[GENERATION_FIELD])}
-                            if previous.get(GENERATION_FIELD) else {})}
+        return {**request, **{field: copy.deepcopy(previous[field])
+                            for field in (GENERATION_FIELD, '_repack_budget') if previous.get(field)}}
     owner = next((trial for trial in reversed(load(directory).get("trials", []))
                   if trial.get("managed") and request["clip_id"] in trial.get("clips", [])
                   and trial.get("expected_plan") == expected_plan

@@ -44,6 +44,12 @@ def validate(ctx, row):
         actor = next((c for c in bible.get('characters',[]) if c['name']==ref['name']), None)
         if not actor:raise RepairArgumentError('resolve missing source actor identity before changing an existing card')
         design = {k:v for k,v in actor.items() if k not in {'name','voice_profile_id','episode_costumes'}}
+        selected = next((p for p in read_json(ctx.novel_dir/'series_assets/phases.json',{})
+            .get('characters',{}).get(ref['name'],[]) if p.get('asset_id')==ref['asset_id']), {})
+        overrides = {k:v for k,v in selected.items() if k in LOOK_FIELDS}
+        if 'base_costume' in overrides and 'wardrobe' not in overrides:
+            overrides['wardrobe']=overrides['base_costume']
+        design.update(overrides)
         design.update(fields)
         if 'base_costume' in fields and 'wardrobe' not in fields:design['wardrobe']=fields['base_costume']
     else:
@@ -128,9 +134,9 @@ def prepare(ctx, row):
                 outcome['source']=record['source'];atomic_write_json(path,record)
             if diagnosis['kind'] in {'image','design'}:
                 from .draft_assets import _asset
-                shared=copy.copy(ctx);shared.asset_snapshot_dir=ctx.source_novel_dir
                 record['step']='assets';atomic_write_json(path,record)
-                asset=_asset(shared,diagnosis['role'],diagnosis['name'],diagnosis['design'],base_asset=checked['asset_id'])
+                asset=_asset(ctx,diagnosis['role'],diagnosis['name'],diagnosis['design'],
+                    base_asset=checked['asset_id'],asset_root=ctx.source_novel_dir)
                 outcome.update(asset=asset,image_review=asset['image_review'])
             if diagnosis['kind']=='binding' and diagnosis.get('binding_shots'):
                 from .input_contracts import normalize_arguments
@@ -176,7 +182,23 @@ def apply_to_snapshot(ctx, result):
     decision={'clip_id':record['clip_id'],'action':'input','clip_ids':result['affected_clips'],
               'reason':result['reason'],'source_quote':result['source_quote']}
     if group=='characters':decision['phases']={'characters':{result['name']:{'reuse_asset_id':asset['asset_id']}}}
-    else:decision['locations']={result['name']:result['design']}
+    else:decision['locations']={result['name']:{'reuse_asset_id':asset['asset_id']}}
     result.update(input_decision=decision,next='Use the verified input candidate; video permission and final acceptance remain independent.')
     record.update(result=result,adopted=True);atomic_write_json(path,record)
     return result
+
+
+def failed_attempt(ctx, row):
+    """An unchanged terminal candidate is evidence of an attempt, even without time grant."""
+    if row.get('action')!='repair_assets':return False
+    checked=validate(ctx,row)
+    from .input_assets import style_key
+    signature={k:checked[k] for k in ('clip_id','asset_id','fields','source_quote','source_text','fact_scope','design')}
+    signature['style']=style_key(ctx)
+    for path in (ctx.episode_dir/'work/input_repairs').glob(f"{row['clip_id']}-*.json"):
+        record=read_json(path,{})
+        if record.get('operation')==OPERATION and record.get('signature')==signature:
+            if record.get('status')=='rejected':return True
+            if record.get('status')=='prepared' and not (record.get('result')or{}).get('ok'):return True
+            if record.get('status')=='incomplete' and record.get('resume_count',0)>=1:return True
+    return False

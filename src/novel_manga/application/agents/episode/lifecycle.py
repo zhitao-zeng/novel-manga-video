@@ -226,7 +226,7 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         saved['deadline'] = time.time() + max(0, float(saved['deadline'])-stopped_at)
     expired_operation = (saved.get('status') in {'running', 'retrying'}
                          and float(saved.get('deadline') or 0) <= time.time())
-    if retry_issues and (saved.get('status') in {'finished_with_issues', 'blocked'} or expired_operation):
+    if retry_issues and not saved.get('upstream_recovery') and (saved.get('status') in {'finished_with_issues', 'blocked'} or expired_operation):
         # A requested retry never renews video budgets. An interrupted author
         # can explicitly keep its session instead of rereading the same work.
         archive = ctx.run_dir/'retries'/str(time.time_ns())

@@ -108,8 +108,9 @@ def _standard_input_route(ctx, cid, row=None, *, records=None, image_review_poli
         return 'resume', path, record
     if remaining_input_attempts(ctx, [cid], records=records)[cid] <= 0:
         raise ValueError('input repair allowance used; keep the unresolved source/input failure')
-    own = [(p, r) for p, r in records if r.get('operation')!='upstream_asset' and (r.get('clip_id') == cid or p.name.startswith(cid+'-'))]
-    attempt = max((int(p.stem.rsplit('-', 1)[1]) for p, _ in own), default=0) + 1
+    # Quota excludes asset diagnosis, but both receipts occupy this filename space.
+    own = list((ctx.episode_dir/'work/input_repairs').glob(f'{cid}-*.json'))
+    attempt = max((int(p.stem.rsplit('-', 1)[1]) for p in own), default=0) + 1
     return 'new', ctx.episode_dir/'work/input_repairs'/f'{cid}-{attempt}.json', {}
 
 

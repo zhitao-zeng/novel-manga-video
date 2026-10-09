@@ -294,6 +294,7 @@ def repair(ctx, row, *, check_only=False):
     bible = prepared.bible
     base_ids = prepared.base_ids
     reused = prepared.reused
+    reused_locations = prepared.reused_locations
     if check_only:
         input_receipt(ctx,cid,row,check_only=True)
         return {'valid':True,'clip_ids':sorted(targets),'allowed_shot_indexes':sorted(addresses)}
@@ -364,6 +365,8 @@ def repair(ctx, row, *, check_only=False):
                     base = f'location_{names_in_bible.index(name)+1:03d}'
                     phase = {'from': chapter, 'to': chapter, 'label': name, 'description': description,
                              'base_asset': base, 'asset_id': f'{base}-agent-{directory.name}-{suffix}'}
+                    if name in reused_locations:
+                        phase={**reused_locations[name],'from':chapter,'to':chapter}
                     ledger['locations'][name] = [phase, *[p for p in ledger['locations'].get(name, [])
                                                          if p.get('asset_id') != phase['asset_id']]]
                 atomic_write_json(bible_path, bible)
@@ -373,7 +376,8 @@ def repair(ctx, row, *, check_only=False):
                 build_phases(ctx, set(phases)-set(reused))
             if locations:
                 from .input_assets import build_locations
-                build_locations(ctx, set(locations))
+                pending_locations=set(locations)-set(reused_locations)
+                if pending_locations:build_locations(ctx, pending_locations)
         copy_registered_assets(ctx, {str(shots[i].get('location') or '') for i in addresses})
         compiled = compile_input(case, receipt, record, progress)
         if compiled.proposal is None:

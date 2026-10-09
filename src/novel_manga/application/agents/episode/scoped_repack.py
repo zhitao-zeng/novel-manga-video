@@ -20,7 +20,7 @@ def validate(ctx,row):
     for cid in scope:
         if history.generation_scope(ctx.episode_dir,cid)!={cid}:raise RepairArgumentError('this source range was already repacked; preserve its budgets')
         for task in (ctx.episode_dir/'work/clips'/cid).glob('attempt_*/clip.mp4.task.json'):
-            if read_json(task,{}).get('task_id') and not task.with_suffix('').is_file():
+            if read_json(task,{}).get('task_id') and not task.with_name('clip.mp4').is_file():
                 raise RepairArgumentError('complete the existing submitted task before changing its source cuts')
     from novel_manga.application.packing.context import context_for_plan
     bounded=copy.deepcopy(plan);bounded['limits']={**bounded.get('limits',{}),'max_clip_seconds':ctx.clip_seconds_max,
