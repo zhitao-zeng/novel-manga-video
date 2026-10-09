@@ -33,6 +33,22 @@ def test_verified_asset_candidate_can_target_its_passed_seed_clip(ctx_pair,appro
     assert not (ctx.run_dir/'final-candidate/manifest.json').exists()
 
 
+def test_verified_input_can_be_compiled_with_zero_video_balance(ctx_pair,approved_source,fake_image,monkeypatch):
+    from novel_manga.application.repair import history
+    ctx=ctx_pair[0]
+    candidate=upstream_assets.apply_to_snapshot(ctx,upstream_assets.prepare(ctx,row(clip_ids=['clip_01'])))
+    atomic_write_json(ctx.episode_dir/'repair_budget_grants.json',{'*':{'limit':0,'reason':'spent video'}})
+    before=(ctx.episode_dir/'repair_budget_grants.json').read_bytes()
+    monkeypatch.setattr(input_repair,'compile_input',lambda *a:SimpleNamespace(proposal=None))
+    atomic_write_json(ctx.work_dir/'output/repair.json',{'decisions':[candidate['input_decision']]})
+    tools=EpisodeTools(ctx)
+    assert tools.check({'file':'output/repair.json'})['valid']
+    result=tools.dispatch('apply',{'file':'output/repair.json'})
+    assert result['ok'] and result['input_repaired']==['clip_01']
+    assert history.remaining_takes(ctx.episode_dir,'clip_01')==0
+    assert(ctx.episode_dir/'repair_budget_grants.json').read_bytes()==before
+
+
 def test_unverified_passed_target_rejected_by_both_check_and_apply(ctx_pair,monkeypatch):
     ctx=ctx_pair[0];filmed(ctx,['clip_02'])
     change={'clip_id':'clip_01','action':'input','source_quote':'甲坐在宿舍','reason':'unverified change',

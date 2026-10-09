@@ -120,7 +120,9 @@ class DraftOperations:
                             spent=spent_video_budget(self.ctx,[cid])
                             if spent:
                                 from .bounded_recovery import input_operation
-                                if action!='input' or not input_operation(self.ctx,cid,row)['allowed']:
+                                from .repair_targets import verified_input
+                                if action!='input' or not(input_operation(self.ctx,cid,row)['allowed']
+                                        or verified_input(self.ctx,normalize_arguments(row))):
                                     raise RepairArgumentError(spent[cid])
                     if action in {'replan','recheck_input'}:
                         from novel_manga.application.agents.episode.pipeline_preparation import validate_editorial_request

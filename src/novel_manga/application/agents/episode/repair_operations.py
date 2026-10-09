@@ -92,8 +92,10 @@ class RepairOperations:
         exhausted = spent_video_budget(self.ctx,[row['clip_id'] for row in answer['decisions']
             if row.get('action') in {'edit','retake','input','accept_risk'}])
         from .bounded_recovery import input_operation
+        from .repair_targets import verified_input
         for row in answer['decisions']:
-            if row.get('action')=='input' and input_operation(self.ctx,row['clip_id'],row)['allowed']:
+            if row.get('action')=='input' and(input_operation(self.ctx,row['clip_id'],row)['allowed']
+                    or verified_input(self.ctx,row)):
                 exhausted.pop(row['clip_id'],None)
         # A spent clip must not veto a different clip's permitted repair.
         answer = {**answer, 'decisions': [row for row in answer['decisions'] if row['clip_id'] not in exhausted]}

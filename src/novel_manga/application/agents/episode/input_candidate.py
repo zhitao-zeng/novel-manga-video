@@ -140,7 +140,8 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
     counts = history.generation_counts(directory)
     exhausted = sorted(key for key in targets if history.remaining_takes(directory,key,preparation=True)<=0)
     from .bounded_recovery import input_operation
-    if exhausted and not input_operation(ctx,cid,row)['allowed']:
+    from .repair_targets import verified_input
+    if exhausted and not(input_operation(ctx,cid,row)['allowed']or verified_input(ctx,row)):
         raise ValueError('input repair cannot render affected clips within remaining video budget: '
                          + ', '.join(exhausted) + '. If the new state starts later, provide source-supported clip_ids for that state.')
     case = InputCompilation(ctx, row, plan, script, candidate_script, shots, patches,
