@@ -1,6 +1,7 @@
 """ledger_resolution_thin responsibilities; existing evidence and identity policy."""
 from __future__ import annotations
 from collections import Counter
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 import re
 import time
@@ -9,6 +10,11 @@ import novel_manga.application.identity.ledger_judges as ledger_judges
 import novel_manga.application.identity.ledger_store as ledger_store
 import novel_manga.entities.contracts as entity_contracts
 import novel_manga.entities.evidence as entity_evidence
+
+def require_judgments(answers):
+    if any(answer.get('error') for answer in answers):
+        raise RuntimeError('identity judge request failed; this chapter was not committed')
+
 
 def generic_records(ledger: "Ledger") -> list[dict]:
     """Bible records that are not proper names - 那位女士, 秘女, 灵魂, 调查师, 白猫: the book's cast list was built by
@@ -34,6 +40,7 @@ def dedup_generic(ledger: "Ledger", workers: int = 4) -> list[dict]:
 
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         answers = list(pool.map(lambda e: ledger_judges.judge_generic(e, rows), rows))
+    require_judgments(answers)
     votes: dict[str, list[str]] = {}
     for e, answer in zip(rows, answers):
         for other in answer.get("same_ids") or []:
@@ -116,8 +123,11 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
         pairs.append(c)
     index = ledger.entity_chapters()
     packs = []
+    related_claims = []
     for c in pairs:
         a, b = ledger.canonical(c['subject']), ledger.canonical(c['object'])
+        related_claims.append([r for r in ledger.claims if r['type'] == c['type']
+                              and relationship_pair(r, ledger.canonical) == relationship_pair(c, ledger.canonical)])
         chapters = sorted(set(index.get(a, [])) | set(index.get(b, [])))
         packs.append(evidence_pack(ledger, a, b, c['type'], chapters=chapters))
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
@@ -139,7 +149,7 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
         def owner_named(i: int) -> bool:
             c = pairs[i]
             a, b = ledger.canonical(c["subject"]), ledger.canonical(c["object"])
-            twins = [r for r in ledger.claims if r["type"] == c["type"] and {ledger.canonical(r["subject"]), ledger.canonical(r["object"])} == {a, b}]
+            twins = related_claims[i]
             return any(_evidence_names(ledger, b, r["evidence"]) for r in twins)
 
         body_check = [i for i in range(len(pairs)) if pairs[i]["type"] in entity_contracts.BODY_TYPES
@@ -154,7 +164,7 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
             vote = votes[i]
             note = f"全书复判：{vote[0]}/{vote[1]}；{str(x.get('why') or '')[:80]} | {str(y.get('why') or '')[:80]}"
             a, b = ledger.canonical(c["subject"]), ledger.canonical(c["object"])
-            twins = [r for r in ledger.claims if r["type"] == c["type"] and {ledger.canonical(r["subject"]), ledger.canonical(r["object"])} == {a, b}]
+            twins = related_claims[i]
             if vote == ("supports", "supports"):
                 status = "accepted"
             elif vote == ("contradicts", "contradicts"):
@@ -182,8 +192,8 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
             if status in ("accepted", "rejected", "pending"):
                 # remembered apart from the model's output, so that a chapter read again does not undo it; a person's
                 # later decision on the same pair replaces it
-                ledger.corrections = [k for k in ledger.corrections if not (k["type"] == c["type"] and {ledger.canonical(k["subject"]), ledger.canonical(k["object"])} == {a, b})]
-                ledger.corrections.append({"claim": c["id"], "type": c["type"], "subject": a, "object": b, "decision": status, "note": note[:160],
+                ledger.corrections = [k for k in ledger.corrections if not (k["type"] == c["type"] and relationship_pair(k) == relationship_pair(c))]
+                ledger.corrections.append({"claim": c["id"], "type": c["type"], "subject": c['subject'], "object": c['object'], "decision": status, "note": note[:160],
                                            "by": "settle", "at": time.strftime("%Y-%m-%d %H:%M")})
             if status == "accepted" and c["type"] in entity_contracts.MERGING:
                 _merge(ledger, c["subject"], c["object"], c["id"], c["chapter"])
@@ -195,9 +205,7 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
 
 
 def close_leftovers(ledger: "Ledger") -> list[dict]:
-    """Pending claims settling cannot ask about, closed without a person: a pair already merged (the judgment holds by
-    itself) and one-sided event claims (death / transformation / reveal with no second record), which change no picture.
-    Nothing stays pending after a settle - the ledger has no human queue (2026-09-14)."""
+    """Close valid one-sided events; unresolved bilateral identities remain pending."""
     closed = []
     with ledger.lock:
         for c in ledger.claims:
@@ -206,8 +214,8 @@ def close_leftovers(ledger: "Ledger") -> list[dict]:
             s, o = c.get("subject"), c.get("object")
             if s in ledger.by_id and o in ledger.by_id and ledger.canonical(s) == ledger.canonical(o):
                 c["status"], c["settled"] = "accepted", "两条记录已经合并，判断自然成立；自动结案"
-            elif s not in ledger.by_id or o not in ledger.by_id:
-                c["status"], c["settled"] = "closed", "单边事件判断（缺一方记录），不影响画面；自动结案"
+            elif c['type'] in entity_contracts.ONE_SIDED and s in ledger.by_id and o not in ledger.by_id:
+                c["status"], c["settled"] = "closed", "单边事件记录，未确证身份合并"
             else:
                 continue
             closed.append({"id": c.get("id"), "type": c["type"], "subject": ledger.name_of(s) if s in ledger.by_id else s,
@@ -216,6 +224,20 @@ def close_leftovers(ledger: "Ledger") -> list[dict]:
 
 
 def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, workers: int = 4) -> dict | None:
+    # Metadata is small; historical chapter rows remain shared and are never mutated here.
+    fields = ('entities', 'claims', 'merges', 'dropped', 'corrections', 'asked',
+              'by_id', 'by_name', 'forms', 'recent')
+    before = deepcopy({name: getattr(ledger, name) for name in fields})
+    chapters = {name: dict(getattr(ledger, name)) for name in ('mentions_by_chapter', 'relations_by_chapter')}
+    try:
+        return resolve_candidate(ledger, chapter, text, raw, workers)
+    except Exception:
+        for name, value in {**before, **chapters}.items():
+            setattr(ledger, name, value)
+        raise
+
+
+def resolve_candidate(ledger, chapter: int, text: str, raw: dict | None = None, workers: int = 4) -> dict | None:
     """In chapter order: mentions get entity ids (new people get records), claims get verdicts and a status,
     supported same_as claims become merge edges.  Re-running a chapter replaces its mentions and claims."""
     raw = raw if raw is not None else ledger_store.read_json(ledger.raw_path(chapter), None)
@@ -224,6 +246,8 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
     late = ledger_extraction.stale(ledger, raw, text)
     if late:  # read again, now that the people this chapter names are on the books
         again = ledger_extraction.extract(ledger, chapter, text, force=True)
+        if again.get('error'):
+            raise RuntimeError('identity rereading request failed; this chapter was not committed')
         if not again.get("error"):
             again["fresh"] = True
             ledger_store.write_json(ledger.raw_path(chapter), again)
@@ -273,6 +297,7 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
     if relinks:  # model calls outside the lock, then the mentions are corrected before anything is written
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
             answers = list(pool.map(lambda r: ledger_judges.judge_link(r[0]["form"], r[0]["evidence"], r[1], r[2], ledger.forms), relinks))
+        require_judgments(answers)
         with ledger.lock:
             for (m, assigned, options), answer in zip(relinks, answers):
                 choice = str(answer.get("entity") or "UNCERTAIN").strip()
@@ -290,7 +315,6 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
                 else:
                     m["entity"] = "UNCERTAIN"
     with ledger.lock:
-        ledger_store.write_json(ledger.mentions_path(chapter), mentions)
         ledger.mentions_by_chapter[chapter] = mentions
         relations = []
         for r in entity_evidence.ground_relations(chapter, text, raw, ledger.dropped):
@@ -299,7 +323,6 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
                 ledger.dropped.append({"chapter": chapter, "what": "relation", "why": f"两端归不到记录 {r['from']}→{r['to']}"})
                 continue
             relations.append({**r, "from": a, "to": b})
-        ledger_store.write_json(ledger.relations_path(chapter), relations)
         ledger.relations_by_chapter[chapter] = relations
         ledger.claims = [c for c in ledger.claims if c["chapter"] != chapter]
         pending = []
@@ -335,6 +358,7 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
             verdicts = list(pool.map(lambda r: ledger_judges.judge_claim(r, side(r["subject"]), side(r["object"])), pending))
             answers = list(pool.map(lambda q: ledger_judges.judge_same(q[0], q[1], ledger.forms.get(q[0]["id"], set()), ledger.forms.get(q[1]["id"], set()), q[2]),
                                     questions))
+        require_judgments([*verdicts, *answers])
         with ledger.lock:
             for row, verdict in zip(pending, verdicts):
                 row["verdict"], row["why"] = verdict.get("verdict", "insufficient"), str(verdict.get("why") or "")[:120]
@@ -357,6 +381,8 @@ def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, wo
                        "status": "accepted" if same == "same" else "pending"}
                 pending.append(row)
                 _settle(ledger, row, chapter)
+    ledger_store.write_json(ledger.mentions_path(chapter), mentions)
+    ledger_store.write_json(ledger.relations_path(chapter), relations)
     ledger.save()
     merged = [f"{ledger.name_of(m['from'])}→{ledger.name_of(m['into'])}" for m in ledger.merges if m["chapter"] == chapter]
     return {"chapter": chapter, "mentions": len(mentions), "new": [e["canonical"] for e in created if e["status"] == "active"],
@@ -376,11 +402,22 @@ def _evidence_names(ledger, ref: str, evidence: str) -> bool:
 def _correction_for(ledger, row: dict) -> dict | None:
     """The person's standing decision on this relation, if any: matched by type and the two records (either
     order for the symmetric types), not by claim id, so it survives a chapter being read again."""
-    pair = {ledger.canonical(row["subject"]), ledger.canonical(row["object"])}
+    raw_pair = relationship_pair(row)
     for c in ledger.corrections:
-        if c["type"] == row["type"] and {ledger.canonical(c["subject"]), ledger.canonical(c["object"])} == pair:
+        if c['type'] == row['type'] and relationship_pair(c) == raw_pair:
+            return c
+    pair = relationship_pair(row, ledger.canonical)
+    if ledger.canonical(row['subject']) == ledger.canonical(row['object']):
+        return None  # a collapsed group does not identify which independent decision was made
+    for c in ledger.corrections:
+        if c["type"] == row["type"] and relationship_pair(c, ledger.canonical) == pair:
             return c
     return None
+
+
+def relationship_pair(row, resolve=lambda ref: ref):
+    pair = (resolve(row['subject']), resolve(row['object']))
+    return frozenset(pair) if row['type'] in {'same_as', 'lookalike'} else pair
 
 
 def _settle(ledger, row: dict, chapter: int) -> None:
@@ -406,17 +443,33 @@ def decide(ledger, claim_id: str, decision: str, note: str = "") -> bool:
     if row is None or decision not in ("accepted", "rejected"):
         return False
     with ledger.lock:
-        pair = {ledger.canonical(row["subject"]), ledger.canonical(row["object"])}
-        ledger.corrections = [c for c in ledger.corrections if c.get("claim") != claim_id
-                            and not (c["type"] == row["type"] and {ledger.canonical(c["subject"]), ledger.canonical(c["object"])} == pair)]
+        pair = relationship_pair(row)
+        if decision == 'rejected' and row['type'] == 'same_as':
+            connected = {row['subject']}
+            proofs = [c for c in ledger.claims if c['type'] == 'same_as' and c.get('status') == 'accepted'
+                      and relationship_pair(c) != pair and c['subject'] in ledger.by_id and c['object'] in ledger.by_id]
+            while True:
+                expanded = connected | {eid for c in proofs if {c['subject'], c['object']} & connected for eid in (c['subject'], c['object'])}
+                if expanded == connected:
+                    break
+                connected = expanded
+            if row['object'] in connected:
+                raise ValueError('other accepted identity proofs still join this pair; resolve the conflicting proof first')
+        ledger.corrections = [c for c in ledger.corrections if c.get('claim') != claim_id
+                            and not (c['type'] == row['type'] and relationship_pair(c) == pair)]
         ledger.corrections.append({"claim": claim_id, "type": row["type"], "subject": row["subject"], "object": row["object"],
                                  "decision": decision, "note": note, "by": "human", "at": time.strftime("%Y-%m-%d %H:%M")})
-        row["status"], row["corrected"] = decision, note
-        merged = any(m["claim"] == claim_id for m in ledger.merges)
+        same_claims = [c for c in ledger.claims if c['type'] == row['type'] and relationship_pair(c) == pair]
+        for c in same_claims:
+            c['status'], c['corrected'] = decision, note
+        ids = {c['id'] for c in same_claims}
+        merge_claims = [m['claim'] for m in ledger.merges if m['claim'] in ids]
+        merged = bool(merge_claims)
         if decision == "accepted" and row["type"] in entity_contracts.MERGING and not merged and row["subject"] != row["object"]:
             _merge(ledger, row["subject"], row["object"], claim_id, row["chapter"])
     if decision == "rejected" and merged:
-        undo_merge(ledger, claim_id)
+        for owner in merge_claims:
+            undo_merge(ledger, owner)
     ledger.save()
     return True
 
@@ -435,21 +488,39 @@ def _merge(ledger, a: str, b: str, claim_id: str, chapter: int) -> None:
 
 
 def undo_merge(ledger, claim_id: str) -> bool:
-    """Reverse one merge: the record comes back, its forms go with it, the claim is marked rejected."""
+    """Remove one proof and replay surviving proofs in its affected identity component."""
     with ledger.lock:
         row = next((m for m in ledger.merges if m["claim"] == claim_id), None)
         if row is None:
             return False
-        drop = ledger.by_id[row["from"]]
-        drop["status"], drop["merged_into"] = "active", None
-        own = {m["form"] for c in ledger.chapters_read() for m in ledger.mentions_by_chapter.get(c, [])
-               if m.get("kind") == "proper" and m.get("entity") == drop["id"]} | {drop["canonical"]}
-        ledger.forms[drop["id"]] = own
-        ledger.forms[row["into"]] -= own - {ledger.by_id[row["into"]]["canonical"]}
-        ledger.by_name[drop["canonical"]] = drop
-        ledger.merges = [m for m in ledger.merges if m["claim"] != claim_id]
+        claims = {c['id']: c for c in ledger.claims}
+        component = {row['from'], row['into']}
+        def endpoints(edge):
+            claim = claims.get(edge['claim'], {})
+            return {edge['from'], edge['into'], claim.get('subject'), claim.get('object')} & ledger.by_id.keys()
+        while True:
+            expanded = component | {eid for edge in ledger.merges if endpoints(edge) & component for eid in endpoints(edge)}
+            if expanded == component:
+                break
+            component = expanded
+        affected = [m for m in ledger.merges if endpoints(m) & component]
+        owners = {m['claim'] for m in affected}
+        redundant = [c for c in ledger.claims if c['type'] == 'same_as' and c.get('status') == 'accepted'
+                     and c['id'] not in owners and c['subject'] in component and c['object'] in component]
+        ledger.merges = [m for m in ledger.merges if m not in affected]
+        for eid in component:
+            ledger.by_id[eid].update(status='active', merged_into=None)
         for c in ledger.claims:
             if c["id"] == claim_id:
                 c["status"] = "rejected"
+        ledger.rebuild_identity_views()
+        for edge in affected:
+            if edge['claim'] == claim_id:
+                continue
+            claim = claims.get(edge['claim'], {})
+            _merge(ledger, claim.get('subject', edge['from']), claim.get('object', edge['into']), edge['claim'], edge['chapter'])
+        for claim in redundant:
+            _merge(ledger, claim['subject'], claim['object'], claim['id'], claim['chapter'])
+        ledger.rebuild_identity_views()
     ledger.save()
     return True

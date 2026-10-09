@@ -31,7 +31,7 @@ def judge_link(form: str, evidence: str, assigned: dict, options: list[dict], fo
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.RELINK_SCHEMA, name="entity_relink", max_tokens=200, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"entity": "UNCERTAIN", "why": f"error {type(error).__name__}"}
+        return {"entity": "UNCERTAIN", "why": f"error {type(error).__name__}", "error": True}
 
 
 def judge_claim(claim: dict, subject: str, object_: str) -> dict:
@@ -44,7 +44,7 @@ def judge_claim(claim: dict, subject: str, object_: str) -> dict:
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.VERDICT_SCHEMA, name="entity_verdict", max_tokens=200, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"verdict": "insufficient", "why": f"error {type(error).__name__}"}
+        return {"verdict": "insufficient", "why": f"error {type(error).__name__}", "error": True}
 
 
 def judge_same(a: dict, b: dict, forms_a: set[str], forms_b: set[str], note: str = "") -> dict:
@@ -58,7 +58,7 @@ def judge_same(a: dict, b: dict, forms_a: set[str], forms_b: set[str], note: str
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.SAME_SCHEMA, name="entity_same", max_tokens=200, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"same": "unsure", "why": f"error {type(error).__name__}"}
+        return {"same": "unsure", "why": f"error {type(error).__name__}", "error": True}
 
 
 def judge_settle(pack: str, rules: str) -> dict:
@@ -78,4 +78,4 @@ def judge_generic(e: dict, rows: list[dict]) -> dict:
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.DEDUP_SCHEMA, name="entity_dedup", max_tokens=500, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"same_ids": [], "why": f"error {type(error).__name__}"}
+        return {"same_ids": [], "why": f"error {type(error).__name__}", "error": True}
