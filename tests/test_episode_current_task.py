@@ -6,6 +6,17 @@ from pathlib import Path
 from novel_manga.util import atomic_write_json,read_json
 
 
+def test_completed_old_pending_receipt_is_presented_as_remaining_work(tmp_path):
+    from novel_manga.application.agents.episode.current_task import prepare
+    ctx=SimpleNamespace(work_dir=tmp_path/'sandbox',episode_dir=tmp_path/'book/book_1',run_dir=tmp_path)
+    status={'adopted':True,'busy':False,'repair_actions':{'clip_02':['input']},'job':{
+        'id':'job-1','action':'apply','status':'completed','result':{'ok':True,'pending':['clip_02']}}}
+    task=prepare(ctx,status,{'issues':[]},[])
+    assert task['last_operation']['result']['unresolved_clips']==['clip_02']
+    assert 'pending'not in task['last_operation']['result']
+    assert any('busy=false' in rule and 'do not wait' in rule for rule in task['execution_rules'])
+
+
 def test_brief_contains_only_current_targets_and_exact_operation_choices(tmp_path):
     from novel_manga.application.agents.episode.current_task import prepare
     ctx=SimpleNamespace(work_dir=tmp_path / 'sandbox', episode_dir=tmp_path / 'book/book_1', run_dir=tmp_path)

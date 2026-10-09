@@ -247,7 +247,7 @@ class RepairOperations:
                 blocked[cid] = str(error)
                 if isinstance(error, RepairArgumentError):
                     argument_errors[cid] = str(error)
-        pending=sorted(allowed-seen)
+        unresolved_clips=sorted(allowed-seen)
         if changed:
             proposal = RepairProposal(
                 result={'changed': changed}, script=read_json(directory / 'chapter_script.json'),
@@ -258,6 +258,6 @@ class RepairOperations:
             record['trials'][-1]['managed'] = True
             history.save(directory, record)
         return {'changed': changed, 'accepted': kept, 'blocked': blocked, 'risk_accepted': risk_accepted,
-                'pending':pending,
+                'unresolved_clips':unresolved_clips,
                 **({'argument_errors': argument_errors} if argument_errors else {}),
                 **({'keep_checks': keep_checks} if keep_checks else {})}

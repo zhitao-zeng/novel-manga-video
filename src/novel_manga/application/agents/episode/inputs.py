@@ -336,6 +336,35 @@ def _preparation_exception(ctx, chapter):
     return path
 
 
+def sync_source_index(ctx):
+    """Refresh source lookup, including neighbouring excerpts; retain local art/takes."""
+    registered=read_json(ctx.source_novel_dir/'novel.json',{})
+    path=ctx.novel_dir/'novel.json';local=read_json(path,{})
+    if not registered.get('source') or local.get('source')!=registered['source']:return False
+    chapter=chapter_of(ctx.source_episode_dir.name)
+    current=next((r for r in registered.get('chapters',[])if int(r['index'])==chapter),None)
+    if current is None or local.get('chapters')==registered['chapters']:return False
+    before=ctx.run_dir/'source-index-before.json'
+    if not before.exists():atomic_write_json(before,local)
+    local['chapters']=copy.deepcopy(registered['chapters'])
+    atomic_write_json(path,local)
+    return True
+
+
+def sync_source_segments(ctx, segments, text):
+    """Recover original citation segments after a stale-offset planning attempt."""
+    from novel_manga.media.evidence_backends import normalize_text
+    source=normalize_text(text)
+    if not segments or all(normalize_text(s['text'])in source for s in segments):return segments
+    registered=read_json(ctx.source_episode_dir/'segments.json',[])
+    if not registered or any(normalize_text(s['text'])not in source for s in registered):return segments
+    if {s['segment_id']for s in segments}!={s['segment_id']for s in registered}:return segments
+    before=ctx.run_dir/'source-segments-before.json'
+    if not before.exists():atomic_write_json(before,segments)
+    atomic_write_json(ctx.episode_dir/'segments.json',registered)
+    return registered
+
+
 def prepare_inputs(ctx: EpisodeContext):
     fresh = not (ctx.run_dir / 'inputs.json').is_file()
     for directory in (ctx.run_dir, ctx.novel_dir, ctx.episode_dir, ctx.work_dir / 'input/refs',
@@ -347,6 +376,7 @@ def prepare_inputs(ctx: EpisodeContext):
         asset_link.symlink_to(ctx.asset_snapshot_dir / 'series_assets', target_is_directory=True)
     for name in BOOK_FILES:
         _copy(ctx.source_novel_dir / name, ctx.novel_dir / name)
+    sync_source_index(ctx)
     if not (ctx.novel_dir / 'profile.json').is_file():
         atomic_write_json(ctx.novel_dir / 'profile.json', read_json(ctx.novel_dir / 'novel.json', {}).get('profile', {}))
     for name in ('manifest.json', 'phases.json', 'voices/voices.json'):
@@ -364,6 +394,7 @@ def prepare_inputs(ctx: EpisodeContext):
     else:
         text, title, source_kind, source_error = _source(ctx, segments)
         source_path.write_text(text, encoding='utf-8')
+    segments=sync_source_segments(ctx,segments,text)
     _copy(source_path, ctx.work_dir / 'input/source.txt')
     if not segments:
         segments = [{'segment_id': f'{ctx.source_episode_dir.name}_s001', 'text': text}]

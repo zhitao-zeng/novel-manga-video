@@ -137,7 +137,12 @@ def bindings(directory, answer, catalog, segments, mapped, *, cached=None, alias
     def validate(value):
         cleaned, rejected, unresolved = clean_reading({'actors':value['actors']},segments)
         actors = cleaned['actors']
-        if rejected or unresolved: raise ValueError('semantic binding correction has ungrounded source forms')
+        # clean_reading already drops invented alternate names and repairs citations.
+        # Review the resulting grounded actor, rather than rejecting its valid identity
+        # because an extra form was unsupported. Actors with no evidence still block.
+        if unresolved:
+            raise ValueError('semantic binding correction has ungrounded source forms: '
+                             + ', '.join(str(a['name']) for a in unresolved))
         if not actors and answer['actors']: raise ValueError('semantic correction removed all source actors')
         actor_ids = {a['source_id'] for a in actors}
         if len(actor_ids)!=len(actors): raise ValueError('semantic correction duplicated a source actor id')

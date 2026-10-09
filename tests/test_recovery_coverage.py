@@ -70,7 +70,8 @@ def test_partial_retake_keeps_other_problem_pending_without_veto(ctx_pair):
     assert tools.check({'file':'output/repair.json'})['valid']
     result=tools.dispatch('apply',{'file':'output/repair.json'})
     assert result['ok'] and result['changed']==['clip_01']
-    assert not result['blocked'] and 'clip_02'in result['pending']
+    assert not result['blocked'] and 'clip_02'in result['unresolved_clips']
+    assert 'pending'not in result
     assert read_json(ctx.episode_dir/'clip_plan.json')['clips'][1:]==old
 
 
@@ -227,3 +228,42 @@ def test_uncaught_worker_error_has_episode_receipt_without_private_values(tmp_pa
     r=read_json(out/'7.json')
     assert code==1 and r['status']=='failed' and r['passed']is False
     assert r['code_frames'] and 'private diagnostic value'not in str(r)
+
+
+def test_native_planning_refreshes_registered_source_index_and_preserves_art(ctx_pair):
+    from novel_manga.application.agents.episode.inputs import sync_source_index
+    ctx=ctx_pair[0]
+    atomic_write_json(ctx.source_novel_dir/'novel.json',{'source':'book.txt','chapters':[
+        {'index':7,'title':'same chapter','start':120,'end':160},
+        {'index':8,'title':'neighbour','start':160,'end':200}]})
+    local={'source':'book.txt','chapters':[{'index':7,'title':'same chapter','start':100,'end':140}],
+           'private_design':'keep','profile':{'style':'existing'}}
+    atomic_write_json(ctx.novel_dir/'novel.json',local)
+    assert sync_source_index(ctx)
+    updated=read_json(ctx.novel_dir/'novel.json')
+    assert updated['chapters'][0]['start']==120
+    assert updated['chapters'][1]['index']==8
+    assert updated['private_design']=='keep' and updated['profile']==local['profile']
+    assert not sync_source_index(ctx)
+
+
+def test_stale_source_segments_restore_registered_citations_without_changing_takes(ctx_pair):
+    from novel_manga.application.agents.episode.inputs import sync_source_segments
+    ctx=ctx_pair[0];filmed(ctx,['clip_01'])
+    source='本章原文。甲坐在宿舍。'
+    old=[{'segment_id':'seg_1','text':'上一章的内容'}]
+    registered=[{'segment_id':'seg_1','text':source}]
+    atomic_write_json(ctx.source_episode_dir/'segments.json',registered)
+    atomic_write_json(ctx.episode_dir/'segments.json',old)
+    before={name:(ctx.episode_dir/name).read_bytes()for name in ('chapter_script.json','clip_plan.json','thin_media_report.json')}
+    assert sync_source_segments(ctx,old,source)==registered
+    assert read_json(ctx.run_dir/'source-segments-before.json')==old
+    assert before=={name:(ctx.episode_dir/name).read_bytes()for name in before}
+
+
+def test_changed_citation_ids_are_not_reassigned_to_filmed_shots(ctx_pair):
+    from novel_manga.application.agents.episode.inputs import sync_source_segments
+    ctx=ctx_pair[0]
+    old=[{'segment_id':'seg_1','text':'不属于本章'}]
+    atomic_write_json(ctx.source_episode_dir/'segments.json',[{'segment_id':'different_id','text':'原文'}])
+    assert sync_source_segments(ctx,old,'原文')==old

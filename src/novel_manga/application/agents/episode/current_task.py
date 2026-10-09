@@ -42,7 +42,9 @@ def prepare(ctx,status,diagnosis,memories):
     job=status.get('job') or {}
     outcome=job.get('result') or {}
     last={k:job.get(k) for k in ('id','action','status','error')}
-    last['result']={k:outcome[k] for k in ('ok','passed','error','changed','input_repaired','input_reused') if k in outcome}
+    last['result']={k:outcome[k] for k in ('ok','passed','error','changed','input_repaired','input_reused','unresolved_clips') if k in outcome}
+    if 'pending'in outcome and job.get('action')=='apply' and job.get('status')=='completed':
+        last['result']['unresolved_clips']=outcome['pending']
     for field in ('blocked','argument_errors'):
         if isinstance(outcome.get(field),dict):last['result'][field]={k:v for k,v in outcome[field].items() if k in selected}
     brief={'phase':read_json(ctx.work_dir/'input/manifest.json',{}).get('agent_phase'),
@@ -60,6 +62,8 @@ def prepare(ctx,status,diagnosis,memories):
             'resume:true executes the saved decision unchanged; do not combine it with new shots/assets/source_quote.',
             'remaining_attempts does not renew a spent revision of the same pending candidate.',
             'Use exact risk_choices values. Accepted tool job means submitted; inspect its completed result.',
+            'unresolved_clips (pending in old completed apply receipts) are remaining repair targets, not running jobs. When busy=false and '
+            'job.status=completed, take the next legal action or finish; do not wait for these clips to change on their own.',
             'Related history distinguishes changed operations, independently accepted clips and failed attempts. '
             'An accepted episode does not prove every attempted remedy worked. Match the concrete issue to current evidence; '
             'not_recorded means no repair recipe was retained, and unresolved cases are not verified recipes.',

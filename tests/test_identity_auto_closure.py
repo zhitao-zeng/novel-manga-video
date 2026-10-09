@@ -86,6 +86,39 @@ def test_prepare_identity_repairs_binding_and_caches_review(tmp_path,monkeypatch
     assert calls==['chapter_identity_source','chapter_binding_review','chapter_binding_review']
 
 
+def test_binding_discards_unsupported_alternate_form_before_final_review(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'云柔站在父亲身旁。'}])
+    corrected_actor=actor()
+    corrected_actor['forms'].append({'form':'原文没有的称呼','kind':'contextual','paragraphs':[1]})
+    correction={'actors':[corrected_actor], 'bindings':[{'source_id':1,'entity_id':'e001',
+        'decision':'catalogue','paragraphs':[1],'reason':'依据实际原文'}]}
+    prompts=[]
+    def ask(parts,*args,**kwargs):
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor()]}
+        prompts.append(parts[0]['text'])
+        return {'approved':len(prompts)>1,'reason':'核对源文','correction':None if len(prompts)>1 else correction}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert result['mentions'][0]['entity_id']=='e001'
+    assert result['source_actors'][0]['forms']==actor()['forms']
+    assert '原文没有的称呼'not in prompts[-1]
+    assert result['semantic_review']['approved']
+
+
+def test_binding_still_rejects_actor_with_no_source_form(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'云柔站在父亲身旁。'}])
+    correction={'actors':[actor('不存在的人')], 'bindings':[{'source_id':1,'entity_id':'e001',
+        'decision':'catalogue','paragraphs':[1],'reason':'错误候选'}]}
+    def ask(*args,**kwargs):
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor()]}
+        return {'approved':False,'reason':'修订','correction':correction}
+    monkeypatch.setattr(client,'ask_json',ask)
+    with pytest.raises(ValueError,match='ungrounded source forms.*不存在的人'):flow.resolve_chapter(ep)
+    assert not (ep/'identity_context.json').exists()
+
+
 def test_unnamed_actor_becomes_a_reviewed_extra_without_global_renaming(tmp_path,monkeypatch):
     ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
     store.write_json(ep/'segments.json',[{'text':'持令牌的少女走到前面。'}])
