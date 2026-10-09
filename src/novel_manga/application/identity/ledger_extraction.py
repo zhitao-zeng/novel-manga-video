@@ -59,3 +59,18 @@ def stale(ledger, raw: dict, text: str) -> list[dict]:
             late.append(e)
             break
     return late
+
+
+def seed_candidates(ledger, missing, texts):
+    """Adopt explicit source readings, never infer person/named from roster membership."""
+    candidates = {}
+    for path in sorted((ledger.base / 'raw').glob('ch_*.json')):
+        chapter = int(path.stem[3:])
+        raw = ledger_store.read_json(path, {})
+        explicit = [r for r in raw.get('new_entities', [])
+                    if r.get('name') in missing and isinstance(r.get('named'), bool)
+                    and r.get('kind') in {'person', 'animal', 'spirit', 'other'}]
+        _, rows, _, _ = entity_evidence.ground(chapter, texts.get(chapter, ''), {'new_entities': explicit})
+        for row in rows:
+            candidates.setdefault(row['name'], row)
+    return candidates

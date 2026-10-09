@@ -42,7 +42,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from novel_manga.application.identity.ledger_store import Ledger, ledger_lock
-from novel_manga.application.identity.ledger_views import build_index
 from novel_manga.llm.client import ask_json
 from novel_manga.application.identity.bible_growth import grow_bible
 from novel_manga.application.review.entity_extraction import scan_chapter
@@ -116,7 +115,7 @@ def main() -> int:
     parser.add_argument("--min-chapter-chars", type=int, default=300)
     parser.add_argument("--no-grow", dest="grow", action="store_false", default=True)
     parser.add_argument("--no-ledger", dest="ledger", action="store_false", default=True, help="skip the entity ledger stage")
-    parser.add_argument("--write-index", action="store_true", help="also refresh <novel>/entity_index.json from the ledger at the end")
+    parser.add_argument("--write-index", action="store_true", help="刷新生产索引（台账保存时已自动刷新，可省略）")
     args = parser.parse_args()
 
     novel_dir = args.novel_dir.resolve()
@@ -246,10 +245,6 @@ def main() -> int:
         with ledger_lock(novel_dir):
             ledger = Ledger(novel_dir)
             ledger.save()
-            index = build_index(novel_dir)
-            atomic_write_json(novel_dir / "entity" / "index.json", index)
-            if args.write_index:
-                atomic_write_json(novel_dir / "entity_index.json", index)
-        log(f"ledger: {sum(1 for e in ledger.entities if e['status'] == 'active')} records, {sum(1 for c in ledger.claims if c.get('status') == 'pending')} claims for a person, index {'written' if args.write_index else 'kept aside'}")
+        log(f"ledger: {sum(1 for e in ledger.entities if e['status'] == 'active')} records, {sum(1 for c in ledger.claims if c.get('status') == 'pending')} claims for a person, indexes written")
     log(f"story pass done: {len(chapters)} chapters in {(time.monotonic() - started) / 60:.0f} min")
     return 0
