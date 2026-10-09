@@ -79,6 +79,8 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
             asr = video.parent / ("stale_asr.json" if "stale" in video_name else "asr.json")
             hypothesis = json.loads(asr.read_text(encoding="utf-8")).get("hypothesis", "") if asr.is_file() else ""
         old = earlier.get(clip_id) if resume else None
+        ledger_snapshot = review_evidence.snapshot_block(clip, episode_dir)
+        ledger_changed = bool(old and old.get('ledger_snapshot', '') != ledger_snapshot)
         take = review_storage.take_identity(video)
         try:
             # The very same file, not just the same path: split_long_stages renames clip directories, so after a
@@ -91,7 +93,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
                                   and old.get('source_segment_ids') != (clip.get('segment_ids') or []))
             speech_recovered = bool(old and (old.get('speech_gate') or {}).get('passed') is False
                                     and selected.get(clip_id, {}).get('passed') is True)
-            if same_take and not source_changed and not speech_recovered:
+            if same_take and not source_changed and not speech_recovered and not ledger_changed:
                 verdict = {key: value for key, value in old.items() if key not in ("video", "take")}
                 from novel_manga.application.review import adjudication
                 if cast_video.enabled() and adjudication.outdated(verdict):
@@ -107,7 +109,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
                                                            verdict, video=video, bible=bible)
             else:
                 cached = ((old.get('verify') or {}).get('cast_video')
-                          if same_take and (source_changed or speech_recovered) else None)
+                          if same_take and (source_changed or speech_recovered or ledger_changed) else None)
                 options = {'cached_cast': cached} if cached and cast_video.enabled() else {}
                 verdict = review_judges.judge_clip(clip, video, bible, location_time, hypothesis, episode_dir / "work" / "review" / clip_id, **options)
         except Exception as error:  # noqa: BLE001 - a judge failure is reported, never fatal
@@ -116,7 +118,7 @@ def review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: bo
             checkpoint()
             continue
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict,
-                                     'source_segment_ids': list(clip.get('segment_ids') or [])}
+                                     'source_segment_ids': list(clip.get('segment_ids') or []), 'ledger_snapshot': ledger_snapshot}
         if verdict.get("severity") == "fail":
             tier = review_policy.fix_tier(verdict, bible, rules)
             if (tier == "must_fix" and "scripted" not in verdict

@@ -7,6 +7,17 @@ import novel_manga.entities.contracts as entity_contracts
 import novel_manga.entities.evidence as entity_evidence
 
 def extract(ledger, chapter: int, text: str, force: bool = False) -> dict:
+    raw = read_raw(ledger, chapter, text, force)
+    if not raw.get('error'):
+        with ledger_store.ledger_lock(ledger.novel_dir):
+            existing = None if force else ledger_store.read_json(ledger.raw_path(chapter), None)
+            if existing is not None and not existing.get('error'):
+                return existing
+            ledger_store.write_json(ledger.raw_path(chapter), raw)
+    return raw
+
+
+def read_raw(ledger, chapter: int, text: str, force: bool = False) -> dict:
     """One model call, safe in a pool: the candidates are a snapshot of the ledger as it is now.  The reading
     remembers how far the ledger reached, so that resolve_chapter can tell when it was made too early."""
     raw = None if force else ledger_store.read_json(ledger.raw_path(chapter), None)
@@ -18,8 +29,6 @@ def extract(ledger, chapter: int, text: str, force: bool = False) -> dict:
         recent = {ledger.canonical(eid) for eid, seen in ledger.recent.items() if 0 <= chapter - seen <= entity_contracts.RECENT_WINDOW}
     raw = ledger_judges.extract_chapter(chapter, text, entity_evidence.offered(entities, forms, text, recent), forms)
     raw["known_through"] = max((entity_evidence._number(e["id"]) for e in entities), default=0)
-    if not raw.get("error"):
-        ledger_store.write_json(ledger.raw_path(chapter), raw)
     return raw
 
 

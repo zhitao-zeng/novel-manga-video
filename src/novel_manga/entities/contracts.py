@@ -10,6 +10,23 @@ RECENT_WINDOW = 15  # chapters: someone on stage this recently is offered even i
 
 CLAIM_TYPES = ["same_as", "impersonates", "lookalike", "avatar_of", "occupies_body", "reveal", "transformation", "death", "return", "rename"]
 
+CLAIM_MEANINGS = {
+    'same_as': '两条记录指同一个具体人物，依据明确的正名/别名同指或身份揭示。师徒、夫妻、亲属、同族和同一体系中的两个人仍是不同个体。',
+    'impersonates': 'subject冒充object或使用其身份，分别保留冒充者与被冒充者。',
+    'lookalike': '两个人外形相似但身份独立。',
+    'avatar_of': 'subject是object的分身、化身或投影，保留具体载体的区别。',
+    'occupies_body': 'subject的灵魂/意识在object的身体里，身体主人必须由原文指明。',
+    'reveal': '本章向读者揭示subject与object的身份对应，是否合并另按same_as判断。',
+    'transformation': 'subject变为object描述的形态，保留形态与身份的区别。',
+    'death': '原文记载subject死亡。', 'return': '原文记载subject返回或复归。',
+    'rename': '原文记载subject改用object这个名字。',
+}
+
+IDENTITY_EVIDENCE_RULES = (
+    'supports须指出原文中支持所问关系类型的具体句子。已见写法、人物描述和旧账本归属只作为待核对资料；'
+    '同人判断依据本章与后文的明确同指，而不是资料本身的归档结果。泛称按原文场景定位到具体个体。\n'
+)
+
 
 MERGING = {"same_as"}  # the only claim that joins two records
 
@@ -97,6 +114,8 @@ EXTRACT_RULES = (
     "reveal（本章揭晓 subject 就是 object）、transformation（subject 变成 object 所写的形态）、death、return、rename（subject 从此改叫 object）。"
     "scope：这件事在故事里是现实，还是梦境/回忆/传闻/假设。hidden_from_reader：原文此时是否仍对读者隐瞒这层关系。"
     "每条附本章原文里逐字的一句证据（不超过 40 字），抄不出来就不要写。没有就空数组。\n"
+    + '关系类型定义：' + '；'.join(f'{kind}={meaning}' for kind, meaning in CLAIM_MEANINGS.items()) + '\n'
+    + IDENTITY_EVIDENCE_RULES +
     "relations：本章能看出的两个人物之间的关系，from/to 填账本编号或 NEW:名字。base 是持久的结构关系："
     + "、".join(f"{k}={v}" for k, v in RELATION_BASES.items()) + "。stance 是 from 此刻对 to 的态度："
     + "、".join(f"{k}={v}" for k, v in RELATION_STANCES.items()) + "。address 是 from 在本章怎么称呼 to（叔叔、殿下、格雷先生），没叫过留空。"

@@ -65,7 +65,7 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
             raise ValueError('first pass defers retakes of existing video to the repair queue')
     if requests.prescreens(ctx, clip):
         ctx.state.clip(clip['clip_id']).prescreened = True
-        risk = prescreen_prompt(prompt)
+        risk = requests.prescreen_prompt(prompt)
         if risk >= PRESCREEN_RISK:
             ctx.state.clip(clip['clip_id']).softened = True
             log(f"{clip['clip_id']}: prescreen risk {risk:.2f}; softening the wording before the first submission")
