@@ -136,6 +136,8 @@ class RepairOperations:
         outcome['blocked'].update(exhausted)
         if input_argument_errors:
             outcome.setdefault('argument_errors', {}).update(input_argument_errors)
+        outcome['submission_id'] = payload.get('submission_id')
+        outcome['submitted_decisions'] = input_file(self.ctx, payload, 'output/repair.json')['decisions']
         outcome['input_repaired'] = list(dict.fromkeys([*repaired, *outcome.get('risk_accepted', [])]))
         if input_reused:
             outcome['input_reused'] = list(dict.fromkeys(input_reused))

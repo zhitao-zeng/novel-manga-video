@@ -76,6 +76,7 @@ def correct_protected_lexicon(
         best: tuple[int, int, int, str] | None = None
         best_start = 0
         best_width = 0
+        phonetic_best = None
         for width in range(max(1, len(canonical) - 1), len(canonical) + 2):
             start_min = max(0, center - radius)
             start_max = min(len(corrected) - width, center + radius)
@@ -93,14 +94,38 @@ def correct_protected_lexicon(
                             and not normalize_text(corrected[:start]).endswith(before))):
                     continue  # Do not consume adjacent words to manufacture a partly missing name.
                 distance = edit_distance(normalized, normalize_text(canonical))
+                # A longer protected name can have several spelling errors but
+                # nearly the same syllables. Require an unchanged dialogue anchor;
+                # this path does not correct unrelated words or another known name.
+                if len(key) >= 4 and distance > max(1, len(key) // 3):
+                    from pypinyin import lazy_pinyin
+                    expected_sounds = lazy_pinyin(key)
+                    heard_sounds = lazy_pinyin(normalized)
+                    same_syllables = sum(a == b for a, b in zip(expected_sounds, heard_sounds))
+                    left_anchor, right_anchor = normalize_text(left)[-4:], normalize_text(right)[:5]
+                    heard_left = normalize_text(corrected[:start])
+                    heard_right = normalize_text(corrected[start + width:])
+                    anchored = ((len(left_anchor) >= 4 and heard_left.endswith(left_anchor))
+                        or (len(right_anchor) >= 4 and heard_right.startswith(right_anchor))
+                        or (len(right_anchor) == 5 and right_anchor[0] in '吗么呢'
+                            and heard_right[:1] in '吗么呢' and heard_right[1:].startswith(right_anchor[1:])))
+                    if (anchored and len(expected_sounds) == len(heard_sounds)
+                            and same_syllables >= len(expected_sounds) - 1):
+                        rank = (distance, abs(start - center), abs(width - len(canonical)), candidate)
+                        if phonetic_best is None or rank < phonetic_best[0]:
+                            phonetic_best = (rank, start, width)
                 rank = (distance, abs(start - center), abs(width - len(canonical)), candidate)
                 if best is None or rank < best:
                     best = rank
                     best_start = start
                     best_width = width
         threshold = max(1, len(normalize_text(canonical)) // 3)
+        method = None
         if best is None or best[0] > threshold:
-            continue
+            if phonetic_best is None:
+                continue
+            best, best_start, best_width = phonetic_best
+            method = 'phonetic_with_context'
         source = corrected[best_start : best_start + best_width]
         corrected = (
             corrected[:best_start] + canonical + corrected[best_start + best_width :]
@@ -111,6 +136,7 @@ def correct_protected_lexicon(
                 "canonical": canonical,
                 "distance": best[0],
                 "count": 1,
+                **({'method': method} if method else {}),
             }
         )
     return corrected, corrections

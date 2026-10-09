@@ -84,6 +84,17 @@ def repair_status(ctx):
             row['resume_action'] = {'clip_id': cid, 'action': 'input', 'resume': True,
                 'reason': 'Continue the unchanged saved candidate after the posture protocol correction'}
             row['next_action'] = 'Resume this candidate once with schema-owned stage/person keys; reuse completed assets and preserve input/video counts.'
+    from .input_records import input_operations
+    for cid, row in states.items():
+        operations = input_operations(ctx, cid, records=records)
+        if row.get('argument_error'):
+            operations['resume'] = {'allowed': False, 'reason': row['argument_error']}
+        row['operations'] = operations
+        row['revision_available'] = operations['revise']['allowed']
+        if not operations['resume']['allowed']:
+            row.pop('resume_action', None)
+        if not any(operation['allowed'] for operation in operations.values()):
+            row['next_action'] = 'No legal input route remains for this candidate; use an offered upstream operation or finish unresolved. Numeric balance does not renew a spent revision.'
     return states
 
 

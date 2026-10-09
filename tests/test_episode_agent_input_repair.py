@@ -1425,3 +1425,33 @@ def test_source_checked_scene_boundary_fields_are_available_to_input_agent(setup
     row = decision(shots=[{'index': 1, 'scene_id': 'hall', 'scene_time': '同一时刻',
         'scene_transition': '同一场景的连续镜头，地点标签纠正，未跳时'}])
     assert input_contracts.normalize_arguments(row) == row
+
+
+@pytest.mark.parametrize("status", ["incomplete", "rejected"])
+def test_spent_candidate_is_not_advertised_as_input_despite_numeric_balance(setup, status):
+    ctx, _, _ = setup
+    path = ctx.episode_dir/'work/input_repairs/clip_01-1.json'
+    atomic_write_json(path, {'clip_id':'clip_01', 'status':status, 'step':'compile',
+        'revision_count':1, 'resume_count':1, 'source_review_policy':2, 'decision':decision()})
+    before = path.read_bytes()
+    state = EpisodeTools(ctx).status({})
+    assert state['remaining_input_attempts']['clip_01'] == 1
+    assert 'input' not in state['repair_actions']['clip_01']
+    operations = state['input_operations']['clip_01']
+    assert not any(row['allowed'] for row in operations.values())
+    assert path.read_bytes() == before
+
+
+def test_input_operations_follow_the_same_granted_new_candidate_route(setup):
+    ctx, _, _ = setup
+    atomic_write_json(ctx.episode_dir/'repair_budget_grants.json', {'clip_01':{'input_limit':2}})
+    atomic_write_json(ctx.episode_dir/'work/input_repairs/clip_01-1.json', {
+        'clip_id':'clip_01','status':'incomplete','step':'compile','revision_count':1,
+        'resume_count':1,'decision':decision()})
+    state = EpisodeTools(ctx).status({})
+    assert state['input_operations']['clip_01']['new']['allowed']
+    assert not state['input_operations']['clip_01']['revise']['allowed']
+    assert not state['input_operations']['clip_01']['resume']['allowed']
+    changed = decision(shots=[{'index':1,'light':'日光'}])
+    path, _ = input_repair.input_receipt(ctx, 'clip_01', changed, check_only=True)
+    assert path.name == 'clip_01-2.json'

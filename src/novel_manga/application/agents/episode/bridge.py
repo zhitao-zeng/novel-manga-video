@@ -162,6 +162,14 @@ class EpisodeBridge:
                 return {'ok': True, **self._dispatch(action, payload)}
             if action not in SLOW_ACTIONS:
                 raise ValueError('unknown episode tool action')
+            submission_id = f'job-{self._count + 1}'
+            if action == 'apply' and hasattr(self.tools, 'ctx'):
+                from .tool_inputs import input_file
+                submitted = input_file(self.tools.ctx, payload, 'output/repair.json')
+                relative = f'output/.host-submissions/{submission_id}.json'
+                atomic_write_json(self.tools.ctx.work_dir / relative, submitted)
+                payload = {**payload, 'submitted_file': payload.get('file', 'output/repair.json'),
+                           'file': relative, 'submission_id': submission_id}
             self._count += 1
             self._job = {'id': f'job-{self._count}', 'action': action, 'payload': payload,
                          'status': 'accepted'}

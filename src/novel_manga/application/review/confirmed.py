@@ -8,7 +8,9 @@ from novel_manga.review.endpoints import judge_settings
 from novel_manga.application.review.evidence import clip_frames
 
 SCHEMA = {'type': 'object', 'additionalProperties': False,
-          'required': ['observations', 'checks'], 'properties': {
+          'required': ['observations', 'checks', 'premise_valid', 'premise_evidence'], 'properties': {
+              'premise_valid': {'type': ['boolean', 'null']},
+              'premise_evidence': {'type': 'string'},
               'observations': {'type': 'array', 'minItems': 1, 'items': {'type': 'string'}},
               'checks': {'type': 'array', 'minItems': 1, 'items': {
                   'type': 'object', 'additionalProperties': False, 'required': ['criterion', 'scope', 'met', 'evidence'],
@@ -17,6 +19,11 @@ SCHEMA = {'type': 'object', 'additionalProperties': False,
 
 
 def finding_result(answer):
+    if answer.get('premise_valid') is False:
+        return {**answer, 'result': 'uncertain', 'checked_scope': 'visual',
+                'error_kind': 'review_premise_conflict',
+                'evidence': answer.get('premise_evidence', ''),
+                'next': 'Reconcile actual source and reference assets before retaking; the old claim is not evidence.'}
     checks = [c for c in answer.get('checks') or [] if c.get('scope', 'visual') == 'visual']
     result = ('unresolved' if any(c.get('met') is False for c in checks) else
               'resolved' if checks and all(c.get('met') is True for c in checks) else 'uncertain')
@@ -30,6 +37,9 @@ def apply_claim(verdict, claim, video, take):
     check = claim.get('check') or {}
     resolved = check.get('video') == str(video) and check.get('take') == take and check.get('result') == 'resolved'
     verdict['confirmed'] = claim
+    if check.get('error_kind') == 'review_premise_conflict':
+        verdict['defect_kind'] = 'review_premise_conflict'
+        verdict['required_action'] = 'source_or_asset_recheck'
     if not resolved:
         verdict.update(severity='fail', tier='must_fix', scripted=False,
                        defect_issue=claim['issue'], feedback=claim['instruction'])
@@ -43,6 +53,10 @@ def apply_claim(verdict, claim, video, take):
 def judge_finding(clip, video, claim, work, novel_dir=None):
     """Inspect current ordered frames for the concrete acceptance condition; never auto-clear on a broad pass."""
     frames = clip_frames(Path(video), Path(work), 6)
+    from .evidence import segment_texts
+    episode = next((parent for parent in Path(work).parents if (parent/'segments.json').is_file()), None)
+    segments = segment_texts(episode) if episode else {}
+    passage = '\n'.join(segments.get(str(s), '') for s in clip.get('segment_ids', []))
     parts = []; seen = set()
     for ref in clip.get('references', []):
         if ref.get('role') != 'character' or ref.get('name') in seen:
@@ -68,7 +82,12 @@ def judge_finding(clip, video, claim, work, novel_dir=None):
         '肩背属于同一身体时不多计；同一个身体在不同帧转身、改变姿势也不多计。'
         '只有同一帧里在不同位置同时出现两个独立身体/空甲，才是数量增加。'
         '动作按先后帧的起点和终点核对；目标只要求踏上台阶时，不额外要求整个人走进车厢。'
-        '\n正向验收目标：' + claim['instruction'] + '\n只输出JSON。')})
+        '旧评审指控不是事实，目标中的性别、外貌、身份和在场前提也需核对。'
+        '先独立读取实际角色卡、当前帧和下方原文，premise_valid表示目标前提是否成立；'
+        '前提与原文或参考图冲突时填false并写具体premise_evidence，缺少证据填null；'
+        '这类冲突需先修输入/资产，不能靠重拍正确画面来迎合错误指控。'
+        '\n对应原文：' + (passage or '本次未提供，不能推断原文事实。') +
+        '\n待核对的验收目标：' + claim['instruction'] + '\n只输出JSON。')})
     answer = ask_json(parts, SCHEMA, name='confirmed_picture_check', max_tokens=1800,
                       settings=judge_settings())
     return finding_result(answer)

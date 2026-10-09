@@ -19,3 +19,5 @@ inputs/
 
 # local rollback copies made while patching
 *.bak-*
+
+.superpowers/

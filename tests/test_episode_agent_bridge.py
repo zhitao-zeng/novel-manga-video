@@ -196,3 +196,29 @@ def test_existing_socket_path_is_not_deleted(tmp_path):
     with pytest.raises(FileExistsError):
         server.serve()
     assert target.read_text() == 'belongs to someone else'
+
+
+
+def test_apply_executes_accepted_file_even_if_agent_rewrites_it_before_yield(tmp_path):
+    from types import SimpleNamespace
+    from novel_manga.application.agents.episode.tool_inputs import input_file
+    from novel_manga.util import atomic_write_json
+    tools = FakeTools()
+    tools.ctx = SimpleNamespace(work_dir=tmp_path/'work')
+    tools.ctx.work_dir.mkdir()
+    original = {'decisions':[{'clip_id':'clip_01','action':'stop','reason':'first'}]}
+    atomic_write_json(tools.ctx.work_dir/'output/repair.json', original)
+    def dispatch(action, payload):
+        if action == 'apply':
+            tools.calls.append((action, input_file(tools.ctx, payload, 'output/repair.json')))
+            return {'ok':True}
+        return {}
+    tools.dispatch = dispatch
+    with running_server(tmp_path, tools) as server:
+        server.begin_turn()
+        accepted = server.handle('apply', {'file':'output/repair.json'})
+        atomic_write_json(tools.ctx.work_dir/'output/repair.json', {'decisions':[]})
+        server.end_turn()
+        wait_job(server, 'completed')
+        assert tools.calls == [('apply', original)]
+        assert server._job['payload']['submission_id'] == accepted['job_id']

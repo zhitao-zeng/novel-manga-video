@@ -59,3 +59,47 @@ def test_native_cache_migration_does_not_restore_old_laughter_failure(tmp_path,m
                                  {'clip_id':'clip_01','spoken_text':'请进'},video)
     assert current['passed'] and current['issues']==[]
     assert current['speech_evaluation_policy']==speech.EVALUATION_POLICY
+
+
+
+def test_near_phonetic_name_with_exact_dialogue_context_is_corrected():
+    from novel_manga.media.evidence_backends import correct_protected_lexicon
+    reference = '是莉莉大婶么您是东顺王的乳娘自然算是本宫的半个母亲'
+    heard = '是丽丽大师吗您是东顺王的乳娘自然算是本宫的半个母亲'
+    fixed, changes = correct_protected_lexicon(heard, reference, ['莉莉大婶'])
+    assert '莉莉大婶' in fixed
+    assert changes[0]['source'] == '丽丽大师'
+    assert changes[0]['method'] == 'phonetic_with_context'
+
+
+def test_near_phonetic_name_cannot_hide_unrelated_speech_or_known_other_identity():
+    from novel_manga.media.evidence_backends import correct_protected_lexicon
+    reference = '是莉莉大婶么您是东顺王的乳娘'
+    for heard, terms in [('丽丽大师现在讲完全不同的故事',['莉莉大婶']),
+                         ('是莉莉大师么您是东顺王的乳娘',['莉莉大婶','莉莉大师'])]:
+        assert correct_protected_lexicon(heard,reference,terms)[1] == []
+
+
+
+def test_name_correction_uses_neighboring_asr_chunks_without_changing_their_times():
+    reference = '是莉莉大婶么？您是东顺王的乳娘，自然算是本宫的半个母亲。'
+    rows = [{'start':4.797,'end':6.048,'hypothesis':'是丽丽大师吗'},
+            {'start':6.503,'end':10.055,'hypothesis':'您是东顺王的乳娘自然算是本宫的半个母亲'}]
+    corrected = speech.corrected_rows(rows,reference,['莉莉大婶'],{})
+    assert corrected[0]['hypothesis'] == '是莉莉大婶吗'
+    assert corrected[0]['raw_hypothesis'] == rows[0]['hypothesis']
+    assert [(r['start'],r['end'])for r in corrected] == [(r['start'],r['end'])for r in rows]
+    assert speech.evaluate(reference,corrected,-20,-4)['passed']
+
+
+
+def test_cached_name_refresh_retains_contextual_correction_through_recheck():
+    reference = '是莉莉大婶么？您是东顺王的乳娘，自然算是本宫的半个母亲。'
+    old = {'chunks':[{'start':4.797,'end':6.048,'hypothesis':'是丽丽大师吗'},
+        {'start':6.503,'end':10.055,'hypothesis':'您是东顺王的乳娘自然算是本宫的半个母亲'}],
+        'mean_volume_db':-20,'max_volume_db':-4,'passed':False,
+        'issues':['excess_unplanned_speech'],'video':'unchanged.mp4'}
+    current = speech.refresh(reference,old,['莉莉大婶'],{})
+    assert current['passed'] and current['issues'] == []
+    assert current['chunks'][0]['hypothesis'] == '是莉莉大婶吗'
+    assert current['video'] == old['video']

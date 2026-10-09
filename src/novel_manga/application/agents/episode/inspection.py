@@ -32,6 +32,10 @@ class EpisodeInspection:
         extra = {cid: history.conditional_extra(self.ctx.episode_dir, cid) for cid in clip_ids}
         input_left = remaining_input_attempts(self.ctx, clip_ids)
         input_states = repair_status(self.ctx)
+        from .input_records import input_operations, input_records
+        records = input_records(self.ctx)
+        input_ops = {cid: input_states.get(cid, {}).get('operations')
+                     or input_operations(self.ctx, cid, records=records) for cid in clip_ids}
         take_left = {cid: max(0, history.preparation_limit(self.ctx.episode_dir, cid)-counts.get(cid, 0))
                      for cid in clip_ids}
         check_left = {cid: max(0, int(limit)-rechecks[cid]) for cid, limit in limits.items() if limit is not None}
@@ -68,8 +72,7 @@ class EpisodeInspection:
                 if cid in videos and (limits[cid] is None or check_left[cid]):
                     allowed.append('keep')
             if (cid in eligible or cid in unfilmed) and take_left[cid] and (
-                    input_left[cid] or input_states.get(cid, {}).get('resume_action')
-                    or input_states.get(cid, {}).get('revision_available')):
+                    any(operation['allowed'] for operation in input_ops[cid].values())):
                 allowed.append('input')
             actions[cid] = allowed
         from novel_manga.application.agents.episode.pipeline_preparation import semantic_pending
@@ -114,7 +117,7 @@ class EpisodeInspection:
                     'prepared': bool(row.get('prepared')), 'activated': bool(row.get('activated')),
                     'next': 'Review current evidence and submit a valid edit/input/retake; generation activates only after final input preflight.'}
                     for cid, row in extra.items() if row},
-                'input_repairs': input_states,
+                'input_repairs': input_states, 'input_operations': input_ops,
                 'adopt_draft_command': ('Use scoped input repair or an explicitly offered replan operation.' if scoped_editor else
                     f'adopt {draft_file(self.ctx)} to prepare inputs without video; existing history is retained'),
                 'generation_counts': counts,

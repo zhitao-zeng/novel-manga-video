@@ -423,8 +423,18 @@ def prepare_inputs(ctx: EpisodeContext):
     too_long = [c.get('clip_id') for c in plan.get('clips', []) if c.get('kind', 'video') == 'video'
                 and float(c.get('request_seconds') or 0) > ctx.clip_seconds_max]
     if too_long:
-        raise ValueError(f'H3 requires repacking this existing clip plan to {ctx.clip_seconds_max:g}s clips: '
-                         + ', '.join(map(str, too_long)) + '; the Agent input step does not change saved timing')
+        from novel_manga.application.repair import history
+        from novel_manga.application.production.artifacts import media_started
+        if media_started(ctx.episode_dir) or any(history.generation_counts(ctx.episode_dir).values()):
+            raise ValueError(f'H3 requires repacking this existing clip plan to {ctx.clip_seconds_max:g}s clips: '
+                             + ', '.join(map(str, too_long)) + '; existing takes retain their saved timing')
+        backup = ctx.run_dir/'input-plan-repacking/before.json'
+        if not backup.exists():
+            atomic_write_json(backup, plan)
+        plan = _pack_existing(ctx, script)
+        if any(float(c.get('request_seconds') or 0) > ctx.clip_seconds_max
+               for c in plan.get('clips', []) if c.get('kind', 'video') == 'video'):
+            raise ValueError('existing packer still produced overlong clips; retain the screenplay and inspect packing')
     selected = plan if bound else read_json(ctx.source_episode_dir / 'clip_plan.json', {})
     refs = _candidate_references(ctx, text, selected, script, bound_plan=batch_adopted, fresh=fresh)
     extras = {r['id']: r for r in read_json(ctx.run_dir/'draft-assets.json', [])}

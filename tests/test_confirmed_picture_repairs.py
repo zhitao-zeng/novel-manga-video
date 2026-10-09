@@ -112,3 +112,29 @@ def test_a_finding_is_not_rejudged_on_the_take_it_was_confirmed_on(tmp_path, mon
     # a check an earlier run wrote on that same take does not clear it either
     previous['clips']['a']['confirmed']['check']={'result':'resolved','video':rows['a']['video'],'take':rows['a']['take']}
     assert 'a' in confirmed.enforce(d,copy.deepcopy(fresh),previous,verify=True)['feedback']
+
+
+
+def test_targeted_judge_receives_actual_source_instead_of_accepting_old_claim(tmp_path, monkeypatch):
+    from novel_manga.util import atomic_write_json
+    episode = tmp_path/'book_1'
+    atomic_write_json(episode/'segments.json', [{'segment_id':'s1','text':'三个男人同时走入大厅。'}])
+    work = episode/'work/confirmed_review/clip_01'
+    seen = {}
+    monkeypatch.setattr(confirmed, 'clip_frames', lambda *a: [tmp_path/'frame.jpg'])
+    monkeypatch.setattr(confirmed, 'image_part', lambda *a: {'type':'image'})
+    def ask(parts, *a, **kw):
+        seen['text'] = '\n'.join(p.get('text','') for p in parts)
+        return {'observations':['三人'], 'checks':[{'scope':'visual','met':True,'evidence':'三人'}]}
+    monkeypatch.setattr(confirmed, 'ask_json', ask)
+    confirmed.judge_finding({'segment_ids':['s1']},tmp_path/'video.mp4',
+        {'instruction':'一个女人走入大厅'},work,tmp_path)
+    assert '三个男人同时走入大厅' in seen['text']
+    assert '不是事实' in seen['text']
+
+
+def test_false_review_premise_stays_unaccepted_and_routes_to_input_evidence():
+    result = confirmed.finding_result({'premise_valid':False,'premise_evidence':'原文三男，卡面是女',
+        'observations':['卡面与原文矛盾'], 'checks':[{'scope':'visual','met':False,'evidence':'三人'}]})
+    assert result['result'] == 'uncertain'
+    assert result['error_kind'] == 'review_premise_conflict'

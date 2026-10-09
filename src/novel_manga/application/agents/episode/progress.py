@@ -27,8 +27,19 @@ def progress(ctx, status):
     return tuple(outputs), job.get('id'), job.get('status')
 
 
+def available_operations(status):
+    operations = {(cid, action) for cid, actions in (status.get('repair_actions') or {}).items() for action in actions}
+    operations.update((cid, 'input:' + mode) for cid, routes in (status.get('input_operations') or {}).items()
+                      for mode, route in routes.items() if route.get('allowed'))
+    return operations
+
+
 def made_progress(ctx, before, before_status, status):
     """New job IDs and reworded rejected proposals are not productive work."""
+    # A newly granted route deserves one turn to use it. The same unused route
+    # on the following turn does not keep the watchdog alive indefinitely.
+    if available_operations(status) - available_operations(before_status):
+        return True
     job = status.get('job') or {}
     prior = before_status.get('job') or {}
     outcome = job.get('result') or {}

@@ -11,8 +11,8 @@ MAX_MISSING = 0.5
 MIN_PEAK_DB = -35.0
 UNSCRIPTED_MIN_CHARS = 5
 UNSCRIPTED_MIN_DB = -40.0
-EVALUATION_POLICY = 6
-RECHECK_POLICY = 3
+EVALUATION_POLICY = 7
+RECHECK_POLICY = 4
 
 
 @lru_cache(maxsize=1024)
@@ -93,10 +93,21 @@ def unplanned_segments(reference, rows):
 
 
 def corrected_rows(rows, reference, protected_terms, aliases):
+    # ASR may split a protected name from the dialogue anchor that verifies it.
+    # Use the retained neighboring words, then apply only replacements wholly
+    # inside one chunk. Keep timing and raw transcription as independent evidence.
+    joined = ''.join(row.get('raw_hypothesis', row['hypothesis']) for row in rows)
+    _, contextual = correct_protected_lexicon(joined, reference, protected_terms, aliases)
+    contextual = [change for change in contextual if change.get('method') == 'phonetic_with_context'
+                  and joined.count(change['source']) == 1]
     result = []
     for row in rows:
         raw = row.get('raw_hypothesis', row['hypothesis'])
         corrected, corrections = correct_protected_lexicon(raw, reference, protected_terms, aliases)
+        for change in contextual:
+            if change['source'] in corrected:
+                corrected = corrected.replace(change['source'], change['canonical'], 1)
+                corrections.append(change)
         result.append({**row, 'raw_hypothesis': raw, 'hypothesis': corrected, 'corrections': corrections})
     return result
 
@@ -137,11 +148,7 @@ def evaluate(reference, rows, mean_db, peak_db, *, vocalizations=()):
 
 
 def recheck(reference, analysis, protected_terms, aliases, *, vocalizations=()):
-    chunks = []
-    for row in analysis.get('chunks') or []:
-        raw = row.get('raw_hypothesis', row.get('hypothesis', ''))
-        corrected, corrections = correct_protected_lexicon(raw, reference, protected_terms, aliases)
-        chunks.append({**row, 'raw_hypothesis': raw, 'hypothesis': corrected, 'corrections': corrections})
+    chunks = corrected_rows(analysis.get('chunks') or [], reference, protected_terms, aliases)
     raw = ''.join(row['raw_hypothesis'] for row in chunks) if chunks else str(analysis.get('hypothesis') or '')
     hypothesis = ''.join(row['hypothesis'] for row in chunks) if chunks else correct_protected_lexicon(raw, reference, protected_terms, aliases)[0]
     word_rows, nonverbal = speech_rows(chunks, vocalizations)

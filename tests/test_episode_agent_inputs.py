@@ -369,10 +369,12 @@ def test_unavailable_raw_source_uses_explicit_segments_fallback(book):
     assert result['source_error'].startswith('FileNotFoundError:')
 
 
-def test_saved_thirty_second_clip_requires_repacking_without_changing_source(book):
+def test_saved_thirty_second_clip_with_existing_take_keeps_cuts_and_source(book):
     source, episode, _ = book
     script, plan = saved_script(source, episode, seconds=30)
     ctx = context.create_context(source, 2)
+    take = ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4'
+    take.parent.mkdir(parents=True); take.write_bytes(b'existing take')
     with pytest.raises(ValueError, match='H3 requires repacking'):
         prepare_inputs(ctx)
     assert read(episode / 'chapter_script.json') == script
@@ -412,3 +414,26 @@ def test_absolute_scene_reference_is_frozen_and_remains_usable_on_resume(book):
     frame.unlink()
     assert prepare_inputs(ctx)['ready']
     assert (ctx.novel_dir / frozen).read_bytes() == b'original scene frame'
+
+
+
+def test_unfilmed_overlong_plan_uses_existing_packer_before_agent_setup(book, monkeypatch):
+    from novel_manga.application.agents.episode import inputs
+    source, episode, _ = book
+    script, old = saved_script(source, episode, seconds=30)
+    ctx = context.create_context(source, 2)
+    calls = []
+    def pack(context, screenplay):
+        assert screenplay == script
+        calls.append(context)
+        new = json.loads(json.dumps(old))
+        new['clips'][0]['request_seconds'] = 15
+        write(context.episode_dir/'clip_plan.json', new)
+        return new
+    monkeypatch.setattr(inputs, '_pack_existing', pack)
+    prepare_inputs(ctx)
+    assert calls == [ctx]
+    assert read(ctx.run_dir/'input-plan-repacking/before.json') == old
+    assert read(episode/'chapter_script.json') == script
+    assert read(episode/'clip_plan.json') == old
+    assert read(ctx.episode_dir/'clip_plan.json')['clips'][0]['request_seconds'] == 15

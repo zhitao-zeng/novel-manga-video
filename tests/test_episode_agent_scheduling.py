@@ -1111,3 +1111,22 @@ def test_written_pass_file_without_host_finish_receipt_does_not_complete_episode
     result = flow.run_episode(ctx, config=config)
     assert result['passed'] is False and result['status'] == 'blocked'
     assert calls.count('finish') == 0
+
+
+
+def test_newly_available_permission_is_progress_but_same_unused_permission_is_not(ctx):
+    from novel_manga.application.agents.episode import progress as rules
+    old = {'repair_actions':{'clip_01':[]}, 'remaining_takes':{'clip_01':0},
+        'job':{'id':'job-1','action':'render','status':'completed','result':{'ok':False}}}
+    new = {**old,'repair_actions':{'clip_01':['edit']},'remaining_takes':{'clip_01':1}}
+    before = rules.progress(ctx,old)
+    assert rules.made_progress(ctx,before,old,new)
+    assert not rules.made_progress(ctx,rules.progress(ctx,new),new,new)
+
+
+def test_new_input_route_is_progress_without_resetting_numeric_input_count(ctx):
+    from novel_manga.application.agents.episode import progress as rules
+    old = {'input_operations':{'clip_01':{'resume':{'allowed':False}}}}
+    new = {'input_operations':{'clip_01':{'resume':{'allowed':True}}}}
+    assert rules.made_progress(ctx,rules.progress(ctx,old),old,new)
+    assert not rules.made_progress(ctx,rules.progress(ctx,new),new,new)
