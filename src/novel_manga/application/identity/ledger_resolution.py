@@ -13,13 +13,12 @@ import novel_manga.entities.evidence as entity_evidence
 def generic_records(ledger: "Ledger") -> list[dict]:
     """Bible records that are not proper names - 那位女士, 秘女, 灵魂, 调查师, 白猫: the book's cast list was built by
     name scans and holds the same being under several such labels."""
-    from novel_manga.story.name_rules import APPELLATION, GENERIC_NAMES
     out = []
     for e in ledger.entities:
         if e["status"] != "active" or e.get("source") != "bible":
             continue
         name = e["canonical"]
-        if name in GENERIC_NAMES or APPELLATION.search(name) or entity_evidence.generic_name(name) or not e.get("named", True):
+        if entity_evidence.generic_record(e):
             out.append(e)
     return out
 
@@ -89,7 +88,7 @@ def evidence_pack(ledger: "Ledger", a: str, b: str, claim_type: str, limit: int 
         return (f"{entity_evidence.describe_record(e)}；已见写法：{'、'.join(sorted(ledger.forms.get(eid, {e['canonical']}))[:10])}；"
                 f"在场 {len(chs)} 章" + (f"（{chs[0]}–{chs[-1]}）" if chs else "") + "\n  原句：" + (" / ".join(quotes[eid]) or "无"))
 
-    labels = [ledger.name_of(x) for x in (a, b) if entity_evidence.generic_name(ledger.name_of(x)) and ledger.by_id[x].get("source") == "bible"]
+    labels = [ledger.name_of(x) for x in (a, b) if entity_evidence.generic_record(ledger.by_id[x])]
     return (f"关系：{ledger.name_of(a)} {claim_type} {ledger.name_of(b)}\n记录甲：{side(a)}\n记录乙：{side(b)}\n"
             f"两人同时在场的章：{together[:12] if together else '没有'}\n"
             + "相关证据句：\n" + "\n".join(f"  第{c['chapter']}章（{c.get('source', 'text')}，{c.get('verdict')}）：{c['evidence']}" for c in related[:8])
@@ -130,7 +129,10 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
         # quotations never name the body's owner gets one targeted question instead of waiting for a person.
         votes = [(x.get("verdict", "insufficient"), y.get("verdict", "insufficient")) for x, y in zip(first, second)]
         split = [i for i, v in enumerate(votes) if v not in (("supports", "supports"), ("contradicts", "contradicts"))]
-        third = dict(zip(split, pool.map(lambda i: ledger_judges.judge_settle(packs[i], entity_contracts.SETTLE_RULES_TIEBREAK), split)))
+        def tiebreak(i):
+            prior = f"\n\n第一审：{first[i].get('verdict')}，理由：{first[i].get('why', '')}\n第二审：{second[i].get('verdict')}，理由：{second[i].get('why', '')}\n请针对这两份理由的实质分歧，按原文确认所问关系。"
+            return ledger_judges.judge_settle(packs[i] + prior, entity_contracts.SETTLE_RULES_TIEBREAK)
+        third = dict(zip(split, pool.map(tiebreak, split)))
         if any(answer.get('error') for answer in third.values()):
             raise RuntimeError('settle tiebreak request failed; ledger decisions were not changed')
 
@@ -388,7 +390,7 @@ def _settle(ledger, row: dict, chapter: int) -> None:
     if correction:
         row["status"], row["corrected"] = correction["decision"], correction.get("note", "")
     elif (row["status"] == "accepted" and row["type"] in entity_contracts.MERGING
-          and any(entity_evidence.generic_name(ledger.name_of(x)) and ledger.by_id[x].get("source") == "bible" for x in (row["subject"], row["object"]) if x in ledger.by_id)):
+          and any(entity_evidence.generic_record(ledger.by_id[x]) and ledger.by_id[x].get("source") == "bible" for x in (row["subject"], row["object"]) if x in ledger.by_id)):
         # a label the bible carries as a character (六秘环师, 那位女士) may name several people over the book;
         # a label the ledger itself introduced in one chapter (作家小姐) is that chapter's person and may merge
         row["status"], row["why"] = "pending", "一方是圣经里的泛称记录，合并需人工确认；" + str(row.get("why") or "")[:100]
@@ -420,8 +422,9 @@ def decide(ledger, claim_id: str, decision: str, note: str = "") -> bool:
 
 
 def _merge(ledger, a: str, b: str, claim_id: str, chapter: int) -> None:
+    a, b = ledger.canonical(a), ledger.canonical(b)
     keep, drop = sorted((a, b), key=entity_evidence._number)  # the earlier record survives; the bible's ids come first...
-    if entity_evidence.generic_name(ledger.by_id[keep]["canonical"]) and not entity_evidence.generic_name(ledger.by_id[drop]["canonical"]):
+    if entity_evidence.generic_record(ledger.by_id[keep]) and not entity_evidence.generic_record(ledger.by_id[drop]):
         keep, drop = drop, keep  # ...unless the earlier one is a label and the later one a name
     if ledger.by_id[drop]["status"] != "active" or ledger.canonical(keep) == ledger.canonical(drop):
         return
