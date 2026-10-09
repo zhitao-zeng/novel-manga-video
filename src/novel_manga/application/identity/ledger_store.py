@@ -7,6 +7,7 @@ import json
 import threading
 
 import novel_manga.episodes as ep_names
+from novel_manga.entities.index import build_index as index_from_ledger
 
 
 def store(novel_dir: Path) -> Path:
@@ -40,6 +41,13 @@ def write_json(path: Path, data) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     tmp.replace(path)
+
+
+def write_indexes(novel_dir: Path, index: dict) -> None:
+    """Publish both existing views while the caller owns the book's write lock."""
+    novel_dir = Path(novel_dir)
+    write_json(novel_dir / 'entity/index.json', index)
+    write_json(novel_dir / 'entity_index.json', index)
 
 
 def chapter_texts(novel_dir: Path) -> dict[int, str]:
@@ -242,9 +250,11 @@ class Ledger:
 
     def save(self) -> None:
         with self.lock:
+            index = index_from_ledger(self)
             write_json(self.base / "entities.json", self.entities)
             write_json(self.base / "claims.json", self.claims)
             write_json(self.base / "merges.json", self.merges)
             write_json(self.base / "dropped.json", self.dropped)
             write_json(self.base / "corrections.json", self.corrections)
             write_json(self.base / "asked.json", self.asked)
+            write_indexes(self.novel_dir, index)

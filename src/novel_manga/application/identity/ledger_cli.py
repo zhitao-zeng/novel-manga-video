@@ -57,7 +57,10 @@ def dispatch(args) -> int:
     elif args.command == "index":
         index = ledger_views.build_index(novel_dir)
         out = args.out or (novel_dir / "entity_index.json")
-        ledger_store.write_json(out, index)
+        if args.out:
+            ledger_store.write_json(out, index)
+        else:
+            ledger_store.write_indexes(novel_dir, index)
         print(f"{novel_dir.name}: {len(index['characters'])} 条记录，{index['chapters']} 章 → {out}")
     elif args.command == "pending":
         ledger = ledger_store.Ledger(novel_dir)

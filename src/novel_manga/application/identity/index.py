@@ -13,7 +13,7 @@ no other character's name.  With it come the mention count, the first and last c
 / minor / extra: the role field is prose in this bible, so the count decides), a generic flag for role nouns
 (醉汉, 酒保, 国王) that are as often a common noun as a person, and the card id from the manifest.  Written to
 <novel>/entity_index.json; plan_chapter_thin, build_clip_plan_thin and the reviewer read it when present.
-Without --apply it only prints.
+An existing entity ledger is authoritative: this command uses its derived index rather than scanning the bible again. Without --apply it only prints.
 """
 from __future__ import annotations
 
@@ -23,9 +23,11 @@ import re
 import sys
 import time
 from collections import Counter, defaultdict
+from contextlib import nullcontext
 from pathlib import Path
 
-from novel_manga.application.identity.ledger_store import chapter_texts  # noqa: E402
+from novel_manga.application.identity.ledger_store import chapter_texts, ledger_lock, write_indexes  # noqa: E402
+from novel_manga.application.identity.ledger_views import build_index
 from novel_manga.story.identity import scan_mentions, short_forms  # noqa: E402
 
 INDEX_POLICY = "entity-index-v1"
@@ -39,6 +41,8 @@ MINOR_MENTIONS = 20  # mentioned this often anywhere in the book: a recurring fa
 
 
 def build(novel_dir: Path) -> dict:
+    if (novel_dir / 'entity/entities.json').is_file():
+        return build_index(novel_dir)
     bible = json.loads((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     names = [c["name"] for c in bible.get("characters", []) if str(c.get("name", "")).strip()]
     roles = {c["name"]: str(c.get("role") or "") for c in bible.get("characters", [])}
@@ -105,7 +109,10 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     novel_dir = args.novel_dir.resolve()
-    index = build(novel_dir)
+    with ledger_lock(novel_dir) if args.apply else nullcontext():
+        index = build(novel_dir)
+        if args.apply:
+            write_indexes(novel_dir, index)
     chars = index["characters"]
     tiers = Counter(c["tier"] for c in chars)
     print(f"{novel_dir.name}: {len(chars)} 个角色，{index['chapters']} 章；等级 {dict(tiers)}；泛称 {sum(c['generic'] for c in chars)}；"
@@ -116,6 +123,5 @@ def main() -> int:
         print(f"  {c['name']} [{c['tier']}] {c['mentions']} 次: {c['forms']}")
     if args.apply:
         out = novel_dir / "entity_index.json"
-        out.write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
         print("→", out)
     return 0
