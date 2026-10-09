@@ -69,3 +69,17 @@ def test_soundscape_summary_deduplicates_shared_cues_without_changing_stage_soun
     assert summary.count('人群低语') == 1
     assert '<拍击声、人群低语>' in prompt and '<人群低语、风声>' in prompt
     assert clip == before
+
+
+def test_allow_blood_drops_the_no_blood_clause():
+    bible = StoryBible(novel_title='测试', genre='generic', visual_style='国漫', palette='青',
+                       characters=[Character(name='甲', appearance='黑发', wardrobe='青衣')],
+                       locations=['庭院'], style_fingerprint='test')
+    shot = {**stage(), 'turns': []}
+    clip = {'shots': [shot], 'request_seconds': 5}
+    default_prompt = ClipCompiler(options(15)).compile_prompt(clip, bible, ['甲'], [], '庭院')
+    loosened = ClipCompiler(replace(options(15), allow_blood=True)).compile_prompt(clip, bible, ['甲'], [], '庭院')
+    assert '不出现血液和伤口' in default_prompt
+    assert '不出现血液和伤口' not in loosened
+    assert loosened.replace('；不新增具名人物', '；不新增具名人物')  # 其余一字不动
+    assert default_prompt.replace('不出现血液和伤口；', '') == loosened

@@ -145,7 +145,8 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
         anon_voice={**DEFAULT_ANON_VOICE, **(genre.get("anon_voice") or {})},
         two_view_cast_limit=0 if two_views == 'off' else 2,
         two_views=two_views,
-        camera_policy='authored' if method else 'fixed')
+        camera_policy='authored' if method else 'fixed',
+        allow_blood=bool(profile.get('allow_blood')))
     if limits is not None:
         options = replace(options, **limits)
     overrides_path = episode_dir / "clip_overrides.json"
