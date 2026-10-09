@@ -195,7 +195,7 @@ def test_source_object_type_is_distinct_from_legacy_catalogue_label(tmp_path,mon
         calls.append(kwargs['name'])
         if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[a]}
         payload=json.loads(parts[0]['text'].split('\n')[-1]);candidate=payload['candidate']
-        assert candidate['bindings'][0]['entity_kind']=='other'
+        assert candidate['bindings'][0]['entity_kind']is None
         assert '仅被提及' in payload['evidence']['binding_rules']
         assert '下游以actors.kind/count' in payload['evidence']['binding_rules']
         return {'approved':True,'reason':'当前源文类型决定本章表现','correction':None}
@@ -243,6 +243,75 @@ def test_body_collision_feedback_identifies_the_actual_conflicting_source_actor(
     assert result['semantic_review']['approved']
     assert '"source_id": 2'in errors[0]and'云苍冥'in errors[0]and'"requested_entity": "e001"'in errors[0]
     assert {m['entity_id']for m in result['mentions']}=={'e001','e002'}
+
+
+def test_sparse_binding_change_preserves_unaffected_source_actors(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    actors=[actor('云'),{**actor('云苍冥'),'source_id':2}]
+    store.write_json(ep/'segments.json',[{'text':'云和云苍冥在桥上。'}])
+    store.write_json(ledger.novel_dir/'bible_aliases.json',{'云':'云苍冥'})
+    calls=[];before=[]
+    def ask(parts,schema,**kwargs):
+        calls.append(kwargs['name'])
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':actors}
+        payload=json.loads(parts[0]['text'].split('\n')[-1])
+        before.append(payload['candidate'])
+        if calls.count('chapter_binding_review')==1:
+            assert 'removed_source_ids'in schema['properties']['correction']['anyOf'][0]['properties']
+            return {'approved':False,'reason':'只修一个归属','correction':{'actors':[],
+                'bindings':[{'source_id':1,'entity_id':'e001','entity_kind':None,'decision':'catalogue',
+                             'paragraphs':[1],'reason':'原文是云本人'}],'removed_source_ids':[]}}
+        return {'approved':True,'reason':'两个真实人物保留','correction':None}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert result['semantic_review']['approved']and len(result['source_actors'])==2
+    assert before[-1]['actors']==before[0]['actors']
+    assert result['source_actors'][1]==actors[1]
+
+
+def test_sparse_same_person_merge_removes_only_the_duplicate_source_id(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    actors=[actor('云柔'),{**actor('云'),'source_id':2}]
+    store.write_json(ep/'segments.json',[{'text':'云柔就是云。她走了进来。'}])
+    merged=copy.deepcopy(actors[0]);merged['forms']+=actors[1]['forms']
+    count=[0]
+    def ask(*args,**kwargs):
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':actors}
+        count[0]+=1
+        return {'approved':count[0]>1,'reason':'同一人的两个叫法','correction':None if count[0]>1 else {
+            'actors':[merged],'bindings':[{'source_id':1,'entity_id':'e001','entity_kind':None,
+              'decision':'catalogue','paragraphs':[1],'reason':'原文同人'}],'removed_source_ids':[2]}}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert len(result['source_actors'])==1
+    assert {f['form']for f in result['source_actors'][0]['forms']}=={'云柔','云'}
+    assert result['semantic_review']['approved']
+
+
+def test_sparse_delta_cannot_hide_duplicate_ids_or_remove_unknown_actors():
+    current={'actors':[actor()],'bindings':[{'source_id':1,'entity_id':'UNKNOWN'}]}
+    with pytest.raises(ValueError,match='duplicated'):
+        review.merge_binding_changes(current,{'actors':[actor(),actor()],'bindings':[]})
+    with pytest.raises(ValueError,match='unknown source'):
+        review.merge_binding_changes(current,{'actors':[],'bindings':[],'removed_source_ids':[9]})
+    assert len(current['actors'])==1
+
+
+def test_binding_review_retains_lookup_menu_but_omits_unrelated_long_origin_records(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ledger._add_entity('柳丹青','person',True,'',99,'柳丹青在远方。'+'很长的无关来源'*200);ledger.save()
+    bible=store.read_json(ledger.novel_dir/'story_bible.json',{})
+    bible['characters'].append({'name':'柳丹青','role':'人物'})
+    store.write_json(ledger.novel_dir/'story_bible.json',bible)
+    ep=ledger.novel_dir/'book_1';store.write_json(ep/'segments.json',[{'text':'云站在桥上。'}])
+    def ask(parts,schema,**kwargs):
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor('云')]}
+        context=json.loads(parts[0]['text'].split('\n')[-1])['evidence']
+        assert '柳丹青'in{r['name']for r in context['catalogue']}
+        assert '柳丹青'not in{r['name']for r in context['record_origins']}
+        assert '云'in{r['name']for r in context['record_origins']}
+        return {'approved':True,'reason':'当前演员有原文支持','correction':None}
+    monkeypatch.setattr(client,'ask_json',ask)
+    assert flow.resolve_chapter(ep)['semantic_review']['approved']
 
 
 def test_unnamed_actor_becomes_a_reviewed_extra_without_global_renaming(tmp_path,monkeypatch):
