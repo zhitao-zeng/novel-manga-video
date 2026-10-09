@@ -114,6 +114,10 @@ EXTRACT_RULES = (
     "reveal（本章揭晓 subject 就是 object）、transformation（subject 变成 object 所写的形态）、death、return、rename（subject 从此改叫 object）。"
     "scope：这件事在故事里是现实，还是梦境/回忆/传闻/假设。hidden_from_reader：原文此时是否仍对读者隐瞒这层关系。"
     "每条附本章原文里逐字的一句证据（不超过 40 字），抄不出来就不要写。没有就空数组。\n"
+    "同人等双边关系要有两个具体指称，subject/object填已有编号或在new_entities里建立的NEW:名字；"
+    "称呼、自报姓名属于mentions中的写法归属。例如‘哈洛姆大主教，赶快离开’只登记哈洛姆的称呼，"
+    "‘我名白天’只登记白天的名字；只有原文把两个具体身份联系起来时才填写same_as。"
+    "尚未找到第二个身份时，在mentions保留UNCERTAIN及原文，claims不建立未知对象的同人关系。\n"
     + '关系类型定义：' + '；'.join(f'{kind}={meaning}' for kind, meaning in CLAIM_MEANINGS.items()) + '\n'
     + IDENTITY_EVIDENCE_RULES +
     "relations：本章能看出的两个人物之间的关系，from/to 填账本编号或 NEW:名字。base 是持久的结构关系："
