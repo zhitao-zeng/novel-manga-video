@@ -21,6 +21,13 @@ def test_shared_asset_preparation_with_real_frozen_context(ctx_pair,approved_sou
     assert (ctx.source_novel_dir/result['asset']['path']).is_file()
 
 
+def test_legacy_unindexed_script_uses_its_recorded_shot_addresses(ctx_pair,approved_source,fake_image):
+    ctx=ctx_pair[0];script=read_json(ctx.episode_dir/'chapter_script.json')
+    for shot in script['shots']:shot.pop('index',None)
+    atomic_write_json(ctx.episode_dir/'chapter_script.json',script)
+    assert upstream_assets.prepare(ctx,row())['ok']
+
+
 def test_completed_parent_task_can_be_repacked(long_context):
     from novel_manga.application.agents.episode import scoped_repack
     ctx, _ = long_context
@@ -138,3 +145,38 @@ def test_batch_triage_does_not_recompute_unneeded_full_episode_status(ctx_pair,m
     monkeypatch.setattr(upstream_batch,'context',lambda *a:ctx)
     monkeypatch.setattr(EpisodeTools,'status',lambda *a:pytest.fail('batch selection needs saved upstream evidence only'))
     assert upstream_batch.inspect_row({'episode':7},ctx.novel_dir)['upstream_action'] is None
+
+
+def test_batch_persists_successful_change_for_native_render_handoff(ctx_pair,monkeypatch,tmp_path):
+    from contextlib import nullcontext
+    ctx=ctx_pair[0]
+    monkeypatch.setenv('NOVEL_PROJECT_ROOT',str(tmp_path))
+    monkeypatch.setattr(upstream_batch,'context',lambda *a:ctx)
+    monkeypatch.setattr(lifecycle,'episode_lock',lambda *a:nullcontext())
+    monkeypatch.setattr('novel_manga.application.agents.episode.inputs.prepare_inputs',lambda *a:None)
+    monkeypatch.setattr('novel_manga.application.resolved_settings.resolve_agent_environment',lambda *a:{})
+    monkeypatch.setattr('novel_manga.application.agents.sandbox.load_config',lambda *a:{})
+    monkeypatch.setattr('novel_manga.application.agents.episode.pipeline_preparation.prepare_repacked',lambda *a:{'ready':True})
+    class Tools:
+        def __init__(self,*a):pass
+        def check(self,*a):return {'valid':True}
+        def dispatch(self,*a):return {'ok':True,'repacked':True,'changed':['clip_01']}
+    monkeypatch.setattr('novel_manga.application.agents.episode.tools.EpisodeTools',Tools)
+    atomic_write_json(ctx.run_dir/'agent-run.json',{'status':'blocked','remaining_seconds':300})
+    calls=[]
+    def native(ctx,**kw):
+        saved=read_json(ctx.run_dir/'agent-run.json');job=saved['job']
+        assert job['action']=='apply' and job['status']=='completed'
+        assert job['result']['changed']==['clip_01'] and job['result']['repacked']
+        calls.append(kw)
+        if len(calls)==1:
+            saved.update(status='deferred',phase='deferred',remaining_seconds=250,
+                reason='Agent slice completed; resume this session after other production work')
+            atomic_write_json(ctx.run_dir/'agent-run.json',saved)
+            return saved
+        return {'status':'finished_with_issues','passed':False}
+    monkeypatch.setattr('novel_manga.application.agents.episode.flow.run_episode',native)
+    out=tmp_path/'results';out.mkdir()
+    upstream_batch.execute_row({'episode':7,'config':'unused','upstream_action':{'kind':'repack',
+        'decision':{'clip_id':'clip_01','action':'repack'}}},ctx.novel_dir,out)
+    assert len(calls)==2 and calls[1]['timeout']==250 and not calls[1]['retry_issues']

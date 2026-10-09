@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from novel_manga.util import read_json,atomic_write_json,load_dotenv
@@ -94,10 +95,28 @@ def execute_row(row,novel_dir,out):
                     if proof:
                         bounded_recovery.grant(ctx,decision['clip_id'],proof,kind='time')
                         saved=bounded_recovery.resume_window(ctx,saved)or saved
+                handoff=result.get('input_apply') or applied
+                if handoff.get('ok') and (handoff.get('changed') or handoff.get('input_repaired')):
+                    # A batch operation happened before the bridge started. Carry
+                    # its actual receipt into the normal applied_repair→render path.
+                    saved=read_json(ctx.run_dir/'agent-run.json',{})
+                    if (saved.get('job')or{}).get('status')not in {'accepted','running'}:
+                        saved['job']={'id':f'upstream-batch-{time.time_ns()}','action':'apply',
+                            'status':'completed','payload':{'file':path},'result':handoff}
+                        atomic_write_json(ctx.run_dir/'agent-run.json',saved)
             else:saved=read_json(ctx.run_dir/'agent-run.json',{})
     remaining=remaining_at_stop(saved)
     if remaining>0:
-        final=run_episode(ctx,config=config,timeout=max(1,int(remaining)),retry_issues=saved.get('status')!='deferred')
+        # Continue ordinary conversation slices inside this one finite attempt.
+        # Never replay the upstream operation or renew its activity allowance.
+        for slice_number in range(3):
+            final=run_episode(ctx,config=config,timeout=max(1,int(remaining)),
+                retry_issues=slice_number==0 and saved.get('status')!='deferred')
+            saved=read_json(ctx.run_dir/'agent-run.json',final)
+            remaining=remaining_at_stop(saved)
+            if not (final.get('status')=='deferred' and final.get('phase')=='deferred'
+                    and str(final.get('reason')or'').startswith('Agent slice completed') and remaining>0):break
+        result['slices']=slice_number+1
         result.update(status=final.get('status'),passed=final.get('passed'),reason=final.get('reason'))
     else:result.update(status='held',passed=False,reason='No evidenced remaining activity window; original budget was not renewed')
     after=history.generation_counts(ctx.episode_dir);result.update(after_counts=after,

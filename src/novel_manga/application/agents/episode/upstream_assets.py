@@ -128,9 +128,12 @@ def prepare(ctx, row):
                 from .input_repair import source_check
                 phases={'characters':{diagnosis['name']:[diagnosis['fields']]}} if diagnosis['role']=='character' else {}
                 locations={diagnosis['name']:diagnosis['design']} if diagnosis['role']=='location' else {}
+                addresses={i for c in read_json(ctx.episode_dir/'clip_plan.json')['clips']
+                           if c['clip_id']in checked['affected_clips'] for i in c.get('shot_indexes',[])}
+                scoped=[shot for i,shot in enumerate(read_json(ctx.episode_dir/'chapter_script.json')['shots'],1)
+                        if shot.get('index',i) in addresses]
                 record['source']=source_check(checked['source_text'],diagnosis['source_quote'],
-                    diagnosis.get('binding_shots') or [],phases,locations,
-                    [shot for shot in read_json(ctx.episode_dir/'chapter_script.json')['shots'] if shot['index'] in {i for c in read_json(ctx.episode_dir/'clip_plan.json')['clips'] if c['clip_id']in checked['affected_clips'] for i in c.get('shot_indexes',[])}])
+                    diagnosis.get('binding_shots') or [],phases,locations,scoped)
                 outcome['source']=record['source'];atomic_write_json(path,record)
             if diagnosis['kind'] in {'image','design'}:
                 from .draft_assets import _asset
