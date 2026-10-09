@@ -33,6 +33,11 @@ def typed_entities(novel, context=None, *, data=None):
     # requires a source-verified book type correction. Group roles are scoped
     # to the chapter and retain their artwork as clothing references.
     result.update(data.book.types if data is not None else read(Path(novel) / 'entity/types.json', {}))
+    if context.get('semantic_review', {}).get('approved'):
+        for actor in context.get('source_actors', []):
+            if actor.get('kind') in {'group', 'object'}:
+                quote = next((m.get('source_quote', '') for m in context.get('mentions', []) if m.get('source_actor') == actor['source_id']), '')
+                result[actor['name']] = {'kind': actor['kind'], 'count': actor.get('count', 0), 'source_quote': quote, 'source_verified': True}
     return result
 
 

@@ -54,7 +54,7 @@ def reading_roster(novel_dir: Path) -> list[str]:
     return reading_decisions(novel_dir)["roster"]
 
 
-def decided_extras(reading: dict, actors, chapter: int, forms_of) -> tuple[list[str], list[str]]:
+def decided_extras(reading: dict, actors, chapter: int, forms_of, *, context=None) -> tuple[list[str], list[str]]:
     """Sort the actors this chapter could not bind into (extras, unjudged).
 
     `forms_of(name)` yields the name forms to match against the reading.  Someone the reading kept is
@@ -70,7 +70,11 @@ def decided_extras(reading: dict, actors, chapter: int, forms_of) -> tuple[list[
     """
     roster, declined = set(reading.get("roster") or ()), set(reading.get("declined") or ())
     extras, unjudged = [], []
+    verified = set((context or {}).get('semantic_extras') or ()) if (context or {}).get('semantic_review', {}).get('approved') else set()
     for actor in actors:
+        if actor['name'] in verified:
+            extras.append(actor['name'])
+            continue
         forms = set(forms_of(actor["name"]))
         if forms & roster:
             continue                       # a character the reading kept: must bind, never an extra

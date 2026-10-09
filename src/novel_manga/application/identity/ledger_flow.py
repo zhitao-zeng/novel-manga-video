@@ -29,7 +29,7 @@ def run_resolve(novel_dir: Path, chapters: list[int], workers: int, texts: dict[
             continue
         with ledger_store.ledger_lock(novel_dir):
             ledger = ledger_store.Ledger(novel_dir)
-            summary = ledger_resolution.resolve_chapter(ledger, c, texts[c], workers=workers)
+            summary = ledger_resolution.resolve_chapter(ledger, c, texts[c], workers=workers, texts=texts)
         if summary:
             print(f"  ch{c}: 指称 {summary['mentions']}，新记录 {summary['new'][:5]}，判断 {dict(summary['claims'])}，丢弃 {summary['dropped']}", flush=True)
 

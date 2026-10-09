@@ -1,0 +1,201 @@
+"""Model review of source identity candidates; bounded correction, no queue or media calls."""
+from __future__ import annotations
+from copy import deepcopy
+from pathlib import Path
+import json
+import novel_manga.episodes as episodes
+from novel_manga.llm import client
+from novel_manga.entities import contracts, evidence
+from novel_manga.application.identity import ledger_store
+
+
+def close(candidate, context, schema, *, name, cached=None, settings=None, validate=lambda value: value):
+    """Review once; a proposed correction must pass the same review before adoption."""
+    inputs = {'context': context, 'candidate': candidate}
+    if cached and cached.get('approved') and cached.get('inputs') == inputs:
+        return deepcopy(cached.get('result', candidate)), cached
+    reply_schema = client.obj({'approved': {'type': 'boolean'}, 'reason': {'type': 'string'},
+                              'correction': {'anyOf': [schema, {'type': 'null'}]}})
+    current = deepcopy(candidate)
+    for attempt in range(2):
+        prompt = ('按完整小说原文核对身份资料，输出JSON。判断资料是否会让演员、数量、种类、名字、关系或在场状态出错。'
+            '依据连续事件、对话问答和代词的自然指向识别个体；连续两句“她是甲的女儿，父亲说……”中的父亲可以确定为甲。'
+            '原文已经清楚的同指正常采用，只有确有多种合理解释时才留未知；临时个体可以无名。'
+            '原文已支持且不会误导演员的候选填approved=true、correction=null。实际有错才填false，按原结构修订已指出的问题并保留其他正确字段。'
+            '人物、群体、物件和声源分别登记，同人关系有具体两端。引用对应章节/段落原句，已有确证关系保持。\n'
+            + json.dumps({'evidence': context, 'candidate': current}, ensure_ascii=False))
+        options = {'settings': settings} if settings is not None else {}
+        answer = client.ask_json([{'type': 'text', 'text': prompt}], reply_schema,
+                                 name=name, max_tokens=6500, timeout=240, **options)
+        if answer.get('approved'):
+            if answer.get('correction') is not None:
+                raise ValueError('identity reviewer approved a different, unreviewed correction')
+            current = validate(current)
+            return current, {'approved': True, 'reason': answer.get('reason', ''), 'inputs': inputs, 'result': current}
+        proposal = answer.get('correction')
+        if attempt or proposal is None:
+            raise ValueError('identity semantic review unresolved: ' + str(answer.get('reason', 'no source-backed correction')))
+        current = validate(proposal)
+    raise AssertionError('bounded review did not return')
+
+
+def catalogue_rows(records):
+    return [{'id': e['id'], 'name': e['canonical'], 'kind': e.get('kind'), 'named': e.get('named'),
+             'merged_into': e.get('merged_into'), 'origin': e.get('source'), 'quote': e.get('evidence', '')} for e in records]
+
+
+def context_sources(novel, chapter, text, records, refs, texts=None):
+    if texts is None:
+        meta = ledger_store.read_json(Path(novel) / 'novel.json', {})
+        texts = ledger_store.novel_texts(novel) if meta.get('source') else {}
+    selected = {chapter: text}
+    for ch in (() if chapter is None else (chapter - 1, chapter + 1)):
+        if ch in texts: selected[ch] = texts[ch]
+    for record in records:
+        if record['id'] not in refs: continue
+        source = str(record.get('source') or '')
+        if source.startswith('ch') and source[2:].isdigit():
+            ch = int(source[2:])
+            if ch in texts: selected[ch] = texts[ch]
+    return {str(ch): content for ch, content in sorted(selected.items(), key=lambda item: str(item[0]))}
+
+
+def book(ledger, chapter, text, raw, *, texts=None, original_records=None):
+    from novel_manga.review.endpoints import judge_settings
+    candidate = {field: deepcopy(raw.get(field) or []) for field in ('mentions', 'new_entities', 'claims', 'relations')}
+    refs = {str(row.get(field) or '') for key, fields in [('mentions', ['entity']), ('claims', ['subject','object'])]
+            for row in candidate[key] for field in fields}
+    records = original_records if original_records is not None else ledger.entities
+    context = {'chapter': chapter, 'source': context_sources(ledger.novel_dir, chapter, text, records, refs, texts),
+               'records': catalogue_rows(records), 'confirmed_decisions': ledger.corrections,
+               'resolved': {'mentions': ledger.mentions_by_chapter.get(chapter, []),
+                            'relations': ledger.relations_by_chapter.get(chapter, []),
+                            'claims': [c for c in ledger.claims if c['chapter'] == chapter],
+                            'merges': ledger.merges, 'records': catalogue_rows(ledger.entities)}}
+    schema = client.obj({'approved': {'type': 'boolean'}, 'reason': {'type': 'string'},
+                         'correction': {'anyOf': [contracts.EXTRACT_SCHEMA, {'type': 'null'}]}})
+    refs.update(m.get('entity') for m in ledger.mentions_by_chapter.get(chapter, []))
+    cache_context = {**context,
+        'records': [{k:v for k,v in row.items() if k!='merged_into'} for row in context['records'] if row['id'] in refs],
+        'confirmed_decisions': [row for row in ledger.corrections if {row.get('subject'), row.get('object')} & refs],
+        'resolved': {**context['resolved'], 'records': [row for row in context['resolved']['records'] if row['id'] in refs],
+                     'merges': [row for row in ledger.merges if {row['from'],row['into']} & refs]}}
+    inputs = {'context': cache_context, 'candidate': candidate}
+    cached = raw.get('semantic_review')
+    if cached and cached.get('approved') and cached.get('inputs') == inputs:
+        return raw, cached
+    prompt = ('按完整原文核对本章最终解析结果，目标是演员与身份归属正确。原始档案是待核资料，resolved是解析后的候选。'
+              '依据连续事件、对话和自然代词指向判断同一人；例如“她是甲的女儿，父亲说……”已能确定父亲是甲。'
+              '原文的自然同指是有效证据，只有确有多种解释时才保留未知。正确结果填approved=true、correction=null。'
+              '实际出现错人、误并、物件当人或错误关系时填false，用原结构修订这几个问题并保留其他正确字段。'
+              '这是修订已有候选：原来为空的relations/claims保持为空，原来没有的人物不为补全原文而新增；'
+              '仅在漏掉实际参与事件的主体就是本次问题时才补该主体。没有漏记关系不算错误。'
+              '临时人物可以不具名；称呼、自报名字写mentions，身份关系有具体两端。引用对应章节原句，原人工作证保持。\n'
+              + json.dumps({'context':context,'candidate':candidate}, ensure_ascii=False))
+    answer = client.ask_json([{'type':'text','text':prompt}], schema, name='ledger_identity_review',
+                             max_tokens=6500, timeout=240, settings=judge_settings())
+    if answer.get('approved'):
+        if answer.get('correction') is not None: raise ValueError('approved unreviewed identity correction')
+        return raw, {'approved': True, 'reason': answer.get('reason',''), 'inputs': inputs}
+    correction = answer.get('correction')
+    if correction is None: raise ValueError('identity semantic review unresolved: '+str(answer.get('reason','')))
+    for field in candidate:
+        if not isinstance(correction.get(field), list): raise ValueError('identity correction lacks '+field)
+    _, _, _, dropped = evidence.ground(chapter, text, correction)
+    if any(row.get('why') == '证据不在本章' for row in dropped): raise ValueError('identity correction fabricated a chapter quotation')
+    for row in correction['mentions']:
+        if str(row.get('form') or '') not in text or not evidence.locate(row.get('evidence',''), text):
+            raise ValueError('identity correction has an ungrounded mention')
+    return {**raw, **correction}, {'approved': False, 'reason': answer.get('reason','')}
+
+
+def bindings(directory, answer, catalog, segments, mapped, *, cached=None, aliases=None):
+    from novel_manga.story.source_identity import source_schema, clean_reading, map_source_reading
+    ids = {a['source_id'] for a in answer['actors']}
+    old = {m['source_actor']: m['entity_id'] for m in mapped['mentions']}
+    candidate = {'actors': answer['actors'], 'bindings': [
+        {'source_id': sid, 'entity_id': old.get(sid, 'UNKNOWN'),
+         'entity_kind': next((r.get('kind','other') for r in catalog.records if r['id']==old.get(sid)), 'other'),
+         'decision': 'catalogue' if old.get(sid, 'UNKNOWN') != 'UNKNOWN' else 'unknown',
+         'paragraphs': next(a['paragraphs'] for a in answer['actors'] if a['source_id']==sid), 'reason': ''}
+        for sid in sorted(ids)]}
+    target_schema = client.obj({'source_id': {'type':'integer'},
+        'entity_id': {'type':'string','enum': [*catalog.entities, 'UNKNOWN']},
+        'entity_kind': {'type':'string','enum':['person','animal','spirit','other']},
+        'decision': {'type':'string','enum':['catalogue','extra','named_missing','unknown']},
+        'paragraphs': {'type':'array','minItems':1,'items':{'type':'integer','minimum':1,'maximum':len(segments)}},
+        'reason': {'type':'string'}})
+    schema = client.obj({'actors': source_schema(len(segments))['properties']['actors'],
+                         'bindings': {'type':'array','items':target_schema}})
+    refs = {eid for eid in old.values() if eid != 'UNKNOWN'}
+    chapter = episodes.chapter_of(Path(directory).name)
+    text = '\n'.join(s['text'] for s in segments)
+    context = {'chapter':chapter, 'source':context_sources(Path(directory).parent,chapter,text,catalog.records,refs),
+               'catalogue': [{'id':r['id'],'name':r['name'],'forms':sorted(r['forms'])} for r in catalog.entities.values()],
+               'record_origins':catalogue_rows(catalog.records),
+               'binding_rules': '逐个核对bindings的decision，这决定下游能否规划。catalogue=已有具体个体，entity_id填其已有编号；extra=本章临时个体/群体/物件，不需真名或永久卡；named_missing=原文明示的新人物名但库里尚无；unknown=归属仍有多种解释，暂时无法决定如何入剧本。extra、named_missing、unknown的entity_id均填UNKNOWN。库里没有姓名不是unknown的理由；持令牌的少女、侍女等可依据局部指称表演的无名主体应为extra。候选把这类主体写成unknown时，需以correction改decision并复核，不可直接批准。同一具体人物的多个叫法放在一个actor的forms；分身或其他独立身体各自绑定。只在本章核对，不把临时描述做全局别名。原文群体/物件保持kind/count，不能额外制造演员。'}
+    def validate(value):
+        cleaned, rejected, unresolved = clean_reading({'actors':value['actors']},segments)
+        actors = cleaned['actors']
+        if rejected or unresolved: raise ValueError('semantic binding correction has ungrounded source forms')
+        if not actors and answer['actors']: raise ValueError('semantic correction removed all source actors')
+        actor_ids = {a['source_id'] for a in actors}
+        if len(actor_ids)!=len(actors): raise ValueError('semantic correction duplicated a source actor id')
+        if {r['source_id'] for r in value['bindings']}!=actor_ids or len(value['bindings'])!=len(actors):
+            raise ValueError('semantic correction lacks one binding per source actor')
+        for row in value['bindings']:
+            if row['entity_id'] not in set(catalog.entities)|{'UNKNOWN'}:raise ValueError('semantic binding invents a catalogue id')
+            if (row['decision']=='catalogue') != (row['entity_id']!='UNKNOWN'):raise ValueError('semantic binding decision disagrees with target')
+            if not row['paragraphs'] or any(p<1 or p>len(segments) for p in row['paragraphs']):raise ValueError('semantic binding cites missing paragraphs')
+            actor = next(a for a in actors if a['source_id']==row['source_id'])
+            if row['decision']=='named_missing' and not any(f['kind']=='proper' and f['form']==actor['name'] for f in actor['forms']):
+                raise ValueError('new named actor lacks a proper source name')
+            if row['decision']=='named_missing' and row.get('entity_kind') not in {'person','animal','spirit','other'}:
+                raise ValueError('new named actor lacks a source entity kind')
+        checked = {**value, 'actors': actors}
+        targets = {r['source_id']: r['entity_id'] for r in value['bindings']}
+        resolved = map_source_reading(cleaned, catalog, segments, aliases, approved_bindings=targets)
+        if any(m['entity_id'] != targets[m['source_actor']] for m in resolved['mentions']):
+            raise ValueError('semantic binding collapses distinct source actors; correction must preserve their bodies')
+        return checked
+    value, review = close(candidate,context,schema,name='chapter_binding_review',cached=cached,validate=validate)
+    return value, review
+
+
+def register_names(novel, context, decisions):
+    """Only reviewed, explicitly named source actors reach existing bible growth."""
+    names = context.get('semantic_new_names') or []
+    if not context.get('semantic_review',{}).get('approved') or not names: return
+    import fcntl
+    path = Path(novel) / 'reading_cast.json'
+    with ledger_store.ledger_lock(novel):
+        with (Path(novel)/'reading_cast.lock').open('a') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            ledger = ledger_store.Ledger(novel)
+            for actor in context.get('source_actors', []):
+                if actor['name'] not in names or actor['name'] in ledger.by_name: continue
+                row = next(r for r in decisions if r['source_id']==actor['source_id'])
+                quote = next(m['source_quote'] for m in context['mentions'] if m['source_actor']==actor['source_id'])
+                ledger._add_entity(actor['name'],row['entity_kind'],True,actor.get('appearance',''),context['chapter'],quote)
+            reading = ledger_store.read_json(path,{})
+            reading['characters'] = sorted(set(reading.get('characters') or [])|set(names))
+            ledger_store.write_json(path,reading)
+            ledger.save()
+
+
+def committed_current(ledger, chapter, text):
+    if not ledger.has_chapter(chapter): return False
+    review = ledger_store.read_json(ledger.raw_path(chapter), {}).get('semantic_review') or {}
+    context = review.get('inputs', {}).get('context', {})
+    if not review.get('approved') or context.get('source', {}).get(str(chapter)) != text:
+        return False
+    resolved = context.get('resolved', {})
+    ids = {row['id'] for row in resolved.get('records', [])}
+    if catalogue_rows([row for row in ledger.entities if row['id'] in ids]) != resolved.get('records', []):
+        return False
+    if [row for row in ledger.corrections if {row.get('subject'), row.get('object')} & ids] != context.get('confirmed_decisions', []):
+        return False
+    return ([row for row in ledger.merges if {row['from'], row['into']} & ids] == resolved.get('merges', [])
+            and ledger.mentions_by_chapter.get(chapter, []) == resolved.get('mentions', [])
+            and ledger.relations_by_chapter.get(chapter, []) == resolved.get('relations', [])
+            and [row for row in ledger.claims if row['chapter'] == chapter] == resolved.get('claims', []))

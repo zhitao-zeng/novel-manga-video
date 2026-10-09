@@ -6,7 +6,7 @@ import json
 from novel_manga.media.evidence_backends import normalize_text
 from novel_manga.story.identity import canonical_entity, resolved_aliases
 
-POLICY = 'story-identity-v6-catalogue-bindings'
+POLICY = 'story-identity-v7-reviewed-bindings'
 RELATIONS = ['same_as', 'rename', 'avatar_of', 'occupies_body', 'transformation', 'lookalike', 'impersonates']
 
 def source_schema(paragraphs):
@@ -46,6 +46,8 @@ def active_cast_names(context, extras_by_decision=()):
     about it, so "we have no reading for this chapter" must never arrive as one.
     """
     decided = set(extras_by_decision or ())
+    if context.get('semantic_review', {}).get('approved'):
+        decided.update(context.get('semantic_extras') or ())
     unresolved = [r['name'] for r in context.get('unmatched_actors', [])
                   if r.get('presence') in {'on_stage', 'voice'} and r.get('kind') == 'individual'
                   and r['name'] not in decided]
@@ -88,7 +90,7 @@ def clean_reading(answer, segments):
     return {'actors': actors}, rejected, unresolved
 
 
-def map_source_reading(answer, catalog, segments, verified_aliases=None):
+def map_source_reading(answer, catalog, segments, verified_aliases=None, *, approved_bindings=None):
     # The raw source is read before any catalogue is offered to the model.
     # Catalogue matching cannot change the source's actor count or relations.
     actors = answer['actors']
@@ -98,6 +100,12 @@ def map_source_reading(answer, catalog, segments, verified_aliases=None):
         raise ValueError('source reading repeated an actor id')
     mapping = {}
     for actor in actors:
+        if approved_bindings is not None:
+            eid = approved_bindings[actor['source_id']]
+            if eid not in catalog.entities and eid != 'UNKNOWN':
+                raise ValueError('approved binding refers to absent entity')
+            mapping[actor['source_id']] = eid
+            continue
         forms = {actor['name'], *(f['form'] for f in actor['forms'] if f['kind'] == 'proper')}
         known_forms = forms | {verified[f] for f in forms if f in verified}
         exact = {catalog.by_name[name]['id'] for name in known_forms if name in catalog.by_name}

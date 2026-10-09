@@ -9,6 +9,7 @@ from novel_manga.util import atomic_write_json
 from novel_manga.story.identity import canonical_entity
 from novel_manga.story.source_identity import (POLICY, usable_reading, source_schema, UnreadableSource, clean_reading, map_source_reading)
 from novel_manga.application.identity.store import ChapterIdentityData, load_chapter
+from novel_manga.application.identity import semantic_review
 
 
 def reading_aliases(novel_dir, chapter=None) -> dict:
@@ -94,7 +95,7 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
     directory = Path(directory).resolve()
     data = data if data is not None else load_chapter(directory)
     expected, saved = data.expected, data.saved
-    if not force and saved.get('policy') == POLICY and saved.get('inputs') == expected and usable_reading(saved):
+    if not force and saved.get('policy') == POLICY and saved.get('inputs') == expected and usable_reading(saved) and saved.get('semantic_review', {}).get('approved'):
         return saved
     segments = expected['segments']
     if not segments:
@@ -117,9 +118,8 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
         'appearance只写原文明示的当时身体/物种/外貌，没写就留空；不得自行补成人形或兽形。'
         '所有paragraphs均引用下列原文编号，由程序摘取证据；不要输出推理过程。\n'
         + json.dumps([{'paragraph': i, **r} for i, r in enumerate(segments, 1)], ensure_ascii=False))
-    # v6 changes catalogue binding, not the source extraction. Existing v5
-    # source actors remain evidence when the source paragraphs are unchanged.
-    if (not force and saved.get('policy') in {POLICY, 'story-identity-v5-grounded-types'} and saved.get('inputs', {}).get('segments') == segments
+    # Binding reviews changed; unchanged source extraction remains reusable.
+    if (not force and saved.get('policy') in {POLICY, 'story-identity-v6-catalogue-bindings', 'story-identity-v5-grounded-types'} and saved.get('inputs', {}).get('segments') == segments
             and 'source_actors' in saved and usable_reading(saved)):
         answer = {'actors': saved['source_actors'], 'actorless_confirmed': saved.get('actorless_confirmed', False)}
     else:
@@ -179,15 +179,26 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
         rejected.extend({'source_id': r['source_id'], 'form': r['name'], 'kind': 'ungrounded',
                          'why': '全章没有这个指称，且只被提及'} for r in still)
     cleaned = reconcile_repeated_actors(directory, cleaned, segments, force=force)
+    aliases = reading_aliases(directory.parent, chapter)
+    mapped = map_source_reading(cleaned, catalog, segments, aliases)
+    corrected, review = semantic_review.bindings(directory, cleaned, catalog, segments, mapped,
+                                                cached=None if force else saved.get('semantic_review'), aliases=aliases)
+    cleaned = {**cleaned, 'actors': corrected['actors']}
+    decisions = corrected['bindings']
+    mapped = map_source_reading(cleaned, catalog, segments, aliases,
+                               approved_bindings={r['source_id']:r['entity_id'] for r in decisions})
     result = {'policy': POLICY, 'chapter': chapter, 'at': time.strftime('%F %T'), 'inputs': expected,
               'primary_entities': [r['id'] for r in catalog.entities.values() if r['design'].get('role') in {'主角','男主角','女主角'}],
               'entities': {r['id']: r['name'] for r in catalog.entities.values()},
               'actorless_confirmed': not cleaned['actors'] and bool(answer.get('actorless_confirmed')),
-              'discarded_mentions': rejected, **map_source_reading(cleaned, catalog, segments, reading_aliases(directory.parent, chapter))}
+              'discarded_mentions': rejected, 'semantic_review': review,
+              'semantic_extras': [a['name'] for a in cleaned['actors'] if any(r['source_id']==a['source_id'] and r['decision']=='extra' for r in decisions)],
+              'semantic_new_names': [a['name'] for a in cleaned['actors'] if any(r['source_id']==a['source_id'] and r['decision']=='named_missing' for r in decisions)], **mapped}
     result['relations'] = [r for r in catalog.claims if r.get('status') == 'accepted' and r.get('chapter', 0) <= chapter]
     for key in ['mentions','appearances']:
         for row in result[key]:
             row['entity_id'] = canonical_entity(result, row['entity_id'])
+    semantic_review.register_names(directory.parent, result, decisions)
     atomic_write_json(directory / 'identity_context.json', result)
     data.saved = result
     return result

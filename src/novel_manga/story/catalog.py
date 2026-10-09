@@ -7,6 +7,7 @@ from novel_manga.media.evidence_backends import normalize_text
 class IdentityCatalog:
     def __init__(self, bible: dict, ledger: list, aliases: dict, index: dict, claims: list, phases: dict):
         self.bible = copy.deepcopy(bible)
+        self.records = copy.deepcopy(ledger)
         bible = self.bible
         by_name = {r['canonical']: r for r in ledger}
         by_id = {r['id']: r for r in ledger}

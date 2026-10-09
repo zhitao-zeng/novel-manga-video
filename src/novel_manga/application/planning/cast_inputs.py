@@ -50,7 +50,7 @@ def prepare_cast(args, ctx: PlannerContext, source: ChapterSource) -> ChapterCas
         for _ in range(3):
             unjudged = decided_extras(reading_decisions(novel_dir),
                                       context.get("unmatched_actors", []), episode.index,
-                                      lambda name: pc_cast.name_forms(name, ctx=ctx))[1]
+                                      lambda name: pc_cast.name_forms(name, ctx=ctx), context=context)[1]
             on_stage = {r["name"] for r in context.get("unmatched_actors", [])
                         if r.get("presence") in {"on_stage", "voice"} and r.get("kind") == "individual"}
             asked = [n for n in unjudged if n in on_stage]
@@ -101,7 +101,7 @@ def prepare_cast(args, ctx: PlannerContext, source: ChapterSource) -> ChapterCas
         # put to it above; if that produced no verdict, they are still unaccounted for and the binding
         # check stops the chapter, which is the honest outcome.
         decided = (decided_extras(reading, current_identity.get('unmatched_actors', []), episode.index,
-                                  lambda name: pc_cast.name_forms(name, ctx=ctx))[0]
+                                  lambda name: pc_cast.name_forms(name, ctx=ctx), context=current_identity)[0]
                    if reading['roster'] else [])
         active_names = active_cast_names(current_identity, decided)
         present = [c for c in full_bible.characters if c.name in active_names]

@@ -10,6 +10,7 @@ import novel_manga.application.identity.ledger_judges as ledger_judges
 import novel_manga.application.identity.ledger_store as ledger_store
 import novel_manga.entities.contracts as entity_contracts
 import novel_manga.entities.evidence as entity_evidence
+from novel_manga.application.identity import semantic_review
 
 def require_judgments(answers):
     if any(answer.get('error') for answer in answers):
@@ -223,21 +224,38 @@ def close_leftovers(ledger: "Ledger") -> list[dict]:
     return closed
 
 
-def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, workers: int = 4) -> dict | None:
+def resolve_chapter(ledger, chapter: int, text: str, raw: dict | None = None, workers: int = 4, texts=None) -> dict | None:
     # Metadata is small; historical chapter rows remain shared and are never mutated here.
     fields = ('entities', 'claims', 'merges', 'dropped', 'corrections', 'asked',
               'by_id', 'by_name', 'forms', 'recent')
     before = deepcopy({name: getattr(ledger, name) for name in fields})
     chapters = {name: dict(getattr(ledger, name)) for name in ('mentions_by_chapter', 'relations_by_chapter')}
     try:
-        return resolve_candidate(ledger, chapter, text, raw, workers)
+        raw = raw if raw is not None else ledger_store.read_json(ledger.raw_path(chapter), None)
+        if not raw or raw.get('error'):
+            return None
+        for attempt in range(2):
+            if attempt:
+                for name, value in deepcopy(before).items(): setattr(ledger, name, value)
+                for name, value in chapters.items(): setattr(ledger, name, dict(value))
+            summary, raw = resolve_candidate(ledger, chapter, text, raw, workers, texts=texts)
+            raw, review = semantic_review.book(ledger, chapter, text, raw, texts=texts,
+                                               original_records=before['entities'])
+            if review['approved']:
+                raw['semantic_review'] = review
+                ledger_store.write_json(ledger.mentions_path(chapter), ledger.mentions_by_chapter[chapter])
+                ledger_store.write_json(ledger.relations_path(chapter), ledger.relations_by_chapter[chapter])
+                ledger.save()
+                ledger_store.write_json(ledger.raw_path(chapter), raw)
+                return summary
+        raise ValueError('identity correction did not pass final semantic review: ' + review.get('reason', ''))
     except Exception:
         for name, value in {**before, **chapters}.items():
             setattr(ledger, name, value)
         raise
 
 
-def resolve_candidate(ledger, chapter: int, text: str, raw: dict | None = None, workers: int = 4) -> dict | None:
+def resolve_candidate(ledger, chapter: int, text: str, raw: dict | None = None, workers: int = 4, texts=None) -> dict | None:
     """In chapter order: mentions get entity ids (new people get records), claims get verdicts and a status,
     supported same_as claims become merge edges.  Re-running a chapter replaces its mentions and claims."""
     raw = raw if raw is not None else ledger_store.read_json(ledger.raw_path(chapter), None)
@@ -386,13 +404,10 @@ def resolve_candidate(ledger, chapter: int, text: str, raw: dict | None = None, 
                        "status": "accepted" if same == "same" else "pending"}
                 pending.append(row)
                 _settle(ledger, row, chapter)
-    ledger_store.write_json(ledger.mentions_path(chapter), mentions)
-    ledger_store.write_json(ledger.relations_path(chapter), relations)
-    ledger.save()
     merged = [f"{ledger.name_of(m['from'])}→{ledger.name_of(m['into'])}" for m in ledger.merges if m["chapter"] == chapter]
     return {"chapter": chapter, "mentions": len(mentions), "new": [e["canonical"] for e in created if e["status"] == "active"],
             "claims": Counter(r["status"] for r in pending), "merged": merged, "relations": len(relations), "dropped": len(dropped),
-            "reread": [e["canonical"] for e in late]}
+            "reread": [e["canonical"] for e in late]}, raw
 
 
 def _evidence_names(ledger, ref: str, evidence: str) -> bool:

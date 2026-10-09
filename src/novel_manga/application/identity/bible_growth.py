@@ -111,6 +111,8 @@ def grow_unbound_roster(novel_dir: Path, context: dict, chapter_text: str, chapt
         known = [c.name for c in bible.characters]
         wanted: dict[str, dict] = {}
         for actor in context.get("unmatched_actors", []):
+            if context.get('semantic_review', {}).get('approved') and actor['name'] in (context.get('semantic_extras') or []):
+                continue
             if actor.get("presence") not in {"on_stage", "voice"} or actor.get("kind") != "individual":
                 continue
             # The chapter says 猫女 and the alias map knows that is 赛琳娜: build the person, not the

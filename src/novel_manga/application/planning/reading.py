@@ -42,6 +42,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from novel_manga.application.identity.ledger_store import Ledger, ledger_lock
+from novel_manga.application.identity.semantic_review import committed_current
 from novel_manga.llm.client import ask_json
 from novel_manga.application.identity.bible_growth import grow_bible
 from novel_manga.application.review.entity_extraction import scan_chapter
@@ -133,13 +134,15 @@ def main() -> int:
     if args.ledger:
         with ledger_lock(novel_dir):
             ledger = Ledger(novel_dir)
-    to_ledger = [c for c in chapters if ledger is not None and not ledger.has_chapter(c)]
+    to_ledger = [c for c in chapters if ledger is not None and not committed_current(ledger, c, novel.episodes[c-1].source_text)]
     to_commit = sorted(set(to_grow) | set(to_ledger))
     grow_set, ledger_set = set(to_grow), set(to_ledger)
     log(f"{novel_dir.name}: {len(chapters)} chapters ({chapters[0]}-{chapters[-1]}); to grow {len(to_grow)}, to read into the ledger {len(to_ledger)}, to summarise {len(to_summarise)}")
 
     started = time.monotonic()
     summaries_done = 0
+    identity_failures = []
+    texts = {ep.index: ep.source_text for ep in novel.episodes}
     with ThreadPoolExecutor(max_workers=max(1, args.summary_workers)) as summary_pool, \
             ThreadPoolExecutor(max_workers=max(1, args.scan_workers)) as scan_pool:
         # summaries: submit everything, they are independent of each other
@@ -191,12 +194,16 @@ def main() -> int:
                 try:
                     with ledger_lock(novel_dir):
                         ledger = Ledger(novel_dir)
-                        summary = ledger_resolution.resolve_chapter(ledger, index, novel.episodes[index - 1].source_text, ahead["raw"], workers=args.scan_workers)
+                        summary = ledger_resolution.resolve_chapter(ledger, index, novel.episodes[index - 1].source_text, ahead["raw"], workers=args.scan_workers,
+                                                                    texts=texts)
                 except Exception as error:  # noqa: BLE001
                     summary, ahead["raw"] = None, None
                     log(f"ch{index}: ledger failed: {type(error).__name__}: {str(error)[:120]}")
                 if summary is None:
                     log(f"ch{index}: ledger has no reading" + (f" ({ahead['raw']['error']})" if ahead["raw"] and ahead["raw"].get("error") else ""))
+                    identity_failures.append(index)
+                    log(f"ch{index}: identity was not committed; bible growth deferred")
+                    continue
                 elif summary["new"] or summary["claims"]:
                     log(f"ch{index}: ledger +{len(summary['new'])} {summary['new'][:5]} claims {dict(summary['claims'])}")
             if index not in grow_set:
@@ -247,4 +254,6 @@ def main() -> int:
             ledger.save()
         log(f"ledger: {sum(1 for e in ledger.entities if e['status'] == 'active')} records, {sum(1 for c in ledger.claims if c.get('status') == 'pending')} claims for a person, indexes written")
     log(f"story pass done: {len(chapters)} chapters in {(time.monotonic() - started) / 60:.0f} min")
-    return 0
+    if identity_failures:
+        log(f"identity incomplete: {identity_failures}; resume these chapters after the reported failure is resolved")
+    return 1 if identity_failures else 0
