@@ -14,10 +14,12 @@ def prepare(ctx,status,diagnosis,memories):
         {cid for cid,ops in actions.items() if ops} | set(status.get('unreviewed_clips') or [])
         | set(status.get('publication_blockers') or []))
     targets=[]
+    from .requests import dialogue_slots
     for cid in sorted(selected):
         clip=by_id.get(cid,{})
         saved=(status.get('input_repairs') or {}).get(cid) or {}
         targets.append({'clip_id':cid,'shot_indexes':clip.get('shot_indexes',[]),
+            'dialogue_slots':dialogue_slots(clip),
             'request_seconds':clip.get('request_seconds'),
             'references':[{k:r[k] for k in ('name','role','asset_id','image') if k in r}
                           for r in clip.get('references',[])],

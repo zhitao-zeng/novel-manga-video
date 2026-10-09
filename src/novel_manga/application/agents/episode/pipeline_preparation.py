@@ -107,12 +107,13 @@ def patch_inputs(ctx, drafts, repairs, failure):
     selected=[c for c in plan['clips'] if c['clip_id'] in targets]
     indexes={i for c in selected for i in c.get('shot_indexes',[])}
     script=read_json(ctx.episode_dir/'chapter_script.json',{})
+    from .requests import dialogue_slots
     payload={'failure':{k:failure[k] for k in ('status','reason','blocks') if k in failure},
         'shots':[s for i,s in enumerate(script.get('shots',[]),1) if s.get('index',i) in indexes],
-        'clips':[{k:c.get(k) for k in ('clip_id','shot_indexes','stage_count','request_seconds',
-            'dialogue_bindings','references','prompt_h3')} for c in selected]}
+        'clips':[{**{k:c.get(k) for k in ('clip_id','shot_indexes','stage_count','request_seconds',
+            'dialogue_bindings','references','prompt_h3')},'dialogue_slots':dialogue_slots(c)} for c in selected]}
     prompt=('补全或修正这些H3英文镜头正文的格式。镜头、事件、人物、对白、时长都已确定，不作编剧修改。'
-        '每个镜头返回一条英文正文，按该镜头的dialogue_bindings顺序使用<DIALOGUE_1>等插槽；'
+        '每个镜头返回一条英文正文，按dialogue_slots中该镜头的插槽顺序填入；每个镜头都从<DIALOGUE_1>开始，空列表表示无对白。'
         '不要返回中文台词或完整H3标记，程序会填入原对白、说话人和固定格式。不要重复动作，不写元评论。'
         'soundscape仅写英文环境声音。只输出prompts。\n'+json.dumps(payload,ensure_ascii=False))
     schema=obj({'prompts':obj({c['clip_id']:obj({
@@ -141,6 +142,15 @@ def correct_requests(ctx,drafts,repairs,blocked):
         atomic_write_json(receipt,{'inputs':stamp,'status':'attempted'})
         result=patch_inputs(ctx,drafts,repairs,{'status':'needs_repair','request_errors':targets})
         atomic_write_json(receipt,{'inputs':stamp,'status':'completed','result':result})
+    elif targets and not previous.get('rechecked_saved_slots'):
+        errors=(previous.get('result')or{}).get('argument_errors')or{}
+        saved='output/pipeline-repair.json'
+        if errors and all('dialogue slots must occur once in order'in str(e)for e in errors.values()) and (ctx.work_dir/saved).is_file():
+            previous['rechecked_saved_slots']=True
+            atomic_write_json(receipt,previous)
+            checked=drafts.check({'file':saved})
+            previous['result']=repairs.apply({'file':saved})if checked.get('valid')is True else checked
+            atomic_write_json(receipt,previous)
     current={c['clip_id']:c for c in read_json(path)['clips']}
     return {cid:why for cid,why in blocked.items()if cid in current and
             (h3_prompt_outdated(current[cid],notes.get(cid,''),strict=True)or request_issues(current[cid]))}

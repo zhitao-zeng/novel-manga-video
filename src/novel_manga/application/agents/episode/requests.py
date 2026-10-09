@@ -8,6 +8,13 @@ from novel_manga.story.voice_delivery import visual_request
 from .arguments import RepairArgumentError
 
 
+def dialogue_slots(clip):
+    visual=visual_request(clip)
+    count=int(clip.get('stage_count')or len(clip.get('shot_indexes',[])))
+    return [[f'<DIALOGUE_{i}>'for i in range(1,1+sum(r['stage']==stage
+        for r in visual.get('dialogue_bindings',[])))]for stage in range(1,count+1)]
+
+
 def compose_request(clip, directions):
     if isinstance(directions, str):
         if not directions.strip():
@@ -27,10 +34,20 @@ def compose_request(clip, directions):
         raise RepairArgumentError('H3 soundscape requires an English string')
     if re.search(r'</?d>|<DIALOGUE_|\(S\d+\)|<Audio \d+>', sound):
         raise RepairArgumentError('H3 soundscape cannot contain native speech or dialogue slots')
-    visual = visual_request(clip)
+    expected=dialogue_slots(clip)
+    actual=[re.findall(r'<DIALOGUE_\d+>',text)for text in shots]
+    global_slots=[f'<DIALOGUE_{i}>'for i in range(1,1+sum(map(len,expected)))]
+    if ([slot for group in actual for slot in group]==global_slots
+            and all(len(a)==len(e)for a,e in zip(actual,expected))):
+        # Slot numbers are symbolic. A correct clip-wide sequence has the
+        # same ordered utterances; only the host's per-shot numbering differs.
+        normalized=[]
+        for text,wanted in zip(shots,expected):
+            names=iter(wanted)
+            normalized.append(re.sub(r'<DIALOGUE_\d+>',lambda match:next(names),text))
+        shots=normalized
     for stage, text in enumerate(shots, 1):
-        lines = [r for r in visual.get('dialogue_bindings', []) if r['stage'] == stage]
-        wanted = [f'<DIALOGUE_{i}>' for i in range(1, len(lines)+1)]
+        wanted=expected[stage-1]
         if re.findall(r'<DIALOGUE_\d+>', text) != wanted:
             raise RepairArgumentError(f'Shot {stage}: dialogue slots must occur once in order: {wanted}')
         if re.search(r'<d>|\(S\d+\)|\[Shot \d+\]|Planned duration:|At \d\d:\d\d', text):

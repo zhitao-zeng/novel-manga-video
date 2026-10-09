@@ -1,6 +1,7 @@
 from novel_manga.application.agents.episode.media_operations import MediaOperations
 import copy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,6 +43,23 @@ def test_failed_structural_correction_does_not_repeat_same_request(tmp_path,monk
     assert pipeline_preparation.correct_requests(ctx,None,None,blocked)==blocked
     assert pipeline_preparation.correct_requests(ctx,None,None,blocked)==blocked
     assert len(calls)==1 and read_json(ctx.episode_dir/'clip_plan.json')==plan
+
+
+def test_saved_slot_failure_is_rechecked_once_without_another_model_call(tmp_path,monkeypatch):
+    from novel_manga.application.profiles import h3_stamp
+    ctx,plan=local_case(tmp_path,monkeypatch);calls=[]
+    atomic_write_json(ctx.work_dir/'output/pipeline-repair.json',{'decisions':[{'clip_id':'clip_01','action':'edit','h3':{}}]})
+    atomic_write_json(ctx.run_dir/'native-request-correction.json',{
+        'inputs':{'clip_01':h3_stamp(plan['clips'][0],'')},'status':'completed',
+        'result':{'valid':False,'argument_errors':{'clip_01':'Shot 2: dialogue slots must occur once in order'}}})
+    monkeypatch.setattr(pipeline_preparation,'patch_inputs',lambda *a:pytest.fail('regenerating saved formatter output'))
+    drafts=SimpleNamespace(check=lambda p:calls.append('check')or{'valid':False,'argument_errors':{'clip_01':'dialogue slots must occur once in order'}})
+    repairs=SimpleNamespace(apply=lambda p:pytest.fail('applying invalid candidate'))
+    blocked={'clip_01':'Missing English'}
+    assert pipeline_preparation.correct_requests(ctx,drafts,repairs,blocked)==blocked
+    assert pipeline_preparation.correct_requests(ctx,drafts,repairs,blocked)==blocked
+    assert calls==['check']
+    assert read_json(ctx.episode_dir/'clip_plan.json')==plan
 
 
 def test_staging_retains_plan_without_english_and_without_video(tmp_path, monkeypatch):

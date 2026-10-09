@@ -83,6 +83,40 @@ def test_structured_multiple_shots_derive_cuts_without_agent_writing_them():
     assert request.count('你来啦') == 2
 
 
+def test_clip_wide_dialogue_numbers_are_normalized_without_changing_speaker_or_timing():
+    draft=episode()
+    draft['chapter_script']['shots'].insert(1,shot(2,turns=[{
+        'speaker_name':'乙','text':'你也来了。','delivery_mode':'visible_dialogue'}]))
+    draft['chapter_script']['shots'][1]['characters']=['甲','乙']
+    draft['chapter_script']['shots'][1]['in_frame']=['甲','乙']
+    for n,row in enumerate(draft['chapter_script']['shots'],1):row['index']=n
+    draft['chapter_script']['shots'][0]['duration_seconds']=6
+    draft['chapter_script']['shots'][1]['duration_seconds']=9
+    draft['clips'][0]['shot_indexes']=[1,2]
+    for n,clip in enumerate(draft['clips'][1:],3):clip['shot_indexes']=[n]
+    structured(draft)
+    draft['clips'][0]['h3']['shots'][1]=draft['clips'][0]['h3']['shots'][1].replace('<DIALOGUE_1>','<DIALOGUE_2>')
+    before=copy.deepcopy(draft)
+    _,plan=adopt(draft);request=plan['clips'][0]['prompt_h3']
+    assert request.index('[Shot 1]')<request.index('你来啦')<request.index('[Shot 2]')<request.index('你也来了')
+    assert '[Shot 2] At 00:06.000, Planned duration: 9 seconds.'in request
+    assert '(S1)'in request and '(S2)'in request
+    assert '<DIALOGUE_'not in request and draft==before
+
+
+@pytest.mark.parametrize('bodies',[
+    ['A view. <DIALOGUE_1>','Another view. <DIALOGUE_3>'],
+    ['A view. <DIALOGUE_1> <DIALOGUE_2>','Another view.'],
+    ['A view. <DIALOGUE_1>','Another view. <DIALOGUE_1> <DIALOGUE_2>']])
+def test_global_numbering_cannot_hide_missing_extra_or_misplaced_dialogue(bodies):
+    from novel_manga.application.agents.episode.requests import compose_request
+    clip={'stage_count':2,'shot_indexes':[1,2],'dialogue_bindings':[
+        {'stage':1,'speaker_name':'甲','delivery_mode':'visible_dialogue','text':'甲的台词'},
+        {'stage':2,'speaker_name':'乙','delivery_mode':'visible_dialogue','text':'乙的台词'}]}
+    with pytest.raises(ValueError,match='dialogue slots'):
+        compose_request(clip,{'shots':bodies})
+
+
 @pytest.mark.parametrize('body', ['Empty hall.', '<DIALOGUE_1> <DIALOGUE_1>',
     '<DIALOGUE_2>', '<DIALOGUE_1> <d>[Chinese] 偷加台词。</d>'])
 def test_missing_duplicate_or_invented_speech_is_rejected(body):
