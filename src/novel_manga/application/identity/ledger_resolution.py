@@ -113,10 +113,10 @@ def settle_pending(ledger: "Ledger", workers: int = 4) -> list[dict]:
     decision (corrections.json) always wins and is never re-asked."""
     todo = [c for c in ledger.claims if c.get("status") == "pending" and c["subject"] in ledger.by_id and c["object"] in ledger.by_id
             and not _correction_for(ledger, c) and ledger.canonical(c["subject"]) != ledger.canonical(c["object"])]
-    seen: set[str] = set()
+    seen = set()
     pairs = []
     for c in todo:
-        key = f"{c['type']}|" + "|".join(sorted((ledger.canonical(c["subject"]), ledger.canonical(c["object"])), key=entity_evidence._number))
+        key = (c['type'], relationship_pair(c, ledger.canonical))
         if key in seen:
             continue
         seen.add(key)
@@ -245,7 +245,8 @@ def resolve_candidate(ledger, chapter: int, text: str, raw: dict | None = None, 
         return None
     late = ledger_extraction.stale(ledger, raw, text)
     if late:  # read again, now that the people this chapter names are on the books
-        again = ledger_extraction.extract(ledger, chapter, text, force=True)
+        # The chapter owner already holds the book lock; this helper only reads/calls the model.
+        again = ledger_extraction.read_raw(ledger, chapter, text, force=True)
         if again.get('error'):
             raise RuntimeError('identity rereading request failed; this chapter was not committed')
         if not again.get("error"):

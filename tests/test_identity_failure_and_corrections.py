@@ -123,3 +123,14 @@ def test_conflicting_manual_proofs_are_reported_without_erasing_them(tmp_path):
     with pytest.raises(ValueError, match='conflicting proof'):
         resolve.decide(ledger, 'ab', 'rejected', 'conflicts with remaining confirmations')
     assert before == (json.dumps(ledger.entities), json.dumps(ledger.corrections), json.dumps(ledger.merges))
+
+
+def test_settle_judges_each_direction_of_body_relationship(tmp_path, monkeypatch):
+    ledger = book(tmp_path / 'book', ['甲方角色', '乙方角色'])
+    ledger.claims = [claim('ab', 'e001', 'e002', 'occupies_body'), claim('ba', 'e002', 'e001', 'occupies_body')]
+    for row in ledger.claims: row['evidence'] = '甲方角色和乙方角色互换身体。'
+    calls = []
+    monkeypatch.setattr(judges, 'judge_settle', lambda *a: calls.append(a) or {'verdict': 'supports', 'why': 'explicit owners'})
+    results = resolve.settle_pending(ledger, workers=1)
+    assert {r['id'] for r in results} == {'ab', 'ba'} and len(calls) == 4
+    assert {tuple((c['subject'],c['object'])) for c in ledger.corrections} == {('e001','e002'),('e002','e001')}
