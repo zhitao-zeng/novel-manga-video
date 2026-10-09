@@ -165,3 +165,70 @@ def test_reader_corrects_all_wrong_quotes_together_then_marks_the_states_as_inhe
     assert len(prompts) == 2
     assert '镜2 席勒的quote' in prompts[1] and '镜3 席勒的quote' in prompts[1]
     assert all(states['stages'][str(i)]['start']['席勒']['stated'] is False for i in (2, 3))
+
+
+def test_reader_contract_addresses_known_stages_and_people_by_key():
+    rows = posture.material({'shots': [shot(4, '席勒站在桂花树前', people=('席勒', '桂花树'))]})
+    contract = posture.schema(rows)
+    stages = contract['properties']['stages']
+    assert stages['type'] == 'object'
+    assert stages['required'] == ['4']
+    people = stages['properties']['4']['properties']['people']
+    assert people['type'] == 'object'
+    assert people['required'] == ['席勒', '桂花树']
+    assert 'name' not in people['properties']['席勒']['properties']
+
+
+def test_keyed_reader_preserves_actor_states_and_cached_reading_format(tmp_path):
+    shots = [shot(1, '席勒坐在桌后，桂花树立在窗边', people=('席勒', '桂花树')),
+             shot(2, '席勒看向门口', people=('席勒',))]
+    first = answer(1, '坐', name='席勒', boundary='reset', entry='reset', where='桌后')
+    plant = person(name='桂花树', entry='reset', where='窗边')
+    first['people'].append(plant)
+    second = answer(2, name='席勒')
+    keyed = {'stages': {str(row['index']): {
+        'boundary': row['boundary'], 'reason': row['reason'],
+        'people': {p['name']: {k: v for k, v in p.items() if k != 'name'}
+                   for p in reversed(row['people'])}} for row in reversed([first, second])}}
+    calls = []
+    def ask(prompt, contract):
+        calls.append(prompt)
+        return keyed
+    states = posture.fill(tmp_path, script={'shots': shots}, segments=[], ask=ask)
+    assert states['stages']['1']['start']['席勒']['posture'] == '坐'
+    assert states['stages']['1']['start']['桂花树']['posture'] is None
+    assert states['stages']['2']['start']['席勒']['inherited_from'] == 1
+    assert [p['name'] for p in states['stages']['1']['reading']['people']] == ['席勒', '桂花树']
+    assert isinstance(states['batches'][0]['answer']['stages'], list)
+    repeated = posture.fill(tmp_path, script={'shots': shots}, segments=[], ask=ask, write=False)
+    assert repeated == states and len(calls) == 1
+
+
+def test_wrong_reader_roster_reports_expected_and_received_names(tmp_path):
+    shots = [shot(1, '席勒坐在桌后')]
+    wrong = answer(1, '坐', name='画外人物', boundary='reset', entry='reset')
+    prompts = []
+    def ask(prompt, contract):
+        prompts.append(prompt)
+        return {'stages': [wrong]}
+    with pytest.raises(ValueError, match='期望.*席勒.*实际.*画外人物'):
+        posture.fill(tmp_path, script={'shots': shots}, segments=[], ask=ask, write=False)
+    assert len(prompts) == 2
+    assert '期望' in prompts[1] and '画外人物' in prompts[1]
+
+
+def test_lighting_repair_reuses_stated_pose_facts_but_rechecks_time_boundary(tmp_path):
+    shots = [shot(1, '席勒坐在椅子上'), shot(2, '席勒举起一根手指', light='清晨'),
+             shot(3, '席勒看向门口')]
+    original = [answer(1, '坐', boundary='reset', entry='reset'), answer(2), answer(3)]
+    before = fill(tmp_path, shots, original)
+    shots[1]['light'] = '室内暖灯'
+    changed = copy.deepcopy(original)
+    changed[1]['boundary'] = 'reset'
+    changed[1]['people'][0].update(entry='reset', start={'posture': '站', 'where': '', 'quote': '席勒举起一根手指'})
+    changed[2]['people'][0]['start'] = {'posture': '站', 'where': '', 'quote': '席勒看向门口'}
+    after = fill(tmp_path, shots, changed, previous=before, write=False)
+    assert after['stages']['2']['boundary'] == 'reset'
+    assert after['stages']['2']['start']['席勒']['posture'] is None
+    assert after['stages']['3']['start']['席勒']['posture'] is None
+    assert after['stages']['2']['reading']['people'][0]['start']['posture'] == '未写明'

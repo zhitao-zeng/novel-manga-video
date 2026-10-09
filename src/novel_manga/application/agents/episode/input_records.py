@@ -51,6 +51,15 @@ def source_review_recoverable(record):
             and int(record.get('source_review_policy', 1)) < SOURCE_REVIEW_POLICY)
 
 
+def posture_protocol_recoverable(record):
+    """One same-candidate continuation after replacing the roster-echo protocol."""
+    error = str(record.get('error', ''))
+    return (record.get('status') == 'incomplete' and record.get('step') == 'compile'
+            and not record.get('published') and not record.get('posture_protocol_recovery')
+            and bool(record.get('decision')) and (record.get('source') or {}).get('consistent') is True
+            and '姿态台账镜' in error and '入镜名单不符' in error)
+
+
 def latest_input_records(episode_dir):
     records = {}
     for path in sorted((Path(episode_dir)/'work/input_repairs').glob('clip_*-*.json'),
@@ -167,6 +176,10 @@ def input_receipt(ctx, cid, row, *, image_review_policy=None, check_only=False):
             record['asset_configuration_recovery']={'at':time.strftime('%F %T'),
                 'previous_error':record.get('error'), 'reason':'Image endpoint configuration repaired'}
             record['status']='checking'
+        elif posture_protocol_recoverable(record):
+            record['posture_protocol_recovery'] = {'at': time.strftime('%F %T'),
+                'previous_error': record.get('error'), 'reason': 'Posture addresses are now schema-owned keys'}
+            record['status'] = 'checking'
         elif record.get('status') not in {'checking', 'published'}:
             # A process restart continues the same unfinished operation; only an
             # operation that returned a failure spends the continuation allowance.

@@ -86,7 +86,10 @@ def compile_input(case: InputCompilation, receipt, record, progress) -> Compiled
         first_pass_scope(ctx, set(extra))
         exhausted = [key for key in extra if counts.get(key,0) >= history.preparation_limit(directory,key)]
         if exhausted:
-            raise ValueError('dependent input repair exceeds remaining video budget: '+', '.join(exhausted))
+            raise CompileConflict('dependent input repair exceeds remaining video budget: '+', '.join(exhausted),
+                {'kind': 'dependency_budget', 'requested_clips': sorted(targets), 'extra_clips': extra,
+                 'exhausted_clips': exhausted, 'generation_counts': {key: counts.get(key, 0) for key in exhausted},
+                 'preparation_limits': {key: history.preparation_limit(directory, key) for key in exhausted}})
         if (phases or locations or characters) and scope is not None and not set(extra) <= set(scope):
             raise CompileConflict('source state scope excludes dependent clips: '+', '.join(extra),
                 {'kind':'dependency_scope','requested_clips':sorted(targets),'extra_clips':extra})

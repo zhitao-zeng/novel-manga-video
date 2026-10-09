@@ -63,3 +63,11 @@ result and remaining uncertainty through the host result/decision fields. These
 feed the shared memory automatically. Recording a new description, repeating a
 keep without new evidence or obtaining a trial permission is not a new accepted
 episode. Keep the original evidence, and let formal finish determine acceptance.
+# 姿态和联动续接（2026-10-09）
+
+姿态读取的镜号、人名由宿主Schema固定为对象键，Agent不需要重新抄写名单。旧台账仍按原格式保存、复用。名单报错必须给期望和实际名字；不能把名单对齐当作画面已出现这些人物。
+
+只改光线、场景等字段时，复用未改变的画面/动作文字中的姿态事实，重新判断时间和入场关系，再计算继承；不要靠模型重新解释未改文字制造新的重拍依赖。真正改变动作、入镜名单的候选仍重新读取。
+
+当前工具明确提供`resume_action`时才续原候选；`posture_protocol_recovery`只允许原文核对已通过的旧名单协议失败再续一次，保留图片和原计数。它不放行真实坐站矛盾，也不能追加第二轮拍摄。`dependency_budget`会列出请求片段、实际联动片段、当前拍摄次数和额度；依据这些信息修范围或使用已有条件额度，不能反复猜片段。
+

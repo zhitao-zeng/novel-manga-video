@@ -1365,3 +1365,57 @@ def test_keep_of_already_accepted_take_does_not_abort_a_successful_input_repair(
     result = EpisodeTools(ctx).dispatch('apply')
     assert result['ok'] and result['changed'] == ['clip_01'] and result['accepted'] == ['clip_02']
     assert read_json(ctx.run_dir/'tool-repair-decisions.json')[-1]['input_repaired'] == ['clip_01']
+
+
+def test_saved_roster_failure_has_one_unchanged_protocol_recovery(setup):
+    from novel_manga.application.agents.episode import input_records
+    ctx, _, _ = setup
+    path = ctx.episode_dir/'work/input_repairs/clip_01-1.json'
+    saved = {'clip_id': 'clip_01', 'status': 'incomplete', 'step': 'compile',
+        'source': {'consistent': True}, 'decision': decision(), 'resume_count': 1,
+        'revision_count': 1, 'error': 'ValueError: 姿态台账镜1的入镜名单不符'}
+    atomic_write_json(path, saved)
+    before = path.read_bytes()
+    assert input_repair.repair_status(ctx)['clip_01']['resume_action']['resume']
+    _, preview = input_records.input_receipt(ctx, 'clip_01', decision(), check_only=True)
+    assert preview['posture_protocol_recovery'] and path.read_bytes() == before
+    receipt, recovered = input_records.input_receipt(ctx, 'clip_01', decision())
+    assert receipt == path and recovered['status'] == 'checking'
+    assert recovered['resume_count'] == recovered['revision_count'] == 1
+    assert recovered['posture_protocol_recovery']['previous_error'] == saved['error']
+    recovered.update(status='incomplete', error=saved['error'])
+    atomic_write_json(path, recovered)
+    with pytest.raises(ValueError, match='continuation allowance'):
+        input_records.input_receipt(ctx, 'clip_01', decision())
+    assert history.generation_counts(ctx.episode_dir) == {}
+
+
+@pytest.mark.parametrize('change', [
+    {'published': True}, {'source': {'consistent': False}}, {'step': 'assets'},
+    {'error': 'ValueError: 姿态交接需修正：剧情中没有起身'},
+    {'posture_protocol_recovery': {'previous_error': 'reserved'}},
+])
+def test_protocol_recovery_does_not_reopen_other_or_already_used_failures(setup, change):
+    from novel_manga.application.agents.episode import input_records
+    ctx, _, _ = setup
+    saved = {'clip_id': 'clip_01', 'status': 'incomplete', 'step': 'compile',
+        'source': {'consistent': True}, 'decision': decision(), 'resume_count': 1,
+        'error': 'ValueError: 姿态台账镜1的入镜名单不符', **change}
+    assert not input_records.posture_protocol_recoverable(saved)
+
+
+def test_exhausted_posture_dependency_reports_scope_and_remaining_allowance(setup, monkeypatch):
+    ctx, plan, _ = setup
+    atomic_write_json(ctx.episode_dir/'repair_budget_grants.json', {'clip_02': {'limit': 0, 'reason': 'spent'}})
+    def rebuild(*a, **kw):
+        after = copy.deepcopy(plan)
+        after['clips'][1]['prompt'] = 'dependent posture'
+        kw['repack_report']['_posture_dependent_clips'] = ['clip_02']
+        return after, ['clip_02']
+    monkeypatch.setattr('novel_manga.application.repair.flow.rebuild_clips', rebuild)
+    with pytest.raises(input_repair.CompileConflict, match='remaining video budget'):
+        input_repair.repair(ctx, decision())
+    saved = read_json(ctx.episode_dir/'work/input_repairs/clip_01-1.json')
+    assert saved['error_details'] == {'kind': 'dependency_budget', 'requested_clips': ['clip_01'],
+        'extra_clips': ['clip_02'], 'exhausted_clips': ['clip_02'],
+        'generation_counts': {'clip_02': 0}, 'preparation_limits': {'clip_02': 0}}

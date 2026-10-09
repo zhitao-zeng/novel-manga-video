@@ -32,29 +32,27 @@ def material(script, segments=()):
 
 
 def schema(rows):
-    stages = []
+    stages = {}
     for shot in rows:
         quotes = list(dict.fromkeys(['', *[str(shot.get(k) or '') for k in
                                           ('visual_prompt', 'motion_prompt', 'end_state')]]))
         quote = {'type': 'string', 'enum': quotes}
         state = obj({'quote': quote, 'posture': {'type': 'string', 'enum': list(POSTURES)},
                      'where': _TEXT})
-        persons = [obj({'name': {'type': 'string', 'enum': [name]},
-                        'entry': {'type': 'string', 'enum': ['continue', 'reset', 'unknown']},
+        persons = {name: obj({'entry': {'type': 'string', 'enum': ['continue', 'reset', 'unknown']},
                         'start': state, 'end': state, 'transition': quote})
-                   for name in shot['in_frame']]
-        stages.append(obj({'index': {'type': 'integer', 'enum': [shot['index']]},
-                           'boundary': {'type': 'string', 'enum': ['continuous', 'reset', 'unknown']},
+                   for name in shot['in_frame']}
+        stages[str(shot['index'])] = obj({'boundary': {'type': 'string', 'enum': ['continuous', 'reset', 'unknown']},
                            'reason': _TEXT,
-                           'people': {'type': 'array', 'minItems': len(persons), 'maxItems': len(persons),
-                                      **({'prefixItems': persons} if persons else {}), 'items': False}}))
-    return obj({'stages': {'type': 'array', 'minItems': len(rows), 'maxItems': len(rows),
-                          **({'prefixItems': stages} if stages else {}), 'items': False}})
+                           'people': obj(persons)})
+    return obj({'stages': obj(stages)})
 
 
 def question(inputs):
-    return ('核对分镜的姿态台账，不重写剧本，不设计新姿势。逐镜按输入顺序输出。'
-            'Schema固定了每镜index与入镜人名，people必须逐个列齐in_frame，in_frame为空时people必须为空。\n'
+    return ('核对分镜的姿态台账，不重写剧本，不设计新姿势。'
+            'stages是以镜号字符串为键的对象，people是以本镜in_frame人名为键的对象；'
+            '镜号和人名由Schema固定，不再另外输出index或name，也不补入或替换人名。'
+            '每个镜号和入镜人名都必须列齐；in_frame为空时people={}。\n'
             'boundary：continuous=与前镜属于同一段连续时间；reset=开场、跳时、回忆切入/切出或新的场次；'
             'unknown=依据不足。相同地点或scene_id不能证明时间连续；不同机位、反打、空镜不等于跳时。'
             '必须结合source原文、scene_time、光线与起点/事件/末态判断。\n'
@@ -75,15 +73,34 @@ def question(inputs):
             + json.dumps(inputs, ensure_ascii=False))
 
 
-def checked_answers(rows, answer):
+def answer_rows(rows, answer):
+    """Keep saved readings in their existing format; the wire contract owns the addresses."""
     result = answer.get('stages') or []
+    if isinstance(result, dict):
+        expected = [str(shot['index']) for shot in rows]
+        if set(result) != set(expected):
+            raise ValueError(f'姿态台账镜号不符：期望{expected}；实际{list(result)}')
+        result = [{**copy.deepcopy(result[key]), 'index': int(key)} for key in expected]
+    for shot, row in zip(rows, result):
+        if isinstance(row.get('people'), dict):
+            persons = row['people']
+            if set(persons) != set(shot['in_frame']):
+                raise ValueError(f'姿态台账镜{shot["index"]}的入镜名单不符：'
+                                 f'期望{shot["in_frame"]}；实际{list(persons)}')
+            row['people'] = [{**copy.deepcopy(persons[name]), 'name': name} for name in shot['in_frame']]
+    return result
+
+
+def checked_answers(rows, answer):
+    result = answer_rows(rows, answer)
     if [s.get('index') for s in result] != [s['index'] for s in rows]:
         raise ValueError('姿态台账回复缺镜、重复或顺序不符')
     problems = []
     for shot, row in zip(rows, result):
         names = [p['name'] for p in row['people']]
         if len(names) != len(set(names)) or set(names) != set(shot['in_frame']):
-            raise ValueError(f'姿态台账镜{shot["index"]}的入镜名单不符')
+            raise ValueError(f'姿态台账镜{shot["index"]}的入镜名单不符：'
+                             f'期望{shot["in_frame"]}；实际{names}')
         if row.get('boundary') not in {'continuous', 'reset', 'unknown'}:
             raise ValueError('姿态台账缺少连续性判断')
         text = '；'.join(str(shot.get(k) or '') for k in ('visual_prompt', 'motion_prompt', 'end_state'))
@@ -110,6 +127,7 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
     rows = material(script, segments)
     prior_batches = previous.get('batches', []) if previous.get('policy') == POLICY else []
     old_rows = previous.get('inputs', []) if previous.get('policy') == POLICY else []
+    old_by_index = {row['index']: row for row in old_rows}
     unchanged_prefix = set()
     for old, new in zip(old_rows, rows):
         if old != new:
@@ -134,12 +152,24 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
             answer = (copy.deepcopy(cached['answer']) if cached and attempt == 0
                       else ask(question(inputs) + feedback, schema(batch)))
             answer = copy.deepcopy(answer)
-            for i, reading in enumerate(answer.get('stages', [])):
-                index = reading.get('index')
-                old = previous.get('stages', {}).get(str(index), {}).get('reading')
-                if index in unchanged_prefix and old:
-                    answer['stages'][i] = copy.deepcopy(old)
             try:
+                answer = {'stages': answer_rows(batch, answer)}
+                for i, reading in enumerate(answer['stages']):
+                    index = reading.get('index')
+                    old = previous.get('stages', {}).get(str(index), {}).get('reading')
+                    if index in unchanged_prefix and old:
+                        answer['stages'][i] = copy.deepcopy(old)
+                    elif old and not previous.get('issues') and all(
+                            old_by_index.get(index, {}).get(key) == batch[i].get(key)
+                            for key in ('in_frame', 'visual_prompt', 'motion_prompt', 'end_state', 'actions')):
+                        # Lighting/scene corrections may change continuity, but cannot
+                        # make unchanged authored pose text a newly stated pose. Resolve
+                        # inherited states again using the new boundary/entry decisions.
+                        prior_people = {person['name']: person for person in old['people']}
+                        for person in reading['people']:
+                            if prior := prior_people.get(person['name']):
+                                for key in ('start', 'end', 'transition'):
+                                    person[key] = copy.deepcopy(prior[key])
                 readings = checked_answers(batch, answer)
                 if offset == 0 and readings[0]['boundary'] != 'reset':
                     raise ValueError('姿态台账开场必须作为新场景，不能继承上一集')
