@@ -132,7 +132,7 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
     task_path = output.with_suffix(output.suffix + ".task.json")
     from novel_manga.util import read_json
     prior_task = read_json(task_path, {}).get('task_id')
-    request = repair_history.generation_request(episode_dir, output, request,
+    request = repair_history.generation_request(episode_dir, output, {**request,'clip_id':clip['clip_id']},
         expected_plan=plan_fingerprint(ctx.clip_plan), expected_notes=ctx.feedback)
     atomic_write_json(directory / "request.json", request)
     log(f"{clip['clip_id']} attempt {attempt}: requesting {clip['request_seconds']}s video with {len(references)} references")
@@ -174,7 +174,7 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
     if current_task and current_task != prior_task and (not owner or owner.get('take')):
         # The provider discarded an old legacy task and really submitted a
         # new one. That new task belongs to the current managed trial.
-        request = repair_history.generation_request(episode_dir, output, request,
+        request = repair_history.generation_request(episode_dir, output, {**request,'clip_id':clip['clip_id']},
             expected_plan=plan_fingerprint(ctx.clip_plan), expected_notes=ctx.feedback, fresh_task=True)
         atomic_write_json(directory / "request.json", request)
     ctx.state.clip(clip['clip_id']).generated = not (prior_task and current_task == prior_task
