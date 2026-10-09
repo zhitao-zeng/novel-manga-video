@@ -35,7 +35,18 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
         proposal = answer.get('correction')
         if attempt or proposal is None:
             raise ValueError('identity semantic review unresolved: ' + str(answer.get('reason', 'no source-backed correction')))
-        current = validate(proposal)
+        try:
+            current = validate(proposal)
+        except ValueError as error:
+            # Correct the concrete rejected proposal once, before final review.
+            # A failed protocol correction never renews the semantic review loop.
+            repair_prompt=('修正下面身份修订的具体校验错误，只输出原结构JSON。引用仅能使用原文逐字存在的'
+                '名字或称谓；不得制造新主体、改原文或扩大修订范围。保留其他正确字段。\n'
+                + json.dumps({'evidence':context,'previous_candidate':current,'rejected_proposal':proposal,
+                              'validation_error':str(error)},ensure_ascii=False))
+            repaired=client.ask_json([{'type':'text','text':repair_prompt}],schema,
+                name=name+'_correction',max_tokens=6500,timeout=240,**options)
+            current=validate(repaired)
     raise AssertionError('bounded review did not return')
 
 

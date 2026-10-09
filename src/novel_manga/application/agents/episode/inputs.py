@@ -439,13 +439,17 @@ def prepare_inputs(ctx: EpisodeContext):
     if bound:
         script = read_json(ctx.episode_dir / 'chapter_script.json', {})
         plan = read_json(ctx.episode_dir / 'clip_plan.json', {})
-    # Identity metadata points to the copied files, with the original reading
-    # facts retained; this is path rebinding, not a new identity decision.
+    # Relocate unchanged evidence only. Updating its source/data stamp after
+    # either changed would falsely certify an old reading as current.
     identity = read_json(ctx.episode_dir / 'identity_context.json', {})
     if identity:
         from novel_manga.application.identity.store import chapter_inputs
         current_inputs=chapter_inputs(ctx.episode_dir)
-        if identity.get('inputs') != current_inputs:
+        previous=identity.get('inputs')or{}
+        unchanged=(previous.get('segments')==current_inputs['segments'] and
+            {Path(k).name:v for k,v in previous.get('data',{}).items()}==
+            {Path(k).name:v for k,v in current_inputs['data'].items()})
+        if unchanged and previous != current_inputs:
             identity['inputs'] = current_inputs
             atomic_write_json(ctx.episode_dir / 'identity_context.json', identity)
     if ctx.input_mode == 'script' and not plan:

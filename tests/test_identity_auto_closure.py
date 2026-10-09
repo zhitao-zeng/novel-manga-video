@@ -113,10 +113,61 @@ def test_binding_still_rejects_actor_with_no_source_form(tmp_path,monkeypatch):
         'decision':'catalogue','paragraphs':[1],'reason':'错误候选'}]}
     def ask(*args,**kwargs):
         if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor()]}
+        if kwargs['name']=='chapter_binding_review_correction':return correction
         return {'approved':False,'reason':'修订','correction':correction}
     monkeypatch.setattr(client,'ask_json',ask)
     with pytest.raises(ValueError,match='ungrounded source forms.*不存在的人'):flow.resolve_chapter(ep)
     assert not (ep/'identity_context.json').exists()
+
+
+def test_invalid_legacy_source_actors_are_read_again_even_with_rewritten_cache_stamp(tmp_path,monkeypatch):
+    from novel_manga.application.identity.store import chapter_inputs
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'云柔站在父亲身旁。'}])
+    store.write_json(ep/'identity_context.json',{'policy':'story-identity-v5-grounded-types',
+        'inputs':chapter_inputs(ep),'source_actors':[actor('上一章的人')],'mentions':[]})
+    calls=[]
+    def ask(*args,**kwargs):
+        calls.append(kwargs['name'])
+        if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor()]}
+        return {'approved':True,'reason':'实际原文归属正确','correction':None}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert result['source_actors'][0]['name']=='云柔'
+    assert calls==['chapter_identity_source','chapter_binding_review']
+
+
+def test_invalid_binding_correction_gets_exact_feedback_and_independent_final_review(tmp_path,monkeypatch):
+    ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json',[{'text':'云柔站在父亲身旁。'}])
+    def candidate(name):return {'actors':[actor(name)],'bindings':[{'source_id':1,'entity_id':'e001',
+        'decision':'catalogue','paragraphs':[1],'reason':'按原文归属'}]}
+    calls=[];feedback=[]
+    def ask(parts,*args,**kwargs):
+        name=kwargs['name'];calls.append(name)
+        if name=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor()]}
+        if name=='chapter_binding_review_correction':
+            feedback.append(parts[0]['text']);return candidate('云柔')
+        return {'approved':calls.count('chapter_binding_review')>1,'reason':'核对姓名',
+                'correction':None if calls.count('chapter_binding_review')>1 else candidate('杜撰人名')}
+    monkeypatch.setattr(client,'ask_json',ask)
+    result=flow.resolve_chapter(ep)
+    assert result['semantic_review']['approved'] and result['source_actors'][0]['name']=='云柔'
+    assert calls==['chapter_identity_source','chapter_binding_review','chapter_binding_review_correction','chapter_binding_review']
+    assert 'ungrounded source forms: 杜撰人名'in feedback[0]
+
+
+def test_binding_protocol_correction_is_bounded_and_cannot_approve_itself(monkeypatch):
+    calls=[]
+    def ask(*args,**kwargs):
+        calls.append(kwargs['name'])
+        if kwargs['name']=='review_correction':return {'invalid':True}
+        return {'approved':False,'reason':'有错','correction':{'invalid':True}}
+    monkeypatch.setattr(client,'ask_json',ask)
+    def validate(value):raise ValueError('still invalid')
+    with pytest.raises(ValueError,match='still invalid'):
+        review.close({}, {}, {},name='review',validate=validate)
+    assert calls==['review','review_correction']
 
 
 def test_unnamed_actor_becomes_a_reviewed_extra_without_global_renaming(tmp_path,monkeypatch):
@@ -217,6 +268,7 @@ def test_checked_binding_cannot_be_silently_undone_by_distinct_body_guard(tmp_pa
     bad={'actors':actors, 'bindings':[{'source_id':sid,'entity_id':'e001','decision':'catalogue','paragraphs':[1],'reason':'错误合并'} for sid in [1,2]]}
     def ask(*args,**kwargs):
         if kwargs['name']=='chapter_identity_source':return {'actors':actors}
+        if kwargs['name']=='chapter_binding_review_correction':return bad
         return {'approved':False,'reason':'两人须保留','correction':bad}
     monkeypatch.setattr(client,'ask_json',ask)
     with pytest.raises(ValueError,match='distinct source actors'):

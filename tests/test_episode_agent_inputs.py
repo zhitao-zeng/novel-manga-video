@@ -66,6 +66,29 @@ def test_preparation_carries_the_book_asr_aliases_into_the_isolated_runtime(book
     assert read(source/'asr_aliases.json') == aliases
 
 
+def test_preparation_cannot_stamp_old_actor_evidence_as_current_source(book):
+    source,episode,root=book
+    old_inputs={'segments':[{'segment_id':'original-2-1','text':'上一章的陌生人'}],'data':{}}
+    old={'policy':'story-identity-v5-grounded-types','inputs':old_inputs,'source_actors':[{'name':'陌生人'}]}
+    write(episode/'identity_context.json',old)
+    ctx=context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepare_inputs(ctx)
+    assert read(ctx.episode_dir/'identity_context.json')['inputs']==old_inputs
+
+
+def test_preparation_keeps_changed_identity_data_cache_invalid(book):
+    from novel_manga.application.identity.store import chapter_inputs
+    source,episode,root=book
+    old_inputs=chapter_inputs(episode)
+    old={'policy':'story-identity-v7-reviewed-bindings','inputs':old_inputs,'source_actors':[{'name':'林舟'}]}
+    write(episode/'identity_context.json',old)
+    bible=read(source/'story_bible.json');bible['characters'][0]['name']='新角色'
+    write(source/'story_bible.json',bible)
+    ctx=context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepare_inputs(ctx)
+    assert read(ctx.episode_dir/'identity_context.json')['inputs']==old_inputs
+
+
 def test_batch_adopted_source_refreshes_native_plan_for_review_without_rebinding(book):
     from novel_manga.application.production import workspaces
     source,_,root=book;ctx=context.create_context(source,2,input_mode='source',output_root=root/'isolated')

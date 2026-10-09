@@ -120,7 +120,8 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
         + json.dumps([{'paragraph': i, **r} for i, r in enumerate(segments, 1)], ensure_ascii=False))
     # Binding reviews changed; unchanged source extraction remains reusable.
     if (not force and saved.get('policy') in {POLICY, 'story-identity-v6-catalogue-bindings', 'story-identity-v5-grounded-types'} and saved.get('inputs', {}).get('segments') == segments
-            and 'source_actors' in saved and usable_reading(saved)):
+            and 'source_actors' in saved and usable_reading(saved)
+            and not clean_reading({'actors':saved['source_actors']},segments)[2]):
         answer = {'actors': saved['source_actors'], 'actorless_confirmed': saved.get('actorless_confirmed', False)}
     else:
         answer = ask_json([{'type': 'text', 'text': prompt}], source_schema(len(segments)),
