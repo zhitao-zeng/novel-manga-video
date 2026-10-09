@@ -26,7 +26,7 @@ def evidence_case(tmp_path, monkeypatch):
         video.parent.mkdir(parents=True)
         video.write_bytes(b'current take')
         rows.append({'clip_id': cid, 'selected': {'video': str(video), 'passed': True,
-                     'reference': '你来啦。', 'hypothesis': '你来啦。'}})
+                     'reference': '你来啦。', 'hypothesis': '你来啦。', 'chunks': []}})
         verdicts[cid] = {'severity': 'pass', 'video': str(video), 'take': take_identity(video)}
     verdicts['clip_02']['severity'] = 'fail'
     review = {'policy': REVIEW_POLICY, 'review_mode':'classic', 'clips': verdicts, 'feedback': {'clip_02': 'wrong action'}}

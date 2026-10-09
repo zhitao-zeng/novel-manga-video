@@ -42,14 +42,14 @@ class MediaOperations:
         return runner
 
 
-    def assemble(self, report, runner=None):
-        """Encode current selected takes and run final QC; never generate or replan."""
+    def hydrate_analysis(self, report, runner=None):
+        """Restore current first-pass audio evidence before review or assembly."""
         from novel_manga.application.rendering.reviewed import _load_current
         from novel_manga.application.review.execution import media_matches
-        from novel_manga.application.repair import history
         plan = read_json(self.ctx.episode_dir/'clip_plan.json')
-        if not media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {})):
-            raise ValueError('current requests need render before existing takes can be assembled')
+        if not (any(row.get('selected') and not has_analysis(row['selected']) for row in report.get('clips', []))
+                and media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {}))):
+            return report
         if runner is None:
             runner = self.runner()
             _load_current(runner)
@@ -74,6 +74,21 @@ class MediaOperations:
         if hydrated:
             # Keep restored evidence even if a later encoding/QC step fails.
             atomic_write_json(self.ctx.episode_dir/'thin_media_report.json', report)
+        return report
+
+
+    def assemble(self, report, runner=None):
+        """Encode current selected takes and run final QC; never generate or replan."""
+        from novel_manga.application.rendering.reviewed import _load_current
+        from novel_manga.application.review.execution import media_matches
+        from novel_manga.application.repair import history
+        plan = read_json(self.ctx.episode_dir/'clip_plan.json')
+        if not media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {})):
+            raise ValueError('current requests need render before existing takes can be assembled')
+        if runner is None:
+            runner = self.runner()
+            _load_current(runner)
+        report = self.hydrate_analysis(report, runner)
         record_state(self.ctx, 'assembling', owner='episode_agent_tools')
         started = time.monotonic()
         assembly = runner.assemble(report['clips'])
@@ -216,6 +231,7 @@ class MediaOperations:
         # independent review here; its cache reuses already-reviewed current takes.
         from novel_manga.application.review.execution import review_saved, save_result
         started = time.monotonic()
+        report = self.hydrate_analysis(report, runner)
         verdicts = review_saved(self.ctx.episode_dir, fresh=False)
         episode_state.record(self.ctx.run_dir, 'review_saved',
                              checked=len(verdicts.get('clips') or {}), remaining=len(verdicts.get('feedback') or {}))
@@ -238,6 +254,7 @@ class MediaOperations:
         from novel_manga.application.review.execution import review_saved
         if not read_json(self.ctx.episode_dir / 'clip_plan.json'):
             raise ValueError('review requires an adopted episode')
+        self.hydrate_analysis(read_json(self.ctx.episode_dir/'thin_media_report.json', {}))
         record_state(self.ctx, 'reviewing', owner='episode_agent_tools')
         review = review_saved(self.ctx.episode_dir, fresh=False)
         episode_state.record(self.ctx.run_dir, 'review_saved',

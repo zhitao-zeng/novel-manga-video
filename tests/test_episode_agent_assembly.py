@@ -410,3 +410,34 @@ def test_finish_rescopes_retained_black_interval_without_reencoding_or_waiving(h
     assert check['passed'] and not check.get('waived')
     assert check['detail']['max_black_seconds'] == pytest.approx(.792)
     assert Path(media['assembly']['final_video']).read_bytes() == original
+
+
+@pytest.mark.parametrize('chunks,stale', [(None,False),([],False),(None,True)])
+def test_review_restores_partial_first_pass_audio_before_judging(host,monkeypatch,chunks,stale):
+    ctx, tools, events, _ = host
+    monkeypatch.setenv('NOVEL_FIRST_PASS_ONLY','1')
+    tools.dispatch('render')
+    monkeypatch.setenv('NOVEL_FIRST_PASS_ONLY','0')
+    path=ctx.episode_dir/'thin_media_report.json';media=read_json(path)
+    selected=media['clips'][0]['selected']
+    selected['passed']=False
+    if chunks is None:selected.pop('chunks')
+    if stale:media['clip_plan_fingerprint']='different inputs'
+    media['gate_failed_clips']=[media['clips'][0]['clip_id']]
+    atomic_write_json(path,media)
+    calls=[]
+    class Analyser:
+        def analyse_clip(self,clip,video):
+            calls.append((clip['clip_id'],str(video)))
+            return {'passed':True,'chunks':[],'reference':clip.get('spoken_text',''),'issues':[]}
+    monkeypatch.setattr(tools.media,'runner',lambda:Analyser())
+    monkeypatch.setattr('novel_manga.application.rendering.reviewed._load_current',lambda r:None)
+    before=history.generation_counts(ctx.episode_dir)
+    tools.dispatch('review')
+    restored=read_json(path)
+    assert bool(calls) is (chunks is None and not stale)
+    if calls:
+        assert restored['clips'][0]['selected']['passed']
+        assert restored['gate_failed_clips']==[]
+    assert history.generation_counts(ctx.episode_dir)==before
+    assert events==['render','review']
