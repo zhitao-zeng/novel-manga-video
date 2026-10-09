@@ -33,7 +33,7 @@ def repair_status(ctx):
         (ctx.episode_dir/'work/input_repairs').glob('clip_*-*.json'), key=lambda p: p.stat().st_mtime)]
     for path, record in records:
         cid = record.get('clip_id')
-        if not cid:
+        if not cid or record.get('operation')=='upstream_asset':
             continue
         row = {key: record.get(key) for key in ('status', 'step', 'error', 'error_kind', 'resume_count', 'revision_count', 'changed')}
         if record.get('error_details'):row['error_details']=record['error_details']

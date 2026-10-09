@@ -65,7 +65,7 @@ def latest_input_records(episode_dir):
     for path in sorted((Path(episode_dir)/'work/input_repairs').glob('clip_*-*.json'),
                        key=lambda p: (p.stat().st_mtime_ns, p.name)):
         record = read_json(path, {})
-        if record.get('clip_id'):
+        if record.get('clip_id') and record.get('operation') != 'upstream_asset':
             records[record['clip_id']] = (path, record)
     return records
 
@@ -102,7 +102,7 @@ def remaining_input_attempts(ctx, clip_ids, *, records=None):
         history.conditional_extra(ctx.episode_dir, cid, grants=grants) for cid in clip_ids) else {}
     return {cid: max(0, history.input_limit(ctx.episode_dir, cid, default=INPUT_LIMIT, grants=grants, counts=counts)
                 - sum(r.get('status') != 'tool_error'
-                for p, r in records if r.get('clip_id') == cid or p.name.startswith(cid+'-')))
+                for p, r in records if r.get('operation')!='upstream_asset' and (r.get('clip_id') == cid or p.name.startswith(cid+'-'))))
             for cid in clip_ids}
 
 
@@ -110,6 +110,7 @@ def input_records(ctx):
     records = [(p, read_json(p, {})) for p in sorted(
         (ctx.episode_dir/'work/input_repairs').glob('clip_*-*.json'),
         key=lambda p: (p.stat().st_mtime_ns, p.name))]
+    records = [(p,r) for p,r in records if r.get('operation')!='upstream_asset']
     trials = history.load(ctx.episode_dir).get('trials', [])
     for _, record in records:
         if record.get('status') == 'prepared' and not record.get('decision'):
@@ -172,7 +173,7 @@ def input_route(ctx, cid, row=None, *, records=None, image_review_policy=None):
         return 'resume', path, record
     if remaining_input_attempts(ctx, [cid], records=records)[cid] <= 0:
         raise ValueError('input repair allowance used; keep the unresolved source/input failure')
-    own = [(p, r) for p, r in records if r.get('clip_id') == cid or p.name.startswith(cid+'-')]
+    own = [(p, r) for p, r in records if r.get('operation')!='upstream_asset' and (r.get('clip_id') == cid or p.name.startswith(cid+'-'))]
     attempt = max((int(p.stem.rsplit('-', 1)[1]) for p, _ in own), default=0) + 1
     return 'new', ctx.episode_dir/'work/input_repairs'/f'{cid}-{attempt}.json', {}
 

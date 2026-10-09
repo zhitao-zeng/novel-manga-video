@@ -79,27 +79,28 @@ def check_image(path, role, name, design):
     return answer
 
 
-def _asset(ctx, role, name, design):
+def _asset(ctx, role, name, design, *, base_asset=None):
     """One shared image per accepted design, retaining unfinished supplier receipts."""
     root = ctx.asset_snapshot_dir/'series_assets/draft-assets'
     root.mkdir(parents=True, exist_ok=True)
     index = root/'index.json'
     from .input_assets import style_key
     style = style_key(ctx)
-    with (root/'index.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    from novel_manga.resource_waits import QueueWait
+    with QueueWait('shared_asset_index') as queue, (root/'index.lock').open('a') as lock:
+        queue.begin(); fcntl.flock(lock, fcntl.LOCK_EX); queue.finish()
         entries = read_json(index, [])
         row = next((r for r in entries if (r['role'], r['name'], r['design'], r.get('style_key'))
-                    == (role, name, design, style)), None)
+                    == (role, name, design, style) and r.get('base_asset')==base_asset), None)
         if row is None:
             row = {'id': f'draft_{role}_{len(entries)+1:04d}', 'role': role, 'name': name,
-                   'design': design, 'style_key': style}
+                   'design': design, 'style_key': style, **({'base_asset':base_asset} if base_asset else {})}
             entries.append(row)
             atomic_write_json(index, entries)
     directory = root/row['id']
     directory.mkdir(exist_ok=True)
-    with (directory/'build.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with QueueWait('shared_asset_candidate') as queue, (directory/'build.lock').open('a') as lock:
+        queue.begin(); fcntl.flock(lock, fcntl.LOCK_EX); queue.finish()
         receipt = directory/'accepted.json'
         accepted = read_json(receipt, {})
         if accepted:

@@ -67,7 +67,7 @@ def grant_conditional_extra(directory: Path, cid: str, *, authorization: str, re
         entry = grants.setdefault(cid, {})
         if current:
             entry.setdefault('previous_conditional_extras', []).append(copy.deepcopy(current))
-        used_inputs = sum(read(p, {}).get('status') != 'tool_error'
+        used_inputs = sum(read(p, {}).get('operation')!='upstream_asset' and read(p, {}).get('status') != 'tool_error'
                           for p in (directory/'work/input_repairs').glob(f'{cid}-*.json'))
         extra = {'authorization': authorization, 'reason': reason, 'limit': count+1,
                  'baseline_count': count, 'baseline_limit': generation_limit(directory, cid, grants=grants),
