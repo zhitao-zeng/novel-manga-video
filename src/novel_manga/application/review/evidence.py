@@ -38,7 +38,13 @@ def snapshot_block(clip: dict, episode_dir: Path) -> str:
     try:
         from novel_manga.application.identity.ledger_store import Ledger, novel_texts
         from novel_manga.application.identity.ledger_views import snapshot
-        ledger = _LEDGER_CACHE.get(novel_dir) or _LEDGER_CACHE.setdefault(novel_dir, Ledger(novel_dir))
+        from novel_manga.application.identity.store import data_signature
+        signature = data_signature(novel_dir)
+        cached = _LEDGER_CACHE.get(novel_dir)
+        if cached is None or cached[0] != signature:
+            cached = (signature, Ledger(novel_dir))
+            _LEDGER_CACHE[novel_dir] = cached
+        ledger = cached[1]
         texts = _NOVEL_TEXT_CACHE.get(novel_dir) or _NOVEL_TEXT_CACHE.setdefault(novel_dir, novel_texts(novel_dir))
         shot = snapshot(novel_dir, int(chapter), clip.get("segment_ids") or None, ledger=ledger, text=texts.get(int(chapter), ""))
     except Exception as error:  # noqa: BLE001 - the snapshot is an aid, never a reason to fail the review

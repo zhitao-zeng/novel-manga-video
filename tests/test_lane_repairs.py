@@ -8,6 +8,7 @@ import novel_manga.media.asset_builder as owner_asset_builder
 import novel_manga.application.rendering.submission as owner_submission
 from novel_manga.media import cache, generation
 import novel_manga.application.production.conductor_dispatch as conductor_dispatch
+import novel_manga.application.production.conductor_workers as conductor_workers
 import novel_manga.application.production.conductor_state as conductor_state
 import novel_manga.application.production.render as production_render
 
@@ -43,6 +44,12 @@ NOVEL = "nov"
 H3_KEY = {"name": "h3pool", "model": "minimax-h3", "key_var": "", "base_url": "pool", "clip_cap": 15, "parallel": 1,
           "inflight": {"min": 1, "max": 1, "start": 1}}
 PAID_KEY = {**H3_KEY, "name": "sd25", "base_url": "", "key_var": "PHANROUTER_API_KEY"}
+
+
+@pytest.fixture(autouse=True)
+def isolated_conductor_processes(monkeypatch):
+    # These tests exercise simulated lanes, not other novels currently running on the host.
+    monkeypatch.setattr(conductor_workers, 'external_running', lambda *args: False)
 
 
 def episode(tmp_path: Path, n: int = 1) -> Path:

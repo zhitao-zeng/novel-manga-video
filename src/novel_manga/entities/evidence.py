@@ -119,8 +119,19 @@ def generic_name(name: str) -> bool:
     """A label rather than a name: 六秘环师, 那位女士, 怪物, 警员 - never the survivor of a merge, never merged into
     automatically (a rank absorbs a person, and then everyone of that rank becomes him)."""
     titled = next((t for t in sorted(entity_contracts.WEAK_KEYS, key=len, reverse=True) if name.endswith(t) and len(name) > len(t)), "")
-    short = "·" not in name and (len(name) <= 2 or (len(name) == 3 and re.search(r"[女男人师猫狗声魂神鬼仆兵王主客者员]", name)))
-    return bool(short or name[:1] in "那这某" or (titled and len(name) - len(titled) <= 2) or re.search(r"(秘环师|教士|警官|管家|女仆|仆人|侍女|士兵|护卫|保镖|老人|老者|青年|少年|少女|男人|女人|怪物|巨人)$", name))
+    from novel_manga.story.name_rules import GENERIC_NAMES
+    return bool(name in GENERIC_NAMES or name in entity_contracts.WEAK_KEYS
+                or name[:1] in "那这某" or (titled and len(name) - len(titled) <= 2)
+                or re.fullmatch(r"(?:白|黑|灰|小|大)?(?:猫|狗)", name)
+                or re.search(r"(秘女|秘环师|教士|警官|警员|管家|女仆|仆人|侍女|士兵|护卫|保镖|老人|老者|青年|少年|少女|男人|女人|怪物|巨人)$", name))
+
+
+def generic_record(record: dict) -> bool:
+    """Confirmed reading metadata wins; legacy bible seeds may carry unverified label names."""
+    if record.get('named') is False:
+        return True
+    return (record.get('source') in {'bible', 'ch0'} and not record.get('evidence')
+            and generic_name(record.get('canonical', '')))
 
 
 def describe_record(e: dict) -> str:

@@ -37,7 +37,7 @@ def build_index(novel_dir: Path) -> dict:
         if e["status"] != "active":
             continue
         rows.append({"name": e["canonical"], "id": e["id"], "asset_id": e.get("asset_id"), "role": e.get("role", ""),
-                     "has_card": bool(e.get("asset_id")), "generic": not e.get("named", True) or len(e["canonical"]) < 2,
+                     "has_card": bool(e.get("asset_id")), "generic": entity_evidence.generic_record(e),
                      "forms": dict(forms[e["id"]].most_common()), "contextual_forms": sorted(contextual[e["id"]]),
                      "mentions": sum(forms[e["id"]].values()), "first_chapter": span[e["id"]][0], "last_chapter": span[e["id"]][1],
                      "merged": merged_into.get(e["id"], [])})

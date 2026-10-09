@@ -31,36 +31,42 @@ def judge_link(form: str, evidence: str, assigned: dict, options: list[dict], fo
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.RELINK_SCHEMA, name="entity_relink", max_tokens=200, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"entity": "UNCERTAIN", "why": f"error {type(error).__name__}"}
+        return {"entity": "UNCERTAIN", "why": f"error {type(error).__name__}", "error": True}
 
 
 def judge_claim(claim: dict, subject: str, object_: str) -> dict:
     """Does the quotation support this relation between these two records?  Both sides are described (not just
     named) so that a right sentence attached to the wrong person - "占据了别人身体" resolved to the wrong body -
     reads as insufficient."""
-    text = (entity_contracts.VERDICT_RULES + f"关系类型：{claim['type']}（叙事范围：{claim['scope']}）\n主体（subject）：{subject}\n客体（object）：{object_}\n"
+    text = (entity_contracts.VERDICT_RULES + entity_contracts.IDENTITY_EVIDENCE_RULES
+            + f"关系类型：{claim['type']}：{entity_contracts.CLAIM_MEANINGS[claim['type']]}（叙事范围：{claim['scope']}）\n主体（subject）：{subject}\n客体（object）：{object_}\n"
             f"证据原文：{claim['evidence']}\n这句证据是否明确支持“主体 {claim['type']} 客体”这条关系，而且客体确实是这条记录、不是别人？")
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.VERDICT_SCHEMA, name="entity_verdict", max_tokens=200, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"verdict": "insufficient", "why": f"error {type(error).__name__}"}
+        return {"verdict": "insufficient", "why": f"error {type(error).__name__}", "error": True}
 
 
 def judge_same(a: dict, b: dict, forms_a: set[str], forms_b: set[str], note: str = "") -> dict:
     """Are two records one person?  Asked when a new record's name shares a piece with an existing one (the
     read-ahead extracts chapters before the ledger has the people the previous chapter added), and when one
     written form bridges two records (艾琳娜·路易斯 for 艾琳娜 and 多洛茜·路易斯)."""
-    text = (entity_contracts.SAME_RULES + f"记录甲：{entity_evidence.describe_record(a)}；已见写法：{'、'.join(sorted(forms_a))}\n"
+    text = (entity_contracts.SAME_RULES + entity_contracts.IDENTITY_EVIDENCE_RULES
+            + entity_contracts.CLAIM_MEANINGS['same_as'] + '\n'
+            + f"记录甲：{entity_evidence.describe_record(a)}；已见写法：{'、'.join(sorted(forms_a))}\n"
             f"记录乙：{entity_evidence.describe_record(b)}；已见写法：{'、'.join(sorted(forms_b))}" + (f"\n本章原文：{note}" if note else ""))
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.SAME_SCHEMA, name="entity_same", max_tokens=200, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"same": "unsure", "why": f"error {type(error).__name__}"}
+        return {"same": "unsure", "why": f"error {type(error).__name__}", "error": True}
 
 
 def judge_settle(pack: str, rules: str) -> dict:
     try:
-        return ask_json([{"type": "text", "text": rules + "（why 不超过 80 字）\n\n" + pack}], entity_contracts.VERDICT_SCHEMA, name="entity_settle", max_tokens=600, settings=judge_settings())
+        meaning = '\n'.join(f'{kind}：{definition}' for kind, definition in entity_contracts.CLAIM_MEANINGS.items())
+        return ask_json([{"type": "text", "text": rules + '（why 不超过 80 字）\n'
+                         + entity_contracts.IDENTITY_EVIDENCE_RULES + '关系类型定义：\n' + meaning + '\n\n' + pack}],
+                        entity_contracts.VERDICT_SCHEMA, name="entity_settle", max_tokens=600, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
         return {"verdict": "insufficient", "why": f"error {type(error).__name__}", "error": True}
 
@@ -72,4 +78,4 @@ def judge_generic(e: dict, rows: list[dict]) -> dict:
     try:
         return ask_json([{"type": "text", "text": text}], entity_contracts.DEDUP_SCHEMA, name="entity_dedup", max_tokens=500, settings=judge_settings())
     except Exception as error:  # noqa: BLE001
-        return {"same_ids": [], "why": f"error {type(error).__name__}"}
+        return {"same_ids": [], "why": f"error {type(error).__name__}", "error": True}

@@ -118,28 +118,33 @@ class Ledger:
         # screenplay analyzer keep: raw analysis kept, corrections separate, views recomputed)
         self.corrections: list[dict] = read_json(self.base / "corrections.json", [])
         self.asked: dict[str, str] = read_json(self.base / "asked.json", {})  # "eA|eB" -> same/different/unsure, asked once
-        self.by_id = {e["id"]: e for e in self.entities}
-        self.by_name: dict[str, dict] = {}
-        self.forms: dict[str, set[str]] = {e["id"]: {e["canonical"]} for e in self.entities}
-        self.recent: dict[str, int] = {}  # entity -> last chapter it was on stage or a voice
         self.mentions_by_chapter: dict[int, list[dict]] = {}
         self.relations_by_chapter: dict[int, list[dict]] = {}
         for path in sorted((self.base / "mentions").glob("ch_*.json")):
             chapter = int(path.stem[3:])
-            rows = read_json(path, [])
-            self.mentions_by_chapter[chapter] = rows
+            self.mentions_by_chapter[chapter] = read_json(path, [])
             self.relations_by_chapter[chapter] = read_json(self.relations_path(chapter), [])
-            for m in rows:
-                if m.get("kind") == "proper" and m.get("entity") in self.forms:
-                    self.forms[m["entity"]].add(m["form"])
-                if m.get("presence") != "mentioned" and str(m.get("entity", "")).startswith("e"):
-                    self.recent[m["entity"]] = max(self.recent.get(m["entity"], 0), int(m.get("chapter", 0)))
-        for e in self.entities:  # a merged record's forms belong to its survivor
-            if e.get("merged_into"):
-                self.forms[self.canonical(e["id"])] |= self.forms.pop(e["id"], set())
-        for e in self.entities:
-            self.by_name.setdefault(e["canonical"], self.by_id[self.canonical(e["id"])])
+        self.rebuild_identity_views()
         self.link_cards()
+
+    def rebuild_identity_views(self) -> None:
+        """Recompute only derived lookup views after an identity edge changes."""
+        self.by_id = {e['id']: e for e in self.entities}
+        self.by_name = {}
+        self.forms = {e['id']: {e['canonical']} for e in self.entities}
+        self.recent = {}
+        for chapter, rows in sorted(self.mentions_by_chapter.items()):
+            for mention in rows:
+                eid = mention.get('entity')
+                if mention.get('kind') == 'proper' and eid in self.forms:
+                    self.forms[eid].add(mention['form'])
+                if mention.get('presence') != 'mentioned' and eid in self.by_id:
+                    self.recent[eid] = max(self.recent.get(eid, 0), chapter)
+        for entity in self.entities:
+            if entity.get('merged_into'):
+                self.forms.setdefault(self.canonical(entity['id']), set()).update(self.forms.pop(entity['id'], set()))
+        for entity in self.entities:
+            self.by_name.setdefault(entity['canonical'], self.by_id[self.canonical(entity['id'])])
 
     # ---- lookups
     def canonical(self, eid: str) -> str:
