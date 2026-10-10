@@ -22,7 +22,7 @@ def test_extract_props_rules(monkeypatch):
     text = "他抽出那柄青铜短剑，又端起茶杯喝了一口。"
     rows = cast_entity_extraction.extract_props(text, [], {"莱恩"})
     assert [r["name"] for r in rows] == ["青铜短剑"]   # quote 不是原文连续子串的被丢弃
-    assert asked["settings"] is not None and asked["settings"].model == "Qwen3.8-27B-Project"
+    assert asked["settings"] is not None and asked["settings"].model == "deepseek-v4.1-flash"  # 判官默认 phanthy-ds41
 
 
 def test_extract_props_refuses_a_name_taken_by_a_character(monkeypatch):

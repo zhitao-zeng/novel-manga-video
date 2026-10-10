@@ -137,7 +137,7 @@ def test_phanthy_is_a_peer_with_low_effort_and_a_reasoning_output_floor(monkeypa
 
 
 def test_the_bibles_questions_go_to_the_judge_whatever_endpoint_plans(monkeypatch):
-    """Inside the planner the process is on Flash-Next; who a name is, is still the 27B's to say."""
+    """Inside the planner the process is on Flash-Next; who a name is, is the judge lane's to say."""
     from novel_manga.application.review import bible as review_bible
     asked = {}
     def fake_ask(parts, schema, **kwargs):
@@ -147,7 +147,7 @@ def test_the_bibles_questions_go_to_the_judge_whatever_endpoint_plans(monkeypatc
     with using_endpoint("flashnext"):
         cast_entity_extraction.extract_names("席勒站在讲台后。")
     assert asked["settings"] is not None
-    assert asked["settings"].model == "Qwen3.8-27B-Project"
+    assert asked["settings"].model == "deepseek-v4.1-flash"  # 判官默认 phanthy-ds41(2026-10-10 起,本地池已停)
 
 
 def test_the_preflight_probes_the_endpoint_planning_will_use_and_the_judges(monkeypatch):
@@ -158,8 +158,7 @@ def test_the_preflight_probes_the_endpoint_planning_will_use_and_the_judges(monk
     monkeypatch.setattr(production_flow.production_common, "log", lambda *a, **k: None)
     batch = object.__new__(production_flow.Batch)
     batch.check_qwen()
-    assert "http://127.0.0.1:8789/v1" in probed                      # the planner's (phanthy-ds41, 2026-10-10 起)
-    assert any(":1812" in base for base in probed)                      # the judge's pool
+    assert probed.count("http://127.0.0.1:8789/v1") >= 2  # 规划与判官都打主力 API(2026-10-10 起)
 
 
 def test_the_preflight_stops_when_the_planners_endpoint_is_the_dead_one(monkeypatch):
