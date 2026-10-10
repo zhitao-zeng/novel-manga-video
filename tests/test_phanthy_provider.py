@@ -36,7 +36,7 @@ def test_provider_flags_reach_conductor_workers_without_affecting_ds():
     value=server_env(conductor,{'base':'http://127.0.0.1:8789/v1','model':'glm-5.3-flash',
         'key_var':'PHANTHY_API_KEY','endpoint':'phanthy'})
     assert value['QWEN38_LOCAL_STREAM']=='1'
-    assert value['QWEN38_LOCAL_MIN_MAX_TOKENS']=='0'
+    assert value['QWEN38_LOCAL_MIN_MAX_TOKENS']=='16000'
     ds=server_env(conductor,{'base':'http://172.28.4.52:8831/v1','model':'DeepSeek-V4.1-Flash',
         'key_var':'GPU52_DEEPSEEK_API_KEY','endpoint':'deepseek'})
     assert ds['QWEN38_LOCAL_STREAM']=='0'

@@ -100,14 +100,14 @@ def test_a_preset_is_put_back_even_when_the_run_raises(monkeypatch):
     assert os.environ["QWEN38_LOCAL_BASE_URL"] == "http://was-here:1/v1"
 
 
-@pytest.mark.parametrize("value, expected", [(None, "flashnext"), ("", "flashnext"), ("  ", "flashnext"), ("local", "local"), ("deepseek", "deepseek")])
+@pytest.mark.parametrize("value, expected", [(None, "phanthy-ds41"), ("", "phanthy-ds41"), ("  ", "phanthy-ds41"), ("local", "local"), ("deepseek", "deepseek")])
 def test_an_empty_planner_endpoint_is_the_default_not_an_endpoint_called_nothing(value, expected):
     environ = {} if value is None else {"NOVEL_PLANNER_ENDPOINT": value}
     assert planner_endpoint_name(environ) == expected
 
 
 def test_a_planner_endpoint_that_names_nothing_is_refused_with_the_list():
-    with pytest.raises(ValueError, match="flashnext.*local|local.*flashnext"):
+    with pytest.raises(ValueError, match="phanthy-ds41.*local|local.*phanthy-ds41"):
         planner_endpoint_name({"NOVEL_PLANNER_ENDPOINT": "flashnxt"})
 
 
@@ -158,13 +158,13 @@ def test_the_preflight_probes_the_endpoint_planning_will_use_and_the_judges(monk
     monkeypatch.setattr(production_flow.production_common, "log", lambda *a, **k: None)
     batch = object.__new__(production_flow.Batch)
     batch.check_qwen()
-    assert "http://172.28.4.81:8038/v1" in probed                      # the planner's
+    assert "http://127.0.0.1:8789/v1" in probed                      # the planner's (phanthy-ds41, 2026-10-10 起)
     assert any(":1812" in base for base in probed)                      # the judge's pool
 
 
 def test_the_preflight_stops_when_the_planners_endpoint_is_the_dead_one(monkeypatch):
     from novel_manga.application.production import flow as production_flow
-    monkeypatch.setattr(production_flow.Batch, "endpoint_answers", staticmethod(lambda base, key="": "8038" not in base))
+    monkeypatch.setattr(production_flow.Batch, "endpoint_answers", staticmethod(lambda base, key="": "8789" not in base))
     monkeypatch.setattr(production_flow.production_common, "log", lambda *a, **k: None)
     batch = object.__new__(production_flow.Batch)
     with pytest.raises(SystemExit, match="规划"):
