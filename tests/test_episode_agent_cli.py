@@ -141,7 +141,7 @@ def test_phanthy_transport_is_kept_for_agent_host_tools(ctx,monkeypatch):
     env=resolved_settings.resolve_agent_environment(ctx,{'base_url':'http://127.0.0.1:8789',
         'model':'glm-5.3-flash','key_var':'PHANTHY_API_KEY'})
     assert env['SECOND_REVIEW_JUDGE']=='phanthy'
-    assert env['QWEN38_LOCAL_STREAM']=='1' and env['QWEN38_LOCAL_MIN_MAX_TOKENS']=='0'
+    assert env['QWEN38_LOCAL_STREAM']=='1' and env['QWEN38_LOCAL_MIN_MAX_TOKENS']=='16000'
 
 
 def test_secondary_translation_model_has_shared_cap_without_moving_agent_or_judge(ctx, monkeypatch):

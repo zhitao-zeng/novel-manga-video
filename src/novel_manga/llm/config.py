@@ -32,7 +32,7 @@ ENDPOINTS = {
     "phanthy": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8789/v1",
                 "QWEN38_LOCAL_MODEL": "glm-5.3-flash",
                 "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
-                "QWEN38_LOCAL_REASONING": "low", "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
+                "QWEN38_LOCAL_REASONING": "low", "QWEN38_LOCAL_MIN_MAX_TOKENS": "16000"},
     # 网关透传的两个无费率 ID（2026-10-10 实测当前账号零扣分，实际服务模型标 kimi-k2.6，
     # 是 reasoning 模型：短 max_tokens 会被推理耗尽返回空 content，调大预算才出正文）。
     "phanthy-dsv4": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8789/v1",
@@ -43,6 +43,13 @@ ENDPOINTS = {
                        "QWEN38_LOCAL_MODEL": "phanthy.com/phancy-35b",
                        "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
                        "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
+    # 2026-10-10 主力切换：Phanthy API 的 deepseek-v4.1-flash 接替本地 DS 成为规划/审核主力
+    # （6 并发实测全绿；输出无 8000 天花板；缓存读取 6/M 是本表最低）。本地 deepseek/flashnext
+    # 预设保留作记录与回退，生产不再默认使用。
+    "phanthy-ds41": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8789/v1",
+                     "QWEN38_LOCAL_MODEL": "deepseek-v4.1-flash",
+                     "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
+                     "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
 }
 
 TRANSPORT_ENV = ('QWEN38_LOCAL_STREAM', 'QWEN38_LOCAL_REASONING', 'QWEN38_LOCAL_MIN_MAX_TOKENS')
@@ -58,7 +65,9 @@ def planner_endpoint_name(environ=None) -> str:
     environment happened to hold.
     """
     environ = os.environ if environ is None else environ
-    name = str(environ.get("NOVEL_PLANNER_ENDPOINT", "") or "").strip() or "flashnext"
+    # 2026-10-10 用户决定：主力模型切 Phanthy API（本地大模型服务保留配置不再使用）。
+    # API deepseek-v4.1-flash 实测 6 并发全绿、长输出无 8000 天花板（6979 自然停止）。
+    name = str(environ.get("NOVEL_PLANNER_ENDPOINT", "") or "").strip() or "phanthy-ds41"
     if name not in ENDPOINTS:
         raise ValueError(f"NOVEL_PLANNER_ENDPOINT={name!r} names no endpoint; pick one of {sorted(ENDPOINTS)}")
     return name

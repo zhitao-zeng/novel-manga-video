@@ -118,18 +118,20 @@ def test_named_settings_leave_the_process_environment_alone(monkeypatch):
     assert os.environ["QWEN38_LOCAL_BASE_URL"] == "http://was-here:1/v1"
 
 
-def test_phanthy_is_a_peer_with_low_effort_and_no_output_budget_floor(monkeypatch):
+def test_phanthy_is_a_peer_with_low_effort_and_a_reasoning_output_floor(monkeypatch):
     monkeypatch.setenv('PHANTHY_API_KEY','fake-test-credential')
     settings=endpoint_settings('phanthy')
     assert settings.model=='glm-5.3-flash'
     assert settings.endpoints==('http://127.0.0.1:8789/v1',)
     assert settings.key=='fake-test-credential'
-    assert settings.stream and settings.reasoning=='low' and settings.min_max_tokens==0
+    # GLM counts reasoning inside max_tokens: without a floor a 700-token judge answer
+    # fits, but a plan outline burned all 4096 on reasoning (ch800, 2026-10-10).
+    assert settings.stream and settings.reasoning=='low' and settings.min_max_tokens==16000
     client=Recorder()
     with using_endpoint('phanthy'):
         try:transport.post_any(client,list(settings.endpoints),{},dict(REQUEST),settings=settings)
         except httpx.HTTPError:pass
-    assert client.streamed and client.sent['max_tokens']==700
+    assert client.streamed and client.sent['max_tokens']==16000
     assert client.sent['reasoning_effort']=='low'
     assert 'chat_template_kwargs' not in client.sent
 
