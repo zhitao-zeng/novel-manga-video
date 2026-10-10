@@ -325,3 +325,11 @@ def test_only_the_episode_skill_is_installed(tmp_path, config):
     with pytest.raises(SandboxRefused, match="other skills"):
         session.run_session(work, "Draft", config=config)
     assert not (work / session.SESSION_FILE).exists()
+
+
+def test_sensitive_stop_is_recorded_as_refusal_so_fallback_fires(tmp_path, monkeypatch, config):
+    work = tmp_path/'episode'
+    fake_cli(monkeypatch, work, code=0, result={
+        'type': 'result', 'subtype': 'success', 'stop_reason': 'sensitive', 'result': ''})
+    result = session.run_session(work, 'Draft', config=config)
+    assert result.record['refusal'] == 'content moderation: sensitive stop'

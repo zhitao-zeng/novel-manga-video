@@ -199,7 +199,10 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
         "expected_output": expected_output, "expected_output_produced": expected_output in produced,
         'turn_limit_reached': completion.get('subtype') == 'error_max_turns',
         'num_turns': completion.get('num_turns'),
-        'refusal': refusal_reason(completion.get('result') or last_text),
+        'refusal': refusal_reason(completion.get('result') or last_text) or (
+            # GLM cuts violent chapters off with a sensitive stop and no text; that is a
+            # refusal by another name, and the model fallback exists for it (358, 2026-10-10).
+            'content moderation: sensitive stop' if completion.get('stop_reason') == 'sensitive' else ''),
         'summary_only': summary_ending(completion.get('result') or last_text),
         **({'context_rotation':context_rotation} if context_rotation else {}),
     }
