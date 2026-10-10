@@ -44,8 +44,9 @@ def compress_plan(raw, payload, schema, shots, errors, *, base_url, model, max_t
                     for si, stage in enumerate(clip['stages'])]
     covered_segments = {stage['segment_id'] for clip in raw['clips'] for stage in clip['stages']}
     edit_schema = {'type': 'object', 'additionalProperties': False, 'required': ['edits', 'dropped_stages'],
-        'properties': {'edits': {'type': 'array', 'minItems': len(entries), 'maxItems': len(entries),
-            'prefixItems': entries, 'items': False},
+        'properties': {'edits': {'type': 'array', 'minItems': 0, 'maxItems': len(entries),
+            'items': {'type':'object','additionalProperties':False,'required':['index','text'],
+                'properties':{'index':{'type':'integer','enum':list(range(1,len(entries)+1))},'text':{'type':'string'}}}},
             'dropped_stages': {'type': 'array', 'maxItems': max(0, len(stage_labels) - len(covered_segments)),
                 'items': {'type': 'string', 'enum': stage_labels}}}}
     instructions = (
@@ -60,7 +61,8 @@ def compress_plan(raw, payload, schema, shots, errors, *, base_url, model, max_t
         '逐个对照已有提纲的retained_dialogue保留其实际信息，可以缩短措辞，不能只在画面说明里写“解释了”。'
         '不要通过降低duration_seconds、加速语音、删除全部对白或伪造估时来过关；'
         '时长会按实际台词和镜头重新计算。source_quote仍逐字复制对应原文。'
-        '只返回spoken_lines每条对应index与改短后的text，不输出完整分镜、提纲或压缩建议。'
+        '只返回edits中的index与改短后的text，以及dropped_stages，不输出完整分镜、提纲或压缩建议。'
+        '每条保留阶段的spoken_lines都须编辑一次；删除阶段的台词不用重复填写空字符串，直接省略该index。'
         'spoken_character_budget是整章共享预算，不是逐句按比例截断。保留的台词必须是语义完整、能自然听懂的表达，'
         '不得切掉词尾或保留半句话来凑字数；重要句可以分配更多字数。可把同一阶段、同一说话人的信息合到其一条对白，'
         '被合并的重复句或没有新信息的感叹用空字符串删除；重要问答仍要分别保留。'
@@ -114,18 +116,20 @@ def compress_plan(raw, payload, schema, shots, errors, *, base_url, model, max_t
     dropped = extract_json(content).get('dropped_stages', [])
     if set(dropped) - set(stage_labels):
         raise ValueError('Compression response tried to drop an absent stage')
-    if [edit.get('index') for edit in edits] != list(range(1, len(slots) + 1)):
+    indices=[edit.get('index')for edit in edits]
+    required={i for i,(ci,si,ti,turn)in enumerate(slots,1)if f'{ci+1}:{si+1}'not in dropped}
+    if (any(type(i)is not int or not 1<=i<=len(slots)for i in indices)
+            or len(set(indices))!=len(indices)or not required<=set(indices)):
         raise ValueError('Compression response did not address each spoken line exactly once')
     if any(not isinstance(edit.get('text'), str) for edit in edits):
         raise ValueError('Compression response requires a string for each spoken line')
     candidate = deepcopy(raw)
-    for edit, (ci, si, ti, _) in zip(edits, slots):
+    for edit in edits:
+        ci,si,ti,_=slots[edit['index']-1]
         candidate['clips'][ci]['stages'][si]['turns'][ti]['text'] = edit['text']
-    conflicts = [f'{ci}:{si}' for ci, clip in enumerate(candidate['clips'], 1)
-                 for si, stage in enumerate(clip['stages'], 1)
-                 if f'{ci}:{si}' in dropped and any(
-                     turn.get('delivery_mode') in {'visible_dialogue', 'offscreen_dialogue'}
-                     and str(turn.get('text') or '').strip() for turn in stage['turns'])]
+    conflicts=[f'{slots[e["index"]-1][0]+1}:{slots[e["index"]-1][1]+1}'for e in edits
+               if str(e['text']).strip()and
+               f'{slots[e["index"]-1][0]+1}:{slots[e["index"]-1][1]+1}'in dropped]
     if conflicts:
         raise ValueError('Deletion conflicts with retained dialogue edits at stages: ' + ', '.join(conflicts))
     remaining_segments = {stage['segment_id'] for ci, clip in enumerate(candidate['clips'], 1)

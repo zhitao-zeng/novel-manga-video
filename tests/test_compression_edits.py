@@ -63,3 +63,17 @@ def test_stage_deletion_cannot_discard_retained_words_or_a_whole_source_segment(
             base_url='http://model.invalid/v1', model='test', max_tokens=2000,
             timeout=10, ctx=PlannerContext.from_env())
     assert original == draft()
+
+
+def test_deleted_stage_needs_no_redundant_empty_dialogue_edit(monkeypatch):
+    import json
+    original=draft();first=original['clips'][0]['stages'][0]
+    original['clips'][0]['stages'].append(copy.deepcopy(first))
+    monkeypatch.setattr(compression,'post_any',lambda *a:{'choices':[{'finish_reason':'stop','message':{
+        'content':json.dumps({'edits':[{'index':2,'text':'先查身份，别暴露。'}],'dropped_stages':['1:1']})}}]})
+    candidate,details=compression.compress_plan(original,{}, {},original['clips'][0]['stages'],[],
+        base_url='http://model.invalid/v1',model='test',max_tokens=2000,timeout=10,ctx=PlannerContext.from_env())
+    assert len(candidate['clips'][0]['stages'])==1
+    assert candidate['clips'][0]['stages'][0]['turns'][0]['text']=='先查身份，别暴露。'
+    assert len(original['clips'][0]['stages'])==2
+    assert details['dropped_stages']==['1:1']
