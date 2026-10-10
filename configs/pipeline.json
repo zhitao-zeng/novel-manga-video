@@ -134,6 +134,22 @@
         "model": "glm-5.3-flash",
         "key_var": "PHANTHY_API_KEY",
         "slots": 1
+      },
+      "phanthy-dsv4": {
+        "endpoint": "phanthy-dsv4",
+        "base": "http://127.0.0.1:8789/v1",
+        "model": "phanthy.com/deepseek-v4",
+        "key_var": "PHANTHY_API_KEY",
+        "slots": 2,
+        "note": "网关透传无费率ID（2026-10-10 实测零扣分，实际服务模型 kimi-k2.6 reasoning）；短 max_tokens 会被推理耗尽返回空 content"
+      },
+      "phanthy-phancy": {
+        "endpoint": "phanthy-phancy",
+        "base": "http://127.0.0.1:8789/v1",
+        "model": "phanthy.com/phancy-35b",
+        "key_var": "PHANTHY_API_KEY",
+        "slots": 2,
+        "note": "同 phanthy-dsv4：实测同为 kimi-k2.6 reasoning；费率未公布"
       }
     }
   },

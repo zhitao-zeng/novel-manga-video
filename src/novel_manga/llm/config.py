@@ -33,6 +33,16 @@ ENDPOINTS = {
                 "QWEN38_LOCAL_MODEL": "glm-5.3-flash",
                 "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
                 "QWEN38_LOCAL_REASONING": "low", "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
+    # 网关透传的两个无费率 ID（2026-10-10 实测当前账号零扣分，实际服务模型标 kimi-k2.6，
+    # 是 reasoning 模型：短 max_tokens 会被推理耗尽返回空 content，调大预算才出正文）。
+    "phanthy-dsv4": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8789/v1",
+                     "QWEN38_LOCAL_MODEL": "phanthy.com/deepseek-v4",
+                     "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
+                     "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
+    "phanthy-phancy": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8789/v1",
+                       "QWEN38_LOCAL_MODEL": "phanthy.com/phancy-35b",
+                       "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
+                       "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
 }
 
 TRANSPORT_ENV = ('QWEN38_LOCAL_STREAM', 'QWEN38_LOCAL_REASONING', 'QWEN38_LOCAL_MIN_MAX_TOKENS')
