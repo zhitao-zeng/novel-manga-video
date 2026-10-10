@@ -459,3 +459,23 @@ def test_story_pass_does_not_grow_from_rejected_identity_and_continues_other_cha
     assert grown==[2]
     assert store.read_json(ledger.mentions_path(1),[])==[]
     assert store.read_json(ledger.mentions_path(2),[])[0]['entity']=='e001'
+
+
+def test_complaint_without_correction_gets_one_demand_before_failing(monkeypatch):
+    calls=[]
+    answers=[{'approved':False,'reason':'绑定错了','correction':None},
+             {'approved':True,'reason':'','correction':None}]
+    def ask(*args,**kwargs):
+        calls.append(kwargs['name'])
+        return answers.pop(0)
+    monkeypatch.setattr(client,'ask_json',ask)
+    value, result = review.close({'actors':[]}, {}, {},name='review')
+    assert result['approved'] is True and calls==['review','review']
+
+
+def test_repeated_complaint_without_correction_still_fails(monkeypatch):
+    def ask(*args,**kwargs):
+        return {'approved':False,'reason':'有错但说不出怎么改','correction':None}
+    monkeypatch.setattr(client,'ask_json',ask)
+    with pytest.raises(ValueError,match='identity semantic review unresolved'):
+        review.close({}, {}, {},name='review')

@@ -24,6 +24,7 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
     reply_schema = client.obj({'approved': {'type': 'boolean'}, 'reason': {'type': 'string'},
                               'correction': {'anyOf': [schema, {'type': 'null'}]}})
     current = deepcopy(candidate)
+    demand = ''
     for attempt in range(2):
         view={
             'visible_or_voice_subjects':[{k:a.get(k)for k in ('source_id','name','kind','presence')}
@@ -40,7 +41,8 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
             '删除确实重复或虚构的主体用removed_source_ids；同一人两个叫法应合并forms、保留一个source_id并删除另一个，不强求共享人编号的两个主体。'
             '人物、群体、物件和声源分别登记。此候选没有relations字段，不负责补齐全书亲属关系或归并历史档案；未登记背景关系不构成本章绑定错误。'
             '只被提及且不出场的未知身份允许保留，不能以此否决规划。个体按individual理解，count=0不表示没有这个演员。'
-            '引用对应章节/段落原句，已有确证身份保持。\n'
+            '引用对应章节/段落原句，已有确证身份保持。'
+            + demand + '\n'
             + json.dumps({'evidence': context, 'candidate': current,'planning_view':view}, ensure_ascii=False))
         options = {'settings': settings} if settings is not None else {}
         answer = client.ask_json([{'type': 'text', 'text': prompt}], reply_schema,
@@ -54,6 +56,13 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
             if record is not None:atomic_write_json(record,trace)
             return current, {'approved': True, 'reason': answer.get('reason', ''), 'inputs': inputs, 'result': current}
         proposal = answer.get('correction')
+        if proposal is None and not attempt:
+            # A complaint without a correction object cannot be applied; demand it once before failing.
+            demand = ('你刚才指出了问题但 correction 为空。这次必须给出 correction:'
+                      '只含需要改动的 actors/bindings 条目和 removed_source_ids;'
+                      '若问题实际无法落笔修订,说明哪条证据不足,不要把同样的理由再写一遍。')
+            note('demand_correction', reason=answer.get('reason'))
+            continue
         if attempt or proposal is None:
             raise ValueError('identity semantic review unresolved: ' + str(answer.get('reason', 'no source-backed correction')))
         proposed=current
