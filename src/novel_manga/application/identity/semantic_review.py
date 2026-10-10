@@ -25,7 +25,9 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
                               'correction': {'anyOf': [schema, {'type': 'null'}]}})
     current = deepcopy(candidate)
     demand = ''
-    for attempt in range(2):
+    demanded = False
+    attempt = 0
+    while attempt < 2:
         view={
             'visible_or_voice_subjects':[{k:a.get(k)for k in ('source_id','name','kind','presence')}
                 for a in current.get('actors',[])if a.get('presence')in {'on_stage','voice'}],
@@ -56,11 +58,13 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
             if record is not None:atomic_write_json(record,trace)
             return current, {'approved': True, 'reason': answer.get('reason', ''), 'inputs': inputs, 'result': current}
         proposal = answer.get('correction')
-        if proposal is None and not attempt:
+        if proposal is None and not demanded:
             # A complaint without a correction object cannot be applied; demand it once before failing.
+            # The demand consumes no review attempt: the bounded merge/final-review budget is unchanged.
             demand = ('你刚才指出了问题但 correction 为空。这次必须给出 correction:'
                       '只含需要改动的 actors/bindings 条目和 removed_source_ids;'
                       '若问题实际无法落笔修订,说明哪条证据不足,不要把同样的理由再写一遍。')
+            demanded = True
             note('demand_correction', reason=answer.get('reason'))
             continue
         if attempt or proposal is None:
@@ -81,6 +85,7 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
                 name=name+'_correction',max_tokens=6500,timeout=240,**options)
             note('protocol_correction',candidate=repaired)
             current=validate(merge_correction(proposed,repaired))
+        attempt += 1
     raise AssertionError('bounded review did not return')
 
 

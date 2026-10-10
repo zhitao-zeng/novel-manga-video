@@ -479,3 +479,24 @@ def test_repeated_complaint_without_correction_still_fails(monkeypatch):
     monkeypatch.setattr(client,'ask_json',ask)
     with pytest.raises(ValueError,match='identity semantic review unresolved'):
         review.close({}, {}, {},name='review')
+
+
+
+def test_demanded_correction_is_merged_then_final_reviewed(monkeypatch):
+    calls = []
+    answers = [{'approved': False, 'reason': '绑定错了', 'correction': None},
+               {'approved': False, 'reason': '绑定错了', 'correction': {'actors': [{'name': '甲'}]}},
+               {'approved': True, 'reason': '', 'correction': None}]
+    merged = []
+    def ask(*args, **kwargs):
+        calls.append(kwargs['name'])
+        return answers.pop(0)
+    monkeypatch.setattr(client, 'ask_json', ask)
+    def merge(current, proposal):
+        merged.append(proposal)
+        return {'actors': proposal['actors']}
+    value, result = review.close({'actors': []}, {}, {}, name='review', merge_correction=merge)
+    assert result['approved'] is True
+    assert calls == ['review', 'review', 'review']
+    assert merged == [{'actors': [{'name': '甲'}]}]
+    assert value == {'actors': [{'name': '甲'}]}
