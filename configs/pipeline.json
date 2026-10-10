@@ -111,14 +111,14 @@
         "base": "http://127.0.0.1:18120/v1,http://127.0.0.1:18121/v1,http://127.0.0.1:18124/v1",
         "model": "Qwen3.8-27B-Project",
         "slots": 3,
-        "note": "本机 5 个端口，同时还要给渲染的提交前预审留余量"
+        "note": "本机 5 个端口，同时还要给渲染的提交前预审留余量；2026-10-10 起本地大模型服务不再作为主力，保留记录"
       },
       "flashnext": {
         "base": "http://172.28.4.81:8038/v1",
         "model": "Qwen3.8-Flash-Next",
         "key_var": "GPU81_QWEN_API_KEY",
         "slots": 3,
-        "note": "别人的机器；2026-09-28 用户确认可开到 3 个请求"
+        "note": "本地 Flash-Next（已停用 2026-10-10：主力切 phanthy 系预设）；保留作回退"
       },
       "deepseek": {
         "endpoint": "deepseek",
@@ -126,21 +126,21 @@
         "model": "DeepSeek-V4.1-Flash",
         "key_var": "GPU52_DEEPSEEK_API_KEY",
         "slots": 8,
-        "note": "GPU52 六卡 H100 的 DS 服务；2026-10-02 用户确认支持并发，共享上限设为 8"
+        "note": "本地 DS（已停用 2026-10-10：主力切 phanthy-ds41）；保留作回退"
       },
       "phanthy": {
         "endpoint": "phanthy",
         "base": "http://127.0.0.1:8789/v1",
         "model": "glm-5.3-flash",
         "key_var": "PHANTHY_API_KEY",
-        "slots": 1
+        "slots": 8
       },
       "phanthy-dsv4": {
         "endpoint": "phanthy-dsv4",
         "base": "http://127.0.0.1:8789/v1",
         "model": "phanthy.com/deepseek-v4",
         "key_var": "PHANTHY_API_KEY",
-        "slots": 2,
+        "slots": 8,
         "note": "网关透传无费率ID（2026-10-10 实测零扣分，实际服务模型 kimi-k2.6 reasoning）；短 max_tokens 会被推理耗尽返回空 content"
       },
       "phanthy-phancy": {
@@ -148,8 +148,16 @@
         "base": "http://127.0.0.1:8789/v1",
         "model": "phanthy.com/phancy-35b",
         "key_var": "PHANTHY_API_KEY",
-        "slots": 2,
+        "slots": 8,
         "note": "同 phanthy-dsv4：实测同为 kimi-k2.6 reasoning；费率未公布"
+      },
+      "phanthy-ds41": {
+        "endpoint": "phanthy-ds41",
+        "base": "http://127.0.0.1:8789/v1",
+        "model": "deepseek-v4.1-flash",
+        "key_var": "PHANTHY_API_KEY",
+        "slots": 8,
+        "note": "2026-10-10 主力：规划/审核/翻译切 Phanthy API（6并发实测全绿、长输出无天花板）；本地 DS/Flash-Next 保留记录不再默认使用"
       }
     }
   },
@@ -217,7 +225,7 @@
         "h3pool"
       ],
       "planning": {
-        "local": 1
+        "phanthy-ds41": 1
       },
       "blocks_max": 0,
       "blocks_min": 0,
@@ -257,7 +265,7 @@
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-wuyue",
       "render_keys": [],
       "planning": {
-        "local": 2
+        "phanthy-ds41": 2
       },
       "blocks_max": 2,
       "blocks_min": 1,
@@ -322,7 +330,7 @@
         "sd25"
       ],
       "planning": {
-        "flashnext": 3
+        "phanthy-ds41": 3
       },
       "blocks_max": 3,
       "blocks_min": 1,
