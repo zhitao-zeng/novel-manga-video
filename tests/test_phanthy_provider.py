@@ -28,7 +28,7 @@ def test_repeated_empty_truncation_fails_instead_of_claiming_valid_json(monkeypa
     with pytest.raises(ValueError,match='JSON truncated'):
         client.ask_json([{'type':'text','text':'test'}],client.obj({'ok':{'type':'boolean'}}),
             name='synthetic',max_tokens=128,settings=config.JsonEndpoint('glm-5.3-flash',('http://unused.invalid',)))
-    assert calls==[128,256]
+    assert calls==[128,256,700]  # 翻倍一次,仍空则按原量级重发一次赌随机性(2026-10-10 网关实测)
 
 
 def test_provider_flags_reach_conductor_workers_without_affecting_ds():
