@@ -33,9 +33,11 @@ def image_part(path: Path, max_side: int) -> dict:
 def scaled_timeout(timeout: float, parts: list[dict]) -> float:
     """Reasoning models think for minutes before answering; a flat timeout tuned for the old
     fast local 27B (2026-09) kills big reviews mid-thought (ch473 binding review, 2026-10-10).
-    Scale with input size; the caller's value is the floor for small asks."""
+    Only ever raises the caller's budget for big inputs; small asks keep the caller's exact budget."""
     chars = sum(len(str(p.get('text') or '')) + len(str(p.get('image_url') or '')) // 200 for p in parts)
-    return max(timeout, min(1800.0, 60.0 + chars * 0.015))
+    if chars <= 10000:
+        return timeout  # 小材料听调用方的,一字不动
+    return max(timeout, min(1800.0, chars * 0.02))
 
 
 def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 700, timeout: float = 600.0, retry_truncated: bool = True, settings: JsonEndpoint | None = None, json_object: bool = False) -> dict:

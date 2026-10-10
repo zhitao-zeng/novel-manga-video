@@ -72,7 +72,7 @@ def _response(content: str, finish_reason: str = "stop") -> httpx.Response:
     return httpx.Response(200, json={"choices": [{"message": {"content": content}, "finish_reason": finish_reason}]})
 
 
-@pytest.mark.parametrize(("initial", "expected"), [(3500, [3500, 7000]), (6000, [6000, 8000])])
+@pytest.mark.parametrize(("initial", "expected"), [(3500, [3500, 7000]), (6000, [6000, 12000])])  # 上限 8000→16000(2026-10-10 网关实测)
 def test_truncated_json_gets_only_one_retry_with_capped_tokens(monkeypatch, initial, expected):
     tokens = []
 

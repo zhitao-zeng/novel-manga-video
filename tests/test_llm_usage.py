@@ -59,7 +59,8 @@ def test_scaled_timeout_grows_with_input_and_respects_floor_and_cap():
     small = [{'type': 'text', 'text': 'x' * 2000}]
     big = [{'type': 'text', 'text': 'x' * 39000}]   # 703 级身份复核
     huge = [{'type': 'text', 'text': 'x' * 500000}]
-    assert scaled_timeout(240, small) == 240          # 小调用不变(调用方下限)
+    assert scaled_timeout(240, small) == 240          # 小调用不变(调用方原值)
+    assert scaled_timeout(10, small) == 10            # 调用方的小预算也不动(共享预算契约)
     assert 600 <= scaled_timeout(240, big) <= 900     # 大料放大
     assert scaled_timeout(240, huge) == 1800          # 封顶
     assert scaled_timeout(900, small) == 900          # 调用方更松时不缩
