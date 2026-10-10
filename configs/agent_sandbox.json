@@ -27,10 +27,12 @@
  "agent_slice_seconds": 600,
  "source_agent_slice_seconds": 1200,
  "refusal_fallback": {
-  "endpoint": "deepseek",
-  "base_url": "http://172.28.4.52:8831",
-  "model": "DeepSeek-V4.1-Flash",
-  "key_var": "GPU52_DEEPSEEK_API_KEY"
+  "endpoint": "phanthy-luna",
+  "base_url": "http://127.0.0.1:8789",
+  "model": "gpt-5.6-luna",
+  "key_var": "PHANTHY_API_KEY"
  },
- "_switch_note": "2026-10-10 用户指示全切 Phanthy GLM(Flash-Next 已从8038下线);旧配置备份在 .bak-flashnext-20261010"
+ "_switch_note": "2026-10-10 用户指示全切 Phanthy GLM(Flash-Next 已从8038下线);旧配置备份在 .bak-flashnext-20261010",
+ "docker_network": "host",
+ "_docker_network_note": "2026-10-10: phanthy 网关只听本机 127.0.0.1:8789,容器必须 host 网络才够得着"
 }
