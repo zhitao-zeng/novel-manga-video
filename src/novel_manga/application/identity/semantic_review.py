@@ -48,7 +48,7 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
             + json.dumps({'evidence': context, 'candidate': current,'planning_view':view}, ensure_ascii=False))
         options = {'settings': settings} if settings is not None else {}
         answer = client.ask_json([{'type': 'text', 'text': prompt}], reply_schema,
-                                 name=name, max_tokens=6500, timeout=240, **options)
+                                 name=name, max_tokens=16000, timeout=240, **options)
         note('review',candidate=current,answer=answer)
         if answer.get('approved'):
             if answer.get('correction') is not None:
@@ -82,7 +82,7 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
                 + json.dumps({'evidence':context,'previous_candidate':proposed,'rejected_proposal':proposal,
                               'validation_error':str(error)},ensure_ascii=False))
             repaired=client.ask_json([{'type':'text','text':repair_prompt}],schema,
-                name=name+'_correction',max_tokens=6500,timeout=240,**options)
+                name=name+'_correction',max_tokens=16000,timeout=240,**options)
             note('protocol_correction',candidate=repaired)
             current=validate(merge_correction(proposed,repaired))
         attempt += 1
@@ -160,7 +160,7 @@ def book(ledger, chapter, text, raw, *, texts=None, original_records=None):
               '临时人物可以不具名；称呼、自报名字写mentions，身份关系有具体两端。引用对应章节原句，原人工作证保持。\n'
               + json.dumps({'context':context,'candidate':candidate}, ensure_ascii=False))
     answer = client.ask_json([{'type':'text','text':prompt}], schema, name='ledger_identity_review',
-                             max_tokens=6500, timeout=240, settings=judge_settings())
+                             max_tokens=16000, timeout=240, settings=judge_settings())
     if answer.get('approved'):
         if answer.get('correction') is not None: raise ValueError('approved unreviewed identity correction')
         return raw, {'approved': True, 'reason': answer.get('reason',''), 'inputs': inputs}
