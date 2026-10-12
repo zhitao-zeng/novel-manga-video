@@ -85,13 +85,28 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
             # Correct the concrete rejected proposal once, before final review.
             # A failed protocol correction never renews the semantic review loop.
             repair_prompt=('修正下面身份修订的具体校验错误，只输出改动的actors/bindings及removed_source_ids。引用仅能使用原文逐字存在的'
-                '名字或称谓；不得制造新主体、改原文或扩大修订范围。保留其他正确字段。\n'
-                + json.dumps({'evidence':context,'previous_candidate':proposed,'rejected_proposal':proposal,
+                '名字或称谓；不得制造新主体、改原文或扩大修订范围。保留其他正确字段。'
+                'previous_candidate尚未采用被拒提议；本次输出完整修订提议来替换rejected_proposal，保留其中有依据的改动。'
+                '新增主体若没有本章原文指称，应从提议中省去；不得删除或修改无关原主体。\n'
+                + json.dumps({'evidence':context,'previous_candidate':current,'rejected_proposal':proposal,
                               'validation_error':str(error)},ensure_ascii=False))
             repaired=client.ask_json([{'type':'text','text':repair_prompt}],schema,
                 name=name+'_correction',max_tokens=16000,timeout=240,**options)
             note('protocol_correction',candidate=repaired)
-            current=validate(merge_correction(proposed,repaired))
+            affected={row.get('source_id') for field in ('actors','bindings')
+                      for row in proposal.get(field) or []} | set(proposal.get('removed_source_ids') or [])
+            outside=set(repaired.get('removed_source_ids') or []) - affected
+            for field in ('actors','bindings'):
+                original={row.get('source_id'):row for row in current.get(field) or []}
+                for row in repaired.get(field) or []:
+                    previous=original.get(row.get('source_id'), {})
+                    if (row.get('source_id') not in affected
+                            and {k:v for k,v in row.items() if k!='reason'}
+                            != {k:v for k,v in previous.items() if k!='reason'}):
+                        outside.add(row.get('source_id'))
+            if outside:
+                raise ValueError('protocol correction changes unrelated source actors: '+str(sorted(outside)))
+            current=validate(merge_correction(current,repaired))
         demand = ''
         attempt += 1
     raise AssertionError('bounded review did not return')
