@@ -44,8 +44,9 @@ class IdentityCatalog:
             while owner.get('merged_into') in by_id and owner['id'] not in seen:
                 seen.add(owner['id']); owner = by_id[owner['merged_into']]
             if owner['id'] in self.entities:
-                self.by_name.setdefault(record['canonical'], self.entities[owner['id']])
-                self.entities[owner['id']]['forms'].add(record['canonical'])
+                for name in (record['canonical'], owner['canonical']):
+                    self.by_name.setdefault(name, self.entities[owner['id']])
+                    self.entities[owner['id']]['forms'].add(name)
         self.aliases = {str(a): str(b) for a, b in aliases.items()}
         for row in index.get('characters', []):
             if row['name'] in self.by_name:

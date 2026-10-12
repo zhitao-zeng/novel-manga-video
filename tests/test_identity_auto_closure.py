@@ -218,7 +218,9 @@ def test_binding_failure_retains_actual_reviewer_candidate_for_next_repair(tmp_p
     assert not receipt['approved']
     assert receipt['steps'][0]['answer']['reason']=='未能确认'
     assert receipt['steps'][0]['candidate']['actors'][0]['name']=='云柔'
-    assert receipt['inputs']['context']['source']['1']=='云柔站在父亲身旁。'
+    assert receipt['inputs']['context']['current_segments']==[
+        {'paragraph':1,'text':'云柔站在父亲身旁。'}]
+    assert '1' not in receipt['inputs']['context']['source']
     assert not(ep/'identity_context.json').exists()
 
 

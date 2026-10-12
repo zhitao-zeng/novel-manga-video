@@ -68,19 +68,33 @@ def clean_reading(answer, segments):
     storyboard quote that belongs to a different segment.  A form that is nowhere is still rejected.
     """
     texts = [normalize_text(s['text']) for s in segments]
+    corpus = ''.join(texts)
+    spans, offset = [], 0
+    for text in texts:
+        spans.append((offset, offset + len(text)))
+        offset += len(text)
     actors, rejected, unresolved = [], [], []
     for source in answer['actors']:
         actor = {**source, 'forms': []}
         for form in source['forms']:
             ps = form.get('paragraphs', [])
             valid = ps and all(type(p) is int and 1 <= p <= len(segments) for p in ps)
-            quote = '\n'.join(segments[p-1]['text'] for p in range(min(ps), max(ps)+1)) if valid else ''
             wanted = normalize_text(form['form'])
-            elsewhere = [i for i, text in enumerate(texts, 1) if wanted and wanted in text]
-            if wanted and wanted in normalize_text(quote):
-                actor['forms'].append(form)
-            elif elsewhere:
-                actor['forms'].append({**form, 'paragraphs': [elsewhere[0]], 'cited': ps})
+            occurrences = []
+            at = corpus.find(wanted) if wanted else -1
+            while at >= 0:
+                occurrences.append([i for i, (start, end) in enumerate(spans, 1)
+                    if start < end and start < at + len(wanted) and end > at])
+                at = corpus.find(wanted, at + 1)
+            supported = {p for occurrence in occurrences
+                         if valid and all(p in ps for p in occurrence)
+                         for p in occurrence}
+            matched = [p for p in ps if p in supported] if valid else []
+            if matched:
+                actor['forms'].append(form if matched == ps else
+                    {**form, 'paragraphs': matched, 'cited': ps})
+            elif occurrences:
+                actor['forms'].append({**form, 'paragraphs': occurrences[0], 'cited': ps})
             else:
                 rejected.append({'source_id': source['source_id'], **form})
         if not actor['forms']:
@@ -109,10 +123,7 @@ def map_source_reading(answer, catalog, segments, verified_aliases=None, *, appr
         forms = {actor['name'], *(f['form'] for f in actor['forms'] if f['kind'] == 'proper')}
         known_forms = forms | {verified[f] for f in forms if f in verified}
         exact = {catalog.by_name[name]['id'] for name in known_forms if name in catalog.by_name}
-        primary = [eid for eid in exact if catalog.entities[eid]['design'].get('role') in {'主角','男主角','女主角'}]
-        if primary:
-            eid = sorted(primary)[0]
-        elif actor['name'] in catalog.by_name:
+        if actor['name'] in catalog.by_name:
             eid = catalog.by_name[actor['name']]['id']
         elif len(exact) == 1:
             eid = next(iter(exact))
