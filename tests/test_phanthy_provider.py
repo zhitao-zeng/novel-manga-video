@@ -47,3 +47,34 @@ def test_shared_sandbox_arguments_are_provider_specific():
     args=sandbox.provider_container_args({'docker_network':'host','extra_body':{'reasoning_effort':'low'}})
     assert args[:2]==['--network','host']
     assert any(v.startswith('CLAUDE_CODE_EXTRA_BODY=') for v in args)
+
+
+@pytest.mark.parametrize('initial', [128, 1600, 1800, 6000])
+def test_measured_reasoning_cutoff_combines_existing_retry_allowances(monkeypatch, initial):
+    doubled = min(16000, initial * 2)
+    combined = min(16000, doubled + max(700, doubled // 2))
+    calls = []; deadlines = []
+    def respond(http, bases, headers, payload, **kwargs):
+        calls.append(payload['max_tokens']); deadlines.append(kwargs['deadline'])
+        if len(calls) > 1 and payload['max_tokens'] >= combined:
+            return {'choices': [{'message': {'content': '{"ok":true}'}, 'finish_reason': 'stop'}]}
+        return {'choices': [{'message': {'content': ''}, 'finish_reason': 'length'}],
+                'usage': {'completion_tokens_details': {'reasoning_tokens': payload['max_tokens']}}}
+    monkeypatch.setattr(client, 'post_any', respond)
+    assert client.ask_json([], client.obj({'ok': {'type': 'boolean'}}), name='measured',
+                           max_tokens=initial, timeout=180) == {'ok': True}
+    assert calls == [initial, combined]
+    assert sum(calls) <= initial + doubled + max(700, doubled // 2)
+    assert deadlines[0] is deadlines[1]
+
+
+def test_spent_reasoning_retry_cannot_receive_a_third_allocation(monkeypatch):
+    calls = []
+    def respond(http, bases, headers, payload, **kwargs):
+        calls.append(payload['max_tokens'])
+        return {'choices': [{'message': {'content': ''}, 'finish_reason': 'length'}],
+                'usage': {'completion_tokens_details': {'reasoning_tokens': payload['max_tokens']}}}
+    monkeypatch.setattr(client, 'post_any', respond)
+    with pytest.raises(ValueError, match='JSON truncated'):
+        client.ask_json([], {}, name='measured', max_tokens=1600, timeout=180)
+    assert calls == [1600, 4800]

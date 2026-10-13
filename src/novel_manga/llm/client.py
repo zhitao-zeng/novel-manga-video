@@ -61,6 +61,7 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
             'Return a JSON object matching this schema: ' + json.dumps(schema, ensure_ascii=False)}]
     from novel_manga.resource_waits import RequestDeadline
     deadline = RequestDeadline(timeout)
+    combined_reasoning_retry = False
     with httpx.Client(timeout=timeout, trust_env=False) as client:
         for retry in range(3 if retry_truncated else 1):
             request_key = f"{name}-{next(_CALL_COUNTER)}"
@@ -97,10 +98,20 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
                     # （13000 两次全空 vs 重发即 498 字正常）。预算翻倍后仍空，按原预算重发一次赌随机性。
                     empty = not choice['message'].get('content')
                     if retry == 0 and retry_truncated and payload["max_tokens"] < 16000:
-                        payload["max_tokens"] = min(16000, payload["max_tokens"] * 2)
-                        log(f"{name}: JSON truncated; one retry with {payload['max_tokens']} tokens inside the remaining time budget")
+                        doubled = min(16000, payload["max_tokens"] * 2)
+                        reasoning = ((body.get('usage') or {}).get('completion_tokens_details') or {}).get('reasoning_tokens', 0)
+                        if empty and reasoning:
+                            # Restarting thinking twice discards both unfinished chains.
+                            # Pool the existing doubled + reset allocations, keeping
+                            # the same total cap, per-call ceiling and shared deadline.
+                            payload['max_tokens'] = min(16000, doubled + max(700, doubled // 2))
+                            combined_reasoning_retry = True
+                            log(f"{name}: reasoning-only cutoff; combine remaining retry allocations into {payload['max_tokens']} tokens")
+                        else:
+                            payload['max_tokens'] = doubled
+                            log(f"{name}: JSON truncated; one retry with {payload['max_tokens']} tokens inside the remaining time budget")
                         continue
-                    if empty and retry == 1 and retry_truncated:
+                    if empty and retry == 1 and retry_truncated and not combined_reasoning_retry:
                         payload['max_tokens'] = max(700, payload['max_tokens'] // 2)
                         log(f"{name}: empty truncated reasoning again; one reset-budget retry with {payload['max_tokens']} tokens")
                         continue

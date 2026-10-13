@@ -31,7 +31,11 @@ def test_scope_recheck_preserves_real_or_uncertain_input_conflicts(monkeypatch, 
         'checks': [{'id': 0, 'scope': scope, 'reason': '不是姿势问题，空间类型相反'}]})
     answer = request_check.recheck_scope({'findings': [finding]}, [('英文', 'Interior dormitory.')],
                                        [{'picture': 1, 'role': 'location'}])
-    assert request_check.interpret(answer, [('英文', 'Interior dormitory.')], 1)['consistent'] is False
+    if scope == 'uncertain':
+        with pytest.raises(request_check.RequestCheckIncomplete):
+            request_check.interpret(answer, [('英文', 'Interior dormitory.')], 1)
+    else:
+        assert request_check.interpret(answer, [('英文', 'Interior dormitory.')], 1)['consistent'] is False
 
 
 def fixture(tmp_path):
@@ -72,6 +76,8 @@ def test_request_check_receives_exact_cards_in_request_order_with_binding_legend
     seen = []
     monkeypatch.setattr(request_check, 'image_part', lambda p, size: seen.append(Path(p)) or {'type': 'image_url', 'image_url': {'url': str(p)}})
     def ask(parts, schema, **kw):
+        if kw['name'] == 'request_conflict_scope':
+            return {'checks': [{'id': 0, 'scope': 'in_scope', 'reason': '明确服装冲突仍须阻塞'}]}
         assert len(parts) == 4 and '独立空甲' in parts[-1]['text'] and 'closed' in parts[-1]['text']
         assert 'dark casual clothes' in parts[-1]['text'] and '明确穿戴关系' in parts[-1]['text']
         assert '没有列出白衬衫、马甲不表示脱掉或替换' in parts[-1]['text']
@@ -264,3 +270,58 @@ def test_request_and_scope_checks_send_their_schema_in_model_messages(tmp_path, 
         text = '\n'.join(p.get('text', '') for p in payload['messages'][0]['content'])
         assert 'Return a JSON object matching this schema:' in text
         assert '"type": "integer"' in text
+
+
+def test_casting_context_reaches_both_checks_and_its_cache_key(tmp_path,monkeypatch):
+    ctx,clip,request=fixture(tmp_path)
+    clip.update(cast=['甲'],extras=['另一个商人'])
+    seen=[]
+    def ask(parts,schema,**kwargs):
+        text=parts[-1]['text'];seen.append(text)
+        assert '另一个商人' in text and '甲' in text
+        if kwargs['name']=='request_conflict_scope':
+            return {'checks':[{'id':0,'scope':'out_of_scope','reason':'相似体型不能证明是同一个人'}]}
+        return {'observations':['当前图片'], 'findings':[{'basis':'request','aspect':'space','picture':0,
+            'lines':[1],'subject_specific':True,'relation':'contradiction','reason':'两人都体型相似所以误认成同一人'}]}
+    monkeypatch.setattr(request_check,'ask_json',ask)
+    result=request_check.cached_consistency(tmp_path,ctx.work,clip,request)
+    assert result['consistent'] and len(seen)==2
+    assert request_check.cached_consistency(tmp_path,ctx.work,clip,request)==result and len(seen)==2
+    clip['extras']=['另一个商人','第二位客人']
+    request_check.cached_consistency(tmp_path,ctx.work,clip,request)
+    assert len(seen)==4
+
+
+@pytest.mark.parametrize('scope_check',[{'error':'timeout'}, {'checks':[{'scope':'uncertain'}]}])
+def test_unfinished_scope_review_is_not_reported_as_a_confirmed_conflict(scope_check):
+    answer={'findings':[{'basis':'request','aspect':'space','picture':0,'lines':[1],
+        'subject_specific':True,'relation':'contradiction','reason':'unconfirmed premise'}],
+        'scope_check':scope_check}
+    with pytest.raises(ValueError,match='scope.*incomplete'):
+        request_check.interpret(answer,[('英文','The scene.')],0)
+
+
+def test_unresolved_scope_keeps_other_confirmed_conflicts():
+    finding = {'basis': 'request', 'aspect': 'space', 'picture': 0, 'lines': [1],
+               'subject_specific': True, 'relation': 'contradiction'}
+    answer = {'findings': [{**finding, 'reason': 'confirmed location conflict'},
+                            {**finding, 'reason': 'identity uncertain'}],
+              'scope_check': {'checks': [{'id': 0, 'scope': 'in_scope'},
+                                          {'id': 1, 'scope': 'uncertain'}]}}
+    with pytest.raises(request_check.RequestCheckIncomplete) as caught:
+        request_check.interpret(answer, [('英文', 'The scene.')], 0)
+    result = caught.value.result
+    assert result['complete'] is False and result['consistent'] is False
+    assert len(result['problems']) == 1 and 'confirmed location' in result['problems'][0]
+    assert [r['reason'] for r in result['unresolved']] == ['identity uncertain']
+
+
+@pytest.mark.parametrize('raw', [{}, {'findings': None}, {'findings': [{'relation': 'unknown'}]}])
+def test_initial_malformed_judgment_is_incomplete_not_a_content_defect(tmp_path, monkeypatch, raw):
+    _, clip, request = fixture(tmp_path)
+    monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k: raw)
+    with pytest.raises(request_check.RequestCheckIncomplete) as caught:
+        request_check.request_consistency(clip, tmp_path, request=request)
+    assert caught.value.result['complete'] is False
+    assert caught.value.result['consistent'] is None
+    assert caught.value.result['raw_answer'] == raw

@@ -148,6 +148,12 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
                        and b['inputs'].get('previous_shot') == inputs['previous_shot']
                        and {n:s.get('index') for n,s in b['inputs'].get('previous_states',{}).items()}
                            == {n:s.get('index') for n,s in last.items()}), None)
+        if cached is None and all(shot['index'] in unchanged_prefix and
+                previous.get('stages', {}).get(str(shot['index']), {}).get('reading') for shot in batch):
+            # A different batch size does not invalidate the same authored facts.
+            # The usual evidence checks and continuity resolver still run below.
+            cached = {'answer': {'stages': [copy.deepcopy(previous['stages'][str(shot['index'])]['reading'])
+                                             for shot in batch]}}
         feedback = ''
         for attempt in range(2):
             answer = (copy.deepcopy(cached['answer']) if cached and attempt == 0

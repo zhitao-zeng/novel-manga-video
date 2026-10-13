@@ -180,3 +180,21 @@ def test_batch_persists_successful_change_for_native_render_handoff(ctx_pair,mon
     upstream_batch.execute_row({'episode':7,'config':'unused','upstream_action':{'kind':'repack',
         'decision':{'clip_id':'clip_01','action':'repack'}}},ctx.novel_dir,out)
     assert len(calls)==2 and calls[1]['timeout']==250 and not calls[1]['retry_issues']
+
+
+def test_new_authorized_window_does_not_reuse_previous_failed_finish(ctx_pair,monkeypatch):
+    ctx=ctx_pair[0];deadline=time.time()+300
+    job={'id':'job-5','action':'finish','status':'completed','result':{'passed':False}}
+    saved={'status':'deferred','deadline':deadline,'remaining_seconds':300,'attempts':[],
+           'upstream_recovery':{'seconds':300,'proposals':0,'max_invocations':10,'prior_job_id':'job-5'},'job':job}
+    atomic_write_json(ctx.run_dir/'agent-run.json',saved)
+    atomic_write_json(ctx.work_dir/'episode-session.json',{'session_id':'old-session'})
+    atomic_write_json(ctx.work_dir/'input/latest-finish.json',{'passed':False,'author_session':{'session_id':'old-session'}})
+    monkeypatch.setattr(lifecycle,'resolve_agent_environment',lambda *a:{})
+    monkeypatch.setattr(lifecycle,'prepare_inputs',lambda *a:None)
+    monkeypatch.setattr('novel_manga.application.agents.episode.local_preparation.stage',lambda *a:None)
+    monkeypatch.setattr(lifecycle,'install_client',lambda *a:None)
+    monkeypatch.setattr(lifecycle,'paused',lambda:True)
+    result=lifecycle.start_run(ctx,config={},timeout=300,retry_issues=False,tools_factory=lambda *a:None)
+    assert result.completed is None
+    assert result.state.saved['job']==job

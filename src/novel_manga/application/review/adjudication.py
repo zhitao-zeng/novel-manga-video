@@ -10,6 +10,7 @@ from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
 POLICY = 'visual-adjudication-v3-observed-facts'
 ERROR_FACTS = {
+    'scene_missing': '剧情所需的具体场所整体消失或明显错位；装饰色差、裁切或虚化不算',
     'same_person_twice': '同一具体人物同时出现两个独立身体；衣服错、换装、独立空甲都不能证明分身',
     'extra_person': '出现计划不允许的额外人物，但不能确定是同一人物复制',
     'extra_object': '独立物件数量超出本镜要求，不把穿戴物另算一个身体',
@@ -39,7 +40,11 @@ def apply(verdict, answer, concerns):
     confirmed = [r for r in checks if r['result'] == 'confirmed']
     for row in checks:
         facts = row.get('error_facts') or {}
-        if row['result'] == 'confirmed' and (set(facts) != set(ERROR_FACTS)
+        required = set(ERROR_FACTS)
+        # Existing cached judgments predate scene evidence; keep their confirmed facts.
+        if not verdict.get('location_issue') and 'scene_missing' not in (verdict.get('verify') or {}):
+            required.discard('scene_missing')
+        if row['result'] == 'confirmed' and (not required.issubset(facts) or set(facts) - set(ERROR_FACTS)
                 or any(type(v) is not bool for v in facts.values())):
             raise ValueError('confirmed visual issue requires explicit observed error facts')
         row['kinds'] = [k for k in ERROR_FACTS if facts.get(k) is True] if row['result'] == 'confirmed' else []
@@ -61,8 +66,18 @@ def apply(verdict, answer, concerns):
                identity_ok=not bool(confirmed), identity_issue=detail,
                visual_defects=None, defect_issue='', story_ok=None, story_kind='无法判断', story_issue='',
                feedback=instruction, scripted=False)
+    if 'scene_missing' in old or verdict.get('location_issue') or 'scene_missing' in kinds:
+        scene_checks = [r for r in confirmed if 'scene_missing' in r['kinds']]
+        out['verify']['scene_missing'] = bool(scene_checks)
+        out['location_ok'] = False if scene_checks else None if unresolved else True
+        out['location_issue'] = '；'.join(r['evidence'] for r in scene_checks)
+        other_checks = [r for r in confirmed if set(r['kinds']) - {'scene_missing'}]
+        out['identity_ok'] = not bool(other_checks)
+        out['identity_issue'] = '；'.join(r['evidence'] for r in other_checks)
     if unresolved:
         out['error'] = 'visual evidence is insufficient to resolve every candidate issue'
+    else:
+        out.pop('error', None)
     return out
 
 
@@ -86,8 +101,14 @@ def check_inputs(clip, work_dir, verdict, *, video=None, bible=None):
     """A frame judgment cannot waive a conflicting request/card pair by treating the bad request as truth."""
     if not clip.get('prompt_h3') or not any(r.get('role') != 'voice' for r in clip.get('references', [])):
         return verdict
-    from novel_manga.application.preparation.request_check import current_request
-    checked = current_request(work_dir.parents[2], clip)
+    from novel_manga.application.preparation.request_check import current_request, RequestCheckIncomplete
+    try:
+        checked = current_request(work_dir.parents[2], clip)
+    except RequestCheckIncomplete as error:
+        out = copy.deepcopy(verdict)
+        out.setdefault('verify', {})['request_check'] = error.result
+        out.update(severity='review_error', error=f'{type(error).__name__}: {error}')
+        return out
     previous = verdict.get('verify') or {}
     record = previous.get('adjudication') or {}
     old_check = previous.get('request_check') or {}
@@ -123,7 +144,7 @@ def review(clip, video, bible, work_dir, verdict):
     if verdict.get('severity') != 'fail' and not note:
         return verdict
     concerns = list(dict.fromkeys(str(verdict.get(k) or '').strip() for k in
-                                 ('identity_issue', 'story_issue', 'defect_issue') if verdict.get(k)))
+                                 ('identity_issue', 'story_issue', 'defect_issue', 'location_issue') if verdict.get(k)))
     if note and verdict.get('severity') != 'fail':
         concerns.append(note)
     if not concerns:

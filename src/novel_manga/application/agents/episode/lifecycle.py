@@ -260,6 +260,7 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         return BootstrapResult(completed=saved)
     previous_job = saved.get('job') or {}
     if (not stale_completed and previous_job.get('action') == 'finish' and previous_job.get('status') == 'completed'
+            and previous_job.get('id') != (saved.get('upstream_recovery') or {}).get('prior_job_id')
             and type((previous_job.get('result') or {}).get('passed')) is bool):
         manifest = read_json(ctx.work_dir / 'input/latest-finish.json', {})
         current_session = read_json(ctx.work_dir / SESSION_FILE, {}).get('session_id')

@@ -24,3 +24,16 @@ def effects(row):
         result['clip_id'] = row.get('clip_id')  # a wearing check without edits belongs to this clip
     return result
 
+
+
+def affected_clips(row, plan):
+    """Direct shot and shared-reference effects used by preparation and permission checks."""
+    indexes = {p['index'] for p in row.get('shots') or []}
+    people = set((row.get('phases') or {}).get('characters') or {}) | set(row.get('characters') or {})
+    places = set(row.get('locations') or {})
+    targets = {c['clip_id'] for c in plan['clips'] if c['clip_id'] == row['clip_id']
+               or indexes.intersection(c.get('shot_indexes', []))
+               or any((r.get('role') == 'character' and r.get('name') in people)
+                      or (r.get('role') == 'location' and r.get('name') in places)
+                      for r in c.get('references', []))}
+    return targets & set(row['clip_ids']) if row.get('clip_ids') is not None else targets

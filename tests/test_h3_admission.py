@@ -142,8 +142,9 @@ def test_wrong_reference_request_is_blocked_before_video_slot_or_attempt_charge(
     clip['prompt_h3_of'] = h3_stamp(clip)
     r = runner_for(tmp_path, monkeypatch, clip)
     monkeypatch.setattr(request_check, 'ask_json', lambda *a, **k:
+                        ({'checks': [{'id': 0, 'scope': 'in_scope', 'reason': '剧情关键身份服饰冲突'}]} if k['name'] == 'request_conflict_scope' else
                         {'observations': ['参考衣着与请求不符'], 'findings': [{'basis': 'reference', 'aspect': 'appearance',
-                          'picture': 1, 'lines': [1], 'subject_specific': True, 'relation': 'contradiction', 'reason': '图1是马甲，请求写西装'}]})
+                          'picture': 1, 'lines': [1], 'subject_specific': True, 'relation': 'contradiction', 'reason': '图1是马甲，请求写西装'}]}))
     monkeypatch.setattr(owner_submission, 'acquire_inflight_slot', lambda *a, **k: pytest.fail('must not use a video slot'))
     monkeypatch.setattr(owner_submission, 'wait_for_inflight_redraws', lambda *a: None)
     with pytest.raises(ValueError, match='reference mismatch'):

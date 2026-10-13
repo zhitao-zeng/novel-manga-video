@@ -29,6 +29,10 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
     card_names = {c['name'] for c in read_json(ctx.novel_dir/'story_bible.json')['characters']}
     card_names.update(row.get('characters') or {})
     patches = row.get('shots') or []
+    scene_context = None
+    if any('wears' in patch for patch in patches):
+        from novel_manga.application.identity.scene import load_scene_context
+        scene_context = load_scene_context(ctx.novel_dir, directory=directory)
     seen = set()
     for patch in patches:
         index = patch.get('index')
@@ -44,6 +48,7 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
             from .speech_budget import compress_turns
             dependent = [c for c in plan['clips'] if index in c.get('shot_indexes', [])]
             shots[index]['turns'] = compress_turns(ctx.input_mode, shots[index], patch['turn_texts'], dependent)
+        previous_wearers = set(shots[index].get('wears') or {})
         shots[index].update({k: copy.deepcopy(v) for k, v in patch.items() if k not in {'index', 'speaker_map', 'turn_texts'}})
         for turn in shots[index].get('turns', []):
             if turn.get('speaker_name') in speaker_map:
@@ -56,6 +61,15 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
                 *shots[index].get('in_frame', []),
                 *(t['speaker_name'] for t in shots[index].get('turns', []) if t.get('speaker_name')
                   and (t['speaker_name'] in card_names or t.get('delivery_mode') == 'visible_dialogue'))]))
+        if 'wears' in patch and not patch['wears']:
+            # Empty/null in the repair protocol means clear, whereas an empty
+            # historical shot still inherits. Express the repair using the
+            # resolver's existing per-person removal state; keep the raw receipt.
+            names = previous_wearers | {
+                name for field in ('characters', 'in_frame', 'listeners')
+                for name in (shots[index].get(field) or [])}
+            canonical = {scene_context.aliases.get(name, name) for name in names}
+            shots[index]['wears'] = {name: None for name in sorted(canonical)}
     if scope is not None:
         shared = {c['clip_id'] for c in plan['clips'] if seen.intersection(c.get('shot_indexes',[]))}
         if missing := shared-set(scope):
@@ -128,13 +142,20 @@ def prepare_candidate(ctx, row, plan, script, target, addresses, scope, matching
                     'Use resume for unfinished asset generation.')
             entries[0] = {**copy.deepcopy(saved), 'from': chapter, 'to': chapter}
             reused[name] = asset_id
-    targets = {c['clip_id'] for c in plan['clips'] if c['clip_id'] == cid
-               or seen.intersection(c.get('shot_indexes', []))
-               or any((r.get('role') == 'character' and r.get('name') in phases)
-                      or (r.get('role') == 'location' and r.get('name') in locations)
-                      for r in c.get('references', []))}
-    if scope is not None:
-        targets &= set(scope)
+    from .input_effects import affected_clips
+    targets = affected_clips(row, plan)
+    if scene_context is not None:
+        from novel_manga.story.scene import resolve_scene
+        previous_wears = {s.get('index', i): s.get('wears') or {}
+                          for i, s in enumerate(resolve_scene(script, scene_context).shots, 1)}
+        affected = {s.get('index', i) for i, s in enumerate(resolve_scene(candidate_script, scene_context).shots, 1)
+                    if (s.get('wears') or {}) != previous_wears.get(s.get('index', i), {})}
+        dependent = {c['clip_id'] for c in plan['clips'] if affected.intersection(c.get('shot_indexes', []))}
+        outside = dependent - (set(scope) if scope is not None else targets)
+        if outside:
+            raise RepairArgumentError('input wearing state changes clips outside requested scope: '
+                                      + ', '.join(sorted(outside)))
+        targets.update(dependent)
     from .arguments import first_pass_scope
     first_pass_scope(ctx,targets)
     counts = history.generation_counts(directory)

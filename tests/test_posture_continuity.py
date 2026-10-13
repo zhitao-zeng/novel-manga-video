@@ -247,3 +247,31 @@ def test_authored_start_and_event_are_pose_evidence_not_unavailable_fields(tmp_p
     readings = posture.checked_answers(rows, {'stages': [good]})
     _, issues, _ = resolve(rows, readings)
     assert not issues
+
+
+def test_unchanged_readings_survive_batch_size_changes_without_another_model_call(tmp_path, monkeypatch):
+    monkeypatch.setattr(posture, 'BATCH', 12)
+    shots=[shot(i, '席勒坐在桌后' if i==1 else '席勒点头') for i in range(1, 11)]
+    readings=[answer(1,'坐',boundary='reset',entry='reset'), *[answer(i)for i in range(2,11)]]
+    before=fill(tmp_path,shots,readings)
+    monkeypatch.setattr(posture, 'BATCH', 6)
+    after=posture.fill(tmp_path,script={'shots':shots},segments=[],previous=before,
+        ask=lambda *a:pytest.fail('unchanged verified facts must not be read again'),write=False)
+    assert after['inputs']==before['inputs']
+    assert after['stages']==before['stages'] and after['issues']==before['issues']==[]
+    assert len(after['batches'])==2
+
+
+def test_rebatched_cache_does_not_hide_changed_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(posture,'BATCH',12)
+    shots=[shot(1,'席勒坐在桌后'),shot(2,'席勒点头')]
+    before=fill(tmp_path,shots,[answer(1,'坐',boundary='reset',entry='reset'),answer(2)])
+    monkeypatch.setattr(posture,'BATCH',1)
+    changed=copy.deepcopy(shots);changed[1]['scene_transition']='next_day'
+    calls=[]
+    def ask(prompt,schema):
+        calls.append(prompt)
+        return {'stages':[answer(2,boundary='reset',entry='reset')]}
+    after=posture.fill(tmp_path,script={'shots':changed},segments=[],previous=before,ask=ask,write=False)
+    assert len(calls)==1
+    assert after['stages']['2']['start']['席勒']['posture'] is None

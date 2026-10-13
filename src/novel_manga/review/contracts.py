@@ -159,7 +159,7 @@ WATCHABLE_CRITERIA = (
 
 
 VERIFY_FLAGS = ('same_person_twice', 'species_or_gender_wrong', 'action_by_wrong_person',
-                'actor_missing', 'lead_face_swapped', 'body_artifact')
+                'actor_missing', 'lead_face_swapped', 'body_artifact', 'scene_missing')
 
 BODY_QUESTION = (
     "body_artifact：对照参考图与实际视频，沿肩—肘—腕—手的连接检查是否多出独立手臂、腿或机械附肢，"
@@ -173,16 +173,17 @@ VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
                      "people": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["who", "entity_kind", "gender", "is_animal", "doing", "frames"],
                                                            "properties": {"who": {"type": "string"}, "entity_kind": {"type": "string", "enum": ["character", "object"]}, "gender": {"type": "string", "enum": ["男", "女", "不明"]},
                                                                           "is_animal": {"type": "boolean"}, "doing": {"type": "string"}, "frames": {"type": "string"}}}},
-                     "body_artifact": {"type": "boolean"},
+                     "body_artifact": {"type": "boolean"}, "scene_missing": {"type": "boolean"},
                      "same_person_twice": {"type": "boolean"}, "species_or_gender_wrong": {"type": "boolean"}, "action_by_wrong_person": {"type": "boolean"},
                      "actor_missing": {"type": "boolean"}, "lead_face_swapped": {"type": "boolean"}, "ghost_text": {"type": "boolean"},
                      "count_checks": {"type": "array", "minItems": 1, "maxItems": 24, "items": {
                          "type": "object", "additionalProperties": False,
-                         "required": ["count_kind", "entity", "frames", "expected_min", "expected_max", "observed", "reason"],
+                         "required": ["count_kind", "entity", "frames", "expected_min", "expected_max", "observed", "instances", "reason"],
                          "properties": {"count_kind": {"type": "string", "enum": ["characters", "worn_equipment", "independent_objects", "background_people"]}, "entity": {"type": "string"}, "frames": {"type": "string"},
                                         "expected_min": {"type": "integer", "minimum": 0},
                                         "expected_max": {"type": "integer", "minimum": 0},
                                         "observed": {"type": "integer", "minimum": 0},
+                                        "instances": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 120}},
                                         "reason": {"type": "string", "maxLength": 180}}}},
                      "verdict": {"type": "string", "enum": ["obvious", "subtle", "fine"]}, "evidence": {"type": "string"},
                      "instruction": {"type": "string"}}}
@@ -193,19 +194,22 @@ VERIFY_QUESTIONS = (WATCHABLE_CRITERIA + '\n' + BODY_QUESTION +
     '背景群体已经出现但人数有差异时verdict填subtle并保留实际计数；observed=0的整群缺席仍是obvious。'
     "\n先逐个描述视频帧里看到的角色及人形物件（people：who 是谁或长相，entity_kind 为 character 或 object，gender，is_animal，doing 在做什么，frames 出现在哪几帧）。有身份和行为的角色填character；无人空甲、雕像、人体模型等物件填object，不能因为它们长得像人就填character，再回答：\n"
     "count_checks：必须数实际视频帧，不数参考卡。按镜头阶段分三类：count_kind=characters只数entity_kind=character的角色；worn_equipment数剧情指定的穿戴装备，entity填写具体装备名，不混入普通衬衫、马甲；independent_objects数独立无人甲、车辆等关键物件，entity填写具体物件名。"
-    "每项写entity、视频帧号frames、按原文和本镜构图允许的expected_min/expected_max、实际observed数量，以及依据reason。"
+    "每项写entity、选定的一张视频帧号frames、按原文和本镜构图允许的expected_min/expected_max、实际observed数量，以及依据reason。"
+    "characters且expected_max=1时，instances逐一列出同一帧各个独立身体的位置与可见部位，observed必须等于条数，不按姓名去重；其他计数行instances可留空，背景群众无需逐人描述。"
+    "例如左前肩背与右侧正面属于同一个名字，若同时是两具身体也必须列两项；不同帧转身不累加，有明确镜面边界和反射关系的倒影不另计。参考卡多视图不计视频人数。"
     "人物穿甲是一个人和一件穿戴物，不是两个演员；无人空甲不是人。穿甲者露出正常人脸是允许的，不要求透过装甲看见人体。"
     "一人穿甲加一套独立空甲，在召来空甲之后可以成立；召来之前不得提前出现。不要仅因两套甲设计相同就判克隆。"
     "切近景、画外人物和遮挡可能减少可见人数，应根据本镜构图给合理范围，不强迫全剧演员每帧到齐。"
     "同一画面里多出身体、空甲或车辆，要分别计数，不能只核对具名角色。至少给出一项count_kind=characters的数量检查。例如同框两个人，其中一人穿甲，旁边另有一套无人空甲：角色2、穿戴装甲1、独立空甲1，人物总数不能填3。同一件装备的穿戴状态和独立状态分行，不能混为一类。\n"
-    "same_person_twice：同一帧里是否有两个或更多长得一样（同脸同装）的人；\n"
+    "same_person_twice：同一视频帧不同位置是否同时出现同一角色的两个独立身体，包括正面与背影、遮挡或裁切的身体，不要求两张脸都可见；\n"
+    "scene_missing：剧情所需的具体场所是否整体消失或明显错位（如街道变纯色定妆背景）；装饰色差、裁切或虚化不算，只有影响理解的场景丢失填true。\n"
     "species_or_gender_wrong：人被画成动物、动物被画成人或别的动物、动物直立拟人化，或原文里的女人由男人演（反之）、成人画成小孩；\n"
     "action_by_wrong_person：原文里甲做的动作或说的话，画面里由乙做或对错的对象做（例如原文甲向乙递东西，画面却由丙递出）；\n"
     "actor_missing：原文对应本镜事件中应入镜、有动作或对白的人不在画面里，而且没有别人替他做（只露背影的听者、画外说话的人不算缺席；其他镜头事件中的人不必在本镜出现）；\n"
     "lead_face_swapped：主角或其他给了角色卡的主要人物，脸型发型明显不是角色卡上那个人（追剧的观众认得主角，这也算一眼看出）；\n"
     "ghost_text：画面出现字幕、文字、水印、Logo（手机屏幕上的消息除外）；这一项单独记录，不影响 verdict；\n"
     "verdict：obvious＝观众会觉得荒谬或前后不一致（same_person_twice、species_or_gender_wrong、action_by_wrong_person、actor_missing、"
-    "lead_face_swapped、body_artifact 任一成立就是 obvious）；subtle＝只有对照角色卡才看得出的配角差别（发色、服装、帽子、徽章）；fine＝没问题；\n"
+    "lead_face_swapped、body_artifact、scene_missing 任一成立就是 obvious）；subtle＝只有对照角色卡才看得出的配角差别（发色、服装、帽子、徽章）；fine＝没问题；\n"
     "evidence：一句话，写清哪几帧、谁、看到了什么；\n"
     "instruction：给视频生成模型的一句修正指令，只说画面里该有谁、谁对谁做什么、谁只能出现一次或不该出现，点名到人，不复述错误、不提上一次；verdict 为 fine 时留空。只输出JSON。"
 )

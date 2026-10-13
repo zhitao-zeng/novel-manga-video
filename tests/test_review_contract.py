@@ -29,7 +29,7 @@ def test_review_requests_match_before_extraction(tmp_path, monkeypatch):
      # now carry the judge's settings explicitly (test_endpoint_presets covers that); an endpoint
      # object in the freeze would pin a URL list that changes with the machines.
      calls.append(copy.deepcopy({'parts':parts,'schema':schema,**{k:v for k,v in kw.items() if k!='settings'}}))
-     return {'verdict':'fine','people':[],'scripted':True,'evidence':'掌心裂开一张嘴。','note':'原文明确写到','instruction':'甲将物品交给乙。','characters':[],'locations':[],'summary':'梗概','open_threads':[],'standing':[]}
+     return {'verdict':'fine','scene_missing':False,'people':[],'scripted':True,'evidence':'掌心裂开一张嘴。','note':'原文明确写到','instruction':'甲将物品交给乙。','characters':[],'locations':[],'summary':'梗概','open_threads':[],'standing':[]}
     with contextlib.nullcontext(tmp_path) as temp:
      novel=Path(temp)/'n';ep=novel/'n_1';work=ep/'work/review/clip_01';work.mkdir(parents=True)
      Image.new('RGB',(4,4),'white').save(ep/'frame.jpg')
@@ -140,7 +140,7 @@ def test_episode_command_can_run_precise_review(tmp_path, monkeypatch):
     (directory / 'clip_plan.json').write_text(json.dumps({'clips': [{'clip_id': 'clip_01', 'kind': 'video'}]}))
     calls = []
     def ask(parts, schema, **kwargs):
-        calls.append(kwargs['name']); return {'verdict': 'fine', 'people': []}
+        calls.append(kwargs['name']); return {'verdict': 'fine', 'scene_missing': False, 'people': []}
     monkeypatch.setenv('NOVEL_REVIEW_MODE', 'verify')
     monkeypatch.setattr(model_client, 'ask_json', ask)
     monkeypatch.setattr(evidence, 'clip_frames', lambda *a: [])
@@ -192,7 +192,7 @@ def test_verification_sends_field_types_in_the_actual_model_message(monkeypatch)
     def post(client, endpoints, headers, payload, **kwargs):
         requests.append(copy.deepcopy(payload))
         return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({
-            'verdict': 'fine', 'people': [], 'count_checks': []})}}]}
+            'verdict': 'fine', 'scene_missing': False, 'people': [], 'count_checks': []})}}]}
     monkeypatch.setattr(model_client, 'post_any', post)
     result = judges.judge_clip_verify({}, Path('unused.mp4'), None, {}, '', Path('unused'))
     assert result['severity'] == 'pass'
@@ -214,7 +214,7 @@ def test_frame_review_uses_selected_judge_not_agent_environment(monkeypatch):
     calls = []
     def post(client, endpoints, headers, payload, **kwargs):
         calls.append((endpoints, payload))
-        return {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"verdict":"fine","people":[]}'}}]}
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"verdict":"fine","scene_missing":false,"people":[]}'}}]}
     monkeypatch.setattr(model_client, 'post_any', post)
     judges.judge_clip_verify({}, Path('unused'), None, {}, '', Path('unused'))
     assert calls[0][0] == ['http://127.0.0.1:8789/v1']

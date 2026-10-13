@@ -8,7 +8,7 @@ from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import read_json, atomic_write_json
 from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
-POLICY = 'request-reference-v9-watchable'
+POLICY = 'request-reference-v10-casting-watchable'
 STABLE_ASPECTS = {'identity', 'appearance', 'wearing', 'object'}
 SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'maxLength': 240}},
               'findings': {'type': 'array', 'items': obj({
@@ -22,15 +22,33 @@ SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'max
                   'reason': {'type': 'string', 'maxLength': 240}})}})
 
 
+class RequestCheckIncomplete(ValueError):
+    """No semantic verdict exists when the independent scope check is unresolved."""
+
+    def __init__(self, result):
+        super().__init__('request conflict scope review is incomplete; preserve the input unchanged')
+        self.result = result
+
+
+def casting_context(clip):
+    return {'cast': list(clip.get('cast') or []), 'extras': list(clip.get('extras') or [])}
+
+
 def interpret(answer, lines, picture_count, *, references=()):
-    if 'findings' not in answer:
+    scope = answer.get('scope_check') or {}
+    if not isinstance(answer.get('findings'), list):
         raise ValueError('request check did not return scoped findings')
-    problems, ignored, warnings = [], [], []
+    incomplete = bool(scope.get('error')) or any(r.get('scope') == 'uncertain' for r in scope.get('checks', []))
+    scopes = {r.get('id'): r.get('scope') for r in scope.get('checks', [])}
+    problems, ignored, unresolved, warnings = [], [], [], []
     location_pictures = {r['picture'] for r in references if r.get('role') == 'location'}
-    for finding in answer['findings']:
+    for index, finding in enumerate(answer['findings']):
         if finding.get('relation') not in {'contradiction', 'underspecified', 'compatible'}:
             raise ValueError('request check did not classify the relation between current facts')
         if finding['relation'] != 'contradiction':
+            continue
+        if scope.get('error') or scopes.get(index) == 'uncertain':
+            unresolved.append(finding)
             continue
         # A reference card supplies stable identity/design, not a pose or camera. Generic style
         # and shot-size preferences are not a reason to rewrite an authored scene in this gate.
@@ -50,12 +68,16 @@ def interpret(answer, lines, picture_count, *, references=()):
             continue
         problems.append(f"{finding['reason']}（请求行{','.join(map(str, finding['lines']))}"
                         + (f"；图{finding['picture']}" if finding['basis'] == 'reference' else '') + '）')
-    return {'policy': POLICY, 'observations': answer.get('observations', []), 'consistent': not problems,
-            'problems': problems, 'findings': answer['findings'], 'out_of_scope': ignored,
-            'warnings': warnings}
+    result = {'policy': POLICY, 'observations': answer.get('observations', []), 'consistent': not problems,
+              'problems': problems, 'findings': answer['findings'], 'out_of_scope': ignored, 'warnings': warnings}
+    if incomplete:
+        result.update(complete=False, consistent=False if problems else None,
+                      unresolved=unresolved, scope_check=scope)
+        raise RequestCheckIncomplete(result)
+    return result
 
 
-def recheck_scope(answer, lines, legend):
+def recheck_scope(answer, lines, legend, *, casting=None):
     """Verify what a reported conflict compares before treating its labels as authoritative."""
     candidates = [(i, row) for i, row in enumerate(answer.get('findings', []))
                   if row.get('relation') == 'contradiction']
@@ -75,8 +97,9 @@ def recheck_scope(answer, lines, legend):
               '性别、物种、明显换脸和身体结构不属于轻微外观差异，不能填advisory。'
               'basis=request需要两条实际请求约束互相矛盾；身份定义没写坐姿不是坐姿指令的反面。'
               '按阶段先后允许换姿势与移动，不把不同时间的状态强制同时发生。'
+              '编译名单提供身份上下文，不能仅凭体型、性别或衣着相似认定同人；同人位置矛盾需要同一Subject、同名或明确同人依据。'
               '无法确定范围则uncertain，不擅自放行。每个id回答一次，给出理由。\n'
-              + json.dumps({'references': legend, 'request_lines': lines,
+              + json.dumps({'references': legend, 'casting': casting or {}, 'request_lines': lines,
                             'findings': [{'id': i, **row} for i, row in candidates]}, ensure_ascii=False))
     schema = obj({'checks': {'type': 'array', 'items': obj({
         'id': {'type': 'integer'}, 'scope': {'type': 'string', 'enum': ['in_scope', 'out_of_scope', 'advisory', 'uncertain']},
@@ -127,6 +150,7 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
               '普通场景图仅约束地形、建筑和固定结构；导演可添加剧情所需的群众、篝火、食物等临时物体，'
               '也可安排当前光线变化。参考图没有这些内容不表示禁止出现。'
               'Subject标签用于绑定参考主体，不是所有可入镜对象的封闭名单；正文可描述无专用参考图的临时群众。'
+              '编译名单提供身份上下文，不是不可质疑的真值；不能仅凭体型、性别或衣着相似认定同人。'
               '核对同一个人是否同时在过肩前景和背景、画外与画内是否冲突、起止状态与动作是否矛盾、'
               '穿戴物是否被额外当成一个身体、取消动作后是否还留有对应动作声。'
               '同款机甲既被穿戴又作为剧情明确要求的独立空甲是合法的，按本镜人数和物件用途判断。'
@@ -148,6 +172,7 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
               'contradiction的理由须指出不能同时成立的具体属性，不能只说未提及、描述不完整或可能忽略，'
               '不要抄长段落或编造原句。没有矛盾则findings为空。\n'
               '图例：' + json.dumps(legend, ensure_ascii=False)
+              + '\n编译人物名单：' + json.dumps(casting_context(clip), ensure_ascii=False)
               + '\n只根据本次图片与下列当前请求行判断，不推测旧版本内容。\n请求行：\n'
               + '\n'.join(f'[{i}] {lang} {s}' for i, (lang, s) in enumerate(lines, 1)))
     parts.append({'type': 'text', 'text': prompt})
@@ -155,18 +180,25 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
     schema = copy.deepcopy(SCHEMA)
     schema['properties']['findings']['items']['properties']['lines']['items']['maximum'] = max(1, len(lines))
     schema['properties']['findings']['items']['properties']['picture']['maximum'] = len(paths)
-    answer = ask_json(parts, schema, name='repair_request_consistency', max_tokens=1600,
-                      settings=h3_request_check_endpoint(), json_object=True)
-    answer = recheck_scope(answer, lines, legend)
-    result = interpret(answer, lines, len(paths), references=legend)
-    if 'scope_check' in answer:
-        result['scope_check'] = answer['scope_check']
-    return result
+    answer = None
+    try:
+        answer = ask_json(parts, schema, name='repair_request_consistency', max_tokens=1600,
+                          settings=h3_request_check_endpoint(), json_object=True)
+        answer = recheck_scope(answer, lines, legend, casting=casting_context(clip))
+        result = interpret(answer, lines, len(paths), references=legend)
+        if 'scope_check' in answer:
+            result['scope_check'] = answer['scope_check']
+        return result
+    except RequestCheckIncomplete:
+        raise
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        raise RequestCheckIncomplete({'policy': POLICY, 'complete': False, 'consistent': None,
+            'problems': [], 'raw_answer': answer, 'protocol_error': str(error)}) from error
 
 
 def cached_consistency(novel_dir, work, clip, request, *, require_cached=False):
     """Same request and reference contents reuse this expensive check; a seed change alone does not rerun it."""
-    inputs = {'policy': POLICY, 'chinese': clip.get('prompt', ''), 'english': request['prompt'],
+    inputs = {'policy': POLICY, 'casting': casting_context(clip), 'chinese': clip.get('prompt', ''), 'english': request['prompt'],
               'references': request['references'], 'reference_sha256': request.get('reference_sha256'),
               'roles': [{k: r.get(k) for k in ('name', 'role', 'view', 'wearers')}
                         for r in clip.get('references', []) if r.get('role') != 'voice']}
@@ -179,8 +211,10 @@ def cached_consistency(novel_dir, work, clip, request, *, require_cached=False):
     if (answer is None and old_inputs.get('policy') in {'request-reference-v1', 'request-reference-v2-scoped-evidence',
                                                      'request-reference-v3-scoped-evidence',
                                                      'request-reference-v4-current-input-only', 'request-reference-v5-explicit-contradictions',
-                                                     'request-reference-v7-scope-recheck', 'request-reference-v8-scene-roles'}
-            and {**old_inputs, 'policy': POLICY} == inputs
+                                                     'request-reference-v7-scope-recheck', 'request-reference-v8-scene-roles', 'request-reference-v9-watchable'}
+            and {**old_inputs, 'casting': old_inputs.get('casting', {'cast': [], 'extras': []}), 'policy': POLICY} == inputs
+            and old_answer.get('complete') is not False and not (old_answer.get('scope_check') or {}).get('error')
+            and not any(r.get('scope') == 'uncertain' for r in (old_answer.get('scope_check') or {}).get('checks', []))
             and old_answer.get('consistent') is True and not old_answer.get('problems')
             and not any(f.get('basis') == 'reference' and f.get('aspect') == 'space'
                         and f.get('relation') == 'contradiction'

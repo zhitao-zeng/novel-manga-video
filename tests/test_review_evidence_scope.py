@@ -153,6 +153,11 @@ def test_review_description_matches_the_card_actually_shown(tmp_path, monkeypatc
                           'clip_01', ctx, {'reference_paths': {'甲': refs['character_001']['path']}})
         ref = next(r for r in clip['references'] if r.get('role') == 'character')
         assert ref['asset_id'] == 'character_001-new' and ref['path'] == refs['character_001']['path']
+    for scene_ref in clip.get('references', []):
+        if scene_ref.get('role') == 'location':
+            from PIL import Image
+            image = book/scene_ref['path']; image.parent.mkdir(parents=True, exist_ok=True)
+            Image.new('RGB', (80, 50), 'gray').save(image)
     original_clip = copy.deepcopy(clip)
     for verify in (False, True):
         _, info = evidence.collect_clip_evidence(clip, book/'video.mp4', bible, work, verify=verify)
@@ -174,7 +179,8 @@ def test_review_description_matches_the_card_actually_shown(tmp_path, monkeypatc
     wanted = {'blue coat': 'character_001', 'red coat': 'character_001-old', 'gold coat': 'character_001-new'}[expected]
     wanted_path = selected[0]['path'] if selection == 'closed_card' else refs[wanted]['path']
     assert cards == [('甲', Path(wanted_path))]
-    assert all(path == book/wanted_path for path in images)
+    assert all(path == book/wanted_path or path.name == 'selected-scene-reference.jpg' for path in images)
+    assert any(path == book/wanted_path for path in images)
     assert bible.model_dump() == original
     assert clip == original_clip
 
@@ -242,3 +248,25 @@ def test_extra_body_is_not_reported_as_wrong_action_ownership():
     bible = StoryBible(novel_title='t', genre='g', visual_style='2d', palette='', style_fingerprint='t')
     assert fix_tier(verdict, bible) == 'must_fix'
     assert fix_tier({**verdict, 'scripted': {'evidence': '原文明确分身'}}, bible) == 'optional'
+
+
+def test_verify_receives_the_selected_scene_card_without_losing_character_or_frame_evidence(tmp_path,monkeypatch):
+    from PIL import Image
+    from novel_manga.models.bible import StoryBible,Character
+    from novel_manga.application.review import evidence
+    book=tmp_path/'book';work=book/'book_1/work/review/c';work.mkdir(parents=True)
+    for name in ['person.jpg','street.jpg']:Image.new('RGB',(50,80),'white').save(book/name)
+    requested=[]
+    def frames(video,directory,count):
+        requested.append(count);paths=[directory/f'f{i}.jpg'for i in range(count)]
+        for p in paths:Image.new('RGB',(80,50)).save(p)
+        return paths
+    monkeypatch.setattr(evidence,'clip_frames',frames)
+    bible=StoryBible(novel_title='n',genre='g',visual_style='3d',palette='',style_fingerprint='x',characters=[Character(name='甲',appearance='青年',wardrobe='外套')])
+    clip={'cast':['甲'],'location':'街道','references':[{'name':'甲','role':'character','path':'person.jpg'},
+          {'name':'街道','role':'location','path':'street.jpg'}]}
+    parts,info=evidence.collect_clip_evidence(clip,book/'v.mp4',bible,work,verify=True)
+    assert any('地点参考' in x and '街道' in x for x in info.legend)
+    assert any('角色卡' in x and '甲' in x for x in info.legend)
+    assert requested==[6] and len([p for p in parts if p['type']=='image_url'])<=8
+    assert len([x for x in info.legend if '视频第' in x])==6

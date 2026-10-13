@@ -71,8 +71,7 @@ def _h3_preparation_endpoint(variable: str) -> JsonEndpoint:
     name = str(os.environ.get(variable) or '').strip()
     if name:
         return endpoint_settings(name)
-    defaults = {'QWEN38_LOCAL_BASE_URL': ','.join(f'http://127.0.0.1:{p}/v1' for p in range(18120, 18125)),
-                'QWEN38_LOCAL_MODEL': 'Qwen3.8-27B-Project', 'QWEN38_LOCAL_API_KEY_VAR': 'H3_PROMPT_NO_KEY'}
+    defaults = ENDPOINTS['phanthy-ds41']
     return JsonEndpoint.from_env({**defaults, **os.environ})
 
 

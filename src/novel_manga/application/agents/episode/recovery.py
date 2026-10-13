@@ -38,7 +38,7 @@ def diagnose(ctx, status):
         if 'first_pass_remaining' in status and ids and not set(ids)&set(status['first_pass_remaining']):
             return
         if kind in {'input', 'arguments'} and re.match(
-                r'^(?:LLMFailure|ConnectError|ConnectTimeout|ReadTimeout|ConnectionError|TimeoutError|JSONDecodeError):|'
+                r'^(?:RequestCheckIncomplete|SourceCheckIncomplete|LLMFailure|ConnectError|ConnectTimeout|ReadTimeout|ConnectionError|TimeoutError|JSONDecodeError):|'
                 r'^ValueError: (?:verification requires|verification flags require|count review)', str(detail)):
             kind = 'execution'
         issues.append({'kind': kind, 'clips': list(ids), 'detail': str(detail)[:700],

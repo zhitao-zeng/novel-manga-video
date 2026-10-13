@@ -62,11 +62,27 @@ def test_packing_preserves_resolved_wears_for_each_stage(tmp_path):
         {'stage': 2, 'source_stage': 8, 'wears': {'甲': '银甲'}, 'in_frame': ['甲']},
         {'stage': 3, 'source_stage': 9, 'wears': {'甲': None}, 'in_frame': ['甲']},
     ]
+    assert '脱下穿戴物' not in entry['prompt']  # a state is not an authored action
     entry['wears_bindings'][0]['wears']['甲'] = None
     entry['wears_bindings'][0]['in_frame'].clear()
     assert resolved.shots[0]['wears'] == {'甲': '银甲'}
     assert resolved.shots[0]['in_frame'] == ['甲']
     assert script == saved
+
+
+def test_bare_state_keeps_an_explicitly_authored_removal_action(tmp_path):
+    shot = {'index': 1, 'characters': ['甲'], 'in_frame': ['甲'], 'location': '房间', 'turns': [],
+            'visual_prompt': '甲站在门边', 'motion_prompt': '甲解开扣带，脱下银甲并放在地上',
+            'end_state': '甲望向门口', 'shot_scale': '中景', 'camera': '平视固定', 'light': '室内灯',
+            'wears': {'甲': None}}
+    bible = StoryBible(novel_title='测试', genre='generic', visual_style='2d', palette='蓝',
+                       style_fingerprint='test', characters=[Character(name='甲', appearance='黑发', wardrobe='便装')],
+                       locations=['房间：木门'])
+    context = {'episode_dir': tmp_path/'book/book_1', 'bible': bible,
+               'location_map': {'房间': '房间：木门'}, 'overrides': {}, 'grammar': None, 'frame': None}
+    entry = clip_entry({'kind': 'video', 'location': '房间', 'seconds': 5, 'shots': [shot]}, 'clip_01', context)
+    assert '脱下银甲并放在地上' in entry['prompt']
+    assert '未额外穿戴物件' in entry['prompt'] and '脱下穿戴物' not in entry['prompt']
 
 
 def test_agent_adoption_keeps_authored_wears_without_carrying_or_prop_inference():

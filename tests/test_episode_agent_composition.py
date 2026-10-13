@@ -309,3 +309,22 @@ def test_repair_can_complete_partial_duration_headers_from_unchanged_shot_timing
     assert 'Planned duration: 6 seconds.' in prompt and 'Planned duration: 9 seconds.' in prompt
     with pytest.raises(ValueError, match='duration'):
         contracts.validate_patch(clip, prompt.replace('Planned duration: 9 seconds.', 'Planned duration: 8 seconds.'))
+
+
+def test_repair_uses_bound_dialogue_when_old_compiler_lost_ellipsis():
+    from novel_manga.application.agents.episode.requests import compose_repair
+    _, plan = adopt(structured(episode(turns=[{
+        'speaker_name': '甲', 'text': '你回去……', 'delivery_mode': 'visible_dialogue'}])))
+    clip = plan['clips'][0]
+    clip['prompt_h3'] = clip['prompt_h3'].replace('你回去…….', '你回去.')
+    before = copy.deepcopy(clip)
+    prompt = compose_repair(clip, {'h3': {'shots': ['<Subject 2> lowers the cup. <DIALOGUE_1>']}})
+    assert '你回去…….' in prompt and '你回去…….' not in clip['prompt_h3']
+    contracts.validate_patch(clip, prompt)
+    assert clip == before
+    with pytest.raises(ValueError, match='dialogue'):
+        contracts.validate_patch(clip, prompt.replace('你回去…….', '你回去.'))
+    with pytest.raises(ValueError, match='dialogue'):
+        contracts.validate_patch(clip, prompt.replace('你回去…….', '他回去…….'))
+    with pytest.raises(ValueError, match='duration'):
+        contracts.validate_patch(clip, prompt.replace('Planned duration: 15 seconds.', 'Planned duration: 14 seconds.'))

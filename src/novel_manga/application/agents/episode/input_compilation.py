@@ -38,7 +38,7 @@ class CompiledInput:
 def compile_input(case: InputCompilation, receipt, record, progress) -> CompiledInput:
     from novel_manga.application.repair.flow import rebuild_clips
     from novel_manga.application.rendering.h3 import convert
-    from novel_manga.application.preparation.request_check import request_consistency
+    from novel_manga.application.preparation.request_check import request_consistency, current_request, POLICY as REQUEST_CHECK_POLICY
     from novel_manga.application.preparation.readiness import render_risks, worn_reference_pairs
     from novel_manga.application.preparation.wearer_cards import check_references
     from novel_manga.story.h3 import request_issues
@@ -160,8 +160,11 @@ def compile_input(case: InputCompilation, receipt, record, progress) -> Compiled
             raise ValueError('repaired request format failed: ' + '; '.join(request_issues(clip)))
         translations[key] = {field: clip.get(field) for field in ('prompt_h3', 'prompt_h3_of')}
         atomic_write_json(cache_path, translations)
+        record['request_check_policy'] = REQUEST_CHECK_POLICY
         progress('check:'+key)
-        checked = request_consistency(clip, ctx.novel_dir)
+        checked = current_request(directory, clip)
+        record['request_check'] = {'clip_id': key, 'answer': checked}
+        atomic_write_json(receipt, record)
         if checked.get('consistent') is not True or checked.get('problems'):
             raise ValueError('repaired inputs still conflict: ' + '; '.join(checked.get('problems') or []))
     check_references(ctx.novel_dir, worn_reference_pairs(candidate))

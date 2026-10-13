@@ -123,22 +123,30 @@ def verification_complete(answer: dict) -> bool:
     return True
 
 
-def _count_findings(answer: dict) -> tuple[list[str], list[str]]:
+def _count_findings(answer: dict, *, require_instances=False) -> tuple[list[str], list[str]]:
+    if require_instances and type(answer.get('scene_missing')) is not bool:
+        raise ValueError('current frame judgment lacks scene evidence')
     failures, warnings = [], []
     for row in answer.get('count_checks') or []:
         lower, upper, actual = (_count_number(row[key]) for key in ('expected_min', 'expected_max', 'observed'))
+        individual = row.get('count_kind') == 'characters' and upper == 1
+        if individual and (require_instances or 'instances' in row):
+            instances = row.get('instances')
+            if (not isinstance(instances, list) or any(not isinstance(x, str) or not x.strip() for x in instances)
+                    or len(instances) != actual):
+                raise ValueError('count review instance evidence conflicts with observed count')
         if lower > upper:
             raise ValueError('count review returned an inverted expected range')
         if not lower <= actual <= upper:
             detail = f"图{row['frames']}：{row['entity']}应有{lower}–{upper}，实际{actual}；{row['reason']}"
             advisory = (row.get('count_kind') == 'background_people' and actual > 0 and lower > 0
-                        and all(answer.get(flag) is False for flag in (*VERIFY_FLAGS, 'ghost_text')))
+                        and all(answer.get(flag) is False for flag in (*VERIFY_FLAGS, 'ghost_text') if flag != 'scene_missing' or flag in answer))
             (warnings if advisory else failures).append(detail)
     return failures, warnings
 
 
-def count_mismatches(answer: dict) -> list[str]:
-    return _count_findings(answer)[0]
+def count_mismatches(answer: dict, *, require_instances=False) -> list[str]:
+    return _count_findings(answer, require_instances=require_instances)[0]
 
 
 def verify_to_verdict(answer: dict) -> dict:
@@ -147,7 +155,7 @@ def verify_to_verdict(answer: dict) -> dict:
         raise ValueError('verification requires an explicit valid verdict')
     if any(key in answer and type(answer[key]) is not bool for key in (*VERIFY_FLAGS, 'ghost_text')):
         raise ValueError('verification flags require boolean observations')
-    flags = {k: bool(answer.get(k)) for k in VERIFY_FLAGS if k != 'body_artifact' or k in answer}
+    flags = {k: bool(answer.get(k)) for k in VERIFY_FLAGS if k not in {'body_artifact', 'scene_missing'} or k in answer}
     counts, warnings = _count_findings(answer)
     obvious = answer.get("verdict") == "obvious" or any(flags.values()) or bool(counts)
     subtle = (answer.get("verdict") == "subtle" or bool(warnings)) and not obvious
@@ -163,7 +171,8 @@ def verify_to_verdict(answer: dict) -> dict:
         "visible_people": len(people) if isinstance(people, list) else 0,
         "identity_ok": not (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle),
         "identity_issue": evidence if (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle) else "",
-        "location_ok": None, "time_of_day_ok": None, "location_issue": "",
+        "location_ok": (not flags["scene_missing"]) if "scene_missing" in flags else None,
+        "time_of_day_ok": None, "location_issue": evidence if flags.get("scene_missing") else "",
         "text_or_watermark": bool(answer.get("ghost_text")),
         "chat_text_ok": None, "chat_text_issue": "",
         "visual_defects": True if flags.get("body_artifact") else None, "defect_issue": ("身体结构异常待复核：" + evidence) if flags.get("body_artifact") else evidence if obvious and not any(flags.values()) else "",

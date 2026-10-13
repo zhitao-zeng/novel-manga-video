@@ -41,10 +41,10 @@ def test_supported_input_does_not_add_another_model_call(monkeypatch):
 
 
 def test_real_source_conflict_remains_blocked_with_evidence(monkeypatch):
-    conflict = {'source_quote': '甲穿黑披风', 'problem': '候选将黑披风明确改成白披风'}
+    conflict = {'field': 'shots[1].wears', 'source_quote': '甲穿黑披风', 'problem': '候选将黑披风明确改成白披风'}
     calls = invoke(monkeypatch, [{'consistent': False, 'problems': ['披风错误']}, {'conflicts': [conflict]}])
     with pytest.raises(input_repair.UnsupportedInput, match='白披风') as caught:
-        input_repair.source_check(SOURCE, '甲说', PATCHES, {})
+        input_repair.source_check(SOURCE, '甲说', [{'index': 1, 'wears': {'甲': '白披风'}}], {})
     assert caught.value.review['confirmation']['conflicts'] == [conflict]
     assert len(calls) == 2
 
@@ -55,3 +55,21 @@ def test_missing_confirmation_or_false_quote_cannot_approve(monkeypatch, confirm
     invoke(monkeypatch, [{'consistent': True, 'problems': ['矛盾']}, confirmation])
     with pytest.raises((TimeoutError, ValueError)):
         input_repair.source_check(SOURCE, '甲说', PATCHES, {})
+
+
+def test_unchanged_dialogue_cannot_be_reported_as_the_wearing_patch(monkeypatch):
+    confirmation = {'conflicts': [{'field': 'shots[1].turns', 'source_quote': '甲说', 'problem': '旧对白问题'}]}
+    calls = invoke(monkeypatch, [{'consistent': False, 'problems': ['旧对白问题']}, confirmation])
+    with pytest.raises(input_repair.SourceCheckIncomplete) as caught:
+        input_repair.source_check(SOURCE, '甲说', [{'index': 1, 'wears': {}}], {}, scoped_shots=PATCHES)
+    assert caught.value.review['consistent'] is None
+    fields = calls[1][1]['properties']['conflicts']['items']['properties']['field']['enum']
+    assert fields == ['shots[1].wears']
+    assert caught.value.review['confirmation'] == confirmation
+
+
+def test_incomplete_initial_source_reply_is_not_a_semantic_rejection(monkeypatch):
+    calls = invoke(monkeypatch, [{}])
+    with pytest.raises(input_repair.SourceCheckIncomplete) as caught:
+        input_repair.source_check(SOURCE, '甲说', PATCHES, {})
+    assert caught.value.review['consistent'] is None and len(calls) == 1

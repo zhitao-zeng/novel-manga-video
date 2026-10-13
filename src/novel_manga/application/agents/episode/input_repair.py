@@ -12,7 +12,7 @@ import sys
 from novel_manga.application.identity.phases import LOOK_FIELDS, chapter_of
 from novel_manga.application.repair import history
 from novel_manga.util import atomic_write_json, read_json
-from .arguments import RepairArgumentError, UnsupportedInput, CompileConflict, validate_resume
+from .arguments import RepairArgumentError, UnsupportedInput, SourceCheckIncomplete, CompileConflict, validate_resume
 from .input_records import (INPUT_LIMIT, SOURCE_REVIEW_POLICY, _phase_groups, effects,
                            remaining_input_attempts, input_receipt, source_review_recoverable,
                            latest_input_records)
@@ -101,7 +101,19 @@ def repair_status(ctx):
 def source_check(source, quote, shots, phases, locations=None, scoped_shots=None, *, characters=None):
     from novel_manga.llm.client import ask_json, obj
     from novel_manga.review.endpoints import judge_settings
+    fields = sorted({f'shots[{p["index"]}].{key}' for p in shots for key in p if key != 'index'}
+                    | {f'phases.{name}' for name in phases}
+                    | {f'locations.{name}' for name in locations or {}}
+                    | {f'characters.{name}' for name in characters or {}}) or ['existing_wearing']
+    def judge(parts, schema, **kwargs):
+        try:
+            return ask_json(parts, schema, **kwargs)
+        except (ValueError, KeyError, TypeError) as error:
+            raise SourceCheckIncomplete('source review protocol incomplete',
+                {'consistent': None, 'complete': False, 'error': str(error)}) from error
     prompt = ('核对原文与一份局部输入修复候选。判断修改后的入镜人物、群演、听者、地点、光线、外貌、穿戴和姿态衔接是否有原文依据，'
+              'shots是稀疏补丁；affected_shots是结果上下文，其中出现turns不表示本次修改了对白。'
+              '冲突须归属scope_fields中的实际候选字段，不能把上下文未改字段冒充修订。'
               '只允许原文已有事件及归属的纠正，不得新增动作事件、机位或时长。speaker_map只能纠正原文能明确核实的旧说话人错误；无证据不能换说话人。'
               '只有shots显式包含turn_texts时，允许对超出发声时长的改编对白缩写；必须保留关键问答、决定、否定、条件、因果、数字含义及说话人，不能只因非逐字引用而拒绝。其他对白不得更改。'
               '若shots显式包含turns，则本次申请是语义修复：可按原文纠正、删除错误改编对白，补回必要问答，纠正说话者及内心/公开发声方式。'
@@ -117,29 +129,40 @@ def source_check(source, quote, shots, phases, locations=None, scoped_shots=None
               '只拦截明确事实矛盾，不因“未明确说到”推定矛盾。称谓或同义地点标签也不等于换了地点。'
               '不支持或与原文相反的修改给出具体problems；所有修改有依据才consistent=true。'
               'problems仅填写确定的事实矛盾，不能填写“有依据”“符合要求”等肯定说明；没有矛盾必须problems=[]。\n'
-              + json.dumps({'source': source, 'source_quote': quote, 'shots': shots,
+              + json.dumps({'source': source, 'source_quote': quote, 'shots': shots, 'scope_fields': fields,
                             'phases': phases, 'locations': locations or {}, 'characters': characters or {},
                             'affected_shots': scoped_shots or []}, ensure_ascii=False))
-    result = ask_json([{'type': 'text', 'text': prompt}],
+    result = judge([{'type': 'text', 'text': prompt}],
         obj({'consistent': {'type': 'boolean'}, 'problems': {'type': 'array', 'items': {'type': 'string'}}}),
         name='episode_input_source', max_tokens=1200, timeout=180, settings=judge_settings())
+    if (not isinstance(result, dict) or type(result.get('consistent')) is not bool
+            or not isinstance(result.get('problems'), list)
+            or any(not isinstance(p, str) for p in result['problems'])):
+        raise SourceCheckIncomplete('source review protocol incomplete',
+            {'consistent': None, 'complete': False, 'raw_answer': result})
     if result.get('consistent') is not True or result.get('problems'):
         # A judge may put support for the candidate in its problems array, or
         # contradict its own boolean. Confirm actual defects once, not the prose
         # shape, against the original source and the same scoped candidate.
-        confirmation = ask_json([{'type': 'text', 'text': prompt + '\n'
+        confirmation = judge([{'type': 'text', 'text': prompt + '\n'
             '现在独立核实这份初审结论，初审文字不是事实。只返回实际成立的原文与候选冲突。'
             '剔除肯定说明、合法缩写、旧稿未改字段和无证据推断；不能因初审不通过而维持拒绝。'
-            '每项conflicts必须给逐字source_quote和具体problem，说明候选哪个字段与原文哪项事实相反。'
+            '每项conflicts必须给field、逐字source_quote和具体problem，field只能选scope_fields里的实际修订字段。'
             '如果全部有据或只有肯定说明，conflicts=[]；无确定矛盾不补造问题。\n'
             + json.dumps({'initial': result}, ensure_ascii=False)}],
             obj({'conflicts': {'type': 'array', 'items': obj({
+                'field': {'type': 'string', 'enum': fields},
                 'source_quote': {'type': 'string'}, 'problem': {'type': 'string'}})}}),
             name='episode_input_source_confirmation', max_tokens=1200, timeout=180, settings=judge_settings())
-        conflicts = confirmation['conflicts']
+        conflicts = confirmation.get('conflicts') if isinstance(confirmation, dict) else None
+        if (not isinstance(conflicts, list) or any(not isinstance(c, dict) or c.get('field') not in fields
+                or not isinstance(c.get('source_quote'), str) or not isinstance(c.get('problem'), str) for c in conflicts)):
+            raise SourceCheckIncomplete('source confirmation is incomplete or outside the proposed fields',
+                {'consistent': None, 'complete': False, 'initial': result, 'confirmation': confirmation})
         if any(not c['source_quote'].strip() or c['source_quote'] not in source
                or not c['problem'].strip() for c in conflicts):
-            raise ValueError('input source confirmation lacks a verbatim source quote or concrete conflict')
+            raise SourceCheckIncomplete('input source confirmation lacks a verbatim source quote or concrete conflict',
+                {'consistent': None, 'complete': False, 'initial': result, 'confirmation': confirmation})
         result = {'consistent': not conflicts, 'problems': [c['problem'] for c in conflicts],
                   'initial': result, 'confirmation': confirmation}
         if conflicts:
@@ -401,7 +424,13 @@ def repair(ctx, row, *, check_only=False):
         if isinstance(error,CompileConflict):record['error_details']=error.details
         if isinstance(error, UnsupportedInput) and hasattr(error, 'review'):
             record['source_review'] = error.review
-        kind = ('source_rejected' if isinstance(error, UnsupportedInput) else
+        if isinstance(error, SourceCheckIncomplete):
+            record['source_review'] = error.review
+        from novel_manga.application.preparation.request_check import RequestCheckIncomplete
+        if isinstance(error, RequestCheckIncomplete):
+            record['request_check'] = {'step': record.get('step'), 'answer': error.result}
+        kind = ('service_interrupted' if isinstance(error, (RequestCheckIncomplete, SourceCheckIncomplete)) else
+                'source_rejected' if isinstance(error, UnsupportedInput) else
                 'tool_error' if isinstance(error, (KeyError, AttributeError, TypeError)) else
                 'service_interrupted' if isinstance(error, (OSError, TimeoutError, subprocess.TimeoutExpired)) else
                 'input_validation')

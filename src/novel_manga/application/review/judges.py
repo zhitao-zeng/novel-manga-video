@@ -102,7 +102,7 @@ def judge_clip_verify(clip: dict, video: Path, bible: review_models_StoryBible, 
     parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir, verify=True)
     parts.append({"type": "text", "text": review_prompts.verify_prompt(clip, location_time, evidence)})
     answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=1800, json_object=True, settings=judge_settings())
-    counts = review_policy.count_mismatches(answer)
+    counts = review_policy.count_mismatches(answer, require_instances=True)
     if counts and (answer.get('verdict') != 'obvious' or not str(answer.get('instruction') or '').strip()):
         passage = '\n'.join(evidence.segments.get(str(s), '') for s in clip.get('segment_ids') or [])
         instruction = instruction_for('；'.join(counts), review_prompts.scripted_event(clip), passage)

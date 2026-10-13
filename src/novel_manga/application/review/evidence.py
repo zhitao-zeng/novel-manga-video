@@ -218,10 +218,12 @@ def collect_clip_evidence(clip: dict, video: Path, bible: StoryBible, work_dir: 
     from PIL import Image, ImageDraw, ImageOps
     from novel_manga.story.dialogue import subject_map
     desired_frames = 6 if verify or clip.get('chat_lines') else review_contracts.FRAMES_PER_CLIP
-    slots = review_contracts.MAX_IMAGES - desired_frames
+    scenes = [(ref.get('name') or clip.get('location') or '本镜场所', ref['path'])
+              for ref in clip.get('references', []) if ref.get('role') == 'location' and ref.get('path')] if verify else []
+    slots = review_contracts.MAX_IMAGES - desired_frames - bool(scenes)
     per_image = max(1, math.ceil(len(cards) / slots))
     groups = [cards[i:i+per_image] for i in range(0, len(cards), per_image)]
-    frame_count = min(desired_frames, review_contracts.MAX_IMAGES - len(groups))
+    frame_count = min(desired_frames, review_contracts.MAX_IMAGES - len(groups) - bool(scenes))
     frames = clip_frames(video, work_dir, frame_count)
     parts = []
     legend = []
@@ -246,12 +248,25 @@ def collect_clip_evidence(clip: dict, video: Path, bible: StoryBible, work_dir: 
         legend.append(f'图{number}={label}')
         parts.append({'type': 'text', 'text': legend[-1]})
         parts.append(model_client.image_part(picture, review_contracts.CARD_SIDE * (2 if len(group) > 1 else 1)))
-    for number, frame in enumerate(frames, start=len(groups) + 1):
+    if scenes:
+        sheet = Image.new('RGB', (480 * len(scenes), 320), '#eeeeee')
+        for i, (_, path) in enumerate(scenes):
+            picture = Path(path)
+            if not picture.is_absolute(): picture = bible_root(work_dir) / picture
+            with Image.open(picture) as original:
+                view = ImageOps.contain(original.convert('RGB'), (480, 320))
+                sheet.paste(view, (i * 480 + (480-view.width)//2, (320-view.height)//2))
+        scene_path = work_dir/'selected-scene-reference.jpg'
+        sheet.save(scene_path, quality=95)
+        legend.append(f'图{len(groups)+1}=地点参考（不是视频帧，不计人物数量）：' + '；'.join(name for name, _ in scenes))
+        parts.extend([{'type':'text','text':legend[-1]}, model_client.image_part(scene_path, review_contracts.CARD_SIDE)])
+    first_frame = len(groups) + bool(scenes) + 1
+    for number, frame in enumerate(frames, start=first_frame):
         parts.append(model_client.image_part(frame, review_contracts.FRAME_WIDTH))
         positions = read_json(work_dir/'frame-evidence.json', {}).get('frames', [])
         seconds = next((row['seconds'] for row in positions if row['path'] == str(frame)), None)
         at = f"（约{seconds:.2f}秒）" if seconds is not None else ''
-        legend.append(f"图{number}=视频第{number - len(groups)}帧{at}")
+        legend.append(f"图{number}=视频第{number - first_frame + 1}帧{at}")
     episode = work_dir.parents[2]
     screen_path = bible_root(work_dir) / "chat_screen.json"
     screen = json.loads(screen_path.read_text(encoding="utf-8")) if not verify and screen_path.is_file() else {}

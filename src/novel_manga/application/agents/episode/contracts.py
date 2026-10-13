@@ -457,8 +457,9 @@ def validate_existing_request(clip, prompt):
 def validate_patch(old_clip, new_prompt):
     """Validate an English-only repair while retaining the existing clip identity."""
     require_text(new_prompt, "prompt_h3", empty=False)
+    validate_existing_request(old_clip, new_prompt)
     # Input recompilation can invalidate the English without changing the
     # adopted plan. With no prior English, that plan is the binding authority.
     if old_clip.get('prompt_h3'):
-        validate_prompt(old_clip, new_prompt)
-    validate_existing_request(old_clip, new_prompt)
+        validate_prompt(old_clip, new_prompt,
+                        dialogue_bindings=visual_request(old_clip)['dialogue_bindings'])

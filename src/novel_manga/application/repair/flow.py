@@ -49,6 +49,7 @@ REBUILD_LOCK = threading.Lock()  # retain the existing rebuild serialization dur
 def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict, clip_ids: set[str], *, repack_report: dict | None = None, visor_states=None, preserve_timing: bool = False, source_checked_turns=None) -> tuple[dict, list[str]]:
     """Rebuild only the named clips from their recorded shot indexes; every other clip keeps its entry (and request)."""
     with REBUILD_LOCK:
+        requested_clip_ids = set(clip_ids)
         ctx = packing_context.context_for_plan(episode_dir, bible_path, plan)
         ctx['source_script'] = script
         if (episode_dir / 'posture_states.json').is_file():
@@ -84,6 +85,17 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 repack_report['_speaker_facts']=speaker_facts
         shots = packing_service.prepared_shots(copy.deepcopy(script), episode_dir, identity_data=ctx.get("identity_data"),
                                                posture_states=ctx.get('posture_states'),speaker_facts=speaker_facts)
+        previous_script = read(episode_dir/'chapter_script.json', {})
+        if (previous_script.get('shots') and
+                [s.get('wears') for s in previous_script['shots']] != [s.get('wears') for s in script['shots']]):
+            previous_shots = packing_service.prepared_shots(previous_script, episode_dir,
+                                                           identity_data=ctx.get('identity_data'))
+            previous_wears = {s['index']: s.get('wears') or {} for s in previous_shots}
+            affected = {s['index'] for s in shots if (s.get('wears') or {}) != previous_wears.get(s['index'], {})}
+            outside = sorted(c['clip_id'] for c in plan['clips'] if c['clip_id'] not in requested_clip_ids
+                             and affected.intersection(c.get('shot_indexes', [])))
+            if outside:
+                raise ValueError('input wearing state changes clips outside requested scope: ' + ', '.join(outside))
         if source_checked_turns:
             from novel_manga.story.dialogue import clip_bindings, dialogue_punctuation
             def spoken(shot):

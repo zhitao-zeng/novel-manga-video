@@ -91,7 +91,11 @@ def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: b
         try:
             # The very same file, not just the same path: split_long_stages renames clip directories, so after a
             # split the path names another clip's take - with its old mtime - and that clip's verdict landed on it.
-            same_take = (old and old.get("severity") != "review_error"
+            visual_checks = (((old or {}).get('verify') or {}).get('adjudication') or {}).get('checks') or []
+            input_only_error = (str((old or {}).get('error') or '').startswith('RequestCheckIncomplete:')
+                                and bool(visual_checks)
+                                and all(row.get('result') in {'confirmed', 'dismissed'} for row in visual_checks))
+            same_take = (old and (old.get("severity") != "review_error" or input_only_error)
                     and (mode != "verify" or review_policy.verification_complete(old.get("verify") or {}))
                     and old.get("video") == str(video)
                     and take and old.get("take") == take
@@ -110,7 +114,7 @@ def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: b
                     verdict = adjudication.review(checked_clip, video, bible, episode_dir / 'work' / 'review' / clip_id, verdict)
                 elif cast_video.enabled() and (verdict.get('verify') or {}).get('adjudication'):
                     from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
-                    if ((verdict.get('verify') or {}).get('request_check') or {}).get('policy') != INPUT_POLICY:
+                    if input_only_error or ((verdict.get('verify') or {}).get('request_check') or {}).get('policy') != INPUT_POLICY:
                         from novel_manga.application.packing.visor import recorded_clip_states
                         checked_clip = {**clip, 'review_visor_states': recorded_clip_states(episode_dir, clip)}
                         verdict = adjudication.check_inputs(checked_clip, episode_dir / 'work' / 'review' / clip_id,

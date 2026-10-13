@@ -33,7 +33,7 @@ def sections(prompt):
             for i,m in enumerate(matches)}
 
 
-def validate_prompt(clip, prompt):
+def validate_prompt(clip, prompt, *, dialogue_bindings=None):
     old, new = sections(clip['prompt_h3']), sections(prompt)
     def definition_bindings(text):
         rows = list(re.finditer(r'(?m)^(<(?:Subject|Audio) \d+>)', text))
@@ -53,6 +53,13 @@ def validate_prompt(clip, prompt):
         raise ValueError('agent changed protected reference binding: retention_analysis')
     old_dialogue = [dialogue_punctuation(text) for text in re.findall(r'<d>(.*?)</d>', clip['prompt_h3'], re.S)]
     new_dialogue = [dialogue_punctuation(text) for text in re.findall(r'<d>(.*?)</d>', prompt, re.S)]
+    if dialogue_bindings is not None:
+        # Adopted repairs use the plan's bound words, not legacy English that
+        # may have lost punctuation during compilation. Other callers retain
+        # their original request contract.
+        from novel_manga.story.dialogue import BOUND_SPEECH
+        old_dialogue = [dialogue_punctuation(row['text']) for row in dialogue_bindings]
+        new_dialogue = [dialogue_punctuation(match[4]) for match in BOUND_SPEECH.finditer(prompt)]
     if old_dialogue != new_dialogue:
         raise ValueError('agent changed dialogue, delivery binding or shot timing')
     for pattern in (r'<Subject \d+> \(S\d+\) says(?: in an off-screen voiceover)?',

@@ -86,7 +86,8 @@ def resume_window(ctx,saved):
             marker=current[cid]['upstream_recovery']['time']
             if marker.get('consumed'):continue
             marker['consumed']=True;atomic_write_json(ctx.episode_dir/'repair_budget_grants.json',current)
-        window={'seconds':seconds,'proposals':0,'evidence':item['evidence'],'prior_remaining_seconds':saved.get('remaining_seconds',0)}
+        window={'seconds':seconds,'proposals':0,'evidence':item['evidence'],'prior_remaining_seconds':saved.get('remaining_seconds',0),
+                'prior_job_id':(saved.get('job') or {}).get('id')}
         result={**saved,'upstream_recovery':window,'status':'deferred','phase':'ready_agent',
                 'reason':'Continue the evidenced recovery once','remaining_seconds':seconds,'deadline':time.time()+seconds,
                 'no_progress':0,'fallback_invocations':0,'updated_at':time.strftime('%F %T')}

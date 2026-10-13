@@ -73,6 +73,19 @@ def decision(**extra):
             'source_quote': '甲坐在宿舍', 'shots': [{'index': 1, 'location': '宿舍'}], **extra}
 
 
+def restore_next_wearing(ctx, after_index):
+    """These isolated-edit fixtures give the next shot an explicit existing state.
+
+    Inherited dependencies are exercised with the real compiler in test_input_wearing_clear.
+    """
+    from novel_manga.story.scene import resolve_scene, SceneContext
+    path = ctx.episode_dir/'chapter_script.json'; script = read_json(path)
+    next_shot = resolve_scene(script, SceneContext()).shots[after_index]
+    names = {n for key in ('characters', 'in_frame', 'listeners') for n in next_shot.get(key, [])}
+    script['shots'][after_index]['wears'] = {**dict.fromkeys(names), **(next_shot.get('wears') or {})}
+    atomic_write_json(path, script)
+
+
 def test_check_and_apply_reject_resume_with_new_changes_before_spending_input(setup):
     ctx,_,_=setup
     saved=decision(shots=[{'index':1,'location':'宿舍'},{'index':999,'location':'旧方案'}])
@@ -500,7 +513,7 @@ def test_adopted_missing_actor_registration_is_local_and_rolls_back_failed_candi
         calls.append(name)
         path = folder/'image.jpeg'; path.write_bytes(b'new card'); return path
     monkeypatch.setattr(draft_assets, 'build', build)
-    monkeypatch.setattr(draft_assets, 'check_image', lambda *a: {'consistent': True, 'problems': []})
+    monkeypatch.setattr(draft_assets, 'check_image', lambda *a, **kw: {'consistent': True, 'problems': []})
     if translation_fails:
         def reject(clip, **kwargs):
             kwargs['problems'].append('translation rejected')
@@ -538,7 +551,7 @@ def test_existing_actor_missing_card_can_resume_after_translation_failure(setup,
     def build(context, directory, role, name, design):
         calls.append(name); p = directory/'image.jpeg'; p.write_bytes(b'accepted card'); return p
     monkeypatch.setattr(draft_assets, 'build', build)
-    monkeypatch.setattr(draft_assets, 'check_image', lambda *a: {'consistent': True, 'problems': []})
+    monkeypatch.setattr(draft_assets, 'check_image', lambda *a, **kw: {'consistent': True, 'problems': []})
     good = h3.convert
     monkeypatch.setattr(h3, 'convert', lambda *a, **kw: kw['problems'].append('temporary translation failure'))
     row = decision(clip_ids=['clip_01'], shots=[{'index':1, 'in_frame':['甲','丙']}],
@@ -711,6 +724,7 @@ def test_conditional_extra_preparation_can_replace_a_spent_old_revision_once(set
 
 def test_check_reports_repair_argument_errors_without_spending_input_work(setup,monkeypatch):
     ctx,_,_=setup
+    restore_next_wearing(ctx, 1)
     monkeypatch.setattr(input_repair,'source_check',lambda *a:pytest.fail('fast check cannot call source model'))
     monkeypatch.setattr(input_repair,'build_phases',lambda *a:pytest.fail('fast check cannot generate images'))
     path=ctx.work_dir/'output/repair.json'
@@ -924,10 +938,12 @@ def test_invalid_scope_is_an_argument_failure_without_resetting_progress(setup, 
 
 def test_explicit_null_wears_remains_a_supported_clear(setup):
     ctx,_,_=setup
+    restore_next_wearing(ctx, 1)
     row=decision(shots=[{'index':1,'wears':None}])
     result=input_repair.repair(ctx,row)
     assert result['input_repaired']==['clip_01']
-    assert read_json(ctx.episode_dir/'chapter_script.json')['shots'][0]['wears'] is None
+    assert read_json(ctx.episode_dir/'chapter_script.json')['shots'][0]['wears'] == {'乙': None, '甲': None}
+    assert read_json(ctx.episode_dir/'work/input_repairs/clip_01-1.json')['decision']['shots'][0]['wears'] is None
 
 
 def test_bad_input_row_does_not_cancel_another_valid_input_repair(setup):
@@ -1154,7 +1170,7 @@ def test_connection_failure_resumes_existing_images_and_translations_once(setup,
         clip['prompt_h3_of'] = h3_stamp(clip, '')
         translated.append(clip['clip_id'])
     monkeypatch.setattr('novel_manga.application.rendering.h3.convert', translate)
-    def check(*args):
+    def check(*args, **kwargs):
         checks.append(1)
         if len(checks) == 1:
             raise httpx.ConnectError('service unavailable after drawing')
@@ -1180,7 +1196,7 @@ def test_continuation_is_bounded_without_spending_a_new_input_candidate(setup, m
     import httpx
     ctx, _, _ = setup
     monkeypatch.setattr('novel_manga.application.preparation.request_check.request_consistency',
-                        lambda *a: (_ for _ in ()).throw(httpx.ConnectError('offline')))
+                        lambda *a, **kw: (_ for _ in ()).throw(httpx.ConnectError('offline')))
     for _ in range(2):
         with pytest.raises(httpx.ConnectError):
             input_repair.repair(ctx, decision())
@@ -1213,6 +1229,7 @@ def test_wearing_checks_without_edits_keep_their_clip_scope():
 
 def test_rejected_owner_gets_one_changed_proposal_without_repeating_rejection(setup, monkeypatch):
     ctx, _, _ = setup
+    restore_next_wearing(ctx, 1)
     calls = []
     def reject(*a):
         calls.append(1)
@@ -1232,15 +1249,16 @@ def test_rejected_owner_gets_one_changed_proposal_without_repeating_rejection(se
 
 def test_technical_continuation_does_not_consume_the_source_revision(setup, monkeypatch):
     ctx, _, _ = setup
+    restore_next_wearing(ctx, 1)
     import httpx
     monkeypatch.setattr('novel_manga.application.preparation.request_check.request_consistency',
-                        lambda *a: (_ for _ in ()).throw(httpx.ConnectError('offline')))
+                        lambda *a, **kw: (_ for _ in ()).throw(httpx.ConnectError('offline')))
     for _ in range(2):
         with pytest.raises(httpx.ConnectError):
             input_repair.repair(ctx, decision())
     assert input_repair.repair_status(ctx)['clip_01']['revision_available']
     monkeypatch.setattr('novel_manga.application.preparation.request_check.request_consistency',
-                        lambda *a: {'consistent': True, 'problems': []})
+                        lambda *a, **kw: {'consistent': True, 'problems': []})
     assert input_repair.repair(ctx, decision(shots=[{'index': 1, 'wears': {}}]))['changed'] == ['clip_01']
     record = read_json(ctx.episode_dir/'work/input_repairs/clip_01-1.json')
     assert record['revision_count'] == record['resume_count'] == 1 and 'error' not in record
@@ -1321,6 +1339,7 @@ def test_shared_phase_can_correct_all_dependent_source_wearing_fields(setup, mon
 
 def test_shared_wrong_wearer_can_be_removed_from_blocked_shots_without_drawing_cards(setup, monkeypatch):
     ctx, before, _ = setup
+    restore_next_wearing(ctx, 2)
     atomic_write_json(ctx.episode_dir/'thin_media_report.json', {'blocked_clips': {
         'clip_01': ['wrong wearer'], 'clip_02': ['wrong wearer']}})
     monkeypatch.setattr(input_repair, 'build_phases', lambda *a: pytest.fail('correct card should be reused'))

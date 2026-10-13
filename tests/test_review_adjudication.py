@@ -312,3 +312,84 @@ def test_explicit_no_issue_note_does_not_add_a_review(monkeypatch):
     for note in ['', '无', '无。', 'None.']:
         verdict={'severity':'pass','verify':{'cast_video':{'note':note}}}
         assert not a.outdated(verdict) and a.review({},None,None,None,verdict)==verdict
+
+
+def test_scene_failure_survives_dismissal_of_independent_cast_concern(monkeypatch):
+    from novel_manga.application.review import adjudication as a
+    from novel_manga.review import policy, contracts
+    original = policy.verify_to_verdict({'verdict': 'fine', 'people': [],
+        **{k: k == 'scene_missing' for k in contracts.VERIFY_FLAGS}, 'ghost_text': False,
+        'evidence': '街道消失，只剩纯色背景', 'instruction': '保留街道环境'})
+    original.update(identity_issue='疑似多出一人')
+    seen = []
+    def judge(clip, video, bible, work, verdict, concerns):
+        seen.extend(concerns)
+        checks = [{'id': i, 'result': 'confirmed' if '街道' in c else 'dismissed',
+                   'evidence': c, 'instruction': '保留街道环境' if '街道' in c else '',
+                   'error_facts': {k: k == 'scene_missing' and '街道' in c for k in a.ERROR_FACTS}}
+                  for i, c in enumerate(concerns)]
+        return a.apply(verdict, {'checks': checks}, concerns)
+    monkeypatch.setattr(a, '_review_frames', judge)
+    monkeypatch.setattr(a, 'check_inputs', lambda clip, work, v, **kw: v)
+    result = a.review({}, None, None, None, original)
+    assert seen == ['疑似多出一人', '街道消失，只剩纯色背景']
+    assert result['severity'] == 'fail' and result['location_ok'] is False
+    assert result['verify']['error_kinds'] == ['scene_missing']
+    assert '街道' in result['location_issue']
+
+
+def test_legacy_adjudication_without_scene_fact_still_preserves_confirmed_error():
+    facts = {k: k == 'appearance' for k in ERROR_FACTS if k != 'scene_missing'}
+    result = apply(candidate(), {'checks': [{'id': 0, 'result': 'confirmed', 'error_facts': facts,
+                   'evidence': '服装承担身份但画错', 'instruction': '保留身份服饰'}]}, ['身份服饰'])
+    assert result['severity'] == 'fail' and result['verify']['error_kinds'] == ['appearance']
+
+
+def test_request_incomplete_preserves_already_confirmed_visual_evidence(tmp_path, monkeypatch):
+    from novel_manga.application.review import adjudication as a
+    from novel_manga.application.preparation import request_check
+    original = apply(candidate(), {'checks': [{'id': 0, 'result': 'confirmed',
+        'error_facts': {k: k == 'same_person_twice' for k in ERROR_FACTS},
+        'evidence': '同帧两具甲的身体', 'instruction': '甲只出现一次'}]}, ['重复身体'])
+    partial = {'complete': False, 'consistent': None, 'problems': [], 'unresolved': ['范围未判定']}
+    def check(*args):
+        raise request_check.RequestCheckIncomplete(partial)
+    monkeypatch.setattr(request_check, 'current_request', check)
+    result = a.check_inputs({'prompt_h3': 'current', 'references': [{'role': 'character'}]},
+        tmp_path/'book/ep/work/review/c', original)
+    assert result['severity'] == 'review_error' and result['verify']['error_kinds'] == ['same_person_twice']
+    assert result['verify']['adjudication']['confirmed'] is True
+    assert result['verify']['request_check'] == partial
+    assert result['feedback'] == '甲只出现一次' and 'incomplete' in result['error']
+
+
+def test_episode_persists_visual_failure_alongside_incomplete_request(tmp_path, monkeypatch):
+    from novel_manga.application.review import episode, judges
+    from novel_manga.application.preparation import request_check
+    from novel_manga.util import read_json, atomic_write_json
+    import pytest
+    directory = _episode_with_old_input_rejection(tmp_path)
+    path = directory/'episode_review.json'; report = read_json(path)
+    report['clips']['c'] = apply(report['clips']['c'], {'checks': [{'id': 0, 'result': 'confirmed',
+        'error_facts': {k: k == 'same_person_twice' for k in ERROR_FACTS},
+        'evidence': '同帧两具甲的身体', 'instruction': '甲只出现一次'}]}, ['重复身体'])
+    atomic_write_json(path, report)
+    monkeypatch.setenv('NOVEL_REVIEW_MODE', 'classic')
+    monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO', '1')
+    monkeypatch.setattr(judges, 'judge_clip', lambda *a, **k: pytest.fail('unchanged confirmed video should be reused'))
+    partial = {'complete': False, 'consistent': None, 'problems': [], 'scope_check': {'error': 'timeout'}}
+    def incomplete(*args):
+        raise request_check.RequestCheckIncomplete(partial)
+    monkeypatch.setattr(request_check, 'current_request', incomplete)
+    result = episode.review_episode(directory)
+    saved = read_json(path)['clips']['c']
+    assert result['error_rounds'] == 1 and saved['severity'] == 'review_error'
+    assert saved['verify']['adjudication']['confirmed'] is True
+    assert saved['verify']['error_kinds'] == ['same_person_twice']
+    assert saved['verify']['request_check'] == partial
+    monkeypatch.setattr(request_check, 'current_request', lambda *a: {'policy': request_check.POLICY,
+        'consistent': True, 'problems': []})
+    resumed = episode.review_episode(directory)
+    assert resumed['error_rounds'] == 0
+    assert resumed['clips']['c']['severity'] == 'fail'
+    assert resumed['clips']['c']['verify']['error_kinds'] == ['same_person_twice']

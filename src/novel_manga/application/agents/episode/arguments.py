@@ -9,6 +9,13 @@ class UnsupportedInput(ValueError):
     """A source decision was rejected, rather than interrupted by a service."""
 
 
+class SourceCheckIncomplete(ValueError):
+    """The source reviewer supplied no valid, scoped verdict about the proposal."""
+    def __init__(self, message, review):
+        super().__init__(message)
+        self.review = review
+
+
 class CompileConflict(ValueError):
     def __init__(self,message,details):
         super().__init__(message)

@@ -523,7 +523,7 @@ class ClipCompiler:
             extras_note = f"本阶段无参考图的配角：{'、'.join(shot['extras'])}（按描述画）。" if shot.get("extras") else ""
             props_note = f"本阶段物件：{'、'.join(shot['props'])}（物件不是人物）。" if shot.get("props") else ""
             local_objects = f"本阶段临时物件：{'、'.join(shot['scene_objects'])}（物件不是人物）。" if shot.get('scene_objects') else ''
-            wears_note = "".join(f"{name}{'脱下穿戴物' if item is None else '穿着' + str(item)}；"
+            wears_note = "".join(f"{name}{'未额外穿戴物件，基础服装按当前人物参考图' if item is None else '穿着' + str(item)}；"
                                   for name, item in (shot.get("wears") or {}).items() if name in cast)
             if wears_note:
                 wears_note = "穿戴状态：" + wears_note
