@@ -146,7 +146,8 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     bridge.handle('render', {})
                     bridge.update_state(phase='tool_running')
                     continue
-                if (result.get('upstream_recovery')or{}).get('proposals',0)>=2:
+                from .bounded_recovery import invocation_limit_reached
+                if invocation_limit_reached(result):
                     finished=bridge.tools.dispatch('finish',{})
                     if finished.get('passed'):
                         lifecycle.record_finish(result,read_json(ctx.work_dir/'input/latest-finish.json',{}))
@@ -199,17 +200,21 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     resume = (ctx.work_dir / SESSION_FILE).is_file()
                     prompt = prompts.continuation_prompt() if resume or (ctx.run_dir/'prepared.json').is_file() else prompts.initial_prompt(ctx)
                 resume = (ctx.work_dir / SESSION_FILE).is_file()
-                if config.get('agent_instructions'):
+                from .session import current_context
+                continuing = resume and current_context(ctx.work_dir, config)
+                if continuing:
+                    prompt = prompts.continuation_prompt()
+                if config.get('agent_instructions') and not continuing:
                     prompt += '\nTask-specific instructions:\n' + str(config['agent_instructions'])
                 diagnosis = recovery.diagnose(ctx, status)
                 atomic_write_json(ctx.run_dir/'recovery-diagnosis.json', diagnosis)
                 memories = recovery.recall(ctx, diagnosis)
-                from .current_task import prepare as current_task
+                from .current_task import prepare as current_task, prompt_view
                 status['upstream_route']=recovery.upstream_route(ctx,status)
                 task=current_task(ctx,status,diagnosis,memories)
                 prompt += ('\nCurrent task (input/current-task.json); full state is in input/current-status.json. '
                            'Use current targets and exact choices, not historical instructions:\n'
-                           +json.dumps(task,ensure_ascii=False))
+                           +json.dumps(prompt_view(task, continuing=continuing),ensure_ascii=False))
                 attempt, session_timeout, remaining = invoke(ctx, bridge, state, config, prompt, resume, remaining)
                 result['attempts'].append(str(attempt.directory))
                 bridge.update_state(attempts=result['attempts'], phase='tool_running',
@@ -222,7 +227,17 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                 if lifecycle.paused():
                     result.update(status='paused', phase='paused', reason='production dispatch paused', exit_code=0)
                     break
-                replacement = recovery.switch_for_refusal(ctx, config, result, attempt, before_status, status)
+                manifest = lifecycle.current_finish(ctx, finish_stamp, status.get('job'))
+                if manifest is not None:
+                    lifecycle.record_finish(result, manifest)
+                    break
+                handed_off = bool((status.get('job') or {}).get('id') and
+                                  (status.get('job') or {}).get('id') != (before_status.get('job') or {}).get('id'))
+                if not attempt.ok and handed_off:
+                    # The host operation already ran; its result, not a CLI retry, is next.
+                    continue
+                current_remaining = int(state.deadline - time.monotonic())
+                replacement = recovery.switch_for_refusal(ctx, config, result, attempt, before_status, status, remaining=current_remaining)
                 if replacement is not None:
                     config = replacement
                     no_progress = 0
@@ -238,6 +253,12 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     bridge.update_state(no_progress=0)
                     continue
                 if not attempt.ok:
+                    replacement = recovery.retry_failed_invocation(config, result, attempt, current_remaining)
+                    if replacement is not None:
+                        config = replacement
+                        fallbacks = result['fallback_invocations']
+                        bridge.update_state(fallback_invocations=fallbacks)
+                        continue
                     timed_out = attempt.exit_code == 124 and session_timeout < remaining
                     if timed_out or attempt.record.get('turn_limit_reached'):
                         no_progress = 0 if progress_rules.made_progress(ctx, before, before_status, status) else no_progress + 1
@@ -248,10 +269,6 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                             state.defer('Agent reached this slice '+('time' if timed_out else 'turn')+' limit; continue the saved session')
                         break
                     result.update(reason='episode agent invocation failed', session_exit=attempt.exit_code)
-                    break
-                manifest = lifecycle.current_finish(ctx, finish_stamp, status.get('job'))
-                if manifest is not None:
-                    lifecycle.record_finish(result, manifest)
                     break
                 job_before = before[-2]
                 job = status.get('job') or {}

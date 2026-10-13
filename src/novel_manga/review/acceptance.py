@@ -35,4 +35,5 @@ def evaluate_acceptance(planned, media, review, *, stale=False) -> EpisodeAccept
         and not review.get('feedback') and not missing and not errors and not stale
     technical=bool((media.get('assembly') or {}).get('thin_passed'))
     return EpisodeAcceptance(bool(content),technical,missing,errors,
-                             sorted(review.get('feedback') or {}),bool(stale))
+                             sorted(set(review.get('feedback') or {}) | set(media.get('failed_clips') or [])
+                                    | set(media.get('gate_failed_clips') or [])),bool(stale))

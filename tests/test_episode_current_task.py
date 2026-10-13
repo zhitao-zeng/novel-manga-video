@@ -55,7 +55,7 @@ def test_related_history_keeps_effectful_repair_and_failed_choice_before_finish(
         run_dir=tmp_path/'run',source_novel_dir=tmp_path/'book')
     atomic_write_json(ctx.source_novel_dir/'.production-memory/old.json',{
         'episode':'book_1','outcome':'accepted','updated_at':1,
-        'issues':[{'kind':'input','clips':['clip_01'],'detail':'base card still wears armor'}],
+        'issues':[{'kind':'input','clips':['clip_01','clip_02'],'detail':'base card still wears armor'}],
         'attempts':[
             {'action':'apply','ok':False,'changed':['clip_01'],'accepted_clips':[],
              'blocked':{'clip_02':'revision allowance used'},'remedies':[

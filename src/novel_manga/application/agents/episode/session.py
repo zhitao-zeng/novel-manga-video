@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -22,6 +23,21 @@ from novel_manga.application.agents.sandbox import (
 SKILL_SOURCE = Path(__file__).resolve().parents[5] / "skills" / "episode-production"
 SESSION_FILE = "episode-session.json"
 FILE_TOOLS = "Read,Write,Edit,Glob,Grep"
+
+
+CURRENT_TASK_POLICY = 2
+SKILL_REVISION = '2026-10-13'
+
+
+def current_context(work_dir, config):
+    state = read_json(Path(work_dir)/SESSION_FILE, {})
+    restart = str(config.get('context_restart') or '').strip()
+    return (state.get('current_task_policy') == CURRENT_TASK_POLICY
+            and (not restart or state.get('last_context_restart') == restart)
+            and state.get('agent_activity') == config.get('agent_activity')
+            and state.get('context_model') == config.get('model')
+            and state.get('agent_instructions') == config.get('agent_instructions')
+            and state.get('skill_revision') == read_json(Path(work_dir)/'input/manifest.json', {}).get('skill_revision'))
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -82,15 +98,24 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
 
     context_rotation=None
     if enable_tools and (work_dir/'input/current-task.json').is_file():
-        if resume and state.get('current_task_policy')!=1:
-            archive=work_dir/'episode-session-before-current-task.json'
+        restart = str(config.get('context_restart') or '').strip()
+        requested_restart = restart and state.get('last_context_restart') != restart
+        if resume and not current_context(work_dir, config):
+            archive=work_dir/f'episode-session-before-{session_id}.json'
             _write_json(archive,state)
             context_rotation={'previous_session_id':session_id,'archive':archive.name,
-                'reason':'Start current-task context without replaying obsolete production conversations'}
+                'reason':restart if requested_restart else
+                         'Start current-task context without replaying obsolete production conversations'}
             session_id=str(uuid.uuid4())
             state={'session_id':session_id}
             resume=False
-        state['current_task_policy']=1
+        if restart: state['last_context_restart'] = restart
+        state['current_task_policy']=CURRENT_TASK_POLICY
+        state['skill_revision'] = read_json(work_dir/'input/manifest.json', {}).get('skill_revision')
+        state['agent_instructions'] = config.get('agent_instructions')
+        state['context_model']=config.get('model')
+        if config.get('agent_activity') is not None:
+            state['agent_activity']=config['agent_activity']
 
     skills_dir = work_dir / ".claude" / "skills"
     if skills_dir.exists() and any(p.name != "episode-production" for p in skills_dir.iterdir()):
@@ -136,6 +161,10 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
             'the host already supplies fixed H3 syntax, bindings and timing.' if direct_draft else
             'Read /work/.claude/skills/episode-production/SKILL.md '
             'and its output contract before authoring this episode.')
+    if read_json(work_dir/'input/current-task.json',{}).get('mode') == 'adopted_repair':
+        role = ('Repair the existing adopted episode using input/current-task.json. '
+                'Read each current target evidence_file first; wider source and history remain available when needed. '
+                'Consult relevant episode-production skill sections once, and reuse completed production stages.')
     if read_json(work_dir/'input/manifest.json',{}).get('production_mode') in {'pipeline_review','batch_review'}:
         role = ('Repair the confirmed input defect or review the existing film, as specified by the current phase. '
                 'Reuse completed production stages. '
@@ -190,6 +219,14 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
                     if text:
                         last_text = text
     from .recovery import refusal_reason, summary_ending
+    failure_kind = None
+    if code != 0 or completion.get('is_error'):
+        failure = str(completion.get('result') or '').lower()
+        if 'automatic compaction failed' in failure or 'context_length_exceeded' in failure:
+            failure_kind = 'context_compaction'
+        elif (re.search(r'(?:api error|http|status(?: code)?)\D{0,10}(?:429|500|502|503|504)\b', failure)
+              or any(text in failure for text in ('timed out', 'connection reset', 'econnreset'))):
+            failure_kind = 'transient_api'
     record = {
         "run": work_dir.name, "attempt": attempt.name, "session_id": session_id, "resume": resume,
         "enable_tools": enable_tools,
@@ -204,6 +241,7 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
             # refusal by another name, and the model fallback exists for it (358, 2026-10-10).
             'content moderation: sensitive stop' if completion.get('stop_reason') == 'sensitive' else ''),
         'summary_only': summary_ending(completion.get('result') or last_text),
+        'failure_kind': failure_kind,
         **({'context_rotation':context_rotation} if context_rotation else {}),
     }
     _write_json(attempt / "attempt.json", record)

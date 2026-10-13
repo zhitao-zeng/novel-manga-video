@@ -6,13 +6,14 @@ import json
 from novel_manga.llm import client
 from novel_manga.application.review import cast_video, evidence
 from novel_manga.review.prompts import shot_contract, story_block
+from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
 POLICY = 'visual-adjudication-v3-observed-facts'
 ERROR_FACTS = {
     'same_person_twice': '同一具体人物同时出现两个独立身体；衣服错、换装、独立空甲都不能证明分身',
     'extra_person': '出现计划不允许的额外人物，但不能确定是同一人物复制',
     'extra_object': '独立物件数量超出本镜要求，不把穿戴物另算一个身体',
-    'appearance': '同一人物或物件的衣物款式、明显跨色系配色、眼镜等稳定外观不符',
+    'appearance': '外观差异改变了人物身份或具体剧情功能；普通服装、配饰、配色差异不属于阻塞错误',
     'state': '违反本镜明确的开合或动作状态，不能沿用参考卡默认姿态',
     'visual_defects': '异常身体结构、附肢、变形或计划没有要求的明显视觉异常',
     'action_by_wrong_person': '应由甲完成的动作实际由乙完成',
@@ -143,15 +144,14 @@ def _review_frames(clip, video, bible, work_dir, verdict, concerns):
               '先写observations，再逐条写evidence，最后result：confirmed确有错误，dismissed为误报，'
               'uncertain为当前帧看不清。不能把未观察到的细节当成缺失。instruction只写正确画面，'
               'error_facts逐项回答本次证据是否真的证明该类错误，未证明一律false；dismissed或uncertain时全部false。'
-              '同一人物只是穿错衣服，只标appearance，不能标same_person_twice或lead_face_swapped。'
+              '衣着差异只在影响具体身份或剧情功能时标appearance；普通造型差异在observations保留提示，但错误指控应dismissed，不能标same_person_twice或lead_face_swapped。'
               '分身必须在同一帧证明两个属于同一个人的独立身体；参考卡的多视图不属于视频里的人数。'
               '这里只判断可见画面；请求与参考是否矛盾由独立的输入检查判断，不能把纯文字疑点冒充已看见的视觉错误。'
-              '稳定衣物款式和配饰以实际参考图为基准；本镜写便装、正装或深色服装等泛称，不是增加外套、领带或替换参考服装的许可。'
-              '若帧中确有参考没有的外套、领带，必须核对原文或分镜是否明确有穿脱、换装事件或对应阶段服装，'
-              '有这种明确依据则按剧情，没有则按实际帧记录appearance；不能仅因画面符合宽泛请求就撤销可见的衣着差异。'
+              '稳定衣物款式和配饰以实际参考图为观测基准；便装等泛称，不是增加外套、领带的剧情依据，'
+              '但缺少换装说明也不能把无关剧情的服饰差异升级为必须修复。保留实际观察，只对影响身份或具体事件的差异确认appearance。'
               '有明确穿脱、面罩变化则按剧情，不能要求状态永远等同卡面。'
               '不复述旧错误；dismissed时为空。不增设原文/镜头没有要求的条件，不写推测或自我辩论。\n'
-            + '错误事实定义：' + json.dumps(ERROR_FACTS, ensure_ascii=False) + '\n'
+            + WATCHABLE_CRITERIA + '\n错误事实定义：' + json.dumps(ERROR_FACTS, ensure_ascii=False) + '\n'
             + json.dumps([{'id': i, 'candidate': c} for i, c in enumerate(concerns)], ensure_ascii=False))
     parts.append({'type': 'text', 'text': text})
     schema = copy.deepcopy(SCHEMA)

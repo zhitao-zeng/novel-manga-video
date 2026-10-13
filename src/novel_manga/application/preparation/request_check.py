@@ -6,8 +6,9 @@ from pathlib import Path
 from novel_manga.application.configuration import h3_request_check_endpoint
 from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import read_json, atomic_write_json
+from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
-POLICY = 'request-reference-v8-scene-roles'
+POLICY = 'request-reference-v9-watchable'
 STABLE_ASPECTS = {'identity', 'appearance', 'wearing', 'object'}
 SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'maxLength': 240}},
               'findings': {'type': 'array', 'items': obj({
@@ -24,7 +25,7 @@ SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'max
 def interpret(answer, lines, picture_count, *, references=()):
     if 'findings' not in answer:
         raise ValueError('request check did not return scoped findings')
-    problems, ignored = [], []
+    problems, ignored, warnings = [], [], []
     location_pictures = {r['picture'] for r in references if r.get('role') == 'location'}
     for finding in answer['findings']:
         if finding.get('relation') not in {'contradiction', 'underspecified', 'compatible'}:
@@ -43,10 +44,15 @@ def interpret(answer, lines, picture_count, *, references=()):
             raise ValueError('request conflict does not identify actual request lines')
         if finding['basis'] == 'reference' and not 1 <= finding['picture'] <= picture_count:
             raise ValueError('reference conflict does not identify a submitted image')
+        if (finding.get('scope_recheck') == 'advisory' and finding['basis'] == 'reference'
+                and finding['aspect'] in {'wearing', 'appearance'}):
+            warnings.append(finding)
+            continue
         problems.append(f"{finding['reason']}（请求行{','.join(map(str, finding['lines']))}"
                         + (f"；图{finding['picture']}" if finding['basis'] == 'reference' else '') + '）')
     return {'policy': POLICY, 'observations': answer.get('observations', []), 'consistent': not problems,
-            'problems': problems, 'findings': answer['findings'], 'out_of_scope': ignored}
+            'problems': problems, 'findings': answer['findings'], 'out_of_scope': ignored,
+            'warnings': warnings}
 
 
 def recheck_scope(answer, lines, legend):
@@ -55,7 +61,7 @@ def recheck_scope(answer, lines, legend):
                   if row.get('relation') == 'contradiction']
     if not candidates:
         return answer
-    prompt = ('复核输入检查器报告的冲突范围，不重新判断图片内容，也不审查尚未生成的视频。'
+    prompt = (WATCHABLE_CRITERIA + '复核输入检查器报告的冲突范围，不重新判断图片内容，也不审查尚未生成的视频。'
               '报告的aspect/basis标签可能标错，必须依据reason描述的两项事实和原始请求行重新判断。'
               '角色参考只提供稳定身份、身体结构和服装设计；站坐、手部姿势、手中临时道具、背景、'
               '没有正在抽烟或喝酒，都不能限制导演安排的新动作。角色图站着而分镜坐着是out_of_scope，'
@@ -64,18 +70,20 @@ def recheck_scope(answer, lines, legend):
               '导演在场景中安排人群、临时篝火、食物等可移动物件，不因参考图里没有就构成矛盾。'
               '临时群众和无专用参考图的道具允许用正文描述，不要求每个对象都注册成Subject。'
               'fully_preserved按主体定义中的参考用途解释，不把背景图缺少群众当成禁止群众入镜。'
-              '场景建筑或室内室外的明确冲突、角色缺少明确指定服饰、物件设计相反仍是in_scope。'
+              '场景建筑或室内室外的明确冲突、剧情所必需的服饰缺失、物件设计相反仍是in_scope。'
+              '仅reference的wearing/appearance中不影响身份、动作、剧情的轻微服装/配饰差异填advisory，保留差异作为提示。'
+              '性别、物种、明显换脸和身体结构不属于轻微外观差异，不能填advisory。'
               'basis=request需要两条实际请求约束互相矛盾；身份定义没写坐姿不是坐姿指令的反面。'
               '按阶段先后允许换姿势与移动，不把不同时间的状态强制同时发生。'
               '无法确定范围则uncertain，不擅自放行。每个id回答一次，给出理由。\n'
               + json.dumps({'references': legend, 'request_lines': lines,
                             'findings': [{'id': i, **row} for i, row in candidates]}, ensure_ascii=False))
     schema = obj({'checks': {'type': 'array', 'items': obj({
-        'id': {'type': 'integer'}, 'scope': {'type': 'string', 'enum': ['in_scope', 'out_of_scope', 'uncertain']},
+        'id': {'type': 'integer'}, 'scope': {'type': 'string', 'enum': ['in_scope', 'out_of_scope', 'advisory', 'uncertain']},
         'reason': {'type': 'string', 'maxLength': 240}})}})
     try:
         checked = ask_json([{'type': 'text', 'text': prompt}], schema,
-            name='request_conflict_scope', max_tokens=1200, timeout=180, settings=h3_request_check_endpoint())
+            name='request_conflict_scope', max_tokens=1200, timeout=180, settings=h3_request_check_endpoint(), json_object=True)
         rows = checked.get('checks') or []
         if len(rows) != len(candidates) or {r.get('id') for r in rows} != {i for i, _ in candidates}:
             return {**answer, 'scope_check': {'error': 'incomplete scope recheck'}}
@@ -84,8 +92,8 @@ def recheck_scope(answer, lines, legend):
     import copy
     revised = copy.deepcopy(answer)
     for row in rows:
-        if row['scope'] == 'out_of_scope':
-            revised['findings'][row['id']]['scope_recheck'] = 'out_of_scope'
+        if row['scope'] in {'out_of_scope', 'advisory'}:
+            revised['findings'][row['id']]['scope_recheck'] = row['scope']
     revised['scope_check'] = checked
     return revised
 
@@ -109,7 +117,7 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
     lines = [('中文', s) for s in str(clip.get('prompt', '')).splitlines()
              if not english and s.strip() and not s.startswith(('【生成目标】', '【视觉语法】', '画面呈现', '【不要】'))]
     lines += [('英文', s) for s in english.splitlines() if s.strip() and not (style and style in s)]
-    prompt = ('核对实际即将发给视频模型的请求与参考图，不评价尚未生成的视频，不改台词。'
+    prompt = (WATCHABLE_CRITERIA + '核对实际即将发给视频模型的请求与参考图，不评价尚未生成的视频，不改台词。'
               '最终英文是实际执行的画面和声音要求，中文仅提供剧情和身份背景；不要用过期的中文机位/状态否定已确认的英文修正。'
               '先在observations逐图记录可见的衣物款式、主色、配饰、物件类型，再比较本镜文字。'
               '角色的稳定外观以实际角色参考为准；本镜具体衣物、主色、配饰要求与图中事实明确不兼容且没有换装情节时，才是输入冲突。'
@@ -148,7 +156,7 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
     schema['properties']['findings']['items']['properties']['lines']['items']['maximum'] = max(1, len(lines))
     schema['properties']['findings']['items']['properties']['picture']['maximum'] = len(paths)
     answer = ask_json(parts, schema, name='repair_request_consistency', max_tokens=1600,
-                      settings=h3_request_check_endpoint())
+                      settings=h3_request_check_endpoint(), json_object=True)
     answer = recheck_scope(answer, lines, legend)
     result = interpret(answer, lines, len(paths), references=legend)
     if 'scope_check' in answer:
@@ -171,7 +179,7 @@ def cached_consistency(novel_dir, work, clip, request, *, require_cached=False):
     if (answer is None and old_inputs.get('policy') in {'request-reference-v1', 'request-reference-v2-scoped-evidence',
                                                      'request-reference-v3-scoped-evidence',
                                                      'request-reference-v4-current-input-only', 'request-reference-v5-explicit-contradictions',
-                                                     'request-reference-v7-scope-recheck'}
+                                                     'request-reference-v7-scope-recheck', 'request-reference-v8-scene-roles'}
             and {**old_inputs, 'policy': POLICY} == inputs
             and old_answer.get('consistent') is True and not old_answer.get('problems')
             and not any(f.get('basis') == 'reference' and f.get('aspect') == 'space'

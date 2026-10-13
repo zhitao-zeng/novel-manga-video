@@ -202,8 +202,6 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         from .input_repair import repair as validate_input
         saved = recovery.resume_protocol(ctx.run_dir,ctx.episode_dir,saved,validate_input=validate_input) or saved
         config,saved=recovery.protocol_fallback(ctx,config,saved)
-    if saved.get('model_switch') and config.get('refusal_fallback'):
-        config = {**config, 'model_slots_reserved_for_tools': 0, **config['refusal_fallback']}
     stale_completed=False
     if saved.get('status')=='finished' and saved.get('passed')is True:
         from novel_manga.application.production.runs import episode_status
@@ -248,11 +246,16 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
             else:
                 session.rename(archive/'episode-session.json')
         pending = saved.get('job') or {}
-        saved = {**saved, 'status': 'retrying', 'deadline': time.time()+seconds,
+        saved = {**saved, 'agent_activity': archive.name, 'status': 'retrying', 'deadline': time.time()+seconds,
                  'fallback_invocations': 0, 'no_progress': 0,
                  'stop_detail': None,
                  'job': pending if pending.get('status') in {'running', 'accepted'} else None}
         atomic_write_json(ctx.run_dir/'agent-run.json', saved)
+    agent_activity = saved.get('agent_activity') or str(time.time_ns())
+    if saved:
+        saved = {**saved, 'agent_activity': agent_activity}
+    config, saved = recovery.restore_model_route(config, saved)
+    config = {**config, 'agent_activity': recovery.activity({**saved, 'agent_activity':agent_activity})}
     if saved.get('status') in {'finished', 'finished_with_issues'}:
         return BootstrapResult(completed=saved)
     previous_job = saved.get('job') or {}
@@ -267,6 +270,7 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
             return BootstrapResult(completed=saved)
     finish_stamp = progress_rules.file_stamp(ctx.work_dir / 'input/latest-finish.json')
     result = {'episode': ctx.source_episode_dir.name, 'input_mode': ctx.input_mode,
+              'agent_activity': agent_activity,
               'run_dir': str(ctx.run_dir), 'status': 'blocked', 'passed': False,
               'exit_code': 2, 'attempts': list(saved.get('attempts', [])), 'pid': os.getpid(),
               'deadline': saved.get('deadline') or time.time() + seconds,
@@ -284,6 +288,9 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         result['source_review_recovery'] = saved['source_review_recovery']
     if saved.get('protocol_recovery'):
         result['protocol_recovery']=saved['protocol_recovery']
+    for key in ('model_switch_history', 'invocation_retry_history', 'summary_context_recovery', 'upstream_recovery_history'):
+        if key in saved:
+            result[key] = saved[key]
     if saved.get('batch_handoff_at') is not None:
         result['batch_handoff_at'] = saved['batch_handoff_at']
     deadline = time.monotonic() + max(0, result['deadline'] - time.time())

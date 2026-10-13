@@ -65,11 +65,11 @@ def test_memory_remembers_failure_without_claiming_it_worked(tmp_path):
     ctx = context(tmp_path)
     diagnosis = {'issues': [{'kind': 'speech_overflow', 'clips': ['clip_01']}], 'actionable': True}
     recovery.remember(ctx, diagnosis, {'action': 'apply', 'ok': False, 'blocked': {'clip_01': 'bad arguments'}})
-    rows = recovery.recall(ctx, diagnosis)
+    rows = recovery.recall(SimpleNamespace(**{**vars(ctx), 'run_dir':tmp_path/'next-run'}), diagnosis)
     assert len(rows) == 1 and rows[0]['outcome'] == 'unresolved'
     recovery.remember(ctx, diagnosis, {'action': 'finish', 'ok': True, 'passed': True})
-    assert recovery.recall(ctx, diagnosis)[0]['outcome'] == 'accepted'
-    assert len(recovery.recall(ctx, diagnosis)) == 1
+    assert recovery.recall(SimpleNamespace(**{**vars(ctx), 'run_dir':tmp_path/'next-run'}), diagnosis)[0]['outcome'] == 'accepted'
+    assert len(recovery.recall(SimpleNamespace(**{**vars(ctx), 'run_dir':tmp_path/'next-run'}), diagnosis)) == 1
 
 
 def test_pipeline_memory_contains_only_reviewed_media_repairs_and_documents(tmp_path):
@@ -98,7 +98,7 @@ def test_semantic_repair_memory_is_unverified_until_film_acceptance(tmp_path):
     recovery.remember(ctx,diagnosis,{'action':'apply','ok':True,'input_repaired':['clip_01']})
     record=read_json(ctx.source_novel_dir/'.production-memory'/f'{ctx.run_dir.name}.json')
     assert record['scope']=='semantic_input_repair' and record['outcome']=='unresolved'
-    assert recovery.recall(ctx,diagnosis)[0]['outcome']=='unresolved'
+    assert recovery.recall(SimpleNamespace(**{**vars(ctx), 'run_dir':tmp_path/'next-run'}),diagnosis)[0]['outcome']=='unresolved'
 
 
 def test_preparation_exception_provides_actionable_diagnosis_before_adoption(tmp_path):
@@ -122,7 +122,7 @@ def test_staged_local_inputs_diagnose_current_asset_failure_not_old_source_issue
     assert 'stale wrong owner' not in str(result['issues'])
 
 
-def test_two_summary_completions_switch_once_without_new_time_or_takes(tmp_path):
+def test_two_summary_completions_do_not_select_fallback(tmp_path):
     ctx=context(tmp_path)
     atomic_write_json(ctx.work_dir/'episode-session.json',{'session_id':'old'})
     atomic_write_json(ctx.episode_dir/'repair_history/history.json',{'takes':3})
@@ -131,11 +131,11 @@ def test_two_summary_completions_switch_once_without_new_time_or_takes(tmp_path)
     attempt=SimpleNamespace(record={'summary_only':True},directory=tmp_path/'attempt')
     assert recovery.switch_for_refusal(ctx,config,result,attempt,{}, {}) is None
     replacement=recovery.switch_for_refusal(ctx,config,result,attempt,{}, {})
-    assert replacement['model']=='Qwen'
+    assert replacement is None
     assert result['deadline']==1234 and result['agent_seconds']==70
-    assert result['fallback_invocations']==0
+    assert result['fallback_invocations']==2
     assert read_json(ctx.episode_dir/'repair_history/history.json')=={'takes':3}
-    assert recovery.switch_for_refusal(ctx,replacement,result,attempt,{}, {}) is None
+    assert recovery.switch_for_refusal(ctx,config,result,attempt,{}, {}) is None
 
 
 def test_summary_after_real_handoff_does_not_restart_context(tmp_path):
@@ -147,7 +147,7 @@ def test_summary_after_real_handoff_does_not_restart_context(tmp_path):
     assert result['summary_only_turns']==0
 
 
-def test_summary_followed_by_unexecuted_json_also_switches_once(tmp_path):
+def test_summary_followed_by_unexecuted_json_is_not_provider_failure(tmp_path):
     ctx=context(tmp_path)
     atomic_write_json(ctx.work_dir/'episode-session.json',{'session_id':'same'})
     config={'model':'DS','refusal_fallback':{'model':'Qwen','base_url':'http://qwen','key_var':'KEY'}}
@@ -155,9 +155,9 @@ def test_summary_followed_by_unexecuted_json_also_switches_once(tmp_path):
     for index,summary in enumerate([True,False]):
         attempt=SimpleNamespace(record={'summary_only':summary,'exit':0,'produced':[]},directory=tmp_path/f'attempt{index}')
         replacement=recovery.switch_for_refusal(ctx,config,result,attempt,{}, {})
-    assert replacement['model']=='Qwen'
+    assert replacement is None
     assert result['deadline']==1234 and result['agent_seconds']==377
-    assert recovery.switch_for_refusal(ctx,replacement,result,attempt,{}, {}) is None
+    assert recovery.switch_for_refusal(ctx,config,result,attempt,{}, {}) is None
 
 
 def test_first_task_diagnosis_excludes_errors_for_already_filmed_clips(tmp_path):
@@ -205,7 +205,7 @@ def test_protocol_recovery_ignores_old_compile_error_behind_spent_take_and_prepa
     assert not (ctx.run_dir/'protocol-recovery.json').exists()
 
 
-def test_old_summary_then_json_recovers_directly_to_fallback_with_unspent_time(tmp_path):
+def test_old_summary_then_json_refreshes_primary_context_with_unspent_time(tmp_path):
     ctx=context(tmp_path);attempts=[]
     for n in range(2):
         p=tmp_path/f'attempt{n}';attempts.append(str(p))
@@ -218,7 +218,8 @@ def test_old_summary_then_json_recovers_directly_to_fallback_with_unspent_time(t
     atomic_write_json(ctx.work_dir/'episode-session.json',{'session_id':'old'})
     config={'model':'DS','refusal_fallback':{'model':'Qwen','base_url':'http://qwen','key_var':'KEY'}}
     replacement,continued=recovery.protocol_fallback(ctx,config,resumed)
-    assert replacement['model']=='Qwen' and continued['remaining_seconds']==321
+    assert replacement['model']=='DS' and continued['remaining_seconds']==321
+    assert replacement['context_restart'].startswith('idle-protocol-')
     assert continued['deadline']==resumed['deadline']
 
 
@@ -241,7 +242,8 @@ def test_blocked_summary_resume_preserves_only_the_original_remaining_time(tmp_p
     config={'model':'DS','refusal_fallback':{'model':'Qwen','base_url':'http://qwen','key_var':'KEY'}}
     assert recovery.blocked_summary_loop(ctx.run_dir)
     replacement,resumed=recovery.resume_summary_loop(ctx,config,saved)
-    assert replacement['model']=='Qwen' and resumed['deadline']==1123
+    assert replacement['model']=='DS' and resumed['deadline']==1123
+    assert replacement['context_restart'].startswith('summary-context-')
     assert resumed['status']=='deferred' and resumed['agent_seconds']==88
     assert resumed['attempts']==saved['attempts'] and resumed['remaining_seconds']==123
     assert not recovery.blocked_summary_loop(ctx.run_dir)
@@ -356,3 +358,55 @@ def test_diagnosis_uses_current_success_after_keep_not_old_export(tmp_path):
     atomic_write_json(ctx.episode_dir/'thin_media_report.json',{'clips':[
         {'clip_id':'clip_01','selected':{'passed':True,'issues':[]}}]})
     assert recovery.diagnose(ctx,{'adopted':True,'repair_actions':{'clip_01':[]}})['issues']==[]
+
+
+@pytest.mark.parametrize('legacy', [True, False])
+def test_route_restoration_requires_current_activity_and_model_pair(tmp_path, legacy):
+    ctx=context(tmp_path)
+    config={'model':'GLM','refusal_fallback':{'model':'Luna','base_url':'http://gateway','key_var':'KEY'}}
+    saved={'agent_activity':'a','deadline':1234,'fallback_invocations':1,
+           'upstream_recovery':{'authorization':'grant-a','proposals':2,'max_invocations':12}}
+    attempt=SimpleNamespace(record={'refusal':'sensitive'},directory=tmp_path/'attempt')
+    recovery.switch_for_refusal(ctx,config,saved,attempt,{}, {})
+    marker=dict(saved['model_switch'])
+    if legacy:
+        saved['model_switch']={'from_model':'DS','to_model':'Qwen','reason':'old refusal'}
+    else:
+        restored,_=recovery.restore_model_route(config,saved)
+        assert restored['model']=='Luna'
+        saved['upstream_recovery']={**saved['upstream_recovery'],'authorization':'grant-b'}
+    old=saved['model_switch']
+    restored,clean=recovery.restore_model_route(config,saved)
+    assert restored['model']=='GLM'
+    assert clean['model_switch_history'][-1]==old and 'model_switch' not in clean
+    assert clean['deadline']==1234 and clean['fallback_invocations']==2
+    assert clean['upstream_recovery']['proposals']==2
+    if not legacy:
+        changed={**saved,'model_switch':marker}
+        changed['upstream_recovery']={'authorization':'grant-a'}
+        restored,_=recovery.restore_model_route({**config,'model':'new-primary'},changed)
+        assert restored['model']=='new-primary'
+
+
+def test_technical_fallback_uses_last_common_attempt_and_never_refunds_it(tmp_path):
+    ctx=context(tmp_path)
+    config={'model':'GLM','refusal_fallback':{'model':'Luna','base_url':'http://gateway','key_var':'KEY'}}
+    result={'agent_activity':'a','deadline':1234,'fallback_invocations':0}
+    attempt=SimpleNamespace(record={'failure_kind':'transient_api'},directory=tmp_path/'attempt')
+    assert recovery.switch_for_refusal(ctx,config,result,attempt,{}, {},remaining=10) is None
+    assert recovery.retry_failed_invocation(config,result,attempt,10) is not None
+    fallback=recovery.switch_for_refusal(ctx,config,result,attempt,{}, {},remaining=10)
+    assert fallback['model']=='Luna' and result['fallback_invocations']==2
+    assert recovery.retry_failed_invocation(fallback,result,attempt,10) is None
+    assert recovery.switch_for_refusal(ctx,fallback,result,attempt,{}, {},remaining=10) is None
+    assert result['deadline']==1234
+
+
+@pytest.mark.parametrize('remaining,proposals', [(0,1),(10,12)])
+def test_no_fallback_when_time_or_invocation_allowance_is_exhausted(tmp_path,remaining,proposals):
+    ctx=context(tmp_path)
+    config={'model':'GLM','refusal_fallback':{'model':'Luna','base_url':'http://gateway','key_var':'KEY'}}
+    result={'deadline':1234,'upstream_recovery':{'proposals':proposals,'max_invocations':12}}
+    attempt=SimpleNamespace(record={'refusal':'sensitive'},directory=tmp_path/'attempt')
+    assert recovery.switch_for_refusal(ctx,config,result,attempt,{}, {},remaining=remaining) is None
+    assert 'model_switch' not in result

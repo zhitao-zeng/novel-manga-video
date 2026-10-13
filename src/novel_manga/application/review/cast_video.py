@@ -31,14 +31,14 @@ from novel_manga.llm.config import ENDPOINTS, JsonEndpoint
 from novel_manga.media.common import sha256_file, sha256_text
 from novel_manga.story.h3 import view_of
 from novel_manga.review.prompts import shot_contract
-from novel_manga.review.contracts import BODY_QUESTION
+from novel_manga.review.contracts import BODY_QUESTION, WATCHABLE_CRITERIA
 from novel_manga.util import atomic_write_json
 
 FOUND = ("extra_person", "extra_object", "face_artifact", "body_artifact")
 POLICY = "cast-video-v4-body-and-final-request"
 SCHEMA = model_client.obj({"people": {"type": "array", "items": {"type": "string"}},
                            **{key: {"type": "boolean"} for key in FOUND}, "note": {"type": "string"}})
-QUESTION = ("这是一段动画视频片段。按剧本，画面里应该出现的人只有：{cast}。{extras}\n{looks}\n"
+QUESTION = (WATCHABLE_CRITERIA + "这是一段动画视频片段。按剧本，画面里应该出现的人只有：{cast}。{extras}\n{looks}\n"
             "这一段的镜头描述（英文，是发给视频模型的原话；里面写到的人和东西都是剧本要的）：\n{shot}\n{world}\n"
             "请只根据你真正看到的回答，不要猜：\n"
             "people：画面里出现过的每一个人（包括只露出一部分的、边缘的、背影、远处的、穿盔甲或机甲的），每人一句话写是谁、什么样子，并沿肩部到手部的连接描述可见手臂；看不清的连接明确说看不清；\n"

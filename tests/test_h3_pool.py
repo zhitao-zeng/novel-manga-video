@@ -1,3 +1,4 @@
+from support.h3_provider import write_pool, make_provider, first_listed_first
 import json
 import os
 import time
@@ -11,6 +12,7 @@ from PIL import Image
 from novel_manga.providers import h3_pool, local_h3
 from novel_manga.providers.h3_pool import H3Pool, PoolUnavailable, night_leases
 from novel_manga.providers.local_h3 import LocalH3MediaProvider
+from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 
 
 def test_eight_evaluation_lora_request_includes_terminal_sigma_point():
@@ -23,24 +25,6 @@ def test_eight_evaluation_lora_request_includes_terminal_sigma_point():
     assert (payload['flow_shift'], payload['audio_flow_shift']) == (12.0, 3.0)
 
 
-def write_pool(tmp_path: Path, **overrides) -> Path:
-    config = {
-        "slots": 1,
-        "slot_dir": str(tmp_path / "slots"),
-        "exclude_hosts": ["10.0.0.3"],
-        "stuck_minutes": 15,
-        "resident": [
-            {"name": "a", "url": "http://10.0.0.1:1"},
-            {"name": "b", "url": "http://10.0.0.2:2"},
-            {"name": "off", "url": "http://10.0.0.9:9", "enabled": False},
-            {"name": "excluded", "url": "http://10.0.0.3:3"},
-        ],
-        "night_shift": {"state": str(tmp_path / "tick.json"), "drain_minutes": 15, "max_state_age_seconds": 600},
-    }
-    config.update(overrides)
-    path = tmp_path / "pool.json"
-    path.write_text(json.dumps(config), encoding="utf-8")
-    return path
 
 
 def write_tick(tmp_path: Path, leases: list, part: str = "recovery") -> None:
@@ -109,24 +93,11 @@ def test_an_instance_that_does_not_answer_is_passed_over(tmp_path, monkeypatch):
     h3_pool.release(handle)
 
 
-def make_provider(tmp_path, handler, base_url="pool", **pool_overrides):
-    provider = object.__new__(LocalH3MediaProvider)
-    provider.settings = types.SimpleNamespace(video_model="minimax-h3-ref2va-turbo", request_timeout=30.0, poll_timeout=60.0)
-    provider.client = httpx.Client(transport=httpx.MockTransport(handler))
-    provider.h3_client = provider.client
-    provider.pool = H3Pool(write_pool(tmp_path, **pool_overrides)) if base_url == "pool" else None
-    provider.base_url = "" if base_url == "pool" else base_url
-    provider.ratio = "16:9"
-    card = tmp_path / "card.png"
-    Image.new("RGB", (64, 64)).save(card)
-    return provider, card
 
 
-def first_listed_first(monkeypatch):
-    monkeypatch.setattr(h3_pool.random, "shuffle", lambda items: items.sort(key=lambda m: m.url))
 
 
-def test_a_clip_moves_to_another_instance_when_its_own_disappears(tmp_path, monkeypatch):
+def test_a_clip_retains_original_task_when_its_instance_disappears(tmp_path, monkeypatch):
     def handler(request):
         if request.url.host == "10.0.0.1":
             if request.method == "POST":
@@ -142,14 +113,15 @@ def test_a_clip_moves_to_another_instance_when_its_own_disappears(tmp_path, monk
     monkeypatch.setattr(provider.pool, "problem", lambda target: None)
     first_listed_first(monkeypatch)
     output = tmp_path / "clip.mp4"
-    provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
-    assert output.read_bytes() == b"mp4"
+    with pytest.raises(SubmissionUncertain):
+        provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
+    assert not output.exists()
     sidecar = json.loads((tmp_path / "clip.mp4.task.json").read_text(encoding="utf-8"))
-    assert sidecar["endpoint"] == "http://10.0.0.2:2/v1/videos" and sidecar["instance"] == "b"
+    assert sidecar["endpoint"] == "http://10.0.0.1:1/v1/videos" and sidecar["task_id"] == "t1"
     assert provider.pool.cooling("http://10.0.0.1:1")
 
 
-def test_a_clip_that_sits_too_long_is_given_to_another_instance(tmp_path, monkeypatch):
+def test_a_queued_task_is_not_duplicated_after_the_stuck_threshold(tmp_path, monkeypatch):
     def handler(request):
         if request.method == "POST":
             return httpx.Response(200, json={"id": "t-" + request.url.host})
@@ -162,8 +134,9 @@ def test_a_clip_that_sits_too_long_is_given_to_another_instance(tmp_path, monkey
     monkeypatch.setattr(local_h3, "POLL_SECONDS", 0.01)
     first_listed_first(monkeypatch)
     output = tmp_path / "clip.mp4"
-    provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
-    assert json.loads((tmp_path / "clip.mp4.task.json").read_text(encoding="utf-8"))["endpoint"].startswith("http://10.0.0.2:2")
+    with pytest.raises(SubmissionUncertain):
+        provider.create_video("prompt", None, output, 5.0, additional_images=(card,))
+    assert json.loads((tmp_path / "clip.mp4.task.json").read_text(encoding="utf-8"))["endpoint"].startswith("http://10.0.0.1:1")
     assert provider.pool.cooling("http://10.0.0.1:1")
 
 
@@ -204,10 +177,12 @@ def test_before_submit_hook_has_no_pool_slot_and_is_not_called_on_resume(tmp_pat
 
 
 @pytest.mark.parametrize('resumed', [False, True])
-def test_polling_502_moves_both_new_and_resumed_tasks(tmp_path, monkeypatch, resumed):
+def test_polling_502_keeps_both_new_and_resumed_tasks(tmp_path, monkeypatch, resumed):
     status = {'broken': not resumed}
+    posts = []
     def handler(request):
         if request.method == 'POST':
+            posts.append(str(request.url))
             return httpx.Response(200, json={'id': request.url.host})
         if request.url.path.endswith('/content'):
             return httpx.Response(200, content=b'mp4')
@@ -227,9 +202,10 @@ def test_polling_502_moves_both_new_and_resumed_tasks(tmp_path, monkeypatch, res
     provider.settings.poll_timeout = 5
     # Public image traffic must not accidentally be used for any H3 request.
     provider.client = httpx.Client(transport=httpx.MockTransport(lambda r: pytest.fail('wrong client')))
-    provider.create_video('prompt', None, output, 5, additional_images=(card,))
-    assert output.read_bytes() == b'mp4'
-    assert json.loads(output.with_suffix('.mp4.task.json').read_text())['endpoint'].startswith('http://10.0.0.2:2')
+    with pytest.raises(SubmissionUncertain):
+        provider.create_video('prompt', None, output, 5, additional_images=(card,))
+    assert not output.exists() and len(posts) == 1
+    assert json.loads(output.with_suffix('.mp4.task.json').read_text())['endpoint'].startswith('http://10.0.0.1:1')
 
 
 def test_retries_change_only_seed_without_narrating_retry_instructions(tmp_path):

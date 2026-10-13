@@ -16,56 +16,22 @@ and supported decisions, not universal prompt templates or quality guarantees.
 | Final publication named a bad clip while the ordinary repair list was empty. | A host routing gap hid an unresolved publication target. | Current publication blockers are repair targets too; use the actual per-clip permissions. |
 | A source actor needed a card; another already had a card but needed a new appearance. | Missing identity and a different phase are distinct operations. | Request characters for missing actors (including speaking animals); use phases/reuse_asset_id for an existing identity. |
 | A local scene correction touched a shot shared by adjacent clips. | Repair scope must include the dependency; repeated identical resumes did not change it. | Use the returned dependent clip/shot scope and repair their source-supported states together. |
-| A DS repair turn explicitly refused a fictional chapter and submitted no operation. | The model misclassified the task; more identical DS turns made no progress. | The host may switch once to configured Qwen within the same operation/take budget. Never reset history. |
+| A DS repair turn explicitly refused a fictional chapter and submitted no operation. | The model misclassified the task; more identical DS turns made no progress. | The host may use the configured fallback after an actual refusal; idle summaries refresh primary context. The original operation/take budget remains authoritative. |
 | A batch of400 chapters had all source text imported and jobs queued, but no new chapter reading, cross-chapter merge or story ledger. | Per-chapter source drafting was being mistaken for complete book preparation. | Check actual reading/roster/story coverage before batch scripting. Continue the established book preparation stages first; source files and queued jobs are not proof of completed reading. |
 
-Do not end an unfinished operation with another conversation-history summary.
-The host already retains the workspace and current diagnosis. On a fresh model
-handoff, inspect the current draft/status and named unresolved evidence first;
-reuse existing output rather than rebuilding it or rereading all old attempts.
-Before adoption, asset-input check addresses the draft's clip_01, clip_02, etc.
-Use `python3 /work/tools/episode.py check output/repair.json` (positional path).
+For execution, use the [repair playbook](repair-playbook.md). Full prior decisions
+and per-operation outcomes are available through current-task history evidence links.
 
-Local preparation lessons from the Guangming batch (2026-10-06): a location
-finding must not become a speaker re-attribution merely because its evidence
-mentions speech. Correct its recorded kind through the native input tool. A
-source-described offscreen extra keeps its real identity without a new portrait;
-`speaker_map` changes ownership, not dialogue or timing. Missing pictures or one
-invalid English request do not justify rewriting all shots. The host only uses
-source authoring for a missing/empty plan or a confirmed whole missing event.
-Whole-book location merging can coarsen rooms into a hotel name: consult the
-chapter reading's actual physical spaces; never move a bedroom action into a
-lobby because the lobby already has a picture.
+Later delivery evidence (2026-10-11–13):
 
-The host supplies current diagnosis and a small set of prior observed outcomes on
-each turn. An unresolved prior attempt is evidence of what failed, not a recipe.
-Use new failures to choose a different supported remedy. Do not wait for a human
-to restate these lessons or to tell you which evidence files to inspect.
+| Observed case | What was established | Decision it informs |
+| --- | --- | --- |
+|391 had incomplete cached verification;456 encountered non-numeric counts;560 had a stored speech failure absent from remaining problems. |391 later completed review/finish without H3 regeneration.456's new live response was numeric: malformed branches were verified with labelled fixtures.560's failure establishes propagation, not independently checked audio accuracy. | Obtain complete current judgments and retain independent failures; do not rewrite content for parser faults or mark unknown results passed. |
+|473 retained an old idle-recovery marker after an explicit context restart. | The current restart preference was overwritten before session selection. | Use the explicit restart with the existing candidate; a fresh context must not reset budgets or replay obsolete fallback history. |
+|754 had instability in raw and assembled video; two simultaneous bodies were described as one identity by the judge. | Actual temporal frames located a generation fault and an instance-counting miss. Later local repairs yielded steadier frames, not a universal camera phrase. | Compare raw/final media and count actual bodies before choosing a repair layer; judge prose alone does not certify the picture. |
+|The last17 episodes were generated/assembled and uploaded with review deferred. | Missing video was filled; content acceptance was not demonstrated. | Record delivery separately; it does not prove that every attempted content repair succeeded. |
 
-The 2026-10-08 memory audit found 154 references to31 distinct cases, all reduced
-by the old context handoff to an empty successful finish. Current related_history
-now includes the concrete issue, changed/accepted clip receipts, failed choices,
-and any source-linked retrospective. A changed operation is not proof that the
-next video passed; an accepted episode does not validate every earlier attempt.
-If repair_details is not_recorded, no remedy can be inferred from finish alone.
-Retrospective conclusions are bounded to their recorded inputs and evidence,
-and never replace current permissions or outcome. Preserve partial successes,
-correct the first source/card/request mismatch, and do not regenerate good audio
-for homophone spelling or request a new take merely because a stale gate is red.
-
-Source records maintained by the project:
-`docs/authored-binding-prompt-simplification-20260929.md`,
-`docs/production-lessons.md`, `docs/prompt-production-repair-20260930.md`,
-`docs/prompt-chain-consolidation-20260930.md`, and
-`docs/h3-runtime-audit-20260924.md`. These document paths identify provenance;
-the necessary lessons above are supplied locally in this skill, without importing
-historical run logs or their old operational instructions into the sandbox.
-
-
-## 准备阶段失败不是停止理由
-
-出现`input/preparation/exception.json`时，普通规划或准备已经失败过；先读它列出的旧稿、原模型候选及审核证据，保留有效创作选择，针对原因修复。未开拍的失败稿不是定稿，允许在source草稿内修正编剧、分镜和绑定，不能重复普通编稿后丢掉失败原因。
-
-`input/reading/locations.json`保留本章读书发现的场景；素材库没有图片，不表示故事发生在另一个有图的地点。海底、海滩、山崖不能因为图库只剩大学城就改成大学城。需要图片时先把真实角色/地点写进草稿，再用现有`apply action=input`的characters/locations提交原文依据、设计与补图请求。实际检查图片并绑定后继续check/render，不以文字声称素材已完成。
-
-公共故障经验：H3的Subject不是人类分类，动物不能被模板默认写成人。一次局部修复若报告其他片段改变，先区分真实姿态继承与编译器重算造成的漂移；宿主会保留未改前缀、自动处理有证据且未越预算的依赖，不需要通过扩大全部章节范围反复碰运气。若真实依赖涉及已拍片段或用完预算，保留准确原因，不改次数。共享素材复核结果可以复用，但needs_review不是已通过；未成功的旧修法是失败证据，不是成功案例。
+Case provenance: `docs/guangming-repair-memory-20261008.md`,
+`docs/production-lessons.md` and `docs/agent-repair-integration-20261013.md`.
+These identify evidence; old model names, host addresses and temporary grants
+are not instructions for a new task.

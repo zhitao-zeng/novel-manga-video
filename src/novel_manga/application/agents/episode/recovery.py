@@ -5,6 +5,7 @@ import re
 import time
 import json
 import fcntl
+import copy
 from functools import lru_cache
 from pathlib import Path
 
@@ -20,6 +21,7 @@ LESSONS = {
     'publication_gate': 'Final acceptance named these clips even if the ordinary review passed. They remain eligible repair targets; do not claim the episode is done.',
     'technical': 'Locate the actual failing time interval in the final timeline. end_seconds can be the measurement-window end, not the failed interval.',
     'arguments': 'Correct the tool fields/scope reported by check; repeating resume cannot fix malformed arguments.',
+    'execution': 'The call or result protocol failed, so no content judgment was obtained. Preserve the candidate and use the current technical continuation; do not rewrite source content on this evidence.',
 }
 
 
@@ -35,6 +37,10 @@ def diagnose(ctx, status):
     def add(kind, ids, detail):
         if 'first_pass_remaining' in status and ids and not set(ids)&set(status['first_pass_remaining']):
             return
+        if kind in {'input', 'arguments'} and re.match(
+                r'^(?:LLMFailure|ConnectError|ConnectTimeout|ReadTimeout|ConnectionError|TimeoutError|JSONDecodeError):|'
+                r'^ValueError: (?:verification requires|verification flags require|count review)', str(detail)):
+            kind = 'execution'
         issues.append({'kind': kind, 'clips': list(ids), 'detail': str(detail)[:700],
                        'next': LESSONS[kind]})
 
@@ -109,25 +115,30 @@ def remember(ctx, diagnosis, result, decisions=()):
         return
     path = _memory_dir(ctx)/(ctx.run_dir.name+'.json')
     previous = read_json(path, {})
-    issues = diagnosis.get('issues') or previous.get('issues') or []
+    issues = list(previous.get('issues') or [])
+    for issue in diagnosis.get('issues') or []:
+        if issue not in issues:
+            issues.append(issue)
     if not issues:
         return
     outcome = ('accepted' if result.get('action') == 'finish' and result.get('ok') is True
                and result.get('passed') is True else 'unresolved')
     attempts = previous.get('attempts') or []
     attempt = {'action': result.get('action'), 'ok': result.get('ok'),
+               'issues': copy.deepcopy(diagnosis.get('issues') or []),
                'changed': result.get('changed') or result.get('input_repaired') or [],
                'accepted_clips': result.get('accepted') or [],
                'blocked': result.get('blocked') or result.get('error'),
                'remedies': [{'action': row.get('action'), 'clip': row.get('clip_id'),
-                            'reason': str(row.get('reason') or '')[:700]} for row in decisions]}
+                            'reason': str(row.get('reason') or '')[:700],
+                            'decision': copy.deepcopy(row)} for row in decisions]}
     if not attempts or attempts[-1] != attempt:
         attempts.append(attempt)
     record={'episode': ctx.source_episode_dir.name, 'run_dir': str(ctx.run_dir),
         'scope':'post_render_repair' if post_render else 'semantic_input_repair' if repair_phase else 'legacy_preparation',
         'evidence':str(ctx.episode_dir/'episode_review.json'),
         'profile':read_json(ctx.novel_dir/'profile.json',{}) if hasattr(ctx,'novel_dir') else {},
-        'updated_at': time.time(), 'issues': issues, 'outcome': outcome, 'attempts': attempts[-8:]}
+        'updated_at': time.time(), 'issues': issues, 'outcome': outcome, 'attempts': attempts}
     atomic_write_json(path,record)
     if post_render or repair_phase:
         document_memory(path,record)
@@ -183,6 +194,8 @@ def recall(ctx, diagnosis):
                     'lesson_and_limits': str(case.get('lesson_and_limits') or '')[:400]}
     review_scope = read_json(ctx.work_dir/'input/manifest.json',{}).get('memory_scope') in {'post_render_repair','repair_only'}
     for path in _memory_dir(ctx).glob('*.json'):
+        if path.name == ctx.run_dir.name+'.json':
+            continue
         record = read_json(path, {})
         if review_scope and record.get('scope') not in {'post_render_repair','semantic_input_repair'}:
             continue
@@ -194,7 +207,9 @@ def recall(ctx, diagnosis):
                          'attempts': record.get('attempts') or [],
                          'retrospective': notes.get(path.name),
                          'updated_at': record.get('updated_at', 0)})
-    rows.sort(key=lambda r: (r['outcome'] == 'accepted', r['updated_at']), reverse=True)
+    from .memory_summary import summarize_case
+    rows.sort(key=lambda r: (bool(summarize_case(r)['effective_operations']),
+                            r['outcome'] == 'accepted', r['updated_at']), reverse=True)
     return rows[:4]
 
 
@@ -328,21 +343,19 @@ def resume_protocol(run_dir,episode_dir,saved, *, validate_input=None):
     resumed={**saved,'status':'deferred','phase':'ready_agent','protocol_recovery':marker,
         'reason':'Continue with corrected repair interface and current task evidence',
         'remaining_seconds':remaining,'deadline':time.time()+remaining,'no_progress':0,
-        'fallback_invocations':0,'job':None,'updated_at':time.strftime('%F %T')}
+        'fallback_invocations':saved.get('fallback_invocations',0),
+        'job':None,'updated_at':time.strftime('%F %T')}
     atomic_write_json(run_dir/'agent-run.json',resumed)
     return resumed
 
 
-def protocol_fallback(ctx,config,saved):
-    if (saved.get('protocol_recovery') or {}).get('kind')!='idle_turns' or saved.get('model_switch'):
-        return config,saved
-    from types import SimpleNamespace
-    candidate={**saved,'idle_turns':1}
-    attempt=SimpleNamespace(record={'exit':0,'produced':[]},directory=Path(saved['attempts'][-1]))
-    replacement=switch_for_refusal(ctx,config,candidate,attempt,{}, {})
-    if replacement is None:return config,saved
-    atomic_write_json(ctx.run_dir/'agent-run.json',candidate)
-    return replacement,candidate
+def protocol_fallback(ctx, config, saved):
+    # An idle completion is not a provider failure. Keep the primary model and
+    # refresh context once under the existing protocol recovery marker.
+    marker = saved.get('protocol_recovery') or {}
+    if marker.get('kind') != 'idle_turns' or config.get('context_restart'):
+        return config, saved
+    return {**config, 'context_restart': 'idle-protocol-' + str(marker.get('at'))}, saved
 
 
 def resume_source_review(run_dir, episode_dir, saved):
@@ -374,7 +387,8 @@ def resume_source_review(run_dir, episode_dir, saved):
 def blocked_summary_loop(run):
     saved = read_json(Path(run)/'agent-run.json', {})
     attempts = saved.get('attempts') or []
-    return (saved.get('status') == 'blocked' and not saved.get('model_switch')
+    return (saved.get('status') == 'blocked' and not saved.get('summary_context_recovery')
+            and not saved.get('protocol_recovery')
             and remaining_at_stop(saved) > 0
             and saved.get('reason') in {
                 'episode agent ended twice without operation or output progress',
@@ -386,12 +400,9 @@ def resume_summary_loop(ctx, config, saved):
     """Reopen only an observed loop, using its unspent active time and files."""
     if not blocked_summary_loop(ctx.run_dir):
         return None
-    from types import SimpleNamespace
-    resumed = {**saved, 'summary_only_turns': 1}
-    attempt = SimpleNamespace(record={'summary_only': True}, directory=Path(saved['attempts'][-1]))
-    replacement = switch_for_refusal(ctx, config, resumed, attempt, {}, {})
-    if replacement is None:
-        return None
+    marker = {'at': time.time()}
+    resumed = {**saved, 'summary_context_recovery': marker}
+    replacement = {**config, 'context_restart': config.get('context_restart') or 'summary-context-' + str(marker['at'])}
     remaining = remaining_at_stop(saved)
     resumed.update(status='deferred', reason=None, stop_detail=None,
                    remaining_seconds=remaining, deadline=time.time()+remaining)
@@ -399,31 +410,42 @@ def resume_summary_loop(ctx, config, saved):
     return replacement, resumed
 
 
-def switch_for_refusal(ctx, config, result, attempt, before, after):
+def switch_for_refusal(ctx, config, result, attempt, before, after, *, remaining=None):
     handed_off = (after.get('job') or {}).get('id') != (before.get('job') or {}).get('id')
     result['summary_only_turns'] = (result.get('summary_only_turns', 0)+1
                                   if attempt.record.get('summary_only') and not handed_off else 0)
     idle=(attempt.record.get('exit')==0 and attempt.record.get('produced')==[] and not handed_off)
     result['idle_turns']=result.get('idle_turns',0)+1 if idle else 0
-    reason = attempt.record.get('refusal') or (
-        'Repeated summary-only completions without a host operation'
-        if result['summary_only_turns'] >= 2 else
-        'Two completed turns without changed output or a host operation' if result['idle_turns']>=2 else '')
+    from .limits import MAX_INVOCATIONS
+    from .bounded_recovery import invocation_limit_reached
+    count = result.get('fallback_invocations', 0)
+    reason = attempt.record.get('refusal')
+    # Reserve the last existing continuation for fallback, rather than opening
+    # another retry budget after exhausting all primary attempts.
+    if (not reason and attempt.record.get('failure_kind') in {'context_compaction', 'transient_api'}
+            and count >= MAX_INVOCATIONS - 2
+            and any(row.get('activity') == activity(result)
+                    for row in result.get('invocation_retry_history', []))):
+        reason = 'Primary technical retries failed: ' + attempt.record['failure_kind']
     fallback = config.get('refusal_fallback')
-    if not fallback or result.get('model_switch') or not reason or handed_off:
+    if (not fallback or result.get('model_switch') or not reason or handed_off
+            or config.get('model') == fallback.get('model')
+            or count + 1 >= MAX_INVOCATIONS or invocation_limit_reached(result)
+            or (remaining is not None and remaining <= 0)):
         return None
     if not all(fallback.get(k) for k in ('model', 'base_url', 'key_var')):
         return None
-    archive = ctx.run_dir/'model-switch'
+    archive = ctx.run_dir/'model-switch'/str(time.time_ns())
     archive.mkdir(parents=True, exist_ok=True)
     session = ctx.work_dir/'episode-session.json'
     if session.exists():
         session.rename(archive/'episode-session.json')
-    record = {'from_model': config.get('model'), 'to_model': fallback['model'],
+    record = {'policy': 'activity-failure-v1', 'activity': activity(result),
+              'from_model': config.get('model'), 'to_model': fallback['model'],
               'attempt': str(attempt.directory), 'reason': reason,
               'deadline': result.get('deadline'), 'at': time.time()}
     atomic_write_json(archive/'switch.json', record)
-    result.update(model_switch=record, no_progress=0, fallback_invocations=0, summary_only_turns=0,idle_turns=0)
+    result.update(model_switch=record, no_progress=0, fallback_invocations=count+1, summary_only_turns=0,idle_turns=0)
     return {**config, 'model_slots_reserved_for_tools': 0, **fallback}
 
 
@@ -466,3 +488,46 @@ def upstream_route(ctx,status):
                     'asset_id':ref['asset_id'],'reason':row['reason'],'source_quote':row['source_quote'],'fields':fields}}
     return {'kind':'episode_repair' if any(status.get('repair_actions',{}).values())else 'needs_evidence',
             'reason':'Use current legal actions; no new source-supported upstream candidate was retained.'}
+
+
+def activity(result):
+    return {'started': result.get('agent_activity'),
+            'authorization': (result.get('upstream_recovery') or {}).get('authorization')}
+
+
+def restore_model_route(config, saved):
+    """Only this activity's observed failure may select the configured fallback."""
+    marker = saved.get('model_switch')
+    fallback = config.get('refusal_fallback') or {}
+    if not marker:
+        return config, saved
+    if (marker.get('policy') == 'activity-failure-v1'
+            and marker.get('activity') == activity(saved)
+            and marker.get('from_model') == config.get('model')
+            and marker.get('to_model') == fallback.get('model')):
+        return {**config, 'model_slots_reserved_for_tools': 0, **fallback}, saved
+    saved = dict(saved)
+    saved['model_switch_history'] = [*saved.get('model_switch_history', []), saved.pop('model_switch')]
+    # Session policy/activity/model matching rotates obsolete conversations once.
+    return config, saved
+
+
+def retry_failed_invocation(config, result, attempt, remaining):
+    """Retry technical CLI failures within the existing shared continuation limits."""
+    from .limits import MAX_INVOCATIONS
+    from .bounded_recovery import invocation_limit_reached
+    kind = attempt.record.get('failure_kind')
+    count = result.get('fallback_invocations', 0)
+    if (kind not in {'context_compaction', 'transient_api'} or remaining <= 0
+            or count + 1 >= MAX_INVOCATIONS or invocation_limit_reached(result)):
+        return None
+    result['fallback_invocations'] = count + 1
+    result.setdefault('invocation_retry_history', []).append({
+        'attempt': str(attempt.directory), 'kind': kind, 'activity': activity(result),
+        'deadline': result['deadline'], 'at': time.time()})
+    replacement = dict(config)
+    if kind == 'context_compaction':
+        # Restart only conversational context. Saved work, deadline and grants
+        # remain authoritative, and the next invocation is charged normally.
+        replacement['context_restart'] = f"cli-context-retry-{attempt.directory.name}"
+    return replacement

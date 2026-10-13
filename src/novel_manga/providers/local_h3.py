@@ -28,12 +28,13 @@ import httpx
 from PIL import Image, ImageOps
 
 from ..config import Settings
-from ..util import atomic_write_json, read_json, retry
+from ..util import atomic_write_json, read_json
 from .base import ImageResult
 from .h3_pool import H3Pool
 from .h3_pool import release as release_slot
 from .phanrouter import PhanRouterMediaProvider
 from .phanrouter_video import audio_data_url
+from .phanrouter_tasks import SubmissionUncertain, submit_once
 
 # The planner writes @图片N and @音频N; H3 addresses its inputs as <Picture N> and <Audio N>.
 # Both are positional and the caller hands over the references in the order the plan numbered
@@ -66,7 +67,25 @@ def h3_prompt(prompt: str) -> str:
 
 
 class InstanceUnavailable(RuntimeError):
-    """The instance failed (refused, dropped or answered 5xx), not the request: try another."""
+    """No connection was made for a submission, or a task lookup is unavailable."""
+
+
+def task_downloaded(record: dict) -> bool:
+    return any((record.get(key) or {}).get('completed_observed_at')
+               for key in ('client_timing', 'resume_timing'))
+
+
+def guard_pending_tasks(directory: Path, output: Path) -> None:
+    """Changing the attempt directory cannot abandon this clip's unresolved task."""
+    for path in directory.glob('attempt_*/clip.mp4.task.json'):
+        record = read_json(path, {})
+        if record.get('submit_uncertain_at') and not record.get('task_id'):
+            raise SubmissionUncertain(f'H3 submission unconfirmed at {path}; reconcile it before another submission')
+        video = path.with_suffix('').with_suffix('')
+        if (record.get('task_id') and video != output
+                and (not (video.is_file() and video.stat().st_size > 0)
+                     or (record.get('client_timing') and not task_downloaded(record)))):
+            raise SubmissionUncertain(f'H3 task {record["task_id"]} is unresolved at {path}; resume its original attempt')
 
 
 class LocalH3MediaProvider(PhanRouterMediaProvider):
@@ -134,24 +153,25 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
     # ------------------------------------------------------------------- API
     def _submit(self, payload: dict, base: str) -> str:
         def post() -> httpx.Response:
-            try:
-                response = self.h3_client.post(f"{base}/v1/videos", json=payload,
-                                            timeout=min(self.settings.request_timeout, 300.0))
-            except httpx.TransportError as error:
-                raise InstanceUnavailable(f"local H3 at {base} unreachable: {type(error).__name__}") from error
+            response = self.h3_client.post(f"{base}/v1/videos", json=payload,
+                                          timeout=min(self.settings.request_timeout, 300.0))
             if response.status_code >= 500:
-                raise InstanceUnavailable(f"local H3 at {base} returned HTTP {response.status_code}")
-            try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as error:
-                detail = response.text.strip().replace("\n", " ")[:1000]
-                raise RuntimeError(f"local H3 submission returned HTTP {response.status_code}: {detail}") from error
+                # H3 has no contract proving a 5xx (including 503) rejected the
+                # request before accepting it. Do not inherit paid API assumptions.
+                raise SubmissionUncertain(f'H3 submission unconfirmed (HTTP {response.status_code}); not sent again')
+            response.raise_for_status()
             return response
 
-        # One instance is retried; in the pool a failing instance is cooled down and the clip moves on.
-        task_id = (post() if self.pool else retry(post)).json().get("id")
+        try:
+            response = submit_once(post, attempts=1 if self.pool else 3)
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as error:
+            raise InstanceUnavailable(f'local H3 at {base} not connected: {type(error).__name__}') from error
+        try:
+            task_id = response.json().get('id')
+        except (ValueError, AttributeError) as error:
+            raise SubmissionUncertain('H3 submission returned no readable task id; not sent again') from error
         if not task_id:
-            raise ValueError("local H3 returned no task id")
+            raise SubmissionUncertain('H3 submission returned no task id; not sent again')
         return str(task_id)
 
     def _state(self, task_id: str, base: str) -> dict | None:
@@ -192,6 +212,8 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                 cached = json.loads(task_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 cached = {}
+            if cached.get('submit_uncertain_at') and not cached.get('task_id'):
+                raise SubmissionUncertain(f'H3 submission unconfirmed at {task_path}; reconcile it before another submission')
             matches = cached.get("request_sha256") == request_sha256
             if matches:
                 resumed_sampling = sampling
@@ -209,27 +231,35 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                 # The task lives on the instance that took it, whichever that was.
                 base = str(cached.get("endpoint") or "").removesuffix("/v1/videos") or self.base_url
             elif cached:
+                if cached.get('task_id') and not task_downloaded(cached):
+                    raise SubmissionUncertain('H3 request changed while its original task is unresolved; resume the original inputs')
                 task_path.replace(task_path.with_suffix(".stale.json"))
         if self.pool and task_id and (not base or self.pool.excluded(base)):
-            task_id = None  # held by an instance taken out of the pool: render it elsewhere
+            raise SubmissionUncertain('H3 task belongs to an unavailable or excluded instance; original receipt retained')
         elif task_id and not self.pool and base != self.base_url:
-            # Naming a single instance says where this run renders.  A task cached against another
-            # one - left by a pool run, or by a run aimed elsewhere - has no cool-down to release it
-            # and no second instance to move to, so resuming it waits out the whole timeout on a
-            # machine this run never chose.  Drop it and submit here instead.
-            task_id, base = None, self.base_url
+            raise SubmissionUncertain('H3 task belongs to a different instance; original receipt retained')
 
         if task_id and cached.get("h3_sampling") != resumed_sampling:
             # The digest establishes these exact parameters even for a legacy
             # receipt. Retain its original task id, seed and request SHA.
             atomic_write_json(task_path, {**cached, "h3_sampling": resumed_sampling})
-        # This remains the NEW-request seed. An old task is polled using its
-        # existing id; if it is unavailable, ordinary recovery submits 544.
+        # This remains the NEW-request seed. An old task keeps its existing id.
         payload["seed"] = int(request_sha256[:8], 16) % (2 ** 31)
 
         slot, instance, status = None, None, "pending"
         submitted = time.monotonic()
         timing['resumed'] = bool(task_id)
+
+        def lookup():
+            try:
+                state = self._state(task_id, base)
+            except (httpx.HTTPError, InstanceUnavailable, ValueError) as error:
+                if self.pool:
+                    self.pool.cool_down(base, self.pool.unreachable_cooldown, f'lookup failed: {type(error).__name__}')
+                raise SubmissionUncertain(f'H3 task {task_id} could not be queried; original receipt retained') from error
+            if state is None:
+                raise SubmissionUncertain(f'H3 task {task_id} is missing from the service index; reconcile its outcome before resubmitting')
+            return state
 
         def download_completed(state):
             nonlocal slot
@@ -253,19 +283,10 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
         try:
             deadline = time.monotonic() + self.settings.poll_timeout
             if self.pool and task_id:
-                # A resumed task is looked at before anything waits for a slot: one that finished while we were away
-                # (a download cut short) needs only its video, and one its instance forgot, or that went with its
-                # instance, is asked for again.  Only a task still rendering holds a slot of its instance while we
-                # wait on it - or the pool would hand the instance more clips than its slots allow.
-                try:
-                    state = self._state(task_id, base)
-                except (httpx.TransportError, InstanceUnavailable) as error:
-                    self.pool.cool_down(base, self.pool.unreachable_cooldown, f"lost while resuming: {type(error).__name__}")
-                    state = None
-                status = str((state or {}).get("status", "")).lower()
-                if state is None:
-                    task_id = None
-                elif status in {"completed", "succeeded", "success"}:
+                # Completed tasks need no slot. A failed lookup never grants a new POST.
+                state = lookup()
+                status = str(state.get("status", "")).lower()
+                if status in {"completed", "succeeded", "success"}:
                     return download_completed(state)
                 elif status not in {"failed", "error", "cancelled", "canceled"}:
                     from novel_manga.resource_waits import QueueWait
@@ -300,50 +321,40 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                         timing['pool_wait_s'] += round(waited, 3)
                         base = instance.url
                     sending = time.monotonic()
+                    record = {
+                        'kind': 'video', 'model': self.settings.video_model,
+                        'endpoint': f'{base}/v1/videos',
+                        **({'instance': instance.name} if instance else {}),
+                        'local': True, 'output_format': 'mp4', 'request_sha256': request_sha256,
+                        'seconds': payload['seconds'], 'seed': payload['seed'], 'h3_sampling': sampling,
+                        'additional_image_sha256s': [hashlib.sha256(Path(p).read_bytes()).hexdigest()
+                                                    for p in additional_images],
+                        'reference_audio_sha256s': [hashlib.sha256(Path(p).read_bytes()).hexdigest()
+                                                   for p in reference_audios],
+                    }
+                    # A crash after sending but before receiving an id must leave
+                    # the same durable hold as a lost HTTP response.
+                    atomic_write_json(task_path, {**record, 'submit_uncertain_at': time.time()})
                     try:
                         task_id = self._submit(payload, base)
                     except InstanceUnavailable as error:
+                        atomic_write_json(task_path, {**record, 'submit_not_accepted_at': time.time()})
                         if not self.pool:
                             raise
                         self.pool.cool_down(base, self.pool.unreachable_cooldown, str(error))
                         continue
+                    except SubmissionUncertain:
+                        raise
+                    except RuntimeError:
+                        # Explicit rejection (e.g. 4xx) occurred before acceptance.
+                        atomic_write_json(task_path, {**record, 'submit_not_accepted_at': time.time()})
+                        raise
                     finally:
                         timing['submission_s'] += round(time.monotonic()-sending, 3)
                     submitted = time.monotonic()
                     timing.update(resumed=False, accepted_at=time.time())
-                    atomic_write_json(task_path, {
-                        "task_id": task_id,
-                        "kind": "video",
-                        "model": self.settings.video_model,
-                        "endpoint": f"{base}/v1/videos",
-                        **({"instance": instance.name} if instance else {}),
-                        "local": True,  # nothing was billed for this clip
-                        "output_format": "mp4",
-                        "request_sha256": request_sha256,
-                        "seconds": payload["seconds"],
-                        "seed": payload["seed"],
-                        "h3_sampling": sampling,
-                        "client_timing": timing,
-                        "additional_image_sha256s": [hashlib.sha256(Path(p).read_bytes()).hexdigest()
-                                                     for p in additional_images],
-                        "reference_audio_sha256s": [hashlib.sha256(Path(p).read_bytes()).hexdigest()
-                                                    for p in reference_audios],
-                    })
-                try:
-                    state = self._state(task_id, base)
-                except (httpx.TransportError, InstanceUnavailable) as error:
-                    if not self.pool:
-                        raise
-                    # The instance went away mid-clip - a night lease handed back, a restart: cool it
-                    # down for every runner and give the clip to another instance.
-                    self.pool.cool_down(base, self.pool.unreachable_cooldown, f"lost while polling: {type(error).__name__}")
-                    task_id = None
-                    continue
-                if state is None:
-                    # The service keeps its task index in memory, so a restart loses every id we
-                    # hold.  Nothing was charged and nothing is running: ask for the work again.
-                    task_id = None
-                    continue
+                    atomic_write_json(task_path, {**record, 'task_id': task_id, 'client_timing': timing})
+                state = lookup()
                 status = str(state.get("status", "")).lower()
                 if status in {"completed", "succeeded", "success"}:
                     return download_completed(state)
@@ -355,16 +366,12 @@ class LocalH3MediaProvider(PhanRouterMediaProvider):
                         task_path.replace(task_path.with_suffix(".failed.json"))
                     raise RuntimeError(f"local H3 task {task_id} {status}: {detail}")
                 if self.pool and self.pool.problem(base):
-                    # It stopped answering, its service holds no GPU, or its GPUs sat idle with jobs
-                    # waiting (the pool has already cooled it down): the clip goes elsewhere now.
-                    task_id = None
-                    continue
+                    raise SubmissionUncertain(f'H3 instance unhealthy with task {task_id} pending; original receipt retained')
                 if self.pool and time.monotonic() - submitted > self.pool.stuck_seconds:
                     # An instance that takes work and never finishes it (GPU003-B, 2026-09-11 14:36).
                     self.pool.cool_down(base, self.pool.stuck_cooldown,
                                         f"task {task_id} still {status} after {self.pool.stuck_seconds / 60:.0f} min")
-                    task_id = None
-                    continue
+                    raise SubmissionUncertain(f'H3 task {task_id} still pending; original receipt retained')
                 time.sleep(POLL_SECONDS)
             raise TimeoutError(f"local H3 task {task_id} still {status} after {self.settings.poll_timeout:.0f}s")
         finally:

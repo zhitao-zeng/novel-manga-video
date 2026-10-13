@@ -94,6 +94,12 @@ def resume_window(ctx,saved):
     return None
 
 
+def invocation_limit_reached(result):
+    """The existing recovery window also bounds technical invocation retries."""
+    window = result.get('upstream_recovery') or {}
+    return bool(window) and window.get('proposals', 0) >= window.get('max_invocations', 2)
+
+
 def record_proposal(ctx):
     path=ctx.run_dir/'agent-run.json';saved=read_json(path,{})
     window=saved.get('upstream_recovery')

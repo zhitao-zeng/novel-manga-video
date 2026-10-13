@@ -217,6 +217,8 @@ def build_references(cast: list[str], location_short: str | None, bible: StoryBi
             images = present.get(asset) if present is not None else None
             # detail.jpeg 只在确证存在时用；预览路径（无 novel_dir）一律 turnaround，不承诺没见过的文件
             image = "detail.jpeg" if prop.closeup and images is not None and "detail.jpeg" in images else "turnaround.jpeg"
+            if images is not None and image not in images:
+                continue  # A metadata-only directory is not a usable image reference.
             count += 1
             references.append({"tag": f"@图片{count}", "role": "prop", "name": prop_name, "asset_id": asset,
                                "path": f"series_assets/props/{asset}/{image}",

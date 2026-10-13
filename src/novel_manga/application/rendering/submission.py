@@ -13,7 +13,7 @@ from novel_manga.media.policy import PRESCREEN_RISK, SUBMIT_BACKOFF_SECONDS
 from novel_manga.media import generation, cache
 from novel_manga.media.cache import CacheMiss
 from novel_manga.media.policy import resubmittable
-from novel_manga.util import atomic_write_json, media_duration
+from novel_manga.util import atomic_write_json, media_duration, read_json
 
 from novel_manga.application.profiles import plan_fingerprint
 
@@ -51,7 +51,18 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / "clip.mp4"
     episode_dir = ctx.work.parent
+    if ctx.settings.local_h3_base_url and not ctx.options.cache_only:
+        from novel_manga.providers.local_h3 import guard_pending_tasks
+        guard_pending_tasks(directory.parent, output)
     request, references, digests, retry = generation.build_request(ctx, clip, attempt)
+    task_path = output.with_suffix(output.suffix + '.task.json')
+    saved_request = read_json(directory/'request.json', {})
+    if (ctx.settings.local_h3_base_url and read_json(task_path, {}).get('task_id') and saved_request
+            and not (output.is_file() and output.stat().st_size > 0)
+            and (not cache.request_matches(ctx, clip, saved_request, references, digests)
+                 or saved_request.get('seed_variant', request.get('seed_variant')) != request.get('seed_variant'))):
+        from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
+        raise SubmissionUncertain('H3 inputs changed while the original task is unresolved; preserve and resume its request')
     prompt = request['prompt']
     import novel_manga.application.repair.history as repair_history
     cached = cache.current_video(ctx, clip, attempt, directory, references, digests, repair_history)
@@ -107,7 +118,6 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
             ctx.state.blocked_clips[clip['clip_id']]=['request: '+issue for issue in contradictions]
             raise ValueError('H3 request needs identity repair: '+'; '.join(contradictions))
     task_path = output.with_suffix(output.suffix + ".task.json")
-    from novel_manga.util import read_json
     saved_request=read_json(output.parent/'request.json',{})
     resume_scope=bool(saved_request.get('_repack_budget') and read_json(task_path,{}).get('task_id')
         and cache.request_matches(ctx,clip,saved_request,references,digests))
@@ -130,7 +140,6 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
         ctx.state.remaining[clip['clip_id']] = max(0, repair_history.generation_limit(
             episode_dir, clip['clip_id']) - repair_history.generation_counts(episode_dir).get(clip['clip_id'], 0))
     task_path = output.with_suffix(output.suffix + ".task.json")
-    from novel_manga.util import read_json
     prior_task = read_json(task_path, {}).get('task_id')
     request = repair_history.generation_request(episode_dir, output, {**request,'clip_id':clip['clip_id']},
         expected_plan=plan_fingerprint(ctx.clip_plan), expected_notes=ctx.feedback)

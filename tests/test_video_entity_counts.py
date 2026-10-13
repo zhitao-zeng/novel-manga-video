@@ -52,3 +52,23 @@ def test_empty_equipment_has_a_non_actor_outlet_and_is_not_a_visible_person():
     assert len(result['verify']['people']) == 2
     assert result['verify']['objects'][0]['who'] == '无人空甲'
     assert result['severity'] == 'pass'
+
+
+@pytest.mark.parametrize('value', [None, '', 'unknown'])
+def test_missing_verification_verdict_is_not_a_pass(value):
+    with pytest.raises(ValueError, match='verdict'):
+        verify_to_verdict({'verdict': value, 'people': []})
+
+
+def test_integer_text_counts_keep_the_same_meaning_without_mutating_evidence():
+    raw = {'verdict': 'fine', 'count_checks': [counted('人物', 2, '3')]}
+    assert verify_to_verdict(raw)['severity'] == 'fail'
+    assert raw['count_checks'][0]['observed'] == '3'
+    raw['count_checks'][0].update(expected_min='2', expected_max='3')
+    assert verify_to_verdict(raw)['severity'] == 'pass'
+
+
+@pytest.mark.parametrize('value', ['未知', '2-3', None, True, -1, 1.5])
+def test_unknown_or_invalid_counts_are_not_coerced_to_a_pass(value):
+    with pytest.raises(ValueError, match='count'):
+        verify_to_verdict({'verdict': 'fine', 'count_checks': [counted('人物', 2, value)]})

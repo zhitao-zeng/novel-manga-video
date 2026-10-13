@@ -235,21 +235,9 @@ audio, alongside the host's independent technical/content results. A format pass
 ASR pass, good frame or written output alone does not prove complete delivery.
 Report pending or missing checks and remaining failed clips. `finish` records the
 host's actual accepted or stopped result; it does not authorize bypassing a gate.
-# Source dialogue capacity and autonomous recovery
+## Repair decisions
 
-The host supplies current diagnosis and observed prior outcomes. Read these before
-choosing a repair, and act through current repair_actions without asking the
-operator to restate the problem. A resolved old verdict is not a current failure.
-
-For source input with overfull dialogue, action=input may include
-`shots: [{index: 7, turn_texts: ["Short complete first turn", "Short complete answer"]}]`.
-Supply every original turn in order; speakers and delivery modes remain fixed.
-Use the verbatim source_quote and preserve decisive questions, answers, causal
-conditions, negations and numeric meaning. The host checks that this is an
-overfull source shot, that text is shorter, and independently checks its meaning.
-Frozen script input cannot use turn_texts. Existing take limits still apply.
-
-Pure nonverbal laughter and exact Mandarin homophones are now evidence to retain,
-not automatic reasons to reshoot. Current review refreshes saved audio under the
-new policy. Use that outcome before requesting more video. Actual missing
-commands, long missing passages and extra intelligible speech still need repair.
+Use the [repair playbook](repair-playbook.md) for diagnosis and case selection.
+Use the [output contract](output-contract.md) for source-backed turn_texts and
+other payloads. Current host permissions determine what may execute; this guide
+adds no retry budget or model routing policy.

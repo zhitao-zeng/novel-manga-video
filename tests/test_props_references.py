@@ -112,3 +112,20 @@ def test_location_binding_holds_for_every_seat_layout():
                                     props_on_disk={"prop_001": {"turnaround.jpeg"}})
     assert loc.startswith(_location_seat(refs))
     assert [r["tag"] for r in refs if r["role"] == "voice"] == ["@音频1"]
+
+
+def test_asset_directory_with_only_metadata_cannot_supply_a_reference(tmp_path):
+    from novel_manga.application.packing.assets import prop_assets_on_disk
+    prop = tmp_path/'series_assets/props/prop_001'
+    prop.mkdir(parents=True)
+    (prop/'spec.json').write_text('{}')
+    (prop/'phase-build.lock').touch()
+    bible = _bible()
+    refs, _, _ = build_references(['莱恩'], None, bible, {}, props=['青铜短剑'],
+                                  props_on_disk=prop_assets_on_disk(tmp_path))
+    assert not [r for r in refs if r['role'] == 'prop']
+    # Only a completed, named image changes the compiled references.
+    (prop/'turnaround.jpeg').write_bytes(b'image evidence')
+    refs, _, _ = build_references(['莱恩'], None, bible, {}, props=['青铜短剑'],
+                                  props_on_disk=prop_assets_on_disk(tmp_path))
+    assert [r['path'] for r in refs if r['role'] == 'prop'] == ['series_assets/props/prop_001/turnaround.jpeg']

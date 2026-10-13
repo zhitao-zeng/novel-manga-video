@@ -36,6 +36,12 @@ def fix_tier(verdict: dict, bible: review_models_StoryBible, rules: ReviewRules 
         return 'must_fix'  # ranges already account for the scripted empty suit/cropping
     if verdict.get("story_ok") is False and verdict.get("story_kind") in STORY_FATAL:
         return "must_fix"  # the picture tells the wrong story, however clean it is
+    if (verdict.get('severity') == 'minor'
+            and verdict.get('story_ok') is not False and not verdict.get('visual_defects')
+            and ((verdict.get('verify') and all(verdict['verify'].get(flag) is False for flag in VERIFY_FLAGS))
+                 or (not verdict.get('verify') and verdict.get('identity_ok') is True
+                     and verdict.get('visual_defects') is False and verdict.get('story_ok') is True))):
+        return 'optional'  # the structured judgment already ruled out the material identity/body defects
     if verdict.get("scripted"):
         return "optional"  # a scripted oddity never excuses assigning an action to the wrong person
     issue = str(verdict.get("identity_issue") or "") + " " + str(verdict.get("defect_issue") or "")
@@ -96,23 +102,55 @@ def compose_feedback(verdict: dict, clip: dict | None = None, manifest: dict | N
     return joined or str(verdict.get("feedback") or "").strip()
 
 
-def count_mismatches(answer: dict) -> list[str]:
-    failures = []
+def _count_number(value):
+    # Gateway JSON sometimes serializes integer counts as strings. Preserve that
+    # numeric meaning, but never treat unknown observations as zero people.
+    if isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
+        value = int(value)
+    if type(value) is float and value.is_integer():
+        value = int(value)
+    if type(value) is not int or value < 0:
+        raise ValueError(f'count review requires a nonnegative integer, got {value!r}')
+    return value
+
+
+def verification_complete(answer: dict) -> bool:
+    """An incomplete cached answer must return to the ordinary judge."""
+    try:
+        verify_to_verdict(answer)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return False
+    return True
+
+
+def _count_findings(answer: dict) -> tuple[list[str], list[str]]:
+    failures, warnings = [], []
     for row in answer.get('count_checks') or []:
-        lower, upper, actual = row['expected_min'], row['expected_max'], row['observed']
+        lower, upper, actual = (_count_number(row[key]) for key in ('expected_min', 'expected_max', 'observed'))
         if lower > upper:
             raise ValueError('count review returned an inverted expected range')
         if not lower <= actual <= upper:
-            failures.append(f"图{row['frames']}：{row['entity']}应有{lower}–{upper}，实际{actual}；{row['reason']}")
-    return failures
+            detail = f"图{row['frames']}：{row['entity']}应有{lower}–{upper}，实际{actual}；{row['reason']}"
+            advisory = (row.get('count_kind') == 'background_people' and actual > 0 and lower > 0
+                        and all(answer.get(flag) is False for flag in (*VERIFY_FLAGS, 'ghost_text')))
+            (warnings if advisory else failures).append(detail)
+    return failures, warnings
+
+
+def count_mismatches(answer: dict) -> list[str]:
+    return _count_findings(answer)[0]
 
 
 def verify_to_verdict(answer: dict) -> dict:
     """The verifier's answer in the shape the review file, fix_tier and the board already read."""
+    if not isinstance(answer, dict) or answer.get('verdict') not in ('obvious', 'subtle', 'fine'):
+        raise ValueError('verification requires an explicit valid verdict')
+    if any(key in answer and type(answer[key]) is not bool for key in (*VERIFY_FLAGS, 'ghost_text')):
+        raise ValueError('verification flags require boolean observations')
     flags = {k: bool(answer.get(k)) for k in VERIFY_FLAGS if k != 'body_artifact' or k in answer}
-    counts = count_mismatches(answer)
+    counts, warnings = _count_findings(answer)
     obvious = answer.get("verdict") == "obvious" or any(flags.values()) or bool(counts)
-    subtle = answer.get("verdict") == "subtle" and not obvious
+    subtle = (answer.get("verdict") == "subtle" or bool(warnings)) and not obvious
     evidence = ('；'.join(counts) if counts else str(answer.get("evidence") or ""))[:300]
     entities = answer.get("people") or []
     people = [p for p in entities if not isinstance(p, dict) or p.get("entity_kind") != "object"] if isinstance(entities, list) else entities
@@ -121,6 +159,7 @@ def verify_to_verdict(answer: dict) -> dict:
                   '原文中有动作的人物缺席' if flags['actor_missing'] else '无法判断')
     story_error = flags['action_by_wrong_person'] or flags['actor_missing']
     return {
+        **({'warnings': warnings} if warnings else {}),
         "visible_people": len(people) if isinstance(people, list) else 0,
         "identity_ok": not (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle),
         "identity_issue": evidence if (flags["same_person_twice"] or flags["species_or_gender_wrong"] or flags["lead_face_swapped"] or subtle) else "",

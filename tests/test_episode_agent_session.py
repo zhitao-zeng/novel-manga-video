@@ -40,6 +40,37 @@ def fake_cli(monkeypatch, work_dir, *, outputs=None, code=0, result=None):
     return calls
 
 
+def test_updated_installed_skill_rotates_once_and_preserves_the_candidate(tmp_path,monkeypatch,config):
+    from types import SimpleNamespace
+    from novel_manga.application.agents.episode.inputs import _install_skill
+    from novel_manga.util import atomic_write_json, read_json
+    work=tmp_path/'episode'
+    atomic_write_json(work/'input/current-task.json',{})
+    atomic_write_json(work/'input/manifest.json',{'skill_revision':'previous-release'})
+    fake_cli(monkeypatch,work,outputs={'repair.json':'{"saved":"candidate"}'})
+    first=session.run_session(work,'First repair',config=config,enable_tools=True)
+    local=work/'.claude/skills/episode-production/references/repair-playbook.md'
+    local.write_text('Obsolete operational instructions')
+    _install_skill(SimpleNamespace(work_dir=work))
+    assert local.read_text()==(session.SKILL_SOURCE/'references/repair-playbook.md').read_text()
+    atomic_write_json(work/'input/manifest.json',{'skill_revision':session.SKILL_REVISION})
+    fake_cli(monkeypatch,work)
+    updated=session.run_session(work,'Continue with current skill',config=config,enable_tools=True,resume=True)
+    assert updated.record['session_id']!=first.record['session_id']
+    assert read_json(work/'output/repair.json')=={'saved':'candidate'}
+    again=session.run_session(work,'Continue',config=config,enable_tools=True,resume=True)
+    assert again.record['session_id']==updated.record['session_id']
+
+
+def test_changed_task_instructions_are_not_lost_by_compact_continuations(tmp_path,monkeypatch,config):
+    from novel_manga.util import atomic_write_json
+    work=tmp_path/'episode';atomic_write_json(work/'input/current-task.json',{})
+    fake_cli(monkeypatch,work)
+    first=session.run_session(work,'First',config={**config,'agent_instructions':'Previous direction'},enable_tools=True)
+    second=session.run_session(work,'Updated direction',config={**config,'agent_instructions':'Current direction'},enable_tools=True,resume=True)
+    assert first.record['session_id']!=second.record['session_id']
+
+
 def test_cli_turn_limit_is_recorded_as_resumable_without_claiming_success(tmp_path, monkeypatch, config):
     work = tmp_path/'episode'
     calls = fake_cli(monkeypatch, work, code=1, result={
@@ -177,7 +208,7 @@ def test_first_current_task_starts_one_fresh_context_and_keeps_old_work(tmp_path
     fresh=session.run_session(work,'Current task',resume=True,config=config,enable_tools=True)
     assert '--session-id' in calls[0][0] and '--resume' not in calls[0][0]
     assert fresh.record['session_id']!=old.record['session_id']
-    assert json.loads((work/'episode-session-before-current-task.json').read_text())['session_id']==old.record['session_id']
+    assert json.loads((work/f"episode-session-before-{old.record['session_id']}.json").read_text())['session_id']==old.record['session_id']
     assert (work/'output/repair.json').read_text()=='saved repair'
     calls=fake_cli(monkeypatch,work)
     continued=session.run_session(work,'Next tool result',resume=True,config=config,enable_tools=True)
@@ -333,3 +364,59 @@ def test_sensitive_stop_is_recorded_as_refusal_so_fallback_fires(tmp_path, monke
         'type': 'result', 'subtype': 'success', 'stop_reason': 'sensitive', 'result': ''})
     result = session.run_session(work, 'Draft', config=config)
     assert result.record['refusal'] == 'content moderation: sensitive stop'
+
+
+def test_operator_context_restart_is_once_and_keeps_saved_work_and_budget(tmp_path, monkeypatch, config):
+    work = tmp_path/'episode'
+    (work/'input').mkdir(parents=True)
+    (work/'input/current-task.json').write_text('{"targets":[{"clip_id":"clip_06"}]}')
+    budget = tmp_path/'agent-run.json'
+    budget.write_text('{"deadline":123,"upstream_recovery":{"proposals":3}}')
+    fake_cli(monkeypatch, work, outputs={'repair.json':'saved repair'})
+    old = session.run_session(work,'Current task',config=config,enable_tools=True)
+    original = (work/session.SESSION_FILE).read_text()
+    selected = {**config, 'context_restart': 'operator-stalled-compaction'}
+    calls = fake_cli(monkeypatch, work)
+    fresh = session.run_session(work,'Continue current task',resume=True,config=selected,enable_tools=True)
+    assert '--session-id' in calls[0][0] and fresh.record['session_id'] != old.record['session_id']
+    archive = work/f"episode-session-before-{old.record['session_id']}.json"
+    assert json.loads(archive.read_text()) == json.loads(original)
+    assert (work/'.agent-home/.claude/projects/-work'/f"{old.record['session_id']}.jsonl").is_file()
+    assert (work/'output/repair.json').read_text() == 'saved repair'
+    assert json.loads(budget.read_text()) == {'deadline':123,'upstream_recovery':{'proposals':3}}
+    calls = fake_cli(monkeypatch,work)
+    again = session.run_session(work,'Next host result',resume=True,config=selected,enable_tools=True)
+    assert '--resume' in calls[0][0] and again.record['session_id']==fresh.record['session_id']
+
+
+@pytest.mark.parametrize('message,kind', [
+    ('Prompt is too long · automatic compaction failed: API Error: 504 upstream timeout','context_compaction'),
+    ('API Error: 503 service unavailable','transient_api'),
+    ('API Error: 401 invalid API key',None)])
+def test_failed_cli_records_retry_kind_without_classifying_content(tmp_path,monkeypatch,config,message,kind):
+    work=tmp_path/'episode';fake_cli(monkeypatch,work,code=1,result={'type':'result','is_error':True,'result':message})
+    result=session.run_session(work,'Current task',config=config,enable_tools=True)
+    assert result.record.get('failure_kind')==kind
+
+
+def test_current_activity_rotation_is_once_and_preserves_previous_policy_archive(tmp_path,monkeypatch,config):
+    work=tmp_path/'episode'
+    fake_cli(monkeypatch,work,outputs={'repair.json':'saved candidate'})
+    old=session.run_session(work,'old task',config=config,enable_tools=True)
+    (work/'input').mkdir();(work/'input/current-task.json').write_text('{"mode":"adopted_repair"}')
+    old_archive=work/'episode-session-before-current-task.json'
+    old_archive.write_text('earlier archive must survive')
+    config={**config,'agent_activity':{'started':'a','authorization':'grant-a'}}
+    first=session.run_session(work,'fresh task',resume=True,config=config,enable_tools=True)
+    assert first.record['session_id']!=old.record['session_id']
+    assert session.current_context(work,config)
+    assert not session.current_context(work,{**config,'agent_activity':{'started':'a','authorization':'grant-b'}})
+    config={**config,'agent_activity':{'started':'a','authorization':'grant-b'}}
+    second=session.run_session(work,'new activity',resume=True,config=config,enable_tools=True)
+    assert second.record['session_id']!=first.record['session_id']
+    third=session.run_session(work,'continue',resume=True,config=config,enable_tools=True)
+    assert third.record['session_id']==second.record['session_id']
+    assert not session.current_context(work,{**config,'model':'new-primary'})
+    assert old_archive.read_text()=='earlier archive must survive'
+    assert (work/'output/repair.json').read_text()=='saved candidate'
+    assert len(list(work.glob('episode-session-before-*.json')))==3

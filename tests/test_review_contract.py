@@ -150,3 +150,72 @@ def test_episode_command_can_run_precise_review(tmp_path, monkeypatch):
     assert result.value.code == 0 and calls == ['clip_verify']
     report = json.loads((directory / 'episode_review.json').read_text())
     assert report['clips']['clip_01']['severity'] == 'pass'
+
+
+def test_cached_null_verdict_is_rejudged_without_rejudging_valid_takes(tmp_path, monkeypatch):
+    monkeypatch.setenv('NOVEL_REVIEW_MODE', 'verify')
+    novel = tmp_path/'n'; ep = novel/'n_1'; ep.mkdir(parents=True)
+    bible = StoryBible(novel_title='n', genre='g', visual_style='v', palette='p', style_fingerprint='f', characters=[], locations=[])
+    (novel/'story_bible.json').write_text(bible.model_dump_json())
+    (ep/'clip_plan.json').write_text(json.dumps({'clips': [{'clip_id': c, 'kind': 'video'} for c in ['good', 'bad']]}))
+    for cid in ['good', 'bad']:
+        p = ep/'work/clips'/cid/'attempt_01'; p.mkdir(parents=True); (p/'clip.mp4').write_bytes(b'unchanged take')
+    calls = []
+    def judge(clip, *args):
+        calls.append(clip['clip_id'])
+        return {'severity': 'pass', 'verify': {'verdict': 'fine' if clip['clip_id'] == 'good' else None}}
+    monkeypatch.setattr(judges, 'judge_clip', judge)
+    episode_review.review_episode(ep)
+    calls.clear()
+    monkeypatch.setattr(judges, 'judge_clip', lambda clip, *args: calls.append(clip['clip_id']) or
+                        {'severity': 'pass', 'verify': {'verdict': 'fine'}})
+    result = episode_review.review_episode(ep, fresh=False)
+    assert calls == ['bad']
+    assert result['clips']['bad']['verify']['verdict'] == 'fine'
+    calls.clear()
+    assert episode_review.review_episode(ep, fresh=False) == result and calls == []
+
+
+def test_speech_failure_is_listed_even_when_picture_review_passes():
+    from novel_manga.review.acceptance import evaluate_acceptance
+    result = evaluate_acceptance({'clip_05'},
+        {'gate_failed_clips': ['clip_05'], 'assembly': {'thin_passed': True}},
+        {'clips': {'clip_05': {'severity': 'pass'}}, 'feedback': {}})
+    assert not result.passed
+    assert result.remaining == ['clip_05']
+
+
+def test_verification_sends_field_types_in_the_actual_model_message(monkeypatch):
+    requests = []
+    monkeypatch.setattr(judges.review_evidence, 'collect_clip_evidence', lambda *a, **k: ([], object()))
+    monkeypatch.setattr(judges.review_prompts, 'verify_prompt', lambda *a: 'Judge the current video frames.')
+    def post(client, endpoints, headers, payload, **kwargs):
+        requests.append(copy.deepcopy(payload))
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps({
+            'verdict': 'fine', 'people': [], 'count_checks': []})}}]}
+    monkeypatch.setattr(model_client, 'post_any', post)
+    result = judges.judge_clip_verify({}, Path('unused.mp4'), None, {}, '', Path('unused'))
+    assert result['severity'] == 'pass'
+    assert len(requests) == 1
+    assert requests[0]['response_format'] == {'type': 'json_object'}
+    text = '\n'.join(p.get('text', '') for p in requests[0]['messages'][0]['content'])
+    from novel_manga.review.contracts import VERIFY_SCHEMA
+    assert json.dumps(VERIFY_SCHEMA, ensure_ascii=False) in text
+    assert 'same_person_twice' in text and '"type": "boolean"' in text
+    assert 'observed' in text and '"type": "integer"' in text
+
+
+def test_frame_review_uses_selected_judge_not_agent_environment(monkeypatch):
+    monkeypatch.setenv('QWEN38_LOCAL_MODEL', 'glm-5.3-flash')
+    monkeypatch.setenv('QWEN38_LOCAL_BASE_URL', 'http://agent-only.invalid/v1')
+    monkeypatch.setenv('SECOND_REVIEW_JUDGE', 'phanthy-ds41')
+    monkeypatch.setattr(judges.review_evidence, 'collect_clip_evidence', lambda *a, **k: ([], object()))
+    monkeypatch.setattr(judges.review_prompts, 'verify_prompt', lambda *a: 'Judge fixed frames.')
+    calls = []
+    def post(client, endpoints, headers, payload, **kwargs):
+        calls.append((endpoints, payload))
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"verdict":"fine","people":[]}'}}]}
+    monkeypatch.setattr(model_client, 'post_any', post)
+    judges.judge_clip_verify({}, Path('unused'), None, {}, '', Path('unused'))
+    assert calls[0][0] == ['http://127.0.0.1:8789/v1']
+    assert calls[0][1]['model'] == 'deepseek-v4.1-flash'

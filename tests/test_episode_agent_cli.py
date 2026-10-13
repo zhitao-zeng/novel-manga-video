@@ -55,7 +55,7 @@ def test_refused_episode_switches_model_and_finishes_without_resetting_budget(ct
     assert [s['config']['model'] for s in sessions]==['configured-agent','Qwen-Flash-Next']
     assert [s['resume'] for s in sessions]==[False,False]
     assert result['deadline']==result['model_switch']['deadline']
-    assert read_json(ctx.run_dir/'model-switch/episode-session.json')['session_id']=='session-1'
+    assert read_json(next((ctx.run_dir/'model-switch').glob('*/episode-session.json')))['session_id']=='session-1'
 
 
 def test_prepare_and_status_use_no_model_and_preserve_source(ctx, monkeypatch, capsys):
@@ -559,3 +559,116 @@ def test_assigned_multi_endpoint_judge_is_resolved_from_actual_runtime(ctx, monk
     settings = {'base_url': 'http://one.model:9000', 'model': 'qa-model', 'key_var': 'QA_KEY'}
     env = resolved_settings.resolve_agent_environment(ctx, settings)
     assert env['SECOND_REVIEW_JUDGE'] == env['NOVEL_REVIEW_VIDEO_JUDGE'] == 'group-qa'
+
+
+def test_episode_run_retains_prior_authorization_window_history(ctx, monkeypatch, config):
+    install_fake_runtime(monkeypatch, ctx)
+    archived = [{'authorization': 'old-window', 'window': {'seconds': 600, 'proposals': 2},
+                 'remaining_seconds': 149, 'status': 'blocked', 'updated_at': '2026-10-11 12:00:00'}]
+    atomic_write_json(ctx.run_dir/'agent-run.json', {'status': 'deferred', 'remaining_seconds': 60,
+        'upstream_recovery': {'seconds': 600, 'proposals': 0, 'authorization': 'new-window'},
+        'upstream_recovery_history': archived, 'agent_seconds': 123})
+    bridges = []
+    original = flow.EpisodeBridge
+    def bridge(*args):
+        value = original(*args); bridges.append(value); return value
+    monkeypatch.setattr(flow, 'EpisodeBridge', bridge)
+    def session(work, prompt, **kwargs):
+        atomic_write_json(work/'episode-session.json', {'session_id': 'new-window-session'})
+        assert bridges[0].handle('finish', {})['status'] == 'accepted'
+        return fake_attempt(ctx, 1)
+    monkeypatch.setattr(episode_turns, 'run_session', session)
+    result = flow.run_episode(ctx, config=config)
+    assert result['passed'] is True
+    assert result['upstream_recovery_history'] == archived
+    assert read_json(ctx.run_dir/'agent-run.json')['upstream_recovery_history'] == archived
+
+
+def test_transient_failed_invocation_retries_and_finishes_without_new_deadline(ctx,monkeypatch,config):
+    install_fake_runtime(monkeypatch,ctx)
+    bridges=[];original=flow.EpisodeBridge
+    def bridge(*args):
+        value=original(*args);bridges.append(value);return value
+    monkeypatch.setattr(flow,'EpisodeBridge',bridge)
+    sessions=[];deadlines=[]
+    def session(work,prompt,**kwargs):
+        sessions.append(kwargs);deadlines.append(read_json(ctx.run_dir/'agent-run.json')['deadline'])
+        assert len(sessions)<=2
+        atomic_write_json(work/'episode-session.json',{'session_id':f'retry-session-{len(sessions)}'})
+        if len(sessions)==1:
+            a=fake_attempt(ctx,1,exit_code=1);a.record['failure_kind']='context_compaction';return a
+        assert bridges[0].handle('finish',{})['status']=='accepted'
+        return fake_attempt(ctx,2)
+    monkeypatch.setattr(episode_turns,'run_session',session)
+    result=flow.run_episode(ctx,config=config)
+    assert result['passed'] is True and len(sessions)==2
+    assert deadlines[0]==deadlines[1]==result['deadline']
+    assert sessions[1]['config']['context_restart'].startswith('cli-context-retry-')
+    assert len(result['invocation_retry_history'])==1
+
+
+def test_cli_failure_classes_share_continuation_limit_and_cannot_extend_window(tmp_path):
+    from types import SimpleNamespace
+    from novel_manga.application.agents.episode.recovery import retry_failed_invocation
+    config={'model':'agent'};result={'deadline':123,'fallback_invocations':0,'upstream_recovery':{'proposals':1,'max_invocations':12}}
+    for i,kind in enumerate(['context_compaction','transient_api']):
+        attempt=SimpleNamespace(directory=tmp_path/f'attempt-{i}',record={'failure_kind':kind})
+        assert retry_failed_invocation(config,result,attempt,60) is not None
+    assert retry_failed_invocation(config,result,attempt,60) is None
+    assert result['deadline']==123 and result['upstream_recovery']['proposals']==1
+    for remaining,proposals in [(0,1),(60,12)]:
+        blocked={'deadline':123,'fallback_invocations':0,'upstream_recovery':{'proposals':proposals,'max_invocations':12}}
+        assert retry_failed_invocation(config,blocked,attempt,remaining) is None
+        assert blocked['fallback_invocations']==0
+
+
+def test_primary_retry_then_fallback_stays_inside_three_calls(ctx,monkeypatch,config):
+    install_fake_runtime(monkeypatch,ctx)
+    sessions=[];deadlines=[]
+    def session(work,prompt,**kwargs):
+        sessions.append(kwargs['config']['model'])
+        deadlines.append(read_json(ctx.run_dir/'agent-run.json')['deadline'])
+        assert len(sessions)<=3
+        atomic_write_json(work/'episode-session.json',{'session_id':f'failed-{len(sessions)}'})
+        attempt=fake_attempt(ctx,len(sessions),exit_code=1)
+        attempt.record['failure_kind']='transient_api'
+        return attempt
+    monkeypatch.setattr(episode_turns,'run_session',session)
+    result=flow.run_episode(ctx,config={**config,'refusal_fallback':{
+        'base_url':'http://gateway','model':'Luna','key_var':'KEY'}})
+    assert sessions==['configured-agent','configured-agent','Luna']
+    assert len(set(deadlines))==1
+    assert result['reason']=='episode agent invocation failed'
+    assert result['fallback_invocations']==2
+    assert result['model_switch']['policy']=='activity-failure-v1'
+
+
+def test_completed_host_finish_wins_over_a_failed_cli_return(ctx,monkeypatch,config):
+    install_fake_runtime(monkeypatch,ctx)
+    bridges=[];original=flow.EpisodeBridge
+    def bridge(*args):
+        value=original(*args);bridges.append(value);return value
+    monkeypatch.setattr(flow,'EpisodeBridge',bridge)
+    calls=[]
+    def session(work,prompt,**kwargs):
+        calls.append(kwargs);atomic_write_json(work/'episode-session.json',{'session_id':'completed-host'})
+        assert bridges[0].handle('finish',{})['status']=='accepted'
+        attempt=fake_attempt(ctx,1,exit_code=1);attempt.record['failure_kind']='transient_api';return attempt
+    monkeypatch.setattr(episode_turns,'run_session',session)
+    result=flow.run_episode(ctx,config=config)
+    assert result['passed'] is True and len(calls)==1
+    assert not result.get('invocation_retry_history')
+
+
+def test_slice_timeout_keeps_remaining_activity_time(ctx,monkeypatch,config):
+    install_fake_runtime(monkeypatch,ctx)
+    def invoke(ctx,bridge,state,config,prompt,resume,remaining):
+        assert remaining>300
+        state.deadline-=300
+        return fake_attempt(ctx,1,exit_code=124),300,remaining
+    monkeypatch.setattr(flow,'invoke',invoke)
+    result=flow.run_episode(ctx,config={**config,'timeout_seconds':600})
+    assert result['status']=='deferred'
+    assert result['reason']=='Agent reached this slice time limit; continue the saved session'
+    assert 290<result['remaining_seconds']<=300
+    assert result['fallback_invocations']==0

@@ -44,7 +44,7 @@ def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, locatio
     else:
         parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir)
         parts.append({"type": "text", "text": review_prompts.classic_prompt(clip, location_time, hypothesis, evidence)})
-        verdict = model_client.ask_json(parts, review_contracts.CLIP_SCHEMA, name="clip_review", max_tokens=600)
+        verdict = model_client.ask_json(parts, review_contracts.CLIP_SCHEMA, name="clip_review", max_tokens=600, settings=judge_settings())
     # Frames miss what sits at the edge of the picture or turns up between them: when switched on, the whole take is
     # watched beside the cast's cards as well (cast_video.py).
     if cast_video.enabled():
@@ -78,7 +78,7 @@ def script_check(clip: dict, verdict: dict, segments: dict[str, str]) -> dict | 
             + review_prompts.shot_contract(clip)
             + f"审查员指出的问题：\n{complaint[:900]}")
     try:
-        answer = model_client.ask_json([{"type": "text", "text": text}], review_contracts.SCRIPT_CHECK_SCHEMA, name="script_check", max_tokens=300)
+        answer = model_client.ask_json([{"type": "text", "text": text}], review_contracts.SCRIPT_CHECK_SCHEMA, name="script_check", max_tokens=300, settings=judge_settings())
     except Exception as error:  # noqa: BLE001 - advisory: a failed check changes nothing
         model_client.log(f"script check failed: {type(error).__name__}: {str(error)[:120]}")
         return None
@@ -93,7 +93,7 @@ def instruction_for(evidence: str, event: str = "", passage: str = "") -> str:
               "谁只能出现一次或不该出现，点名到人；不要复述错误，不要用“不是”“错误”“上一次”这类描述过去的话，不超过 80 字。只输出 JSON。\n"
               f"判错原因：{evidence}\n剧本事件：{event or '（无）'}\n原文：{passage or '（无）'}")
     try:
-        return str(model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.INSTRUCTION_SCHEMA, name="instruction", max_tokens=200).get("instruction") or "").strip()
+        return str(model_client.ask_json([{"type": "text", "text": prompt}], review_contracts.INSTRUCTION_SCHEMA, name="instruction", max_tokens=200, settings=judge_settings()).get("instruction") or "").strip()
     except Exception:  # noqa: BLE001 - the caller keeps its old note
         return ""
 
@@ -101,7 +101,7 @@ def instruction_for(evidence: str, event: str = "", passage: str = "") -> str:
 def judge_clip_verify(clip: dict, video: Path, bible: review_models_StoryBible, location_time: dict, hypothesis: str, work_dir: Path) -> dict:
     parts, evidence = review_evidence.collect_clip_evidence(clip, video, bible, work_dir, verify=True)
     parts.append({"type": "text", "text": review_prompts.verify_prompt(clip, location_time, evidence)})
-    answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=1800)
+    answer = model_client.ask_json(parts, review_contracts.VERIFY_SCHEMA, name="clip_verify", max_tokens=1800, json_object=True, settings=judge_settings())
     counts = review_policy.count_mismatches(answer)
     if counts and (answer.get('verdict') != 'obvious' or not str(answer.get('instruction') or '').strip()):
         passage = '\n'.join(evidence.segments.get(str(s), '') for s in clip.get('segment_ids') or [])

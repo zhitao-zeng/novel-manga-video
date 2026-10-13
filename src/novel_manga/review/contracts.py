@@ -146,6 +146,18 @@ SCRIPT_CHECK_RULES = (
 )
 
 
+WATCHABLE_CRITERIA = (
+    '验收以观众能顺畅看懂剧情为准。不影响身份或事件含义的轻微服装颜色/款式、配饰、发色、口型差异，'
+    '以及已经出现的无名背景群体人数与原文约数不同，仅记提示，不要求重拍。'
+    '服装承担关键身份、穿脱动作或防护功能，或人数本身决定剧情时，不适用这项宽容。'
+    '请求把某种衣着写得很明确，并不自动证明它是剧情关键；必须指出它影响的具体事件或身份识别。'
+    '普通上衣有无、长袍或浴袍等造型差异若不影响这些事实，同样只记提示。'
+    '关键对白缺失或多说、明显错人/性别/物种错误、人物重复或缺席、额外肢体、动作归属错误、'
+    '关键事件缺失、群体完全未出现、持续严重抖动，仍必须修复。'
+    '无法判断或审核未完成不能记通过；一项轻微差异不能清除其他独立失败。'
+)
+
+
 VERIFY_FLAGS = ('same_person_twice', 'species_or_gender_wrong', 'action_by_wrong_person',
                 'actor_missing', 'lead_face_swapped', 'body_artifact')
 
@@ -167,7 +179,7 @@ VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
                      "count_checks": {"type": "array", "minItems": 1, "maxItems": 24, "items": {
                          "type": "object", "additionalProperties": False,
                          "required": ["count_kind", "entity", "frames", "expected_min", "expected_max", "observed", "reason"],
-                         "properties": {"count_kind": {"type": "string", "enum": ["characters", "worn_equipment", "independent_objects"]}, "entity": {"type": "string"}, "frames": {"type": "string"},
+                         "properties": {"count_kind": {"type": "string", "enum": ["characters", "worn_equipment", "independent_objects", "background_people"]}, "entity": {"type": "string"}, "frames": {"type": "string"},
                                         "expected_min": {"type": "integer", "minimum": 0},
                                         "expected_max": {"type": "integer", "minimum": 0},
                                         "observed": {"type": "integer", "minimum": 0},
@@ -176,7 +188,9 @@ VERIFY_SCHEMA = {"type": "object", "additionalProperties": False,
                      "instruction": {"type": "string"}}}
 
 
-VERIFY_QUESTIONS = (BODY_QUESTION +
+VERIFY_QUESTIONS = (WATCHABLE_CRITERIA + '\n' + BODY_QUESTION +
+    'background_people仅用于无名且人数不决定剧情的背景群体；具名人物和剧情要求定量的群体仍填characters。'
+    '背景群体已经出现但人数有差异时verdict填subtle并保留实际计数；observed=0的整群缺席仍是obvious。'
     "\n先逐个描述视频帧里看到的角色及人形物件（people：who 是谁或长相，entity_kind 为 character 或 object，gender，is_animal，doing 在做什么，frames 出现在哪几帧）。有身份和行为的角色填character；无人空甲、雕像、人体模型等物件填object，不能因为它们长得像人就填character，再回答：\n"
     "count_checks：必须数实际视频帧，不数参考卡。按镜头阶段分三类：count_kind=characters只数entity_kind=character的角色；worn_equipment数剧情指定的穿戴装备，entity填写具体装备名，不混入普通衬衫、马甲；independent_objects数独立无人甲、车辆等关键物件，entity填写具体物件名。"
     "每项写entity、视频帧号frames、按原文和本镜构图允许的expected_min/expected_max、实际observed数量，以及依据reason。"

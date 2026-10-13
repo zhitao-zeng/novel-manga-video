@@ -89,7 +89,7 @@ def classic_prompt(clip: dict, location_time: dict, hypothesis: str, evidence: C
         + evidence.snapshot
         + f"\n预期台词：{lines or '无'}\n语音识别出的台词：{hypothesis or '无'}\n"
         + (f"手机屏幕上应显示的群消息（这些文字允许出现）：{chats}\n" if chats else "")
-        + "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色是否与其角色卡一致、没有两个角色长成同一人、没有角色被画成另一个角色的服装发型、近景里没有多出的具名角色（远处模糊背景里的人不算），不一致时在 identity_issue 写清是谁、哪一帧；"
+        + "回答：visible_people 帧里清晰可见的人数（最多的一帧）；identity_ok 每个具名角色的实际身份是否一致、没有两个角色长成同一人、没有明显换脸/错人、近景里没有多出的具名角色（远处模糊背景里的人不算）；非关键服饰差异只在identity_issue记提示，不把identity_ok判false，真正不一致写清是谁、哪一帧；"
         "若给出了原著账本出场快照，以快照为准判断谁该在场、谁该做动作、谁只是声音或只被提及；快照说某人在别人的身体里，画面就该是那具身体。"
         "story_ok：对照完整原文与本镜阶段——当前镜头事件中应入镜、有动作或对白的人物是否出现？画面里的动作是否由原文说的那个人完成"
         "（例如原文是甲将物品递给乙，画面却由丙代替甲，就是动作落在错误的人物身上；出场人物名单漏了原文里的人，"
@@ -101,7 +101,7 @@ def classic_prompt(clip: dict, location_time: dict, hypothesis: str, evidence: C
         "chat_text_ok：若本段有应显示的群消息，帧里手机屏幕上的文字是否是清晰的简体中文且内容与预期一致（允许只显示部分或截断，不允许乱码、错字连篇或无关文字），没有预期消息时填 true，不一致时在 chat_text_issue 写清；visual_defects 是否有明显崩坏（多手、面部扭曲、肢体错位、人物穿模）；"
         "severity：identity 不一致、原文有动作的人物缺席或动作落在错误的人物身上、屏幕消息乱码或不符、文字水印或严重崩坏为 fail；仅地点时间存疑或轻微瑕疵为 minor；否则 pass。feedback 为一句给视频模型的修正指令（fail 时必填，指明谁应该长什么样、避免什么）。只输出JSON。"
     )
-    return text
+    return text + '\n' + review_contracts.WATCHABLE_CRITERIA
 
 
 def verify_prompt(clip: dict, location_time: dict, evidence: ClipEvidence) -> str:

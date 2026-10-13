@@ -91,7 +91,9 @@ def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: b
         try:
             # The very same file, not just the same path: split_long_stages renames clip directories, so after a
             # split the path names another clip's take - with its old mtime - and that clip's verdict landed on it.
-            same_take = (old and old.get("severity") != "review_error" and old.get("video") == str(video)
+            same_take = (old and old.get("severity") != "review_error"
+                    and (mode != "verify" or review_policy.verification_complete(old.get("verify") or {}))
+                    and old.get("video") == str(video)
                     and take and old.get("take") == take
                     and (not cast_video.enabled() or
                          ((old.get('verify') or {}).get('cast_video') or {}).get('policy') == cast_video.POLICY))

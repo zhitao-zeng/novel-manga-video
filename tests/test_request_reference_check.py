@@ -239,3 +239,28 @@ def test_compiler_style_is_not_misread_as_the_armoured_characters_clothing(tmp_p
     monkeypatch.setattr(request_check, 'ask_json', ask)
     assert request_check.before_generation(ctx, clip, request)['consistent']
     assert request == original
+
+
+def test_request_and_scope_checks_send_their_schema_in_model_messages(tmp_path, monkeypatch):
+    from novel_manga.llm import client
+    import json
+    _, clip, request = fixture(tmp_path)
+    requests = []
+    def post(client_arg, endpoints, headers, payload, **kwargs):
+        requests.append(payload)
+        if len(requests) == 1:
+            answer = {'observations': ['current card'], 'findings': [{
+                'basis': 'reference', 'aspect': 'appearance', 'picture': 1, 'lines': [1],
+                'subject_specific': True, 'relation': 'contradiction', 'reason': 'actual costume differs'}]}
+        else:
+            answer = {'checks': [{'id': 0, 'scope': 'in_scope', 'reason': 'stable costume conflict'}]}
+        return {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(answer)}}]}
+    monkeypatch.setattr(client, 'post_any', post)
+    checked = request_check.request_consistency(clip, tmp_path, request=request)
+    assert not checked['consistent'] and checked['problems']
+    assert len(requests) == 2
+    for payload in requests:
+        assert payload['response_format'] == {'type': 'json_object'}
+        text = '\n'.join(p.get('text', '') for p in payload['messages'][0]['content'])
+        assert 'Return a JSON object matching this schema:' in text
+        assert '"type": "integer"' in text

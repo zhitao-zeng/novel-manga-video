@@ -88,6 +88,8 @@ def submit_once(submit, attempts: int = 3, base_delay: float = 1.0) -> httpx.Res
             return submit()
         except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as error:
             last = error
+        except SubmissionUncertain:
+            raise
         except httpx.TransportError as error:
             raise SubmissionUncertain(f"task submission unconfirmed ({type(error).__name__}): not sent again, the service may have accepted it") from error
         except (RuntimeError, httpx.HTTPStatusError) as error:

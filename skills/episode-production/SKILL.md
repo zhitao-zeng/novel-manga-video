@@ -23,7 +23,9 @@ only when a matching failure needs explanation.
 For semantic input repair or post-render review, use the
 [repair playbook](references/repair-playbook.md) to choose a remedy from current
 evidence and permissions. It distils shared repair experience; `related_history`
-provides the matching individual cases. Preserve correct work, complete the
+provides matching cases and evidence_file links to actual decisions. The host
+refreshes this package when preparing a workspace; skill_revision in the task
+identifies updates, including resumed workspaces. Preserve correct work, complete the
 required host steps, and record the actual result for subsequent agents.
 
 In source mode, read the complete original chapter and own the screenplay, cuts

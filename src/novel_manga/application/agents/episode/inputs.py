@@ -10,7 +10,7 @@ import tempfile
 from novel_manga.episodes import chapter_of
 from novel_manga.util import atomic_write_json, read_json
 from .context import EpisodeContext
-from .session import SKILL_SOURCE
+from .session import SKILL_SOURCE, SKILL_REVISION
 
 
 BOOK_FILES = ('novel.json', 'story_bible.json', 'bible_aliases.json', 'bible_growth.json', 'entity_index.json',
@@ -518,7 +518,7 @@ def prepare_inputs(ctx: EpisodeContext):
         'segments': 'input/segments.json', 'catalog': 'input/catalog.json', 'reading': reading,
         'chapter': chapter_of(ctx.source_episode_dir.name), 'title': title,
         'profile': 'input/profile.json', 'target_seconds': list(target) if target else None,
-        'skill': skill, 'skill_references': skill_references,
+        'skill': skill, 'skill_references': skill_references, 'skill_revision': SKILL_REVISION,
         'format_reference': skill_references['h3_format'],
         'runtime_rules': skill_references['review_and_repair'],
         'clip_seconds_max': ctx.clip_seconds_max, 'authoritative_inputs': authoritative,

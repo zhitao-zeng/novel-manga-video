@@ -130,7 +130,7 @@ def test_same_video_requires_new_review_when_mode_changes_or_is_unknown(tmp_path
     monkeypatch.setenv('NOVEL_REVIEW_CAST_VIDEO','0')
     def judge(clip, video, bible, location_time, hypothesis, work_dir):
         calls.append(review_evidence.review_mode(work_dir))
-        return {'severity':'pass'}
+        return {'severity':'pass', 'verify': {'verdict': 'fine'}}
     monkeypatch.setattr(judges,'judge_clip',judge)
     monkeypatch.setenv('NOVEL_REVIEW_MODE','classic')
     first=review_episode.review_episode(ep,fresh=False)

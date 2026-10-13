@@ -13,6 +13,7 @@ from PIL import Image
 from novel_manga.providers import local_h3
 from novel_manga.providers.base import ImageResult
 from novel_manga.providers.local_h3 import LocalH3MediaProvider
+from novel_manga.providers.phanrouter_tasks import SubmissionUncertain
 from novel_manga.providers.phanrouter_video import audio_data_url
 
 
@@ -229,7 +230,8 @@ def test_pending_768_task_resumes_without_post_and_retains_its_identity(
 
 @pytest.mark.parametrize("sampling", [True, False], ids=["explicit-sampling", "legacy-digest"])
 @pytest.mark.parametrize("changed", ["prompt", "primary", "additional", "audio", "duration", "seed_variant"])
-def test_changed_clip_cannot_resume_an_old_768_task(make_provider, clip_request, sampling, changed):
+@pytest.mark.parametrize("completed", [False, True])
+def test_changed_clip_cannot_resume_an_old_768_task(make_provider, clip_request, sampling, changed, completed):
     calls, payloads = [], []
     provider = make_provider(completed_handler(calls, payloads))
     clip_request["seed_variant"] = 3
@@ -247,6 +249,15 @@ def test_changed_clip_cannot_resume_an_old_768_task(make_provider, clip_request,
     else:
         clip_request["seed_variant"] = 4
 
+    if not completed:
+        original_receipt = task_path(clip_request).read_bytes()
+        with pytest.raises(SubmissionUncertain):
+            provider.create_video(**clip_request)
+        assert calls == [] and payloads == []
+        assert task_path(clip_request).read_bytes() == original_receipt
+        return
+    clip_request['output'].write_bytes(b'previous completed video')
+    task_path(clip_request).write_text(json.dumps({**old_record, 'client_timing': {'completed_observed_at': 1}}))
     provider.create_video(**clip_request)
 
     payload, = payloads
@@ -266,6 +277,8 @@ def test_legacy_seven_evaluation_request_is_not_guessed_from_its_digest(make_pro
     provider = make_provider(completed_handler(calls, payloads))
     old_record = write_old_task(provider, clip_request, sampling=False, num_inference_steps=8)
 
+    clip_request['output'].write_bytes(b'previous completed video')
+    task_path(clip_request).write_text(json.dumps({**old_record, 'client_timing': {'completed_observed_at': 1}}))
     provider.create_video(**clip_request)
 
     payload, = payloads
@@ -279,7 +292,7 @@ def test_legacy_seven_evaluation_request_is_not_guessed_from_its_digest(make_pro
 
 
 @pytest.mark.parametrize("unavailable", ["forgotten", "excluded"])
-def test_unavailable_original_768_task_falls_back_to_a_new_544_submission(
+def test_unavailable_original_768_task_is_retained_without_new_submission(
     make_provider, clip_request, unavailable,
 ):
     calls, payloads = [], []
@@ -300,12 +313,10 @@ def test_unavailable_original_768_task_falls_back_to_a_new_544_submission(
             acquire=lambda **kwargs: (SimpleNamespace(url=BASE_URL, name="replacement"), None),
         )
 
-    provider.create_video(**clip_request)
-
-    payload, = payloads
-    assert sampling_of(payload) == SAMPLING_544
+    with pytest.raises(SubmissionUncertain):
+        provider.create_video(**clip_request)
+    assert payloads == []
     record = json.loads(task_path(clip_request).read_text(encoding="utf-8"))
-    assert record["task_id"] == "fresh-544"
-    assert record["h3_sampling"] == SAMPLING_544
-    assert record["request_sha256"] == request_digest(payload)
-    assert record["request_sha256"] != old_record["request_sha256"]
+    assert record['task_id'] == old_record['task_id']
+    assert record['request_sha256'] == old_record['request_sha256']
+    assert not task_path(clip_request).with_suffix('.stale.json').exists()

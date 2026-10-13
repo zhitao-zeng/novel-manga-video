@@ -3,27 +3,37 @@ from __future__ import annotations
 
 
 def summarize_case(record):
+    relevant = {cid for issue in record.get('issues') or [] for cid in issue.get('clips') or []}
+    kinds = set(record.get('kinds') or [issue.get('kind') for issue in record.get('issues') or []])
     issues = [{"kind": row.get("kind"), "clips": row.get("clips") or [],
                "detail": str(row.get("detail") or "")[:350]}
               for row in (record.get("issues") or [])[:3]]
     operations, failures, general_failures = [], [], []
     seen_operations, seen_failures = set(), set()
     for attempt in reversed(record.get("attempts") or []):
+        if attempt.get('issues') and not kinds.intersection(i.get('kind') for i in attempt['issues']):
+            continue
         blocked = attempt.get("blocked") or {}
         changed = set(attempt.get("changed") or [])
         accepted = set(attempt.get("accepted_clips") or [])
         remedies = attempt.get("remedies") or []
         for remedy in remedies:
             cid, action = remedy.get("clip"), remedy.get("action")
+            if relevant and cid not in relevant:
+                continue
             key = (action, cid)
             if cid in (changed | accepted) and (
                     not isinstance(blocked, dict) or cid not in blocked) and key not in seen_operations:
                 seen_operations.add(key)
                 operations.append({"action": action, "clip": cid,
                     "reason": str(remedy.get("reason") or "")[:700],
+                    **({'changed_fields': sorted(set(remedy['decision'])-{'action','clip_id','reason','source_quote'})}
+                       if remedy.get('decision') else {}),
                     "receipt": "accepted_clip" if cid in accepted else "changed"})
         if isinstance(blocked, dict):
             for cid, error in blocked.items():
+                if relevant and cid not in relevant:
+                    continue
                 remedy = next((r for r in remedies if r.get("clip") == cid), {})
                 key = (remedy.get("action", attempt.get("action")), cid, str(error))
                 if key in seen_failures:
