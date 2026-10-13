@@ -51,6 +51,7 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
             '只被提及且不出场的未知身份允许保留，不能以此否决规划。个体按individual理解，count=0不表示没有这个演员。'
             '引用对应章节/段落原句，已有确证身份保持。'
             'current_segments给出本章分段与paragraph编号；actors、forms和bindings的paragraphs仅引用这些编号。'
+            '分别核对actors和bindings的paragraphs指称与参与范围与forms的paragraphs字面位置。原文已能确定的群体成员、连续同行范围若遗漏，应在correction中补齐参与段落，不能只在reason叙述。原文群体称谓可作为成员的局部contextual指称，不能因此合并成员编号；姓名未出现的段落不得补进姓名forms。'
             'source是其他章节的原文背景，不能把章节号或自然行号当成本章paragraphs。'
             + demand + '\n'
             + json.dumps({'evidence': context, 'candidate': review_candidate,'planning_view':view}, ensure_ascii=False))
