@@ -145,8 +145,8 @@ def grow_bible(novel_dir: Path, chapter_text: str, chapter_index: int, scan: dic
     """Grow the bible under a novel-wide lock.
 
     Several planners run at once (one per block of chapters); growth is a
-    read-modify-write of story_bible.json, bible_aliases.json and
-    bible_growth.json, and two of them interleaving would drop one set of new
+    read-modify-write of story_bible.json and bible_growth.json, and two of
+    them interleaving would drop one set of new
     characters - which then come back later as duplicates.  The lock is held
     across the model call too; growth is rare (every fifth chapter per block)
     so serialising it costs nothing noticeable.
@@ -237,17 +237,9 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
         facts = service_reading_roster.reading_character_facts(novel_dir)
         fact_options = {"character_facts": facts, "aliases": aliases, "chapter": chapter_index} if facts else {}
         bible, filled, needs_human, suggestions = service_character_design.fill_characters(bible, bible_path, missing, chapter_text, cast, **fact_options)
-        for name, entry in suggestions.items():
-            target = str(entry.get("same_as") or "")
-            if cast and story_names.name_matches(name, cast):
-                # Never write down that one of the book's own characters is somebody else's nickname.
-                model_client.log(f"bible ch{chapter_index}: 读书把 {name} 列为独立角色，"
-                                 f"不采信「疑为 {target} 的别称」")
-                continue
-            if target and story_names.name_matches(target, known):
-                aliases[name] = next(k for k in known if story_names.name_matches(target, [k]))
-        if aliases:
-            atomic_write_json(novel_dir / "bible_aliases.json", aliases)
+        # A card designer's same_as is a proposal, not an adopted identity conclusion.
+        # Keep it in the existing growth audit below. Identity adoption belongs to the
+        # ledger workflow; growth must not publish aliases or override its decisions.
     known_locations = [full.split("：", 1)[0].strip() for full in bible.locations]
     added_locations: list[str] = []
     location_rows = scan["locations"] if scan else service_entity_extraction.extract_locations(chapter_text, known_locations)
