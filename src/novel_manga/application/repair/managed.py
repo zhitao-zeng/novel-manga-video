@@ -48,8 +48,11 @@ def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = N
 def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inputs: RepairInputs | None = None) -> dict:
     inputs = inputs if inputs is not None else RepairInputs.load(directory)
     from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
-    from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY, request_lane
-    return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY, 'request_lane': request_lane(clip)} if enabled(directory) else {}),
+    from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY, request_lane, load_config
+    runtime=load_config() if enabled(directory) else None
+    return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY, 'request_lane': request_lane(clip),
+                'repair_runtime':{k:runtime.get(k) for k in ('model','effort','context_window','max_thinking_tokens','repair_extra_body')}}
+               if runtime is not None else {}),
             **({'final_cut':copy.deepcopy(verdict['final_cut'])} if verdict.get('final_cut') else {}),
             'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
             'note':inputs.notes.get(clip['clip_id'],''),

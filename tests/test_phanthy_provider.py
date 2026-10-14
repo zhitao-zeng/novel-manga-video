@@ -84,3 +84,9 @@ def test_spent_reasoning_retry_cannot_receive_a_third_allocation(monkeypatch):
     with pytest.raises(ValueError, match='JSON truncated'):
         client.ask_json([], {}, name='measured', max_tokens=1600, timeout=180)
     assert calls == [1600, 4800]
+
+
+def test_oneoff_sandbox_honors_native_thinking_control():
+    from novel_manga.application.agents import sandbox
+    args=sandbox.provider_container_args({'max_thinking_tokens':0})
+    assert args==['-e','MAX_THINKING_TOKENS=0','-e','CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1']

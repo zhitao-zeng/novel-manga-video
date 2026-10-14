@@ -151,9 +151,6 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
     for name in ("ANTHROPIC_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
                  "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
         command.extend(["-e", f"{name}={model}"])
-    if config.get('max_thinking_tokens') is not None:
-        command.extend(['-e', f"MAX_THINKING_TOKENS={int(config['max_thinking_tokens'])}",
-                        '-e', 'CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING=1'])
     direct_draft = ((work_dir/'output/episode.json').is_file()
                     and read_json(work_dir.parent/'source-draft-call.json', {}).get('status') == 'candidate')
     role = ('Repair the existing production draft using the reported check results and original source. '

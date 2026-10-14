@@ -282,3 +282,15 @@ def test_new_final_cut_evidence_reopens_old_blocked_with_native_take_unchanged(t
     current=read_json(directory/'episode_review.json')['clips']['a']
     assert (current['video'],current['take'])==native
     assert read_json(directory/'clip_plan.json')['clips']==clips
+
+
+def test_changed_runtime_reopens_blocked_input_without_resetting_take(tmp_path,monkeypatch):
+    directory,clips,_=configured(tmp_path);runtime={'model':'deepseek-v4.1-flash','effort':'medium'}
+    monkeypatch.setattr(agent,'load_config',lambda:copy.deepcopy(runtime))
+    review=read_json(directory/'episode_review.json');takes=managed.current_takes(directory,{'clips':clips},review)
+    state=managed.input_state(directory,clips[0],review['clips']['a'],takes)
+    atomic_write_json(directory/'repair_routing.json',{'a':{'status':'blocked','reason':'prior timeout','inputs':state}})
+    assert managed.candidates(directory,review)[1]['a']=='prior timeout'
+    runtime['repair_extra_body']={'thinking':{'type':'disabled'},'output_config':{'effort':'low'}}
+    assert 'a' in managed.candidates(directory,review)[0]
+    assert managed.current_takes(directory,{'clips':clips},review)==takes

@@ -214,6 +214,11 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
     if config.get('repair_extra_body'):
         config = {**config, 'extra_body': {**(config.get('extra_body') or {}),
                                          **config['repair_extra_body']}}
+        repair=config['repair_extra_body']
+        if (repair.get('thinking') or {}).get('type')=='disabled':
+            config={**config,'max_thinking_tokens':0}
+        if (repair.get('output_config') or {}).get('effort'):
+            config={**config,'effort':repair['output_config']['effort']}
     config = {**config, 'extra_args': [*config.get('extra_args', []),
                                      '--tools', 'Read,Bash,Write']}
     lane = request_lane(clip)

@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from novel_manga.application.profiles import plan_fingerprint, h3_prompt_fingerprint
@@ -141,7 +142,7 @@ def review_assembly(runner, media, *, receipt=None):
     if cached.get('context')==before and cached.get('policy')==POLICY and cached.get('complete') is True:return cached
     target=root/f'review-{len(list(root.glob("review-*")))+1:03d}';target.mkdir()
     final={'policy':POLICY,'movie':str(movie),'context':before,'complete':False,'passed':False,
-           'frames':[],'groups':[],'issues':[],'errors':[],
+           'frames':[],'groups':[],'responses':[],'issues':[],'errors':[],
            'scope':'Actual movie visual/caption continuity; ASR evidence where supplied, no subjective audio listening'}
     def save():
         atomic_write_json(directory/'final_cut_review.json',final)
@@ -199,8 +200,22 @@ def review_assembly(runner, media, *, receipt=None):
                 '引用可见frame_numbers和实际clip_ids，source_basis写原文/明确源约束，不把推断写成事实。拿不准的问题不要虚构。'
                 '这是抽帧，不得声称听过音轨。生成请求可能本身有错，批准源文/明确设定是叙事依据，不能把错误翻译当成允许偏差。'
                 '来源：'+json.dumps(source_context,ensure_ascii=False)+'\n实际当前请求：'+json.dumps(current_requests,ensure_ascii=False)})
-            answer=model.ask_json(parts,schema,name='final_movie_continuity',max_tokens=2600,timeout=300,settings=settings)
-            validate_group(answer,selected)
+            deadline=time.monotonic()+300
+            for revision in range(2):
+                answer=model.ask_json(parts,schema,name='final_movie_continuity',max_tokens=2600,
+                                      timeout=max(1,deadline-time.monotonic()),settings=settings)
+                response={'group':group,'revision':revision+1,'answer':answer}
+                final['responses'].append(response)
+                try:
+                    validate_group(answer,selected)
+                    break
+                except ValueError as error:
+                    response['protocol_error']=str(error);save()
+                    if revision==1 or time.monotonic()>=deadline:raise
+                    parts.append({'type':'text','text':'上一份完整回复：'+json.dumps(answer,ensure_ascii=False)+
+                        '\n格式校验失败：'+str(error)+'。保留有依据的实际观察与问题，纠正响应协议。'
+                        'observations须非空；passed须严格等于issues为空；所有clip_ids必须来自本组并有对应所引用帧。'
+                        '若真有问题请passed=false并写issues，不得为了通过协议删除问题或凭空补证据。'})
             for issue in answer['issues']:
                 issue['frame_paths']=[selected[n-1]['path'] for n in issue['frame_numbers']]
             final['groups'].append(answer);final['issues'].extend(answer['issues']);save()

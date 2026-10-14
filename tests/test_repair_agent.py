@@ -189,7 +189,8 @@ def test_repair_accepts_fullwidth_compiled_dialogue_punctuation():
 def test_repair_request_parameters_are_scoped_without_changing_general_agent_config(tmp_path,monkeypatch):
     d,clips,review=configured(tmp_path)
     config={'runs_root':str(tmp_path/'runs'),'extra_body':{'max_tokens':4096},
-            'repair_extra_body':{'thinking':{'type':'disabled'}},
+            'repair_extra_body':{'thinking':{'type':'disabled'},'output_config':{'effort':'low'}},
+            'effort':'medium',
             'extra_args':['--no-session-persistence']}
     original=copy.deepcopy(config);seen=[]
     def run(name,**kwargs):
@@ -202,6 +203,7 @@ def test_repair_request_parameters_are_scoped_without_changing_general_agent_con
         target.mkdir(parents=True);f=target/'frame.jpg';f.write_bytes(b'frame');return [f],'fixture'
     monkeypatch.setattr(agent,'provided_frames',frames)
     agent.propose(d,clips[0],review['a'],config=config)
-    assert seen[0]['extra_body']=={'max_tokens':4096,'thinking':{'type':'disabled'}}
+    assert seen[0]['extra_body']=={'max_tokens':4096,'thinking':{'type':'disabled'},'output_config':{'effort':'low'}}
+    assert seen[0]['max_thinking_tokens']==0 and seen[0]['effort']=='low'
     assert seen[0]['extra_args']==['--no-session-persistence','--tools','Read,Bash,Write']
     assert config==original and 'thinking' not in config['extra_body']
