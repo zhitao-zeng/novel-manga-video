@@ -48,7 +48,6 @@ def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, locatio
     # Frames miss what sits at the edge of the picture or turns up between them: when switched on, the whole take is
     # watched beside the cast's cards as well (cast_video.py).
     if cast_video.enabled():
-        from novel_manga.application.review import adjudication
         if cached_cast is not None:
             # The take, actual cards and shot request did not change: reuse video observations,
             # while the source-aware frame judgment and candidate adjudication run with the restored passage.
@@ -56,7 +55,8 @@ def judge_clip(clip: dict, video: Path, bible: review_models_StoryBible, locatio
             verdict = cast_video.merge(verdict, raw, clip, cast_video.looks(clip, work_dir.parents[3], work_dir.parents[2]))
         else:
             verdict = cast_video.review(clip, video, work_dir, verdict)
-        verdict = adjudication.review(clip, video, bible, work_dir, verdict)
+    from novel_manga.application.review import adjudication
+    verdict = adjudication.review(clip, video, bible, work_dir, verdict)
     return verdict
 
 

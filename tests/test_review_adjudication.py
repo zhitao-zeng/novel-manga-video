@@ -1,4 +1,5 @@
 from novel_manga.application.review.adjudication import apply, ERROR_FACTS
+import pytest
 from novel_manga.repair.policy import whole_take_decision
 from novel_manga.review.policy import fix_tier
 from types import SimpleNamespace
@@ -59,6 +60,45 @@ def test_missing_answers_cannot_clear_a_failure():
     import pytest
     with pytest.raises(ValueError):
         apply(candidate(), {'checks': []}, ['疑点'])
+
+
+@pytest.mark.parametrize('cached', [False, True])
+@pytest.mark.parametrize('confirmed', [False, True])
+def test_frame_candidate_is_adjudicated_once_without_whole_video_mode(tmp_path, monkeypatch, cached, confirmed):
+    import copy
+    from types import SimpleNamespace
+    from novel_manga.application.review import episode, adjudication, cast_video, judges
+    from novel_manga.models.bible import StoryBible
+    from novel_manga.review import contracts, storage
+    from novel_manga.util import atomic_write_json
+    book=tmp_path/'book';directory=book/'book_1';directory.mkdir(parents=True)
+    (book/'story_bible.json').write_text(StoryBible(novel_title='测试',genre='g',visual_style='v',
+        palette='p',style_fingerprint='f',characters=[],locations=[]).model_dump_json())
+    atomic_write_json(book/'profile.json',{'review_mode':'verify'})
+    video=directory/'video.mp4';video.write_bytes(b'unchanged selected take')
+    atomic_write_json(directory/'clip_plan.json',{'clips':[{'clip_id':'c','kind':'video'}]})
+    atomic_write_json(directory/'thin_media_report.json',{'clips':[{'clip_id':'c','selected':{'video':str(video)}}]})
+    raw={'severity':'fail','defect_issue':'姿态或身体比例疑点','scripted':False,
+         'verify':{'verdict':'obvious','count_checks':[],**{k:False for k in contracts.VERIFY_FLAGS}}}
+    if cached:
+        atomic_write_json(directory/'episode_review.json',{'policy':contracts.POLICY,'review_mode':'verify',
+            'clips':{'c':{'video':str(video),'take':storage.take_identity(video),**raw}}})
+    calls=[]
+    monkeypatch.setattr(cast_video,'enabled',lambda:False)
+    monkeypatch.setattr(judges,'judge_clip_verify',lambda *a:copy.deepcopy(raw))
+    monkeypatch.setattr(adjudication.evidence,'collect_clip_evidence',lambda *a,**k:
+        ([],SimpleNamespace(legend=['当前视频帧'],segments={})))
+    def classify(parts,schema,name):
+        calls.append('frame_adjudication')
+        return {'observations':['连续帧实际身体和姿态'], 'checks':[{'id':0,
+            'result':'confirmed' if confirmed else 'dismissed','evidence':'比例明显失真' if confirmed else '姿态差异不改变事件',
+            'error_facts':{k:confirmed and k=='visual_defects' for k in ERROR_FACTS},
+            'instruction':'正常成人比例。' if confirmed else ''}]}
+    monkeypatch.setattr(cast_video,'ask',classify)
+    first=episode.review_episode(directory)
+    assert first['clips']['c']['severity']==('fail' if confirmed else 'pass')
+    assert bool(first['feedback']) is confirmed
+    assert episode.review_episode(directory)==first and calls==['frame_adjudication']
 
 
 def test_confirming_an_attribution_concern_does_not_guess_its_cause():
