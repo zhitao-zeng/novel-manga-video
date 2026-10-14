@@ -373,3 +373,15 @@ Codex Luna备用保存收口（22:35）：scripts/standby/codex_luna_20261012原
 ## 2026-10-11 视觉能力测试（ZCode）
 
 Phanthy 网关四模型（dsv4/ds41/k3/glm）读图实测：**全部具备视觉能力**，对同一角色卡的性别/发型/外套/金色装饰描述一致且准确（金徽章、袖口滚边等细节都识别到）。测试中出现过 ds41/k3 偶发失败，重试即恢复——网关大 base64 请求有瞬时抖动，与模型能力无关。视频验收判官（需读图）可以放心路由到任何 Phanthy 模型。
+
+外貌字段实验第一轮实际结果：27B关思考归并保存成功但漏反向眉、嘴引文去换行留下unresolved；V4归并首次上游failure，原新extract续原入口一次后保存成功，people.form却被填成分类名，归并依靠原段上下文纠正。字段说明补到同一people.form含义及text完整特征片段/保留换行，仍仅lean_reading.py，无新处理规则；第二轮V4+27B关思考从相同两章新请求走原全流程，第一轮含27B思考输入/响应原样保留，生产书与Agent资源不动。
+
+2026-10-14 外貌字段/归并实验收工：仅lean_reading.py的people.form及looks.form/text说明（8行新增/3行替换，无新解析/校验/恢复分支）已同步主代码，保留Agent读图会话其余WIP；独立树最终3411全量绿，主代码相关36绿。本次两轮5条隔离读书链、21次真实模型调用（含V4上游failure后原新extract续归并1次），每链原CLI完成extract→aggregate→merge→原bind_export_looks→地点merge→fold_into_bible→reading_cast读回，未调用H3/生图或改在产book/计数。最终V4链152.962秒、27B关思考71.161秒，姓名归属字段均正常并实际保存；V4眼距/反向眉保住、鼻根/嘴比喻原句保留在looks，但1嘴引文删换行未确认，appearance短摘要还压缩鼻根细节；27B无未确认引句但仍漏反向眉/樱桃嘴。两者归并另有谈昙年龄无据16/27B用初读摘要当原文证据等内容缺陷，不把CLI exit0当全面内容验收。临时27B已停、GPU0释放，无活跃worker；代码未提交/push，源定义已供后续新初读使用，旧缓存/他人WIP保持。证据aoshi runtime lean-look-fields-20261014/{final-summary.json,human-evaluation.json,complete-field-descriptions/*/saved-character-facts.json}；仅同两章same-set，遗漏未全解，不推广千集准确率。
+
+2026-10-14 三类真实复杂任务模型对比开工：用户授权完整章节规划/复杂身份归并/Agent修复，对比dsv4、DS41、GLM默认5.3Flash，根会话亲自核原文与保存/采用结果，不改生产路由、不加新规则。独立codex/complex-production-comparison-20261014；runtime冻结当前部署src/configs/skills（含已同步未提交读图和字段说明，仅只读使用不代提交），真实案例副本各独立。候选为傲世完整原第二章、十日复杂身份案例、傲世真实前置失败修复；先确认输入齐全和入口，再各模型运行，限制API并发2，失败/原始正文/实际模型/用量留证；原book/计数与他人WIP保持，不启动H3。本轮预计1–2小时，准备完成后按类别更新；证据aoshi runtime complex-production-comparison-20261014。
+
+|Codex interactive backport|用户批准四项回接并测试后合小说main|codex/interactive-repair-backport-20261014|独立worktree；Agent精简证据/失败take、SD2.5适配、肖像范围|已完成：四项回接提交533ff85已合main；95针对＋独立树和main各3438全量通过，独立代码复核无阻塞。小说对白绑定/provider未知提交/裁决/模型设置保留，初读WIP原样保留；未调用模型/视频/服务，未推送。|
+
+## 2026-10-14 模型路由实测结论（ZCode）
+
+ds41/dsv4/glm-flash 四角色多轮实测：身份审核 ds41 5/5=100% vs dsv4 67%；修复诊断 ds41 fix_layer=asset 最准 vs dsv4 3/10；提纲/压缩三家打平。结论：全 ds41 主力，dsv4/phancy 登记不路由，glm-flash 判官 3/3 保留轮换。luna 已被套餐移除(403)。理由：dsv4 免费 but 33% 错误率的下游代价(错误修复方向) > 积分节省。已落地 afa77b2。
