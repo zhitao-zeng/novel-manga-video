@@ -81,11 +81,11 @@ def test_budget_exhaustion_never_launches_agent(tmp_path,monkeypatch):
 
 def test_rejected_agent_candidate_does_not_write_or_charge_and_other_clip_proceeds(tmp_path,monkeypatch):
     d,clips,_=configured(tmp_path);before=copy.deepcopy(clips)
-    monkeypatch.setattr(agent,'propose',lambda directory,clip,verdict:{
+    monkeypatch.setattr(agent,'propose',lambda directory,clip,verdict,**kwargs:{
         'action':'edit','reason':'fix','evidence':['input/prompt.txt'],
         'prompt':clip['prompt_h3'].replace('stands by','stands calmly by')})
     monkeypatch.setattr(request_check,'request_consistency',lambda c,*a,**k:{
-        'consistent':c['clip_id']=='b','problems':['still wrong']})
+        'consistent':c['clip_id']=='b','problems':[] if c['clip_id']=='b' else ['still wrong']})
     result=managed.prepare(d)
     after=json.loads((d/'clip_plan.json').read_text())['clips']
     assert result['changed']==['b'] and 'a' in result['blocked']

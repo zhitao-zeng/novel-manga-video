@@ -35,7 +35,8 @@ def host(tmp_path, monkeypatch):
     ctx, _, _ = prepared(tmp_path, monkeypatch)
     events = []
     state = {'feedback': {}, 'speech_failed': [], 'missing': [], 'review_missing': [],
-             'review_error': [], 'technical_passed': True}
+             'review_error': [], 'technical_passed': True,
+             'final_feedback':{}, 'final_complete':True, 'final_reviews':[]}
 
     class Runner:
         def __init__(self):
@@ -95,6 +96,24 @@ def host(tmp_path, monkeypatch):
     monkeypatch.setattr(MediaOperations, 'runner',lambda self:Runner())
     monkeypatch.setattr(EpisodeEvidence, 'review_evidence',lambda self,review,report,**kwargs:{'feedback':review.get('feedback',{})})
     monkeypatch.setattr('novel_manga.application.review.execution.review_saved',review)
+    from novel_manga.application.review import final_cut
+    def final_review(runner, report, *, receipt=None):
+        movie=(report.get('assembly') or {}).get('final_video')
+        if not movie:return None
+        cached=read_json(ctx.episode_dir/'final_cut_review.json',{})
+        if final_cut.current(ctx.episode_dir,report,cached) and cached.get('complete') is True:
+            return cached
+        state['final_reviews'].append(movie)
+        issues=[{'clip_ids':[cid], 'problem':note, 'source_basis':'approved source continuity',
+                 'evidence':'mocked assembled-movie review', 'frame_paths':[]}
+                for cid,note in state['final_feedback'].items()]
+        final={'movie':movie,'context':final_cut.context(ctx.episode_dir,report,movie),
+               'policy':final_cut.POLICY,'complete':state['final_complete'],
+               'passed':state['final_complete'] and not issues,'issues':issues,'frames':[],
+               'errors':[] if state['final_complete'] else ['review service unavailable']}
+        atomic_write_json(ctx.episode_dir/'final_cut_review.json',final)
+        return final
+    monkeypatch.setattr(final_cut,'review_assembly',final_review)
     return ctx,EpisodeTools(ctx),events,state
 
 

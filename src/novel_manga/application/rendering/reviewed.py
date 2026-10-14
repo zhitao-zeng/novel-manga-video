@@ -1,8 +1,9 @@
 """Compose the existing renderer, full repair preparation and review; one shared retry budget."""
 from __future__ import annotations
-from novel_manga.util import read_json
+from novel_manga.util import read_json, atomic_write_json
 from novel_manga.application.review.execution import review_saved as _review, save_result
 from novel_manga.application.repair import managed, history
+from novel_manga.application.review import final_cut
 from novel_manga.application.profiles import plan_fingerprint, h3_prompt_fingerprint
 
 
@@ -16,16 +17,16 @@ def _load_current(runner):
                               for c in ctx.clip_plan['clips'] if c.get('kind') == 'video'}
 
 
-def run(runner, *, repair_existing=False):
+def run(runner, *, repair_existing=False, final_review=None):
     from novel_manga.application.repair.agent import request_scope
     settings = getattr(runner.context, 'settings', None)
     lane = ('h3' if getattr(settings, 'local_h3_base_url', '') else
             'sd25' if getattr(settings, 'video_model', '') == 'sd2.5' else None)
     with request_scope(lane):
-        return _run(runner, repair_existing=repair_existing)
+        return _run(runner, repair_existing=repair_existing, final_review=final_review)
 
 
-def _run(runner, *, repair_existing=False):
+def _run(runner, *, repair_existing=False, final_review=None):
     ctx = runner.context; directory = ctx.episode_dir
     if repair_existing:
         report = read_json(directory / 'thin_media_report.json', {})
@@ -52,7 +53,27 @@ def _run(runner, *, repair_existing=False):
         history.adopt_reviewed_run(directory)
     review = _review(directory, fresh=not repair_existing)
     rounds, corrected, blocked = [], [], {}
-    for _ in range(managed.MAX_GENERATED_TAKES):
+    final_review = final_review or (lambda media: final_cut.review_assembly(runner,media))
+    def observe_final():
+        nonlocal report,review
+        # The exporter receives an honest current native result, not an old pass.
+        report=save_result(directory,report,review,plan=ctx.clip_plan,
+                           rounds=rounds,corrections=corrected,blocked=blocked)
+        final=final_review(report)
+        if final is not None:
+            final.setdefault('policy',final_cut.POLICY)
+            final.setdefault('context',final_cut.context(directory,report,final['movie']))
+            report['final_cut_review']=final
+            review=final_cut.apply_feedback(directory,review,final)
+            atomic_write_json(directory/'episode_review.json',review)
+            atomic_write_json(directory/'final_cut_review.json',final)
+    counts=history.generation_counts(directory)
+    # The history remains the limit. Allow a final-review round after the native
+    # loop, rather than spending that opportunity on an arbitrary loop counter.
+    remaining=sum(max(0,managed.generation_limit(directory,c['clip_id'])-counts.get(c['clip_id'],0))
+                  for c in ctx.clip_plan['clips'] if c.get('kind')=='video')
+    for _ in range(max(1,remaining+1)):
+        observe_final()
         input_blocked = {}
         if report.get('blocked_clips') and not ctx.options.cache_only:
             prepared_input = managed.prepare_request_conflicts(directory, report)
@@ -78,6 +99,10 @@ def _run(runner, *, repair_existing=False):
             _load_current(runner)
             review = read_json(directory / 'episode_review.json', review)
             report = read_json(directory / 'thin_media_report.json', report)
+            if prepared.get('accepted'):
+                # A native keep may correct an erroneous finding, but cannot
+                # certify the unchanged delivered movie by itself.
+                observe_final()
             break
         _load_current(runner)
         report = runner.run()

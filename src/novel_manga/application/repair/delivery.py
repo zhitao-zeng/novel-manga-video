@@ -43,6 +43,12 @@ def publish_if_ready(directory: Path, review: dict, takes: dict) -> bool:
     from novel_manga.review.contracts import current_review
     media = read(directory / "thin_media_report.json", {})
     assembly = media.get("assembly") or {}
+    final_review=media.get('final_cut_review') or read(directory/'final_cut_review.json',None)
+    if final_review is not None:
+        from novel_manga.application.review.final_cut import current
+        if (not current(directory,media,final_review) or final_review.get('complete') is not True
+                or final_review.get('passed') is not True or final_review.get('issues') or final_review.get('errors')):
+            return False
     if not assembly.get("pending_publish") or episode_status(directory, True) != "done":
         return False
     if not current_review(review,'verify') or review.get("feedback"):
@@ -76,6 +82,13 @@ def publish_if_ready(directory: Path, review: dict, takes: dict) -> bool:
     # without overwriting the previous movie's backup with the new movie.
     copy_complete(candidate, final)
     assembly.update(final_video=str(final), pending_publish=False, published_at=time.strftime("%F %T"))
+    if final_review is not None:
+        from novel_manga.application.review import final_cut
+        relocated = copy.deepcopy(final_review)
+        relocated['movie'] = str(final)
+        relocated['context'] = final_cut.context(directory, media, final)
+        media['final_cut_review'] = relocated
+        atomic_write_json(directory/'final_cut_review.json', relocated)
     if assembly.get("media_qc"):
         qc = copy.deepcopy(assembly["media_qc"])
         for key in ("video", "cover", "ending", "ass"):

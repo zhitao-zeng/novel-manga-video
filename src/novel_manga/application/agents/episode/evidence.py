@@ -176,6 +176,16 @@ class EpisodeEvidence:
                         ('reference', 'hypothesis', 'whole_hypothesis', 'cer', 'issues', 'passed',
                          'mean_volume_db', 'max_volume_db')},
                     'frames': [], 'asr_files': []}
+            if verdict.get('final_cut'):
+                destination = self.ctx.work_dir/'input/latest-review'/cid
+                final = agent.export_final_cut(self.ctx.episode_dir, destination, clip, verdict,
+                                               work_root=self.ctx.work_dir)
+                item['final_cut'] = final
+                item['verdict'] = {**verdict, 'final_cut': final}
+                item['final_cut_instruction'] = ('Read the supplied final-cut JPEGs first. Their seconds are global in the actual movie; '
+                    'verify the reported issue and source_basis, including the boundary frames. Native clip pictures do not '
+                    'certify final-movie continuity. If required final frames are missing, stop with the missing evidence.')
+                summary['final_cut'] = final
             chunks = material.get('chunks') or []
             item['selected_audio'].update(
                 raw_asr_available=bool(chunks and all('raw_hypothesis' in row for row in chunks))

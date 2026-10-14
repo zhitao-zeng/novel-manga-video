@@ -193,6 +193,10 @@ class RepairOperations:
             verdict = (review.get('clips') or {}).get(cid, {})
             take = selected.get(cid, {})
             video = Path(take['video']) if take.get('video') else None
+            if row.get('action') == 'keep' and (verdict.get('final_cut') or {}).get('issues'):
+                blocked[cid] = ('native keep cannot resolve current final-cut findings; '
+                                'verify the supplied movie frames and propose a compliant edit or stop')
+                continue
             if (row.get('action') == 'keep' and current_review
                     and verdict.get('severity') in {'pass', 'minor'} and cid not in (review.get('feedback') or {})
                     and take.get('passed') is True and video and video.is_file()

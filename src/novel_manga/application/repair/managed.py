@@ -50,6 +50,7 @@ def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inpu
     from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
     from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY, request_lane
     return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY, 'request_lane': request_lane(clip)} if enabled(directory) else {}),
+            **({'final_cut':copy.deepcopy(verdict['final_cut'])} if verdict.get('final_cut') else {}),
             'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
             'note':inputs.notes.get(clip['clip_id'],''),
             'source':source_state(directory,clip,inputs=inputs),'take':takes.get(clip['clip_id']),
@@ -132,7 +133,7 @@ def reframe_candidate(directory: Path, cid: str, issue: str):
 
 
 def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> dict:
-    """One agent decision replaces the old decision path, under the same video budget."""
+    """Bounded candidate feedback replaces the old route, under the same video budget."""
     from novel_manga.application.repair import agent
     from novel_manga.application.preparation.request_check import request_consistency
     from novel_manga.application.profiles import plan_fingerprint
@@ -152,39 +153,101 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
         review = read(directory/'episode_review.json', {})
         verdict = review.get('clips', {}).get(cid, {})
         before = input_state(directory, clip, verdict, current_takes(directory, plan, review))
+        previous=decisions.get(cid,{})
+        if previous.get('status')=='blocked' and previous.get('inputs')==before:
+            blocked[cid]=previous.get('reason','unchanged rejected repair')
+            continue
         source_before = read(directory/'chapter_script.json', {})
         notes_before = read(directory/'review_feedback.json', {})
-        try:
-            decision = agent.propose(directory, clip, verdict)
-            # Do not accept a proposal against a source changed while the sandbox was running.
+        proposal_log = None
+        candidate_row = None
+        def require_current_inputs():
             if (read(directory/'clip_plan.json', {}) != plan
                     or read(directory/'chapter_script.json', {}) != source_before
-                    or read(directory/'review_feedback.json', {}) != notes_before):
+                    or read(directory/'review_feedback.json', {}) != notes_before
+                    or read(directory/'episode_review.json', {}).get('clips',{}).get(cid,{}).get('final_cut') != verdict.get('final_cut')):
                 raise ValueError('episode inputs changed while repair agent was running')
-            action = decision['action']
-            if action == 'stop': raise ValueError('agent stopped: '+decision['reason'])
-            if action == 'keep':
-                result = prepare_source_recheck(directory, [cid])
-                changed.extend(result['changed']); accepted.extend(result['accepted'])
-            elif action == 'edit':
-                proposal = agent.final_proposal(directory, plan, clip, decision)
-                updated = next(c for c in proposal.plan['clips'] if c['clip_id'] == cid)
-                check = agent.check_request(updated, directory.parent)
-                if not check.get('consistent'):
-                    raise ValueError('agent candidate input conflict: '+ '; '.join(check.get('problems', [])))
-                publish_candidate(directory, proposal, 'agent_prompt', {cid})
-                changed.append(cid)
-            else:
-                check = agent.check_request(clip, directory.parent)
-                if not check.get('consistent'):
-                    raise ValueError('agent retake input conflict: '+ '; '.join(check.get('problems', [])))
-                publish_retake(directory, retake_proposal(plan, cid, decision))
-                changed.append(cid)
+        def require_video_budget():
+            if generated_counts(history.load(directory)).get(cid,0) >= generation_limit(directory,cid):
+                raise ValueError('effective clip retry budget used')
+        try:
+            audit_path = directory/'work/request_checks'/f'{cid}.agent-proposals-{time.time_ns()}.json'
+            proposal_log = {'policy':agent.FRAME_HANDOFF_POLICY, 'clip_id':cid,
+                            'candidate_limit':agent.MAX_CANDIDATES,
+                            'previous_decision':copy.deepcopy(previous), 'candidates':[]}
+            atomic_write_json(audit_path,proposal_log)
+            rejections = []
+            for revision in range(agent.MAX_CANDIDATES):
+                candidate_row = None
+                require_current_inputs();require_video_budget()
+                candidate_row = {'revision':revision+1,'status':'proposing'}
+                proposal_log['candidates'].append(candidate_row)
+                atomic_write_json(audit_path,proposal_log)
+                try:
+                    decision = agent.propose(directory,clip,verdict,**({'rejections':rejections} if rejections else {}))
+                    candidate_row.update(candidate=copy.deepcopy(decision),status='proposed')
+                    atomic_write_json(audit_path,proposal_log)
+                    # Guard both sandbox time and request-check time before any write/adoption.
+                    require_current_inputs();require_video_budget()
+                    action = decision['action']
+                    if action == 'stop':raise ValueError('agent stopped: '+decision['reason'])
+                    if action == 'keep':
+                        if (verdict.get('final_cut') or {}).get('issues'):
+                            raise agent.CandidateRejected(
+                                'keep 只复查原生片，不能解除当前实际成片的终审问题；'
+                                '请针对已提供的成片证据提出具体输入修复/retake，或有依据地 stop。'
+                                '未解决问题：'+str(verdict['final_cut']['issues']),
+                                decision,stage='unresolved_final_keep')
+                        result = prepare_source_recheck(directory, [cid])
+                        candidate_row['recheck_result'] = copy.deepcopy(result)
+                        changed.extend(result['changed']);accepted.extend(result['accepted'])
+                    else:
+                        if action == 'edit':
+                            try:
+                                proposal = agent.final_proposal(directory,plan,clip,decision)
+                            except ValueError as error:
+                                raise agent.CandidateRejected(str(error),decision,stage='final_proposal') from error
+                            updated = next(c for c in proposal.plan['clips'] if c['clip_id']==cid)
+                        else:
+                            updated = clip
+                        check = agent.check_request(updated,directory.parent)
+                        candidate_row['check'] = copy.deepcopy(check)
+                        require_current_inputs();require_video_budget()
+                        service_error = check.get('error') or (check.get('scope_check') or {}).get('error')
+                        if service_error:
+                            raise ValueError('agent candidate request check unavailable: '+str(service_error))
+                        if check.get('consistent') is not True or check.get('problems'):
+                            problems = check.get('problems') or []
+                            if not problems:
+                                raise ValueError('agent candidate request check returned no verified consistency result')
+                            raise agent.CandidateRejected('agent candidate input conflict: '+'; '.join(problems),
+                                                          decision,stage='check_request',check=check)
+                        if action == 'edit':
+                            publish_candidate(directory,proposal,'agent_prompt',{cid})
+                        else:
+                            publish_retake(directory,retake_proposal(plan,cid,decision))
+                        changed.append(cid)
+                    candidate_row['status'] = 'adopted' if action!='keep' else 'independently_rechecked'
+                    atomic_write_json(audit_path,proposal_log)
+                    break
+                except agent.CandidateRejected as error:
+                    feedback = error.feedback
+                    candidate_row.update(candidate=feedback['candidate'],status='rejected',rejection=feedback)
+                    atomic_write_json(audit_path,proposal_log)
+                    require_current_inputs();require_video_budget()
+                    rejections.append(copy.deepcopy(feedback))
+                    if revision+1==agent.MAX_CANDIDATES:raise
             decisions[cid] = {'at':time.strftime('%F %T'), 'action':action, 'diagnosis':decision,
-                              'status':'prepared', 'inputs':before}
+                              'status':'prepared', 'inputs':before, 'candidate_audit':str(audit_path)}
         except Exception as error:
+            if proposal_log is not None:
+                proposal_log['stopped_reason'] = str(error)
+                if candidate_row is not None and candidate_row['status']!='rejected':
+                    candidate_row.update(status='stopped',reason=str(error))
+                atomic_write_json(audit_path,proposal_log)
             blocked[cid] = str(error)[:350]
-            decisions[cid] = {'status':'blocked', 'reason':blocked[cid], 'inputs':before}
+            decisions[cid] = {'status':'blocked', 'reason':blocked[cid], 'inputs':before,
+                              **({'candidate_audit':str(audit_path)} if proposal_log is not None else {})}
         atomic_write_json(directory/'repair_routing.json', decisions)
     record=history.load(directory); final_plan=read(directory/'clip_plan.json',{})
     final_notes=read(directory/'review_feedback.json',{})

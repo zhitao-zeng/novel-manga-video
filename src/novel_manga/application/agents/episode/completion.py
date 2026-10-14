@@ -42,6 +42,8 @@ class EpisodeCompletion:
                         'message': 'Current requests need render before existing takes can be assembled.'}
             report = self.media.assemble(report)
         report = self.media.refresh_technical_policy(report, plan)
+        report = self.media.review_final(report)
+        review = read_json(self.ctx.episode_dir/'episode_review.json', review)
         rounds = rounds[read_json(self.ctx.run_dir / 'prepared.json', {}).get('repair_round_start', 0):]
         blocked = {}
         for row in rounds:

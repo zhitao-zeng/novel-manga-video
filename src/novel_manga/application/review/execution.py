@@ -137,6 +137,13 @@ def save_result(directory, media, review, *, plan=None, rounds=(), corrections=(
                 write_media=True):
     """The same technical/content acceptance for a single run and a batch review."""
     plan = plan if plan is not None else read_json(directory / 'clip_plan.json', {})
+    from novel_manga.application.review import final_cut
+    final=media.get('final_cut_review') or read_json(directory/'final_cut_review.json',None)
+    if final is not None:media['final_cut_review']=final
+    final_current=final_cut.current(directory,media,final) if final is not None else False
+    if final_current:
+        review=final_cut.apply_feedback(directory,review,final)
+        atomic_write_json(directory/'episode_review.json',review)
     planned = {c['clip_id'] for c in plan.get('clips', []) if c.get('kind') == 'video'}
     # Keep the established handling of historical unstamped media. A known stale
     # report, however, cannot certify a newly compiled plan by merely re-reading it.
@@ -151,6 +158,16 @@ def save_result(directory, media, review, *, plan=None, rounds=(), corrections=(
         rounds=rounds, corrections=corrections, blocked=blocked,
         generated_counts=managed.generated_counts(history.load(directory)),
     )
+    native=final_cut.apply_feedback(directory,review,None)
+    result['native_content_passed']=evaluate_acceptance(planned,media,native,stale=stale).content_passed
+    if final is not None:
+        final_passed=final_current and final.get('complete') is True and final.get('passed') is True and not final.get('issues') and not final.get('errors')
+        result.update(final_cut_passed=bool(final_passed),
+                      final_cut_complete=final_current and final.get('complete') is True,
+                      final_cut_errors=final.get('errors',[]))
+        if not final_passed:
+            result.update(passed=False,content_passed=False,
+                          reason='final movie review failed or is incomplete/stale')
     media['quality_review'] = result
     if write_media:
         atomic_write_json(directory / 'thin_media_report.json', media)

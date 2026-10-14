@@ -106,6 +106,31 @@ class MediaOperations:
         report.setdefault('timing', {})['assembly_s'] = seconds
         atomic_write_json(self.ctx.episode_dir/'thin_media_report.json', report)
         history.record_render(self.ctx.episode_dir, report)
+        return self.review_final(report, runner)
+
+
+    def review_final(self, report, runner=None):
+        """Review an assembled movie and publish its feedback without generating a take."""
+        if not (report.get('assembly') or {}).get('final_video'):
+            return report
+        from novel_manga.application.rendering.reviewed import _load_current
+        from novel_manga.application.review import final_cut
+        from novel_manga.application.review.execution import save_result
+        final = report.get('final_cut_review') or read_json(self.ctx.episode_dir/'final_cut_review.json', None)
+        if not (final_cut.current(self.ctx.episode_dir,report,final) and final.get('complete') is True):
+            if runner is None:
+                runner = self.runner()
+                _load_current(runner)
+            final = final_cut.review_assembly(runner, report)
+        if final is not None:
+            report['final_cut_review'] = final
+            review = final_cut.apply_feedback(self.ctx.episode_dir,
+                read_json(self.ctx.episode_dir/'episode_review.json', {}), final)
+            atomic_write_json(self.ctx.episode_dir/'episode_review.json', review)
+            prior = report.get('quality_review') or {}
+            report = save_result(self.ctx.episode_dir, report, review,
+                rounds=prior.get('repair_rounds', []), corrections=prior.get('automatic_corrections', []),
+                blocked=prior.get('blocked', {}))
         return report
 
 
@@ -245,8 +270,9 @@ class MediaOperations:
                              checked=len(verdicts.get('clips') or {}), remaining=len(verdicts.get('feedback') or {}))
         report.setdefault('timing', {})['review_s'] = round(time.monotonic()-started, 3)
         report = save_result(self.ctx.episode_dir, report, verdicts, plan=read_json(path))
-        if report.get('status') == 'clips_ready' and report['quality_review']['content_passed']:
+        if report.get('status') == 'clips_ready' and report['quality_review']['native_content_passed']:
             report = self.assemble(report, runner)
+            verdicts = read_json(self.ctx.episode_dir/'episode_review.json', verdicts)
             report = save_result(self.ctx.episode_dir, report, verdicts, plan=read_json(path))
         atomic_write_json(self.ctx.work_dir / 'input/latest-render.json', report)
         review = self.evidence.review_evidence(verdicts, report, pending_only=True)
@@ -268,4 +294,11 @@ class MediaOperations:
         episode_state.record(self.ctx.run_dir, 'review_saved',
                              checked=len(review.get('clips') or {}), remaining=len(review.get('feedback') or {}))
         report = read_json(self.ctx.episode_dir / 'thin_media_report.json', {})
+        report = self.review_final(report)
+        review = read_json(self.ctx.episode_dir/'episode_review.json', review)
+        from novel_manga.application.review.execution import save_result
+        prior = report.get('quality_review') or {}
+        report = save_result(self.ctx.episode_dir, report, review,
+            rounds=prior.get('repair_rounds', []), corrections=prior.get('automatic_corrections', []),
+            blocked=prior.get('blocked', {}))
         return self.evidence.review_evidence(review, report)

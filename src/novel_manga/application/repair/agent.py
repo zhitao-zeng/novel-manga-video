@@ -19,10 +19,20 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v3-compact-request-lane'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v4-request-lane-and-candidate-feedback'
+MAX_CANDIDATES = 3
 
 SECTIONS = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
             'overall_soundscape', 'non_diegetic_music')
+
+
+class CandidateRejected(ValueError):
+    """An actual candidate failed content validation, unlike an unavailable service/output."""
+    def __init__(self, reason, decision, *, stage, check=None):
+        super().__init__(reason)
+        self.feedback = {'stage':stage, 'reason':str(reason), 'candidate':copy.deepcopy(decision)}
+        if check is not None:
+            self.feedback['check'] = copy.deepcopy(check)
 
 
 def enabled(directory: Path) -> bool:
@@ -168,7 +178,37 @@ def unique_takes(videos):
     return paths, skipped
 
 
-def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
+def export_final_cut(directory, inputs, clip, verdict, *, work_root=None):
+    """Copy final-movie frames into either a repair run or the persistent episode sandbox."""
+    final = verdict.get('final_cut')
+    if not final:
+        return None
+    issues = [copy.deepcopy(row) for row in final.get('issues',[]) if clip['clip_id'] in row.get('clip_ids',[])]
+    wanted = {path for row in issues for path in row.get('frame_paths',[])}
+    frames, copied, missing = [], {}, []
+    target = inputs/'final-cut';target.mkdir(parents=True,exist_ok=True)
+    base = work_root or inputs.parent
+    for i,row in enumerate(final.get('frames',[])):
+        path = row['path']
+        if row.get('clip_id')!=clip['clip_id'] and path not in wanted:
+            continue
+        source = Path(path)
+        if not source.is_absolute():source=directory/source
+        if not source.is_file():
+            missing.append(path);continue
+        saved = target/f'frame-{i:03d}{source.suffix}'
+        shutil.copy2(source,saved)
+        copied[path] = str(saved.relative_to(base))
+        frames.append({**row,'path':copied[path]})
+    missing.extend(path for path in wanted if path not in copied and path not in missing)
+    for row in issues:
+        row['frame_paths'] = [copied[path] for path in row.get('frame_paths',[]) if path in copied]
+    return {'issues':issues,'frames':frames,'missing_frames':missing,
+            'source_movie':Path(final.get('movie') or '').name,
+            'seconds_timebase':'global seconds in the reviewed final movie, not local native-take seconds'}
+
+
+def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejections=None):
     """No production writes. Container sees evidence copies, never the production directory."""
     config = config or load_config()
     if config.get('repair_extra_body'):
@@ -183,9 +223,18 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     run = f'repair-{directory.name}-{clip["clip_id"]}-{time.time_ns()}'
     work = Path(config['runs_root'])/run
     inputs = work/'input'; inputs.mkdir(parents=True)
+    (work/'owner').write_text(f'Existing bounded repair / {directory.name} / {clip["clip_id"]} / proposal only\n')
     skill = work/'.claude/skills/video-repair'; skill.mkdir(parents=True)
     shutil.copy2(project_root()/'skills/video-repair/SKILL.md', skill/'SKILL.md')
     (inputs/'prompt.txt').write_text(clip[field], encoding='utf-8')
+    feedback = copy.deepcopy(rejections or [])
+    for i,row in enumerate(feedback,1):
+        rejected = row['candidate']
+        if 'prompt' in rejected:
+            target = inputs/f'rejected-candidate-{i}.txt'
+            target.write_text(rejected.pop('prompt'),encoding='utf-8')
+            rejected['prompt_path'] = str(target.relative_to(work))
+    atomic_write_json(inputs/'rejections.json',feedback)
     script = read_json(directory/'chapter_script.json', {})
     indexes = clip.get('shot_indexes') or []
     near = {i+d for i in indexes for d in (-1,0,1)}
@@ -200,7 +249,15 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
                 'observations':history.get('observations',{}).get(clip['clip_id'],[]),
                 'trials':[{k:t.get(k) for k in ('id','method','changes','expected_notes')}
                           for t in history.get('trials',[]) if clip['clip_id'] in t.get('clips',[])],
-                'references':[], 'takes':[]}
+                'references':[], 'takes':[], 'rejections':feedback,
+                'candidate_revision':len(feedback)+1, 'candidate_limit':MAX_CANDIDATES}
+    final_cut = export_final_cut(directory,inputs,clip,verdict)
+    if final_cut is not None:
+        evidence['final_cut'] = final_cut
+        evidence['verdict'] = {**verdict,'final_cut':final_cut}
+        if final_cut['issues'] and (not final_cut['frames'] or final_cut['missing_frames']):
+            atomic_write_json(inputs/'evidence.json',evidence)
+            raise ValueError('repair agent cannot verify final-cut findings: required movie frames unavailable')
     for i,ref in enumerate(clip.get('references',[]),1):
         source = directory.parent/ref['path']; target = inputs/f'reference-{i}{source.suffix}'
         shutil.copy2(source,target)
@@ -251,7 +308,6 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     tools=work/'tools';tools.mkdir()
     shutil.copy2(Path(__file__).with_name('video_frames.py'),tools/'video_frames.py')
     evidence['video_reader']='python3 tools/video_frames.py take-1 --seconds 2.0'
-    (work/'owner').write_text(f'Existing bounded repair / {directory.name} / {clip["clip_id"]} / proposal only\n')
     current = next((t for t in evidence['takes'] if t['current']), {})
     evidence['primary_reading'] = {
         'request': 'input/prompt.txt',
@@ -271,18 +327,28 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
         'source_passages': [row for row in evidence['segments']
                             if str(row.get('segment_id')) in related_segments],
         'references': evidence['references'],
-        'verdict': verdict})
-    (work/'prompt.txt').write_text('Read input/primary.json first and immediately open its current_frames[].path JPEGs. '
+        'verdict': evidence['verdict'], 'rejections':feedback,
+        **({'final_cut':final_cut} if final_cut is not None else {}),
+        'candidate_revision':len(feedback)+1, 'candidate_limit':MAX_CANDIDATES})
+    (work/'prompt.txt').write_text('Read input/primary.json first. When primary.final_cut is present, first open its frames[].path JPEGs '
+                                 'and verify the related final-cut findings against those actual pictures and source_basis. '
+                                 'Their seconds are global within the reviewed final movie, and may include a neighbouring clip boundary. '
+                                 'Native footage cannot substitute for final-movie continuity. Reports are findings to verify, not picture facts to assume. '
+                                 'Then open primary.current_frames[].path JPEGs; without final_cut, start with those current native-take images. '
                                  'Read .claude/skills/video-repair/SKILL.md. Diagnose this failed clip from input/. '
                                  'Write output/decision.json and, only for edit, output/prompt.txt. '
-                                 'Actual video frames and timestamps are already in evidence.takes[].frames. Open current-take JPEGs first. '
+                                 'Actual native video frames and local timestamps are in evidence.takes[].frames. '
                                  'Use python3 tools/video_frames.py take-1 to list them. Do not read MP4 with the text reader, '
                                  'install packages, or prepare a decoder. If supplied evidence is insufficient, write stop with the missing evidence. '
                                  'This is one request with a 600-second execution window. Use input/primary.json and its local shot/source facts first. Full evidence and original novel documents remain in input/evidence.json. '
                                  'Read history or whole-episode documents only when they resolve a specific contradiction; do not exhaust the file list. '
                                  'Once current frames, request and selected reference support a decision, write the final output immediately. '
                                  'For edit, write decision.json and the complete prompt.txt together in one tool turn, then finish; do not leave only a decision while waiting for another model response. '
-                                 'Do not generate video. One proposal, no retries.\n',encoding='utf-8')
+                                 'Read any host rejection in primary.rejections: each contains the exact failed validation, '
+                                 'the prior decision and, for edits, an input/rejected-candidate-N.txt file with the complete rejected request. '
+                                 'Use that feedback to correct the specific conflict while preserving source, dialogue, bindings and timing. '
+                                 'Do not generate video. Write one proposal in this invocation; only the host may request a bounded revision, '
+                                 f'at most {MAX_CANDIDATES} candidates including the first. Do not retry autonomously.\n',encoding='utf-8')
     attempt=run_agent(run,config=config,timeout=600)
     if not attempt.ok or 'decision.json' not in attempt.produced:
         raise ValueError('repair agent did not produce a current decision')
@@ -293,8 +359,11 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     if answer['action']=='edit':
         if 'prompt.txt' not in attempt.produced:raise ValueError('repair agent did not produce a current prompt')
         answer['prompt']=(work/'output/prompt.txt').read_text(encoding='utf-8').strip()
-        validate_request(clip,answer['prompt'])
-        if answer['prompt']==clip[field].strip():raise ValueError('agent edit made no effective change')
+        try:
+            validate_request(clip,answer['prompt'])
+            if answer['prompt']==clip[field].strip():raise ValueError('agent edit made no effective change')
+        except ValueError as error:
+            raise CandidateRejected(str(error),answer,stage='validate_request') from error
     return answer
 
 
