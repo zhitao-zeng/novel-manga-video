@@ -325,3 +325,32 @@ def test_initial_malformed_judgment_is_incomplete_not_a_content_defect(tmp_path,
     assert caught.value.result['complete'] is False
     assert caught.value.result['consistent'] is None
     assert caught.value.result['raw_answer'] == raw
+
+
+def test_portrait_scope_is_sent_and_scope_changes_invalidate_only_affected_cache(tmp_path,monkeypatch):
+    ctx,clip,request=fixture(tmp_path);calls=[]
+    def ask(parts,schema,**kwargs):
+        calls.append(parts[-1]['text'])
+        return {'observations':[],'findings':[]}
+    monkeypatch.setattr(request_check,'ask_json',ask)
+    request_check.before_generation(ctx,clip,request)
+    sidecar=tmp_path/'current.jpeg.origin.json'
+    sidecar.write_text(json.dumps({'reference_scope':'identity_portrait'}))
+    request_check.before_generation(ctx,clip,request);request_check.before_generation(ctx,clip,request)
+    assert len(calls)==2 and 'identity_portrait' in calls[-1]
+    saved=json.loads((ctx.work/'request_checks/c1.json').read_text())
+    assert saved['inputs']['reference_scopes']==['identity_portrait','','']
+    sidecar.unlink();request_check.before_generation(ctx,clip,request)
+    assert len(calls)==3
+
+
+def test_portrait_scope_does_not_waive_a_visible_identity_contradiction(tmp_path,monkeypatch):
+    ctx,clip,request=fixture(tmp_path)
+    (tmp_path/'current.jpeg.origin.json').write_text(json.dumps({'reference_scope':'identity_portrait'}))
+    def ask(parts,schema,**kwargs):
+        if kwargs['name']=='request_conflict_scope':
+            assert 'identity_portrait' in parts[-1]['text'] and '编译名单' in parts[-1]['text']
+            return {'checks':[{'id':0,'scope':'in_scope','reason':'可见脸部身份不符'}]}
+        return {'observations':['可见脸部身份不符'],'findings':[{'basis':'reference','aspect':'identity','picture':1,'lines':[1],'subject_specific':True,'relation':'contradiction','reason':'可见脸部身份不符'}]}
+    monkeypatch.setattr(request_check,'ask_json',ask)
+    with pytest.raises(ValueError,match='reference mismatch'):request_check.before_generation(ctx,clip,request)

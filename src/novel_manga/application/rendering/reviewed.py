@@ -17,6 +17,15 @@ def _load_current(runner):
 
 
 def run(runner, *, repair_existing=False):
+    from novel_manga.application.repair.agent import request_scope
+    settings = getattr(runner.context, 'settings', None)
+    lane = ('h3' if getattr(settings, 'local_h3_base_url', '') else
+            'sd25' if getattr(settings, 'video_model', '') == 'sd2.5' else None)
+    with request_scope(lane):
+        return _run(runner, repair_existing=repair_existing)
+
+
+def _run(runner, *, repair_existing=False):
     ctx = runner.context; directory = ctx.episode_dir
     if repair_existing:
         report = read_json(directory / 'thin_media_report.json', {})

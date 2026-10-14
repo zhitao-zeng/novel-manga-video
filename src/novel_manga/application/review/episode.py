@@ -85,6 +85,10 @@ def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: b
             asr = video.parent / ("stale_asr.json" if "stale" in video_name else "asr.json")
             hypothesis = json.loads(asr.read_text(encoding="utf-8")).get("hypothesis", "") if asr.is_file() else ""
         old = earlier.get(clip_id) if resume else None
+        reference_scopes = {ref['path']: 'identity_portrait' for ref in clip.get('references', [])
+                            if ref.get('role') == 'character' and ref.get('path')
+                            and review_evidence.card_scope_note(novel_dir / ref['path'])}
+        scope_changed = bool(old and old.get('reference_scopes', {}) != reference_scopes)
         ledger_snapshot = review_evidence.snapshot_block(clip, episode_dir)
         ledger_changed = bool(old and old.get('ledger_snapshot', '') != ledger_snapshot)
         take = review_storage.take_identity(video)
@@ -98,7 +102,7 @@ def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: b
             same_take = (old and (old.get("severity") != "review_error" or input_only_error)
                     and (mode != "verify" or review_policy.verification_complete(old.get("verify") or {}))
                     and old.get("video") == str(video)
-                    and take and old.get("take") == take
+                    and take and old.get("take") == take and not scope_changed
                     and (not cast_video.enabled() or
                          ((old.get('verify') or {}).get('cast_video') or {}).get('policy') == cast_video.POLICY))
             source_changed = bool(old and (clip.get('source_trace_repaired') or 'source_segment_ids' in old)
@@ -131,7 +135,8 @@ def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: b
             checkpoint()
             continue
         report["clips"][clip_id] = {"video": str(video), "take": take, **verdict,
-                                     'source_segment_ids': list(clip.get('segment_ids') or []), 'ledger_snapshot': ledger_snapshot}
+                                     'source_segment_ids': list(clip.get('segment_ids') or []), 'ledger_snapshot': ledger_snapshot,
+                                     **({'reference_scopes':reference_scopes} if reference_scopes else {})}
         if verdict.get("severity") == "fail":
             tier = review_policy.fix_tier(verdict, bible, rules)
             if (tier == "must_fix" and "scripted" not in verdict

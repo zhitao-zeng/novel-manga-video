@@ -8,7 +8,7 @@ from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import read_json, atomic_write_json
 from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
-POLICY = 'request-reference-v10-casting-watchable'
+POLICY = 'request-reference-v11-casting-portrait-scope'
 STABLE_ASPECTS = {'identity', 'appearance', 'wearing', 'object'}
 SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'maxLength': 240}},
               'findings': {'type': 'array', 'items': obj({
@@ -20,6 +20,11 @@ SCHEMA = obj({'observations': {'type': 'array', 'items': {'type': 'string', 'max
                   'subject_specific': {'type': 'boolean'},
                   'relation': {'type': 'string', 'enum': ['contradiction', 'underspecified', 'compatible']},
                   'reason': {'type': 'string', 'maxLength': 240}})}})
+
+
+def reference_scope(path):
+    path = Path(path)
+    return read_json(path.with_suffix(path.suffix + '.origin.json'), {}).get('reference_scope', '')
 
 
 class RequestCheckIncomplete(ValueError):
@@ -85,6 +90,7 @@ def recheck_scope(answer, lines, legend, *, casting=None):
         return answer
     prompt = (WATCHABLE_CRITERIA + '复核输入检查器报告的冲突范围，不重新判断图片内容，也不审查尚未生成的视频。'
               '报告的aspect/basis标签可能标错，必须依据reason描述的两项事实和原始请求行重新判断。'
+              '图例reference_scope=identity_portrait声明身份近景，只约束脸、头发、年龄和实际可见衣装；未显示的背部、下装或装备不能据此认定不存在，也不能把裁切边缘当成衣摆。未显示部分仍按当前请求和明确设定处理，可见身份或服装的真实冲突继续报告。'
               '角色参考只提供稳定身份、身体结构和服装设计；站坐、手部姿势、手中临时道具、背景、'
               '没有正在抽烟或喝酒，都不能限制导演安排的新动作。角色图站着而分镜坐着是out_of_scope，'
               '不是appearance冲突；图里没有临时手持道具不等于导演不能让角色拿起它。'
@@ -131,7 +137,8 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
         ref = metadata[i - 1] if i <= len(metadata) else {}
         parts.append(image_part(path, 1024))
         legend.append({'picture': i, 'name': ref.get('name'), 'role': ref.get('role'),
-                       'view': ref.get('view'), 'wearers': ref.get('wearers', [])})
+                       'view': ref.get('view'), 'wearers': ref.get('wearers', []),
+                       'reference_scope': ref.get('reference_scope') or reference_scope(path)})
     english = str(request['prompt'] if request is not None else clip.get('prompt_h3', ''))
     # These are explicit compiler-owned style/metadata fields, not character instructions. The
     # actual generation request stays untouched. A generic "fabric surfaces" style sentence
@@ -143,6 +150,7 @@ def request_consistency(clip: dict, novel_dir: Path, *, request=None) -> dict:
     prompt = (WATCHABLE_CRITERIA + '核对实际即将发给视频模型的请求与参考图，不评价尚未生成的视频，不改台词。'
               '最终英文是实际执行的画面和声音要求，中文仅提供剧情和身份背景；不要用过期的中文机位/状态否定已确认的英文修正。'
               '先在observations逐图记录可见的衣物款式、主色、配饰、物件类型，再比较本镜文字。'
+              '图例reference_scope=identity_portrait声明身份近景，只约束脸、头发、年龄和实际可见衣装；未显示的背部、下装或装备不能据此认定不存在，也不能把裁切边缘当成衣摆。未显示部分仍按当前请求和明确设定处理，可见身份或服装的真实冲突继续报告。'
               '角色的稳定外观以实际角色参考为准；本镜具体衣物、主色、配饰要求与图中事实明确不兼容且没有换装情节时，才是输入冲突。'
               '有明确穿戴关系和对应装备参考时可覆盖基础衣物；明确的穿脱、面罩开合按本镜事件执行，'
               '不能把参考卡上的坐站、机位、面罩默认状态强加给视频；头部被裁切不算缺脸。'
@@ -202,6 +210,10 @@ def cached_consistency(novel_dir, work, clip, request, *, require_cached=False):
               'references': request['references'], 'reference_sha256': request.get('reference_sha256'),
               'roles': [{k: r.get(k) for k in ('name', 'role', 'view', 'wearers')}
                         for r in clip.get('references', []) if r.get('role') != 'voice']}
+    metadata = [r for r in clip.get('references', []) if r.get('role') != 'voice']
+    scopes = [(metadata[i].get('reference_scope') if i < len(metadata) else '') or reference_scope(p)
+              for i, p in enumerate(request['references'])]
+    if any(scopes):inputs['reference_scopes'] = scopes
     path = work / 'request_checks' / (clip['clip_id'] + '.json')
     saved = read_json(path, {})
     answer = saved.get('answer') if saved.get('inputs') == inputs else None
@@ -211,7 +223,8 @@ def cached_consistency(novel_dir, work, clip, request, *, require_cached=False):
     if (answer is None and old_inputs.get('policy') in {'request-reference-v1', 'request-reference-v2-scoped-evidence',
                                                      'request-reference-v3-scoped-evidence',
                                                      'request-reference-v4-current-input-only', 'request-reference-v5-explicit-contradictions',
-                                                     'request-reference-v7-scope-recheck', 'request-reference-v8-scene-roles', 'request-reference-v9-watchable'}
+                                                     'request-reference-v7-scope-recheck', 'request-reference-v8-scene-roles', 'request-reference-v9-watchable',
+                                                     'request-reference-v10-casting-watchable'}
             and {**old_inputs, 'casting': old_inputs.get('casting', {'cast': [], 'extras': []}), 'policy': POLICY} == inputs
             and old_answer.get('complete') is not False and not (old_answer.get('scope_check') or {}).get('error')
             and not any(r.get('scope') == 'uncertain' for r in (old_answer.get('scope_check') or {}).get('checks', []))

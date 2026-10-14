@@ -48,8 +48,8 @@ def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = N
 def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inputs: RepairInputs | None = None) -> dict:
     inputs = inputs if inputs is not None else RepairInputs.load(directory)
     from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
-    from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY
-    return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY} if enabled(directory) else {}),
+    from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY, request_lane
+    return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY, 'request_lane': request_lane(clip)} if enabled(directory) else {}),
             'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
             'note':inputs.notes.get(clip['clip_id'],''),
             'source':source_state(directory,clip,inputs=inputs),'take':takes.get(clip['clip_id']),
@@ -169,13 +169,13 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
             elif action == 'edit':
                 proposal = agent.final_proposal(directory, plan, clip, decision)
                 updated = next(c for c in proposal.plan['clips'] if c['clip_id'] == cid)
-                check = request_consistency(updated, directory.parent)
+                check = agent.check_request(updated, directory.parent)
                 if not check.get('consistent'):
                     raise ValueError('agent candidate input conflict: '+ '; '.join(check.get('problems', [])))
                 publish_candidate(directory, proposal, 'agent_prompt', {cid})
                 changed.append(cid)
             else:
-                check = request_consistency(clip, directory.parent)
+                check = agent.check_request(clip, directory.parent)
                 if not check.get('consistent'):
                     raise ValueError('agent retake input conflict: '+ '; '.join(check.get('problems', [])))
                 publish_retake(directory, retake_proposal(plan, cid, decision))

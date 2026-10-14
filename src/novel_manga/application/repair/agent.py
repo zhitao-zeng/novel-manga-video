@@ -1,6 +1,8 @@
 """Evidence export and final-request proposals through the existing sandbox executor."""
 from __future__ import annotations
 import copy
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import re
 import shutil
@@ -17,7 +19,7 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v2-primary-vision'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v3-compact-request-lane'
 
 SECTIONS = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
             'overall_soundscape', 'non_diegetic_music')
@@ -25,6 +27,41 @@ SECTIONS = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_de
 
 def enabled(directory: Path) -> bool:
     return read_json(directory.parent/'profile.json', {}).get('repair_backend') == 'sandbox_agent'
+
+
+_REQUEST_LANE = ContextVar('repair_request_lane', default=None)
+
+
+@contextmanager
+def request_scope(lane):
+    """Use the actual renderer's request grammar without changing global settings."""
+    if lane not in {None, 'h3', 'sd25'}:
+        raise ValueError('Unsupported repair request lane')
+    token = _REQUEST_LANE.set(lane) if lane is not None else None
+    try:
+        yield
+    finally:
+        if token is not None:
+            _REQUEST_LANE.reset(token)
+
+
+def request_lane(clip):
+    return _REQUEST_LANE.get() or ('h3' if clip.get('prompt_h3') else 'sd25')
+
+
+def check_request(clip, novel_dir):
+    from novel_manga.application.preparation.request_check import request_consistency
+    if request_lane(clip) == 'sd25':
+        clip = {**clip, 'prompt_h3': ''}
+    return request_consistency(clip, novel_dir)
+
+
+def validate_request(clip, prompt):
+    if request_lane(clip) == 'sd25':
+        from novel_manga.application.repair.sd_request import validate
+        validate(clip, prompt)
+    else:
+        validate_prompt(clip, prompt)
 
 
 def sections(prompt):
@@ -139,13 +176,16 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
                                          **config['repair_extra_body']}}
     config = {**config, 'extra_args': [*config.get('extra_args', []),
                                      '--tools', 'Read,Bash,Write']}
-    sections(clip.get('prompt_h3', ''))
+    lane = request_lane(clip)
+    field = 'prompt_h3' if lane == 'h3' else 'prompt'
+    if lane == 'h3':
+        sections(clip.get(field, ''))
     run = f'repair-{directory.name}-{clip["clip_id"]}-{time.time_ns()}'
     work = Path(config['runs_root'])/run
     inputs = work/'input'; inputs.mkdir(parents=True)
     skill = work/'.claude/skills/video-repair'; skill.mkdir(parents=True)
     shutil.copy2(project_root()/'skills/video-repair/SKILL.md', skill/'SKILL.md')
-    (inputs/'prompt.txt').write_text(clip['prompt_h3'], encoding='utf-8')
+    (inputs/'prompt.txt').write_text(clip[field], encoding='utf-8')
     script = read_json(directory/'chapter_script.json', {})
     indexes = clip.get('shot_indexes') or []
     near = {i+d for i in indexes for d in (-1,0,1)}
@@ -154,8 +194,8 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     row = next((r for r in media.get('clips',[]) if r['clip_id']==clip['clip_id']), {})
     history = read_json(directory/'repair_history/history.json', {})
     from novel_manga.story.h3 import REQUEST_CONTENT_RULES
-    evidence = {'frame_handoff_policy':FRAME_HANDOFF_POLICY, 'provider':'h3', 'request_field':'prompt_h3',
-                'request_rules': REQUEST_CONTENT_RULES, 'clip': clip, 'shots_and_neighbours': shots, 'segments':read_json(directory/'segments.json', []),
+    evidence = {'frame_handoff_policy':FRAME_HANDOFF_POLICY, 'provider':lane, 'request_field':field,
+                'request_rules': REQUEST_CONTENT_RULES if lane == 'h3' else 'Preserve non-stage lines, stage headers, reference tags, all dialogue and sound clauses; edit only visual stage directions.', 'clip': clip, 'shots_and_neighbours': shots, 'segments':read_json(directory/'segments.json', []),
                 'verdict':verdict, 'media':row, 'preparation_problems':media.get('blocked_clips',{}).get(clip['clip_id'],[]), 'feedback':read_json(directory/'review_feedback.json', {}).get(clip['clip_id'],''),
                 'observations':history.get('observations',{}).get(clip['clip_id'],[]),
                 'trials':[{k:t.get(k) for k in ('id','method','changes','expected_notes')}
@@ -164,8 +204,10 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     for i,ref in enumerate(clip.get('references',[]),1):
         source = directory.parent/ref['path']; target = inputs/f'reference-{i}{source.suffix}'
         shutil.copy2(source,target)
-        evidence['references'].append({**ref,'path':str(target.relative_to(work))})
-    video = (row.get('selected') or {}).get('video')
+        scope = read_json(source.with_suffix(source.suffix + '.origin.json'), {}).get('reference_scope')
+        evidence['references'].append({**ref,'path':str(target.relative_to(work)),
+                                       **({'reference_scope':scope} if scope else {})})
+    video = (row.get('selected') or {}).get('video') or verdict.get('video')
     videos = ([Path(video)] if video else []) + sorted((directory/'repair_history/takes'/clip['clip_id']).glob('*/clip.mp4'))[-3:]
     videos, skipped = unique_takes(videos)
     evidence['duplicate_generation_copies_skipped'] = skipped
@@ -218,12 +260,25 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
         'source': 'Use inline shots_and_neighbours and corresponding segments first; read extra source documents only for a specific unresolved fact.'}
     evidence['reading_scope'] = 'One failed request; history and full-episode documents are optional evidence, not a mandatory reading list.'
     atomic_write_json(inputs/'evidence.json',evidence)
-    (work/'prompt.txt').write_text('Read .claude/skills/video-repair/SKILL.md. Diagnose this failed clip from input/. '
+    related_segments = {str(value) for value in clip.get('segment_ids', [])}
+    related_segments.update(str(shot['segment_id']) for shot in shots if shot.get('segment_id'))
+    atomic_write_json(inputs/'primary.json', {
+        'current_frames': current.get('frames', []),
+        'provider': lane, 'request_field': field,
+        'current_request': current.get('request'),
+        'request': 'input/prompt.txt',
+        'shots_and_neighbours': shots,
+        'source_passages': [row for row in evidence['segments']
+                            if str(row.get('segment_id')) in related_segments],
+        'references': evidence['references'],
+        'verdict': verdict})
+    (work/'prompt.txt').write_text('Read input/primary.json first and immediately open its current_frames[].path JPEGs. '
+                                 'Read .claude/skills/video-repair/SKILL.md. Diagnose this failed clip from input/. '
                                  'Write output/decision.json and, only for edit, output/prompt.txt. '
                                  'Actual video frames and timestamps are already in evidence.takes[].frames. Open current-take JPEGs first. '
                                  'Use python3 tools/video_frames.py take-1 to list them. Do not read MP4 with the text reader, '
                                  'install packages, or prepare a decoder. If supplied evidence is insufficient, write stop with the missing evidence. '
-                                 'This is one request with a600-second execution window. Use primary_reading and inline shot/source facts first. '
+                                 'This is one request with a 600-second execution window. Use input/primary.json and its local shot/source facts first. Full evidence and original novel documents remain in input/evidence.json. '
                                  'Read history or whole-episode documents only when they resolve a specific contradiction; do not exhaust the file list. '
                                  'Once current frames, request and selected reference support a decision, write the final output immediately. '
                                  'For edit, write decision.json and the complete prompt.txt together in one tool turn, then finish; do not leave only a decision while waiting for another model response. '
@@ -238,8 +293,8 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     if answer['action']=='edit':
         if 'prompt.txt' not in attempt.produced:raise ValueError('repair agent did not produce a current prompt')
         answer['prompt']=(work/'output/prompt.txt').read_text(encoding='utf-8').strip()
-        validate_prompt(clip,answer['prompt'])
-        if answer['prompt']==clip['prompt_h3'].strip():raise ValueError('agent edit made no effective change')
+        validate_request(clip,answer['prompt'])
+        if answer['prompt']==clip[field].strip():raise ValueError('agent edit made no effective change')
     return answer
 
 
@@ -248,11 +303,13 @@ def final_proposal(directory, plan, clip, decision):
     notes=read_json(directory/'review_feedback.json',{})
     candidate=copy.deepcopy(plan)
     target=next(c for c in candidate['clips'] if c['clip_id']==clip['clip_id'])
-    validate_prompt(clip,decision['prompt'])
-    target['prompt_h3']=decision['prompt']
-    target['prompt_h3_of']=h3_stamp(target,notes.get(clip['clip_id'],''))
+    validate_request(clip,decision['prompt'])
+    lane = request_lane(clip)
+    field = 'prompt_h3' if lane == 'h3' else 'prompt'
+    target[field]=decision['prompt']
+    if lane == 'h3':target['prompt_h3_of']=h3_stamp(target,notes.get(clip['clip_id'],''))
     target['repair_take']=int(clip.get('repair_take',0))+1
-    target['prompt_h3_agent']={k:decision[k] for k in ('run','attempt','reason','evidence') if k in decision}
+    target['prompt_h3_agent' if lane == 'h3' else 'prompt_sd25_agent']={k:decision[k] for k in ('run','attempt','reason','evidence') if k in decision}
     return RepairProposal(result={'changed':[clip['clip_id']],'why':decision['reason']},
                           script=read_json(directory/'chapter_script.json',{}),plan=candidate,notes=notes,
                           changes={clip['clip_id']:decision})

@@ -206,6 +206,16 @@ def character_cards(clip: dict, bible: StoryBible, novel_dir: Path, chapter: int
     return by_name, cast, cards
 
 
+def card_scope_note(path: Path) -> str:
+    """An identity crop is evidence only for the parts it actually shows."""
+    scope = read_json(path.with_suffix(path.suffix + '.origin.json'), {}).get('reference_scope')
+    if scope != 'identity_portrait':
+        return ''
+    return ('参考范围 identity_portrait：身份近景，只比较实际可见部位；不能推断衣摆长度、'
+            '下装或被裁掉的服饰，也不能把裁切边缘当成短外套的下摆。未显示部位依据明确服装设定，'
+            '不要求画外部位入镜；可见的真实款式或跨色系差异仍须报告。')
+
+
 def collect_clip_evidence(clip: dict, video: Path, bible: StoryBible, work_dir: Path, *, verify: bool = False) -> tuple[list[dict], ClipEvidence]:
     """Select the same cards/frames and load the same evidence as the existing mode."""
     by_name, cast, cards = character_cards(clip, bible, bible_root(work_dir), thin_phases.chapter_of(work_dir.parents[2]))
@@ -245,6 +255,9 @@ def collect_clip_evidence(clip: dict, video: Path, bible: StoryBible, work_dir: 
             sheet.save(picture, quality=95)
             label = '角色卡拼图（从左到右）：' + '；'.join(
                 f'{i}={name}（Subject {subjects.get(name, "?")}）' for i, (name, _) in enumerate(group, 1))
+        scope_notes = [f'{name}：{note}' for name, path in group
+                       if (note := card_scope_note(bible_root(work_dir) / path))]
+        if scope_notes:label += '\n' + '\n'.join(scope_notes)
         legend.append(f'图{number}={label}')
         parts.append({'type': 'text', 'text': legend[-1]})
         parts.append(model_client.image_part(picture, review_contracts.CARD_SIDE * (2 if len(group) > 1 else 1)))

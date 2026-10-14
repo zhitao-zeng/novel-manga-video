@@ -128,7 +128,9 @@ def card_look(novel_dir: Path, name: str, card: Path) -> str:
     series_assets/card_looks.json."""
     store = novel_dir / "series_assets" / "card_looks.json"
     key = str(card.relative_to(novel_dir)) if card.is_relative_to(novel_dir) else str(card)
-    digest, asked = sha256_file(card), sha256_text(CARD_LOOK_QUESTION)[:12]
+    scope_note = review_evidence.card_scope_note(card)
+    question_text = CARD_LOOK_QUESTION.format(name=name) + scope_note
+    digest, asked = sha256_file(card), sha256_text(CARD_LOOK_QUESTION + scope_note)[:12]
     try:
         saved = json.loads(store.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -136,7 +138,7 @@ def card_look(novel_dir: Path, name: str, card: Path) -> str:
     known = saved.get(key) or {}
     if known.get("artifact_sha256") == digest and known.get("asked") == asked and known.get("look"):
         return known["look"]
-    answer = model_client.ask_json([model_client.image_part(card, 1024), {"type": "text", "text": CARD_LOOK_QUESTION.format(name=name)}],
+    answer = model_client.ask_json([model_client.image_part(card, 1024), {"type": "text", "text": question_text}],
                                    CARD_LOOK, name="card_look", max_tokens=300, timeout=180)
     look = str(answer.get("look") or "").strip()
     if look:
@@ -169,6 +171,8 @@ def looks(clip: dict, novel_dir: Path, episode_dir: Path) -> dict[str, str]:
         # Cards are the actual clothing/color reference. A phase's prose also contains default states
         # (faceplate open), which contradicted the shot and made repairs undo a planned closing.
         out[name] = worn or "与参考卡一致"
+        if name in cards:
+            out[name] += review_evidence.card_scope_note(cards[name])
     return out
 
 
