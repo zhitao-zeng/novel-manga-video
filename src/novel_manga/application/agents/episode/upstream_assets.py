@@ -14,6 +14,8 @@ from .arguments import RepairArgumentError, UnsupportedInput
 
 
 OPERATION = 'upstream_asset'
+SIGNATURE_FIELDS = ('clip_id','asset_id','fields','source_quote','source_text','fact_scope','design',
+                    'affected_shots','reference_bindings')
 
 
 def validate(ctx, row):
@@ -62,9 +64,18 @@ def validate(ctx, row):
         raise RepairArgumentError('include all current clips that use this actor or setting: '+', '.join(affected))
     registered=read_json(ctx.novel_dir/'series_assets/manifest.json',{})
     owner=next((r.get('name')for group in ('characters','locations')for r in registered.get(group,[])if r.get('asset_id')==ref['asset_id']),None)
+    selected = [c for c in plan['clips'] if c['clip_id'] in scope]
+    indexes = {i for clip in selected for i in clip.get('shot_indexes', [])}
+    fields_for_judge = ('source_quote','location','scene_id','scene_time','scene_transition',
+                        'in_frame','characters','listeners','turns','visual_prompt','motion_prompt')
+    shots = [{'index': shot.get('index', i), **{k: shot[k] for k in fields_for_judge if k in shot}}
+             for i, shot in enumerate(read_json(ctx.episode_dir/'chapter_script.json', {}).get('shots', []), 1)
+             if shot.get('index', i) in indexes]
+    bindings = [{k: c.get(k) for k in ('clip_id','shot_indexes','references')} for c in selected]
     return {**copy.deepcopy(row),'registered_owner':owner,'fields':fields,'source_quote':quote,'source_text':source,
             'role':ref['role'],'name':ref['name'],'picture':str(picture),'design':design,
-            'affected_clips':list(scope),'fact_scope':row.get('fact_scope','chapter')}
+            'affected_clips':list(scope),'fact_scope':row.get('fact_scope','chapter'),
+            'affected_shots':shots,'reference_bindings':bindings}
 
 
 def diagnose(ctx, row):
@@ -76,7 +87,8 @@ def diagnose(ctx, row):
         '核对此次字段与直接依赖，不提出额外剧情；不能凭Agent申请就默认缺陷成立。'
         '有明确事实依据的design/image须给逐字source_quote；binding_shots仅给有源依据的原镜修正，'
         '每项含index与现有入镜/说话人字段，不修改机位或事件；不能判断则uncertain。\n'
-        +json.dumps({k:row[k] for k in ('source_text','source_quote','reason','role','name','fields','design','registered_owner')},ensure_ascii=False))
+        +json.dumps({k:row[k] for k in ('source_text','source_quote','reason','role','name','fields','design','registered_owner',
+                                       'affected_shots','reference_bindings')},ensure_ascii=False))
     answer=ask_json([{'type':'text','text':prompt},image_part(Path(row['picture']),1024)],
         obj({'kind':{'type':'string','enum':['binding','design','image','false_positive','uncertain']},
              'reason':{'type':'string'},'source_quote':{'type':'string'},
@@ -92,7 +104,7 @@ def diagnose(ctx, row):
 def _receipt(ctx, checked):
     folder=ctx.episode_dir/'work/input_repairs';folder.mkdir(parents=True,exist_ok=True)
     from .input_assets import style_key
-    signature={k:checked[k] for k in ('clip_id','asset_id','fields','source_quote','source_text','fact_scope','design')}
+    signature={k:checked[k] for k in SIGNATURE_FIELDS}
     signature['style']=style_key(ctx)
     with (folder/'upstream-assets.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
@@ -196,7 +208,7 @@ def failed_attempt(ctx, row):
     if row.get('action')!='repair_assets':return False
     checked=validate(ctx,row)
     from .input_assets import style_key
-    signature={k:checked[k] for k in ('clip_id','asset_id','fields','source_quote','source_text','fact_scope','design')}
+    signature={k:checked[k] for k in SIGNATURE_FIELDS}
     signature['style']=style_key(ctx)
     for path in (ctx.episode_dir/'work/input_repairs').glob(f"{row['clip_id']}-*.json"):
         record=read_json(path,{})

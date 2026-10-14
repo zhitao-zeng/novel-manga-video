@@ -21,8 +21,8 @@ An empty/truncated judge reply is an unfinished check, not a reason to rewrite c
 | Missing or malformed final English | Repair the request through the existing contract, preserving dialogue slots, reference order and duration. A format defect alone does not require a new screenplay. |
 | Missing or incorrect speech | Compare actual audio, raw ASR and bound words. Overfull dialogue needs supported compression/splitting before a retake. Replace unexplained speaking directions instead of appending a contrary instruction. Recheck homophones/nonverbal laughter; missing commands or extra intelligible speech remain defects. |
 | Video exists but analysis is missing | Continue the same take's analysis/assembly handoff. Do not invent empty chunks or regenerate solely for a missing report. |
-| Wrong/missing/duplicated person, broken body, wrong action or severe instability | Inspect actual frames over time; count physical instances, not identity names. Compare raw take and final movie to locate generation versus postprocessing faults. One frame or motion measurement alone does not prove a fix. Repair the implicated request/asset or use a permitted retake, then inspect the new result. |
-| Minor wardrobe/background differences | Apply the current task's delivery policy. An allowed warning does not clear independent speech, identity, action or technical failures. Do not spend new takes chasing an allowed cosmetic difference. |
+| Wrong/missing/duplicated person, broken body or proportions, wrong action or severe instability | Inspect ordered frames beside actual references; distinguish perspective and folded limbs from persistent anatomical distortion. Count physical instances, not identity names. Compare raw take and final movie to locate generation versus postprocessing faults. Repair the implicated request/asset or use a permitted retake, then inspect the new result. |
+| Minor wardrobe/background/pose differences | Apply the current task's delivery policy: a pose mismatch needs a concrete change in the event or character's situation to block delivery. An allowed warning does not clear independent speech, identity, body distortion, action or technical failures. Do not spend new takes chasing an allowed cosmetic difference. |
 | Network, CLI/context, configuration or service failure | Preserve candidate/completed assets; report the execution error for the host's technical retry/resume route. An idle summary is not a provider failure, and a failed call does not judge story content. |
 | H3 has a task ID or unknown submission outcome | Resume/query that exact task. Client timeout does not prove server rejection. Preserve the receipt; a new attempt directory must not submit a duplicate. |
 
@@ -39,6 +39,9 @@ new or permitted revised proposal. Use an offered resume_action to reuse images
 and completed steps. Repair genuine shared-shot dependencies together; do not
 repack or narrow scope to obtain fresh budgets. When the candidate is ready,
 continue its remaining media operation instead of repeatedly applying it.
+The host prepares registered missing reference cards before compilation and refreshes
+the adopted shot addresses after replanning. Read the current input snapshot;
+missing files or an old shot address are execution problems, not story defects.
 
 After the job completes, unresolved_clips (legacy pending) are remaining targets,
 not background jobs. Choose a currently allowed action. Report the particular

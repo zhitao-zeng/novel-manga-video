@@ -29,7 +29,7 @@ def test_pipeline_review_invokes_agent_only_after_native_generation(ctx,config,m
         def dispatch(self,action,payload):
             result=super().dispatch(action,payload)
             if action=='render':
-                result['quality_passed']=True
+                result['quality_passed']=False  # Unaccepted media needs the review Agent.
                 video=ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4'
                 video.parent.mkdir(parents=True,exist_ok=True);video.write_bytes(b'generated video')
             return result

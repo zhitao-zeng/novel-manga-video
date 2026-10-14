@@ -73,3 +73,32 @@ def test_incomplete_initial_source_reply_is_not_a_semantic_rejection(monkeypatch
     with pytest.raises(input_repair.SourceCheckIncomplete) as caught:
         input_repair.source_check(SOURCE, '甲说', PATCHES, {})
     assert caught.value.review['consistent'] is None and len(calls) == 1
+
+
+def test_source_judges_share_planner_turn_encoding(monkeypatch):
+    import json
+    from novel_manga.story.fields import turn_field
+    from novel_manga.planning.constants import DELIVERY_MODES
+    from novel_manga.story.field_validation import delivery_issue
+    patch = [{'index': 1, 'turns': [{'speaker_name': '甲', 'delivery_mode': 'offscreen_dialogue',
+               'inner_monologue': True, 'text': '小心，我们已进入防御区域！'}]}]
+    assert delivery_issue(patch[0]['turns'][0]) is None
+    calls = invoke(monkeypatch, [{'consistent': False, 'problems': ['待核发声方式']}, {'conflicts': []}])
+    assert input_repair.source_check(SOURCE, '甲说', patch, {})['consistent']
+    expected = turn_field([], [], DELIVERY_MODES)['properties']
+    for content, _, _ in calls:
+        payload = json.loads(content[0]['text'].split('\n', 1)[1].split('\n现在独立核实', 1)[0])
+        assert payload['shots'] == patch
+        assert payload['turn_encoding'] == {k: expected[k] for k in ('delivery_mode', 'inner_monologue')}
+
+
+@pytest.mark.parametrize('step,patch,expected', [
+    ('source', {'index': 1, 'turns': []}, True),
+    ('source', {'index': 1, 'wears': {}}, False),
+    ('compile', {'index': 1, 'turns': []}, False)])
+def test_turn_contract_recovery_does_not_reopen_other_failures(step, patch, expected):
+    from novel_manga.application.agents.episode.input_records import source_review_recoverable, SOURCE_REVIEW_POLICY
+    record = {'status': 'rejected', 'step': step, 'source_review_policy': 2,
+              'decision': {'shots': [patch]}}
+    assert source_review_recoverable(record) is expected
+    assert not source_review_recoverable({**record, 'source_review_policy': SOURCE_REVIEW_POLICY})

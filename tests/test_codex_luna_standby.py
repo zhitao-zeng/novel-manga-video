@@ -115,3 +115,56 @@ assert run.main(['status']) == 0
     subprocess.run([sys.executable, '-c', code], env=env, check=True, capture_output=True, text=True)
     help_result = subprocess.run([sys.executable, str(adapter/'run.py'), '--help'], env=env, check=True, capture_output=True, text=True)
     assert 'prepare,run,status' in help_result.stdout
+
+
+def test_repair_environment_keeps_standby_in_real_python_child(tmp_path, monkeypatch):
+    import os, subprocess
+    from novel_manga.application.configuration import repair_environment
+    (tmp_path/'configs').mkdir()
+    (tmp_path/'configs/pipeline.json').write_text('{}')
+    adapter = ROOT/'scripts/standby/codex_luna'
+    path = os.pathsep.join([str(adapter), str(ROOT/'src')])
+    monkeypatch.setenv('PYTHONPATH', path)
+    monkeypatch.setenv('CODEX_LUNA_ADAPTER', '1')
+    env, _ = repair_environment(tmp_path, tmp_path/'run')
+    probe = "from novel_manga.llm import client; from novel_manga.application.agents.episode import turns; assert client.post_any.__module__ == 'luna_transport'; assert turns.run_session.__module__ == 'luna_session'"
+    subprocess.run([sys.executable, '-c', probe], env=env, cwd=tmp_path, check=True, capture_output=True, text=True)
+    assert os.environ['PYTHONPATH'] == path
+    monkeypatch.delenv('PYTHONPATH')
+    ordinary, _ = repair_environment(tmp_path, tmp_path/'run')
+    assert ordinary['PYTHONPATH'] == 'src'
+
+
+@pytest.mark.parametrize('optional', [False, True])
+def test_json_object_uses_existing_client_schema_without_forcing_sparse_fields(tmp_path, monkeypatch, optional):
+    monkeypatch.setattr(m, 'OUT', tmp_path)
+    schema={'type':'object','properties':{'observed':{'type':'integer'}},
+            'required':[] if optional else ['observed'],'additionalProperties':False}
+    request={'model':'original','response_format':{'type':'json_object'},'messages':[{'role':'user','content':[
+        {'type':'text','text':'Count the visible people'},
+        {'type':'text','text':'Return a JSON object matching this schema: '+json.dumps(schema)}]}]}
+    def run(command, folder, **kwargs):
+        assert ('--output-schema' in command) is (not optional)
+        assert json.loads((folder/'response.schema.json').read_text())==schema
+        (folder/'answer.txt').write_text('{"observed":30}')
+        return {'exit_code':0,'completed':True,'usage':{}}
+    monkeypatch.setattr(m,'run',run)
+    body=m.post_any(None,[],{},request)
+    assert json.loads(body['choices'][0]['message']['content'])=={'observed':30}
+
+
+def test_positional_h3_array_schema_stays_intact_without_unsupported_native_constraint(tmp_path, monkeypatch):
+    monkeypatch.setattr(m,'OUT',tmp_path)
+    schema={'type':'object','additionalProperties':False,'required':['shots'],'properties':{'shots':{
+        'type':'array','prefixItems':[{'type':'string'},{'type':'string'}],'items':False,'minItems':2,'maxItems':2}}}
+    request={'response_format':{'type':'json_object'},'messages':[{'role':'user','content':[
+        {'type':'text','text':'Return a JSON object matching this schema: '+json.dumps(schema)}]}]}
+    def run(command,folder,**kwargs):
+        assert '--output-schema' not in command
+        assert json.loads((folder/'response.schema.json').read_text())==schema
+        assert json.dumps(schema,ensure_ascii=False) in kwargs['prompt']
+        (folder/'answer.txt').write_text('{"shots":["first shot","second shot"]}')
+        return {'exit_code':0,'completed':True,'usage':{}}
+    monkeypatch.setattr(m,'run',run)
+    result=m.post_any(None,[],{},request)
+    assert json.loads(result['choices'][0]['message']['content'])['shots']==['first shot','second shot']

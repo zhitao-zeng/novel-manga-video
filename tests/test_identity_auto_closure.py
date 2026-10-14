@@ -502,3 +502,54 @@ def test_demanded_correction_is_merged_then_final_reviewed(monkeypatch):
     assert calls == ['review', 'review', 'review']
     assert merged == [{'actors': [{'name': '甲'}]}]
     assert value == {'actors': [{'name': '甲'}]}
+
+
+def test_book_review_scopes_current_fragment_and_preserves_reusable_receipt(tmp_path, monkeypatch):
+    ledger = book(tmp_path)
+    monkeypatch.setattr(judges, 'judge_settings', lambda: None)
+    monkeypatch.setattr(judges, 'judge_link', lambda form, ev, assigned, *rest: {'entity': assigned['id'], 'why': ''})
+    calls = []
+    def ask(parts, *args, **kwargs):
+        calls.append(parts[0]['text'])
+        return {'approved': True, 'reason': '当前分段归属正确', 'correction': None}
+    monkeypatch.setattr(client, 'ask_json', ask)
+    source = '云柔站在父亲身旁。'
+    neighbour = '下一分段白衣人首次出场。'
+    resolve.resolve_chapter(ledger, 1, source, raw('e001'), workers=1, texts={1: source, 2: neighbour})
+    prompt = calls[0]
+    payload = json.loads(prompt[prompt.index('{"context":'):])
+    assert payload['context']['current_source'] == source and neighbour not in prompt
+    receipt = store.read_json(ledger.raw_path(1), {})['semantic_review']
+    assert receipt['inputs']['context']['source'] == {'1': source}
+    assert review.committed_current(ledger, 1, source)
+    resolve.resolve_chapter(ledger, 1, source, workers=1, texts={1: source, 2: '后续背景变更。'})
+    assert len(calls) == 1
+    resolve.resolve_chapter(ledger, 1, source + '云柔又说了一句。', workers=1)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('name,kind,form_kind,presence,expected', [
+    ('守卫们', 'group', 'contextual', 'on_stage', 'extra'),
+    ('一位守卫', 'individual', 'contextual', 'voice', 'extra'),
+    ('银剑', 'object', 'proper', 'on_stage', 'extra'),
+    ('云河', 'individual', 'proper', 'on_stage', 'unknown'),
+    ('远方守卫', 'individual', 'contextual', 'mentioned', 'unknown'),
+])
+def test_unmatched_temporary_subject_has_reviewable_extra_candidate(tmp_path, monkeypatch, name, kind, form_kind, presence, expected):
+    ledger = book(tmp_path/'book'); ep = ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json', [{'text': name + '出现在叙述中。'}])
+    item = actor(name); item.update(kind=kind, presence=presence)
+    item['forms'][0]['kind'] = form_kind
+    seen = []
+    def ask(parts, *args, **kwargs):
+        if kwargs['name'] == 'chapter_identity_source':
+            return {'actors': [item], 'source_readable': True, 'source_problem': ''}
+        text = parts[0]['text']; payload = json.loads(text[text.index('{"evidence":'):])
+        seen.append(payload['candidate']['bindings'][0])
+        return {'approved': True, 'reason': '本次模型确认候选', 'correction': None}
+    monkeypatch.setattr(client, 'ask_json', ask)
+    result = flow.resolve_chapter(ep)
+    assert len(seen) == 1 and seen[0]['decision'] == expected
+    assert seen[0]['entity_id'] == 'UNKNOWN'
+    assert result['semantic_review']['approved'] is True
+    assert bool(result.get('semantic_extras')) is (expected == 'extra')

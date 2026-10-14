@@ -104,12 +104,19 @@ def prepare_cast(args, ctx: PlannerContext, source: ChapterSource) -> ChapterCas
                                   lambda name: pc_cast.name_forms(name, ctx=ctx), context=current_identity)[0]
                    if reading['roster'] else [])
         active_names = active_cast_names(current_identity, decided)
-        present = [c for c in full_bible.characters if c.name in active_names]
+        # Candidate names must also cover source-backed memories and reported voices.
+        # Availability in the schema does not authorize appearance in any given shot.
+        from novel_manga.story.identity import canonical_entity
+        offered_names = active_names | {
+            current_identity['entities'].get(canonical_entity(current_identity, row['entity_id']))
+            for row in current_identity.get('mentions', [])
+            if row.get('presence') == 'mentioned' and row['entity_id'] != 'UNKNOWN'}
+        present = [c for c in full_bible.characters if c.name in offered_names]
         main_cast, carried = [], []
     elif ledger_cast_here:
-        # the ledger read this chapter: offer exactly the people the book puts in it (on stage or a voice),
+        # The ledger bounds the candidate menu, including grounded remembered/reported people,
         # not everyone whose name-form happens to occur and not whoever was on screen three chapters ago
-        present = [c for c in full_bible.characters if ledger_cast_here.get(c.name) in ("on_stage", "voice")]
+        present = [c for c in full_bible.characters if ledger_cast_here.get(c.name) in ("on_stage", "voice", "mentioned")]
         carried = []
         print(f"ledger cast for chapter {episode.index}: {[c.name for c in present]}", file=sys.stderr)
     else:

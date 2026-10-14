@@ -112,7 +112,13 @@ def finish_existing(ctx, saved, runtime, tools_factory):
             result.update(status='paused', phase='paused', exit_code=0, reason='production dispatch paused')
         else:
             atomic_write_json(ctx.run_dir/'agent-run.json', result)
-            answer = tools_factory(ctx).dispatch('finish', {})
+            tools = tools_factory(ctx)
+            answer = tools.dispatch('finish', {})
+            if answer.get('required_action') == 'review':
+                reviewed = tools.dispatch('review', {})
+                result['existing_media_review'] = reviewed
+                answer = (tools.dispatch('finish', {}) if reviewed.get('ok') is not False
+                          else reviewed)
             number = int(((saved.get('job') or {}).get('id') or 'job-0').rsplit('-', 1)[-1])+1
             result['job'] = {'id': f'job-{number}', 'action': 'finish', 'status': 'completed', 'result': answer}
             manifest = read_json(ctx.work_dir/'input/latest-finish.json', {})

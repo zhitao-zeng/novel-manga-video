@@ -113,7 +113,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     result.update(status='paused', phase='paused', reason='production dispatch paused', exit_code=0)
                     break
                 job = status.get('job') or {}
-                if (not native_mode and job.get('action') == 'render' and job.get('status') == 'completed'
+                if (not production_only and job.get('action') == 'render' and job.get('status') == 'completed'
                         and (job.get('result') or {}).get('quality_passed') is True):
                     # The normal host operation already completed independent acceptance.
                     # Reserve an Agent conversation for an actual unresolved decision.

@@ -158,7 +158,7 @@ def book(ledger, chapter, text, raw, *, texts=None, original_records=None):
     refs = {str(row.get(field) or '') for key, fields in [('mentions', ['entity']), ('claims', ['subject','object'])]
             for row in candidate[key] for field in fields}
     records = original_records if original_records is not None else ledger.entities
-    context = {'chapter': chapter, 'source': context_sources(ledger.novel_dir, chapter, text, records, refs, texts),
+    context = {'chapter': chapter, 'source': {str(chapter): text},
                'records': catalogue_rows(records), 'confirmed_decisions': ledger.corrections,
                'resolved': {'mentions': ledger.mentions_by_chapter.get(chapter, []),
                             'relations': ledger.relations_by_chapter.get(chapter, []),
@@ -176,14 +176,22 @@ def book(ledger, chapter, text, raw, *, texts=None, original_records=None):
     cached = raw.get('semantic_review')
     if cached and cached.get('approved') and cached.get('inputs') == inputs:
         return raw, cached
-    prompt = ('按完整原文核对本章最终解析结果，目标是演员与身份归属正确。原始档案是待核资料，resolved是解析后的候选。'
+    # This gate validates the current fragment. Identity background remains in
+    # the catalogue/confirmed decisions; adjacent plot is not a coverage target.
+    review_context = {k: v for k, v in context.items() if k != 'source'}
+    review_context['current_source'] = text
+    prompt = ('核对current_source当前制作分段的最终解析结果，目标是演员与身份归属正确。原始档案是待核资料，resolved是解析后的候选。'
+              '以resolved实际采用的编号、归属与关系为审查对象，candidate是供修订的原始输入；未采用的提议不等于最终结果，不能把不同编号的主体误报为已合并。'
+              'kind=person表示人类主体，可能是个体或群体，不表示人数等于1；按原文和description区分群体及其中成员。'
+              'current_source是本次唯一需要覆盖的制作分段；records和confirmed_decisions只供识别称呼与身份，不是本段出演名单。pending关系尚未被确证，不能当作已采纳事实来否决正确的演员归属。'
+              '同人归并含义：' + contracts.CLAIM_MEANINGS['same_as'] + '\n'
               '依据连续事件、对话和自然代词指向判断同一人；例如“她是甲的女儿，父亲说……”已能确定父亲是甲。'
               '原文的自然同指是有效证据，只有确有多种解释时才保留未知。正确结果填approved=true、correction=null。'
               '实际出现错人、误并、物件当人或错误关系时填false，用原结构修订这几个问题并保留其他正确字段。'
               '这是修订已有候选：原来为空的relations/claims保持为空，原来没有的人物不为补全原文而新增；'
               '仅在漏掉实际参与事件的主体就是本次问题时才补该主体。没有漏记关系不算错误。'
-              '临时人物可以不具名；称呼、自报名字写mentions，身份关系有具体两端。引用对应章节原句，原人工作证保持。\n'
-              + json.dumps({'context':context,'candidate':candidate}, ensure_ascii=False))
+              '临时人物可以不具名；称呼、自报名字写mentions，身份关系有具体两端。修订中的evidence必须是本章逐字连续原句，不能用省略号或分号拼接，原人工作证保持。\n'
+              + json.dumps({'context':review_context,'candidate':candidate}, ensure_ascii=False))
     answer = client.ask_json([{'type':'text','text':prompt}], schema, name='ledger_identity_review',
                              max_tokens=16000, timeout=240, settings=judge_settings())
     if answer.get('approved'):
@@ -205,10 +213,14 @@ def bindings(directory, answer, catalog, segments, mapped, *, cached=None, alias
     from novel_manga.story.source_identity import source_schema, clean_reading, map_source_reading
     ids = {a['source_id'] for a in answer['actors']}
     old = {m['source_actor']: m['entity_id'] for m in mapped['mentions']}
+    temporary = {a['source_id'] for a in answer['actors']
+                 if a['presence'] in {'on_stage', 'voice'} and
+                 (a['kind'] in {'group', 'object'} or
+                  (a['kind'] == 'individual' and not any(f['kind'] == 'proper' for f in a['forms'])))}
     candidate = {'actors': answer['actors'], 'bindings': [
         {'source_id': sid, 'entity_id': old.get(sid, 'UNKNOWN'),
          'entity_kind': None,
-         'decision': 'catalogue' if old.get(sid, 'UNKNOWN') != 'UNKNOWN' else 'unknown',
+         'decision': 'catalogue' if old.get(sid, 'UNKNOWN') != 'UNKNOWN' else 'extra' if sid in temporary else 'unknown',
          'paragraphs': next(a['paragraphs'] for a in answer['actors'] if a['source_id']==sid), 'reason': ''}
         for sid in sorted(ids)]}
     target_schema = client.obj({'source_id': {'type':'integer'},

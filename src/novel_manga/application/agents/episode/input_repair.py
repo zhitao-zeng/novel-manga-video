@@ -93,6 +93,9 @@ def repair_status(ctx):
         row['revision_available'] = operations['revise']['allowed']
         if not operations['resume']['allowed']:
             row.pop('resume_action', None)
+        elif 'resume_action' not in row:
+            row['resume_action'] = {'clip_id': cid, 'action': 'input', 'resume': True,
+                'reason': 'Continue the saved candidate within its recorded allowance'}
         if not any(operation['allowed'] for operation in operations.values()):
             row['next_action'] = 'No legal input route remains for this candidate; use an offered upstream operation or finish unresolved. Numeric balance does not renew a spent revision.'
     return states
@@ -101,6 +104,10 @@ def repair_status(ctx):
 def source_check(source, quote, shots, phases, locations=None, scoped_shots=None, *, characters=None):
     from novel_manga.llm.client import ask_json, obj
     from novel_manga.review.endpoints import judge_settings
+    from novel_manga.story.fields import turn_field
+    from novel_manga.planning.constants import DELIVERY_MODES
+    turn_fields = turn_field([], [], DELIVERY_MODES)['properties']
+    turn_encoding = {key: turn_fields[key] for key in ('delivery_mode', 'inner_monologue')}
     fields = sorted({f'shots[{p["index"]}].{key}' for p in shots for key in p if key != 'index'}
                     | {f'phases.{name}' for name in phases}
                     | {f'locations.{name}' for name in locations or {}}
@@ -118,6 +125,8 @@ def source_check(source, quote, shots, phases, locations=None, scoped_shots=None
               '只有shots显式包含turn_texts时，允许对超出发声时长的改编对白缩写；必须保留关键问答、决定、否定、条件、因果、数字含义及说话人，不能只因非逐字引用而拒绝。其他对白不得更改。'
               '若shots显式包含turns，则本次申请是语义修复：可按原文纠正、删除错误改编对白，补回必要问答，纠正说话者及内心/公开发声方式。'
               '必须保留原文关键事实、人物知识边界、立场和因果；不能把猜测变成事实，不能让旁人听见原文中的内心想法。'
+              'turn_encoding给出本项目实际字段契约：offscreen_dialogue表示声音不由画内人物对口型发出，本身不代表说话者在当前现场；'
+              '必须结合inner_monologue判断是否为心声，不要求另一个未定义的delivery_mode。'
               '不得用旧错误设定否定原文明确事实，也不得凭引用真实就默认修改正确。'
               '允许纠正旧稿错误的演员绑定和声景发声暗示、登记原文已有但素材库缺失的人物；不得虚构原文没有的人物或事件。'
               'characters是缺失人物素材设计；群体必须保留原文人数和各自身份，不能用无关主角替代，不把群体换装误当单人的状态。'
@@ -131,7 +140,7 @@ def source_check(source, quote, shots, phases, locations=None, scoped_shots=None
               'problems仅填写确定的事实矛盾，不能填写“有依据”“符合要求”等肯定说明；没有矛盾必须problems=[]。\n'
               + json.dumps({'source': source, 'source_quote': quote, 'shots': shots, 'scope_fields': fields,
                             'phases': phases, 'locations': locations or {}, 'characters': characters or {},
-                            'affected_shots': scoped_shots or []}, ensure_ascii=False))
+                            'affected_shots': scoped_shots or [], 'turn_encoding': turn_encoding}, ensure_ascii=False))
     result = judge([{'type': 'text', 'text': prompt}],
         obj({'consistent': {'type': 'boolean'}, 'problems': {'type': 'array', 'items': {'type': 'string'}}}),
         name='episode_input_source', max_tokens=1200, timeout=180, settings=judge_settings())
@@ -221,7 +230,7 @@ def copy_registered_assets(ctx, names):
 
 
 def refresh_inputs(ctx, plan, script):
-    from .inputs import _catalog, _references
+    from .inputs import _catalog, _references, refresh_planning_inputs
     refs, missing, _ = _catalog(ctx, list(_references(plan)))
     if missing:
         raise ValueError('repaired references missing: ' + ', '.join(str(r['path']) for r in missing))
@@ -231,8 +240,7 @@ def refresh_inputs(ctx, plan, script):
     catalog = list(keyed.values())
     atomic_write_json(ctx.run_dir/'catalog.json', catalog)
     atomic_write_json(ctx.work_dir/'input/catalog.json', {'assets': catalog})
-    atomic_write_json(ctx.work_dir/'input/clip_plan.json', plan)
-    atomic_write_json(ctx.work_dir/'input/chapter_script.json', script)
+    refresh_planning_inputs(ctx, plan, script)
     shutil.copy2(ctx.novel_dir/'story_bible.json', ctx.work_dir/'input/story_bible.json')
     phases = ctx.novel_dir/'series_assets/phases.json'
     if phases.is_file():

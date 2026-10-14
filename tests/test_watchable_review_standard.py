@@ -76,3 +76,32 @@ def test_warning_never_removes_a_separate_speech_failure():
         {'gate_failed_clips':['clip_01'],'assembly':{'thin_passed':True}},
         {'clips':{'clip_01':review},'feedback':{}})
     assert outcome.passed is False and outcome.remaining==['clip_01']
+
+
+@pytest.mark.parametrize('outcome', ['dismissed', 'confirmed', 'uncertain'])
+def test_posture_adjudication_uses_viewer_impact_and_keeps_real_failures(monkeypatch, tmp_path, outcome):
+    from novel_manga.application.review import adjudication
+    clip = {'clip_id':'clip_01', 'shot_indexes':[1], 'cast':['甲'],
+            'prompt_h3':'An injured adult rests beside a stone.'}
+    monkeypatch.setattr(adjudication.evidence, 'collect_clip_evidence', lambda *a, **k:
+        ([{'type':'text','text':'Actual ordered frames'}], SimpleNamespace(legend=['video frames'],segments={})))
+    def ask(parts, schema, name):
+        text = parts[-1]['text']
+        assert contracts.WATCHABLE_CRITERIA in text
+        assert '不影响剧情含义' in schema['properties']['checks']['items']['properties']['error_facts']['properties']['state']['description']
+        return {'observations':['甲俯身，成人身材正常。'], 'checks':[{
+            'id':0, 'result':outcome, 'evidence':'仅俯身差异' if outcome=='dismissed' else '改变了人物的行动能力',
+            'error_facts':{k: outcome=='confirmed' and k=='state' for k in adjudication.ERROR_FACTS},
+            'instruction':'甲站起完成交接。' if outcome=='confirmed' else ''}]}
+    monkeypatch.setattr(adjudication.cast_video, 'ask', ask)
+    result = adjudication._review_frames(clip, tmp_path/'video.mp4', None, tmp_path,
+        {'severity':'fail','defect_issue':'姿态与请求不一致'}, ['姿态疑点'])
+    assert result['severity']=={'dismissed':'pass','confirmed':'fail','uncertain':'review_error'}[outcome]
+    assert result['verify']['adjudication']['observations']
+
+
+def test_minor_pose_label_never_clears_a_body_proportion_failure():
+    raw=answer();raw['count_checks']=[];raw['verdict']='subtle'
+    raw['evidence']='坐姿不同，且连续帧头异常膨大、躯干明显缩短。'
+    raw['body_artifact']=True
+    assert policy.verify_to_verdict(raw)['severity']=='fail'

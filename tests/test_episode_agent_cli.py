@@ -236,6 +236,57 @@ def test_finish_existing_uses_host_acceptance_without_new_agent_or_render(ctx, m
     assert read_json(ctx.work_dir/'episode-session.json')['session_id']=='old-session'
 
 
+@pytest.mark.parametrize('passed', [True, False])
+def test_finish_existing_completes_required_review_without_renewing_budgets(ctx, monkeypatch, config, passed):
+    install_fake_runtime(monkeypatch,ctx)
+    saved={'status':'finished_with_issues','passed':False,'attempts':['previous'],
+           'agent_seconds':90,'deadline':1}
+    atomic_write_json(ctx.run_dir/'agent-run.json',saved)
+    budget=ctx.episode_dir/'repair_budget_grants.json'
+    atomic_write_json(budget,{'clip_01':{'render_limit':3,'used':3}})
+    before=budget.read_bytes();calls=[]
+    class Tools:
+        def __init__(self, context):pass
+        def dispatch(self, action, payload):
+            calls.append(action)
+            if len(calls)==1:return {'ok':False,'error':'stale_review','required_action':'review'}
+            if action=='review':return {'ok':True,'remaining':[] if passed else ['clip_01']}
+            manifest={'passed':passed,'technical_passed':True}
+            atomic_write_json(ctx.work_dir/'input/latest-finish.json',manifest)
+            return {'ok':True,'passed':passed}
+    monkeypatch.setattr(flow,'EpisodeTools',Tools)
+    monkeypatch.setattr(episode_turns,'run_session',lambda *a,**k:pytest.fail('host review needs no Agent'))
+    result=flow.run_episode(ctx,config={**config,'finish_existing':True})
+    assert calls==['finish','review','finish'] and result['passed'] is passed
+    assert result['status']==('finished' if passed else 'finished_with_issues')
+    assert budget.read_bytes()==before
+    assert result['deadline']==1 and result['attempts']==['previous'] and result['agent_seconds']==90
+
+
+@pytest.mark.parametrize('production_mode', ['pipeline_review', 'batch_review'])
+def test_native_accepted_render_finishes_without_an_unneeded_agent_turn(ctx, monkeypatch, config, production_mode):
+    install_fake_runtime(monkeypatch,ctx)
+    original=flow.EpisodeTools;calls=[]
+    class Tools(original):
+        def dispatch(self, action, payload):
+            calls.append(action)
+            result=super().dispatch(action,payload)
+            if action=='render':result['quality_passed']=True
+            return result
+    monkeypatch.setattr(flow,'EpisodeTools',Tools)
+    def prepare(context, bridge, state):
+        assert state.native_mode
+        bridge.handle('render',{})
+        return None,None
+    monkeypatch.setattr(flow,'prepare_operations',prepare)
+    monkeypatch.setattr('novel_manga.application.agents.episode.pipeline_preparation.reviewable',lambda *a:True)
+    monkeypatch.setattr('novel_manga.application.production.workspaces.pending_production',lambda *a:False)
+    monkeypatch.setattr(episode_turns,'run_session',lambda *a,**k:pytest.fail('accepted native media needs no Agent'))
+    result=flow.run_episode(ctx,config={**config,'production_mode':production_mode})
+    assert result['passed'] is True
+    assert [action for action in calls if action!='status']==['render','finish']
+
+
 def test_project_root_scoped_for_runtime_data_and_restored(ctx, monkeypatch, capsys):
     previous = os.environ.get('NOVEL_PROJECT_ROOT')
     seen = []

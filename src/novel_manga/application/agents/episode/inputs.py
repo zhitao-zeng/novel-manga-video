@@ -48,6 +48,12 @@ def _install_skill(ctx):
                                         for key, name in SKILL_REFERENCES.items()}
 
 
+def refresh_planning_inputs(ctx, plan, script):
+    """Expose the adopted plan and its shot addresses to the next Agent turn."""
+    atomic_write_json(ctx.work_dir/'input/clip_plan.json', plan)
+    atomic_write_json(ctx.work_dir/'input/chapter_script.json', script)
+
+
 def _copy(source, target):
     source, target = Path(source), Path(target)
     if target.is_file():

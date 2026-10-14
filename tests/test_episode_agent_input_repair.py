@@ -1475,3 +1475,77 @@ def test_input_operations_follow_the_same_granted_new_candidate_route(setup):
     changed = decision(shots=[{'index':1,'light':'日光'}])
     path, _ = input_repair.input_receipt(ctx, 'clip_01', changed, check_only=True)
     assert path.name == 'clip_01-2.json'
+
+
+@pytest.mark.parametrize('asset_state', ['missing', 'present', 'failed'])
+def test_input_compilation_prepares_new_reference_before_translation(setup, monkeypatch, asset_state):
+    from novel_manga.application.repair import flow
+    from novel_manga.application.rendering import h3
+    ctx, plan, _ = setup
+    ref = {'asset_id': 'character_003', 'role': 'character', 'name': '丙',
+           'path': 'series_assets/characters/character_003/turnaround.jpeg'}
+    picture = ctx.novel_dir/ref['path']
+    if asset_state == 'present':
+        picture.parent.mkdir(parents=True); picture.write_bytes(b'approved image')
+    rebuild = flow.rebuild_clips
+    def add_reference(*args, **kwargs):
+        candidate, changed = rebuild(*args, **kwargs)
+        candidate['clips'][0]['references'].append(ref)
+        return candidate, changed
+    monkeypatch.setattr(flow, 'rebuild_clips', add_reference)
+    calls = []
+    def prepare(actual_ctx, candidate):
+        assert actual_ctx is ctx
+        assert [c['clip_id'] for c in candidate['clips']] == ['clip_01']
+        assert ref in candidate['clips'][0]['references']
+        calls.append('cards')
+        if asset_state == 'failed': raise RuntimeError('image service unavailable')
+        picture.parent.mkdir(parents=True); picture.write_bytes(b'approved image')
+    monkeypatch.setattr('novel_manga.application.agents.episode.base_cards.ensure_cards', prepare)
+    translate = h3.convert
+    def translated(clip, **kwargs):
+        assert picture.is_file()
+        calls.append('translate')
+        return translate(clip, **kwargs)
+    monkeypatch.setattr(h3, 'convert', translated)
+    before = (ctx.episode_dir/'clip_plan.json').read_bytes()
+    if asset_state == 'failed':
+        with pytest.raises(RuntimeError, match='image service unavailable'):
+            input_repair.repair(ctx, decision())
+        assert calls == ['cards']
+        assert (ctx.episode_dir/'clip_plan.json').read_bytes() == before
+    else:
+        input_repair.repair(ctx, decision())
+        assert calls == (['cards', 'translate'] if asset_state == 'missing' else ['translate'])
+
+
+@pytest.mark.parametrize('mode', ['resume', 'revise'])
+def test_explicit_input_continuation_limit_preserves_counts_and_stops_at_limit(setup, mode):
+    from novel_manga.application.agents.episode.input_records import input_receipt, input_operations
+    ctx, _, _ = setup
+    old = decision()
+    new = decision(shots=[{'index': 1, 'light': '窗边柔光'}]) if mode == 'revise' else old
+    counter = 'revision_count' if mode == 'revise' else 'resume_count'
+    limit = 'revision_limit' if mode == 'revise' else 'resume_limit'
+    path = ctx.episode_dir/'work/input_repairs/clip_01-1.json'
+    record = {'clip_id': 'clip_01', 'status': 'incomplete', 'step': 'compile',
+              'decision': old, 'resume_count': 1, 'revision_count': 1,
+              'source': {'consistent': True}, 'error': 'saved technical error'}
+    atomic_write_json(path, record)
+    with pytest.raises(ValueError, match='allowance used'):
+        input_receipt(ctx, 'clip_01', new)
+    atomic_write_json(ctx.episode_dir/'repair_budget_grants.json', {'clip_01': {
+        limit: 2, 'authorization': 'test-user-continuation'}})
+    before = path.read_bytes()
+    assert input_operations(ctx, 'clip_01')[mode]['allowed']
+    if mode == 'resume':assert input_repair.repair_status(ctx)['clip_01']['resume_action']['resume']
+    _, checked = input_receipt(ctx, 'clip_01', new, check_only=True)
+    assert path.read_bytes() == before and checked[counter] == 2
+    actual, saved = input_receipt(ctx, 'clip_01', new)
+    assert actual == path and saved[counter] == 2
+    assert saved['resume_count' if mode == 'revise' else 'revision_count'] == 1
+    assert len(list(path.parent.glob('*.json'))) == 1
+    if mode == 'revise':assert saved['previous_decisions'][-1] == old
+    again = decision(shots=[{'index': 1, 'light': '另一种光线'}]) if mode == 'revise' else new
+    with pytest.raises(ValueError, match='allowance used'):
+        input_receipt(ctx, 'clip_01', again)

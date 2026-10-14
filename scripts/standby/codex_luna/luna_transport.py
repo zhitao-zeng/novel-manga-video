@@ -79,6 +79,8 @@ def strict_schema_supported(value):
     # as prompt JSON and retain their existing business validation unchanged.
     if isinstance(value,list):return all(strict_schema_supported(x) for x in value)
     if not isinstance(value,dict):return True
+    if 'prefixItems' in value or value.get('items') is False or isinstance(value.get('items'), list):
+        return False  # Native strict output does not support positional array schemas.
     if value.get('type')=='object':
         if value.get('additionalProperties') is not False:return False
         if set(value.get('required',[]))!=set(value.get('properties',{})):return False
@@ -90,6 +92,16 @@ def post_any(client,base_urls,headers,request,*,settings=None,deadline=None,time
     deadline=deadline or RequestDeadline(600)
     if not isinstance(deadline,RequestDeadline):deadline=RequestDeadline(max(0,deadline-time.monotonic()))
     rf=request.get('response_format')or{};spec=rf.get('json_schema')or{}
+    if rf.get('type') == 'json_object':
+        # ask_json appends its real schema for services that cannot enforce it.
+        # The native standby can enforce that same schema when it is strict.
+        messages = request.get('messages') or []
+        parts = messages[-1].get('content') if messages else None
+        last = parts[-1] if isinstance(parts, list) and parts else {}
+        prefix = 'Return a JSON object matching this schema: '
+        text = last.get('text', '') if isinstance(last, dict) else ''
+        if text.startswith(prefix):
+            spec = {'schema': json.loads(text[len(prefix):])}
     name=spec.get('name')or rf.get('type')or 'chat'
     prepare_output()
     folder=Path(tempfile.mkdtemp(prefix=f'{name}-',dir=OUT/'requests'))

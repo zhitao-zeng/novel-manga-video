@@ -138,6 +138,11 @@ def compile_input(case: InputCompilation, receipt, record, progress) -> Compiled
                     (old.get('speaker_name'), new.get('speaker_name')) not in approved_owners)
                 for old, new in zip(old_lines, new_lines))):
             raise ValueError('input repair changed protected dialogue or owners')
+        if any(ref.get('role') in {'character', 'location'} and
+               not (ctx.novel_dir/ref['path']).is_file() for ref in clip.get('references', [])):
+            from .base_cards import ensure_cards
+            progress('assets')
+            ensure_cards(ctx, {'clips': [clip]})
         if 'generation_seed' in before:
             clip['generation_seed'] = before['generation_seed']
         clip['repair_take'] = int(before.get('repair_take', 0)) + 1

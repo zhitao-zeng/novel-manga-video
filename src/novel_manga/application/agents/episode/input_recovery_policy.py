@@ -2,7 +2,7 @@
 import json,os
 from .input_effects import _phase_groups
 
-SOURCE_REVIEW_POLICY=2
+SOURCE_REVIEW_POLICY=3
 
 def asset_configuration_recoverable(ctx, record):
     """One unchanged continuation for the observed pre-request image-port failure."""
@@ -36,10 +36,13 @@ def asset_configuration_recoverable(ctx, record):
 
 
 def source_review_recoverable(record):
-    """Only a saved rejection from before defect confirmation needs rechecking."""
+    """Recheck only source failures affected by the missing judgment/turn contract."""
+    prior = int(record.get('source_review_policy', 1))
+    changed_contract = prior < 2 or (prior == 2 and any(
+        'turns' in patch for patch in (record.get('decision') or {}).get('shots', [])))
     return (record.get('status') == 'rejected' and record.get('step') == 'source'
             and bool(record.get('decision')) and not record.get('published')
-            and int(record.get('source_review_policy', 1)) < SOURCE_REVIEW_POLICY)
+            and prior < SOURCE_REVIEW_POLICY and changed_contract)
 
 
 def posture_protocol_recoverable(record):

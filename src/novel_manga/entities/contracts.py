@@ -11,7 +11,7 @@ RECENT_WINDOW = 15  # chapters: someone on stage this recently is offered even i
 CLAIM_TYPES = ["same_as", "impersonates", "lookalike", "avatar_of", "occupies_body", "reveal", "transformation", "death", "return", "rename"]
 
 CLAIM_MEANINGS = {
-    'same_as': '两条记录指同一个具体人物，依据明确的正名/别名同指或身份揭示。师徒、夫妻、亲属、同族和同一体系中的两个人仍是不同个体。',
+    'same_as': '两条记录指同一个具体人物，依据明确的正名/别名同指或身份揭示。师徒、夫妻、亲属、同族和同一体系中的两个人仍是不同个体。群体与其中的具体成员也不是同一个主体，成员属于该群体不构成same_as；同一具体人物的多个称呼仍可按原文同指归并。',
     'impersonates': 'subject冒充object或使用其身份，分别保留冒充者与被冒充者。',
     'lookalike': '两个人外形相似但身份独立。',
     'avatar_of': 'subject是object的分身、化身或投影，保留具体载体的区别。',

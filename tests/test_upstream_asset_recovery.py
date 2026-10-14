@@ -1,6 +1,7 @@
 """Shared source/image candidates retain real cache, quota and snapshot behavior."""
 from concurrent.futures import ThreadPoolExecutor
 import copy
+from pathlib import Path
 import pytest
 from novel_manga.util import read_json
 from novel_manga.application.agents.episode import upstream_assets,draft_assets,input_repair
@@ -72,3 +73,34 @@ def test_snapshot_adoption_keeps_other_actor_fields(ctx_pair,approved_source,fak
     assert phases[-1]['gender']=='男'
     assert (ctx.novel_dir/'series_assets/characters'/result['asset']['asset_id']/'turnaround.jpeg').is_file()
     assert input_repair.remaining_input_attempts(ctx,['clip_01'])['clip_01']==2
+
+
+def test_asset_diagnosis_receives_current_shots_and_invalidates_only_changed_scope(ctx_pair, monkeypatch):
+    import json
+    from novel_manga.util import atomic_write_json
+    ctx=ctx_pair[0];calls=[]
+    selected=row(clip_ids=['clip_01'])
+    script=read_json(ctx.episode_dir/'chapter_script.json')
+    plan=read_json(ctx.episode_dir/'clip_plan.json')
+    target=next(c for c in plan['clips'] if c['clip_id']=='clip_01')
+    indexes=set(target['shot_indexes'])
+    def ask(parts, *args, **kwargs):
+        payload=json.loads(parts[0]['text'].split('\n',1)[1]);calls.append(payload)
+        assert payload['reference_bindings']==[{k:target.get(k) for k in ('clip_id','shot_indexes','references')}]
+        assert {s['index'] for s in payload['affected_shots']}==indexes
+        assert all('turns' in s and 'in_frame' in s for s in payload['affected_shots'])
+        return {'kind':'uncertain','reason':'still needs evidence','source_quote':selected['source_quote'],
+                'replacement_asset_id':'','binding_shots':[]}
+    monkeypatch.setattr(upstream_assets,'ask_json',ask)
+    first=upstream_assets.prepare(ctx,selected)
+    assert not first['ok']
+    assert upstream_assets.prepare(ctx,selected)==first and len(calls)==1
+    script['shots'].append({'index':999,'in_frame':['乙'],'turns':[]})
+    atomic_write_json(ctx.episode_dir/'chapter_script.json',script)
+    assert upstream_assets.prepare(ctx,selected)==first and len(calls)==1
+    shot=next(s for i,s in enumerate(script['shots'],1) if s.get('index',i) in indexes)
+    shot['in_frame']=['乙']
+    atomic_write_json(ctx.episode_dir/'chapter_script.json',script)
+    second=upstream_assets.prepare(ctx,selected)
+    assert len(calls)==2 and second['evidence_path']!=first['evidence_path'] and not second['ok']
+    assert Path(first['evidence_path']).exists()

@@ -87,7 +87,7 @@ def ledger_snapshot_for(novel_dir: Path, chapter: int, segments: list[dict], cas
     secrets = [f"{entities.get(c.get('subject'), {}).get('canonical', c.get('subject'))} {c.get('type')} "
                f"{entities.get(c.get('object'), {}).get('canonical', c.get('object'))}"
                for c in claims if c.get("hidden_from_reader") and int(c.get("chapter", 0)) > chapter]
-    return {"usage": "原著逐段出场记录：只让 named_here 的人进该区段阶段的 in_frame；chapter_cast 里 voice 的人只发声、mentioned 的人不出现；"
+    return {"usage": "原著逐段身份记录：named_here 是本区段有据的人名，不表示这些人都在场；chapter_cast 的 voice/mentioned 不应被安排在当前现场，但原文明确的回忆画面或回忆声音可以使用其真实身份；in_frame 按本镜具体场景和原文依据填写，不把候选名单当成入镜名单；"
                      "must_not_reveal 的关系不得在台词或画面里点破",
             "chapter_cast": [{"name": n, "presence": p} for n, p in cast.items() if n in names],
             "segments": per_segment, "must_not_reveal": secrets[:8]}

@@ -92,7 +92,8 @@ def repair_settings(root: Path) -> dict:
 def repair_environment(root: Path, legacy: Path) -> tuple[dict, dict]:
     settings = repair_settings(root)
     env = {**environment(root), **model_resources_environment(root)}
-    env.update(PYTHONPATH='src', NOVEL_VIDEO_MODEL=settings['model'],
+    env.setdefault('PYTHONPATH', 'src')
+    env.update(NOVEL_VIDEO_MODEL=settings['model'],
                NOVEL_LOCAL_H3_URL=settings['base_url'], NOVEL_INFLIGHT_POOL=settings['pool'],
                NOVEL_REVIEW_MODE=settings['review_mode'],
                NOVEL_INFLIGHT_DIR=str(legacy.parent / 'inflight' / settings['pool']),

@@ -50,6 +50,47 @@ def test_native_ready_marks_inputs_without_video_or_agent(tmp_path,monkeypatch):
     assert not (ctx.work_dir/'episode-session.json').exists()
 
 
+def test_cold_book_prepares_shared_references_and_current_agent_inputs(tmp_path,monkeypatch):
+    from novel_manga.application.preparation import actions
+    ctx=context(tmp_path)
+    ctx.source_novel_dir=ctx.source_episode_dir.parent
+    ctx.asset_snapshot_dir=ctx.novel_dir
+    refs=[{'asset_id':'character_001','role':'character','name':'甲',
+           'path':'series_assets/characters/character_001/turnaround.jpeg'},
+          {'asset_id':'location_001','role':'location','name':'山台',
+           'path':'series_assets/locations/location_001/establishing.jpeg'}]
+    plan={'clips':[{'clip_id':'clip_01','kind':'video','shot_indexes':[1],'references':refs}]}
+    script={'shots':[{'index':1,'location':'山台','in_frame':['甲']}]}
+    bible={'characters':[{'name':'甲'}],'locations':['山台：孤立的岩台']}
+    for root in (ctx.source_novel_dir,ctx.novel_dir):
+        atomic_write_json(root/'story_bible.json',bible)
+    atomic_write_json(ctx.episode_dir/'clip_plan.json',plan)
+    atomic_write_json(ctx.episode_dir/'chapter_script.json',script)
+    calls=[]
+    def draw(command):
+        calls.append(command)
+        assert command[command.index('--novel-dir')+1]==str(ctx.source_novel_dir)
+        assert command[command.index('--assets')+1]=='character_001,location_001'
+        assert '--review' in command
+        for ref in refs:
+            path=ctx.source_novel_dir/ref['path'];path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_bytes(b'approved image from simulated image service')
+    monkeypatch.setattr(actions,'run_tool',draw)
+    def prepare(directory,*,card_builder):
+        card_builder(plan)
+        assert all((ctx.novel_dir/ref['path']).is_file() for ref in refs)
+        return {'status':'ready'}
+    monkeypatch.setattr(native_episode,'prepare_one',prepare)
+    result=native_episode.prepare(ctx,SimpleNamespace(),SimpleNamespace())
+    assert result['ready'] and len(calls)==1
+    assert read_json(ctx.work_dir/'input/chapter_script.json')==script
+    assert read_json(ctx.work_dir/'input/clip_plan.json')==plan
+    assert len(read_json(ctx.work_dir/'input/catalog.json')['assets'])==2
+    assert not (ctx.episode_dir/'repair_budget_grants.json').exists()
+    assert native_episode.prepare(ctx,SimpleNamespace(),SimpleNamespace())['ready']
+    assert len(calls)==1  # resumed preparation reuses approved images
+
+
 def test_review_phase_archives_authoring_session_once_but_retains_work(tmp_path):
     ctx=context(tmp_path)
     atomic_write_json(ctx.work_dir/'episode-session.json',{'session_id':'author'})
@@ -155,11 +196,21 @@ def editorial_case(tmp_path):
 
 def test_only_explicit_agent_brief_invokes_one_whole_replan(tmp_path,monkeypatch):
     ctx,tools=editorial_case(tmp_path);calls=[]
-    monkeypatch.setattr('novel_manga.application.preparation.actions.replan',lambda *a:calls.append(a))
+    atomic_write_json(ctx.work_dir/'input/chapter_script.json', {'shots':[{'index':1,'visual_prompt':'old scene'}]})
+    atomic_write_json(ctx.work_dir/'input/clip_plan.json', {'clips':[{'clip_id':'old'}]})
+    script={'shots':[{'index':1,'visual_prompt':'new first scene'},{'index':2,'visual_prompt':'new second scene'}]}
+    plan={'clips':[{'clip_id':'clip_01','shot_indexes':[1,2]}]}
+    def replan(*args):
+        calls.append(args)
+        atomic_write_json(ctx.episode_dir/'chapter_script.json',script)
+        atomic_write_json(ctx.episode_dir/'clip_plan.json',plan)
+    monkeypatch.setattr('novel_manga.application.preparation.actions.replan',replan)
     row={'clip_id':'clip_01','action':'replan','reason':'missing causal scene','source_quote':'原始正文',
          'instructions':'Keep the valid ending and restore the cause before it.'}
     result=native_episode.editorial_request(ctx,row)
     assert result['replanned'] and len(calls)==1
+    assert read_json(ctx.work_dir/'input/chapter_script.json')==script
+    assert read_json(ctx.work_dir/'input/clip_plan.json')==plan
     assert calls[0][1][0]['instructions']==row['instructions']
     with pytest.raises(ValueError,match='already been used'):
         native_episode.editorial_request(ctx,row)

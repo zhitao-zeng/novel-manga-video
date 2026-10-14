@@ -63,11 +63,22 @@ def ask_json(parts: list[dict], schema: dict, *, name: str, max_tokens: int = 70
     deadline = RequestDeadline(timeout)
     combined_reasoning_retry = False
     with httpx.Client(timeout=timeout, trust_env=False) as client:
-        for retry in range(3 if retry_truncated else 1):
+        rounds = 3 if retry_truncated else 1
+        for retry in range(rounds):
             request_key = f"{name}-{next(_CALL_COUNTER)}"
             bases = endpoint_order(request_key, list(settings.endpoints)) if settings else endpoint_order(request_key)
-            body = post_any(client, bases, headers, payload, settings=settings, deadline=deadline,
-                            timeout_message=f"{name}: {timeout:g}s request budget exhausted")
+            try:
+                body = post_any(client, bases, headers, payload, settings=settings, deadline=deadline,
+                                timeout_message=f"{name}: {timeout:g}s request budget exhausted")
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError, httpx.HTTPStatusError) as error:
+                transient = not isinstance(error, httpx.HTTPStatusError) or error.response.status_code in (502, 503, 504)
+                # The single gateway has no alternate endpoint. Reuse the existing
+                # rounds/deadline, but never repeat an enlarged or pooled allocation.
+                if (transient and len(bases) == 1 and retry + 1 < rounds
+                        and payload['max_tokens'] == max_tokens and deadline.remaining() > 0):
+                    log(f"{name}: {type(error).__name__}; retry within existing request rounds and deadline")
+                    continue
+                raise
             choice = body["choices"][0]
             content = choice["message"].get("content") or "{}"
             from .refusal import refusal_reason

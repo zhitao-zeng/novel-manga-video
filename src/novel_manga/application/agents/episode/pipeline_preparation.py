@@ -18,19 +18,7 @@ from novel_manga.application.production.artifacts import media_started, archive_
 CORRECTION_POLICY = 3
 
 
-class AssetsPending(Exception):
-    def __init__(self,paths):
-        self.paths=paths
-        super().__init__('Shared batch assets are still being prepared')
-
-
-def wait_for_shared_assets(ctx,plan):
-    from novel_manga.application.production.asset_preparation import queued_asset_paths
-    manifest=os.environ.get('NOVEL_ASSET_PREPARATION_MANIFEST')
-    if manifest:
-        paths=queued_asset_paths(read_json(Path(manifest),[]),plan,ctx.source_episode_dir.parent,ctx.novel_dir,
-            state=read_json(Path(manifest).with_name('state.json'),{}))
-        if paths:raise AssetsPending(paths)
+from .base_cards import AssetsPending, wait_for_shared_assets, ensure_cards
 
 
 def semantic_failure(failure):
@@ -73,25 +61,6 @@ def preparation_targets(ctx, failure):
     return _blocked(ctx,{cid:str(failure.get('reason') or failure.get('blocks') or issues)[:1000] for cid in ids},
                     source_audit=failure.get('audit'))
 
-
-def ensure_cards(ctx, plan):
-    """Build shared base cards under the book's existing lock, then copy them in."""
-    from novel_manga.application.preparation import actions
-    from novel_manga.application.agents.episode.inputs import _catalog, _references
-    wait_for_shared_assets(ctx,plan)
-    original=ctx.source_episode_dir.parent
-    bible=read_json(original/'story_bible.json',{})
-    shared={('character',c['name']):f'character_{i:03d}' for i,c in enumerate(bible.get('characters',[]),1)}
-    shared.update({('location',s.split('：',1)[0].strip()):f'location_{i:03d}'
-                   for i,s in enumerate(bible.get('locations',[]),1)})
-    needed={r['asset_id'] for r in _references(plan)
-            if shared.get((r.get('role'),r.get('name')))==r.get('asset_id')
-            and not (ctx.novel_dir/r['path']).is_file() and not (original/r['path']).is_file()}
-    if needed:
-        actions.run_tool(['scripts/build_cards_thin.py','--novel-dir',str(original),
-                          '--assets',','.join(sorted(needed)),'--tier','fast','--review'])
-    _catalog(ctx,list(_references(plan)))
-    actions.ensure_cards(ctx.episode_dir,plan)
 
 
 def patch_inputs(ctx, drafts, repairs, failure):
@@ -270,6 +239,9 @@ def editorial_request(ctx, row):
         from novel_manga.application.preparation.actions import replan
         replan(ctx.episode_dir,[{'agent_reason':row['reason'],'source_quote':row['source_quote'],
                                'instructions':row['instructions']}])
+        from .inputs import refresh_planning_inputs
+        refresh_planning_inputs(ctx, read_json(ctx.episode_dir/'clip_plan.json'),
+                                read_json(ctx.episode_dir/'chapter_script.json'))
         atomic_write_json(path,{'status':'completed','decision':row,'at':time.time()})
         return {'ok':True,'input_repaired':[row['clip_id']],'replanned':True,'changed':[],
                 'next':'Native preparation rechecks the revised screenplay before generation.'}

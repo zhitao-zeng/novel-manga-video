@@ -8,14 +8,14 @@ from novel_manga.application.review import cast_video, evidence
 from novel_manga.review.prompts import shot_contract, story_block
 from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
-POLICY = 'visual-adjudication-v3-observed-facts'
+POLICY = 'visual-adjudication-v4-viewer-impact-state'
 ERROR_FACTS = {
     'scene_missing': '剧情所需的具体场所整体消失或明显错位；装饰色差、裁切或虚化不算',
     'same_person_twice': '同一具体人物同时出现两个独立身体；衣服错、换装、独立空甲都不能证明分身',
     'extra_person': '出现计划不允许的额外人物，但不能确定是同一人物复制',
     'extra_object': '独立物件数量超出本镜要求，不把穿戴物另算一个身体',
     'appearance': '外观差异改变了人物身份或具体剧情功能；普通服装、配饰、配色差异不属于阻塞错误',
-    'state': '违反本镜明确的开合或动作状态，不能沿用参考卡默认姿态',
+    'state': '开合或动作状态差异改变了具体剧情事件或人物处境；不影响剧情含义的站坐、俯身、手脚摆放差异只记提示，不能仅凭请求明确就确认错误',
     'visual_defects': '异常身体结构、附肢、变形或计划没有要求的明显视觉异常',
     'action_by_wrong_person': '应由甲完成的动作实际由乙完成',
     'actor_missing': '本镜明确应可见的人物缺席，构图裁切不算',

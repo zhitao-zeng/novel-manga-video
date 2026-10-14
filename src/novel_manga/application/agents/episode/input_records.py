@@ -10,10 +10,9 @@ from novel_manga.application.repair import history
 from novel_manga.util import atomic_write_json, read_json
 
 INPUT_LIMIT = 2
-SOURCE_REVIEW_POLICY = 2
 
 
-from .input_recovery_policy import asset_configuration_recoverable, source_review_recoverable, posture_protocol_recoverable
+from .input_recovery_policy import SOURCE_REVIEW_POLICY, asset_configuration_recoverable, source_review_recoverable, posture_protocol_recoverable
 
 
 def latest_input_records(episode_dir):
@@ -95,15 +94,17 @@ def _standard_input_route(ctx, cid, row=None, *, records=None, image_review_poli
             pending = []
     if pending:
         path, record = pending[-1]
+        grant = read_json(ctx.episode_dir/'repair_budget_grants.json', {}).get(cid, {})
         if different:
-            if int(record.get('revision_count', len(record.get('previous_decisions', [])))) >= 1:
+            if int(record.get('revision_count', len(record.get('previous_decisions', [])))) >= int(grant.get('revision_limit', 1)):
                 raise ValueError('input repair revision allowance used; keep the unresolved candidate')
             return 'revise', path, record
         if asset_configuration_recoverable(ctx, record):
             return 'asset_recovery', path, record
         if posture_protocol_recoverable(record):
             return 'posture_recovery', path, record
-        if record.get('status') not in {'checking', 'published'} and int(record.get('resume_count', 0)) >= 1:
+        if (record.get('status') not in {'checking', 'published'}
+                and int(record.get('resume_count', 0)) >= int(grant.get('resume_limit', 1))):
             raise ValueError('input repair continuation allowance used; keep the incomplete candidate')
         return 'resume', path, record
     if remaining_input_attempts(ctx, [cid], records=records)[cid] <= 0:

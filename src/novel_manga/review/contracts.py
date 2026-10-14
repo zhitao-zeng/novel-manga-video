@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import novel_manga.llm.client as model_client
-REVIEW_POLICY = "thin-review-v1.23-current-phase-viewer-impact"
+REVIEW_POLICY = "thin-review-v1.24-watchable-posture"
 
 
 POLICY = REVIEW_POLICY  # shared with scheduling and delivery: the judge reads the source passage
@@ -152,8 +152,10 @@ WATCHABLE_CRITERIA = (
     '服装承担关键身份、穿脱动作或防护功能，或人数本身决定剧情时，不适用这项宽容。'
     '请求把某种衣着写得很明确，并不自动证明它是剧情关键；必须指出它影响的具体事件或身份识别。'
     '普通上衣有无、长袍或浴袍等造型差异若不影响这些事实，同样只记提示。'
+    '人物站坐、俯身程度、手脚摆放等姿态差异，若仍清楚表达同一人物、处境和事件，只记提示；'
+    '请求明确写了姿态不等于姿态本身决定剧情。若差异改变生死、行动能力、攻击防御、物件交接或其他关键事件，仍须修复。'
     '关键对白缺失或多说、明显错人/性别/物种错误、人物重复或缺席、额外肢体、动作归属错误、'
-    '关键事件缺失、群体完全未出现、持续严重抖动，仍必须修复。'
+    '关键事件缺失、群体完全未出现、明显头身或肢体比例失真、持续严重抖动，仍必须修复。'
     '无法判断或审核未完成不能记通过；一项轻微差异不能清除其他独立失败。'
 )
 
@@ -164,6 +166,8 @@ VERIFY_FLAGS = ('same_person_twice', 'species_or_gender_wrong', 'action_by_wrong
 BODY_QUESTION = (
     "body_artifact：对照参考图与实际视频，沿肩—肘—腕—手的连接检查是否多出独立手臂、腿或机械附肢，"
     "或存在明显断裂/重复连接。不能只数人头而忽略同一身体的额外分支；遮挡、裁切不算缺失，"
+    "还须对照参考人物检查头、躯干与四肢的比例是否明显失真；俯身、蜷腿、近大远小及正常动画风格不单独算错，"
+    "但头部异常膨大、躯干或四肢明显缩短且无法由构图透视解释时填true，写明可见部位和连续帧依据。"
     "原文明确的非人形态按其实际结构判断。evidence写具体视频帧与连接位置。\n"
 )
 
@@ -208,7 +212,7 @@ VERIFY_QUESTIONS = (WATCHABLE_CRITERIA + '\n' + BODY_QUESTION +
     "actor_missing：原文对应本镜事件中应入镜、有动作或对白的人不在画面里，而且没有别人替他做（只露背影的听者、画外说话的人不算缺席；其他镜头事件中的人不必在本镜出现）；\n"
     "lead_face_swapped：主角或其他给了角色卡的主要人物，脸型发型明显不是角色卡上那个人（追剧的观众认得主角，这也算一眼看出）；\n"
     "ghost_text：画面出现字幕、文字、水印、Logo（手机屏幕上的消息除外）；这一项单独记录，不影响 verdict；\n"
-    "verdict：obvious＝观众会觉得荒谬或前后不一致（same_person_twice、species_or_gender_wrong、action_by_wrong_person、actor_missing、"
+    "verdict：obvious＝观众会觉得荒谬或剧情含义改变；仅姿态与请求不同但事件含义不变应填subtle，并在evidence保留实际差异（same_person_twice、species_or_gender_wrong、action_by_wrong_person、actor_missing、"
     "lead_face_swapped、body_artifact、scene_missing 任一成立就是 obvious）；subtle＝只有对照角色卡才看得出的配角差别（发色、服装、帽子、徽章）；fine＝没问题；\n"
     "evidence：一句话，写清哪几帧、谁、看到了什么；\n"
     "instruction：给视频生成模型的一句修正指令，只说画面里该有谁、谁对谁做什么、谁只能出现一次或不该出现，点名到人，不复述错误、不提上一次；verdict 为 fine 时留空。只输出JSON。"
