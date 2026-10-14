@@ -8,11 +8,11 @@ from novel_manga.application.review import cast_video, evidence
 from novel_manga.review.prompts import shot_contract, story_block
 from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
-POLICY = 'visual-adjudication-v4-viewer-impact-state'
+POLICY = 'visual-adjudication-v5-permitted-figures'
 ERROR_FACTS = {
     'scene_missing': '剧情所需的具体场所整体消失或明显错位；装饰色差、裁切或虚化不算',
     'same_person_twice': '同一具体人物同时出现两个独立身体；衣服错、换装、独立空甲都不能证明分身',
-    'extra_person': '出现计划不允许的额外人物，但不能确定是同一人物复制',
+    'extra_person': '出现本镜不允许的额外人物，但不能确定是同一人物复制。本镜明确允许的回忆、梦境或投影形象也属于允许的画面内容；不在现实在场名单或轮廓较清晰不能单独证明多出真实人物。仍须按原文和本镜事件判断身份、行为及是否影响剧情，不能借回忆标签放行未获允许的人物或分身',
     'extra_object': '独立物件数量超出本镜要求，不把穿戴物另算一个身体',
     'appearance': '外观差异改变了人物身份或具体剧情功能；普通服装、配饰、配色差异不属于阻塞错误',
     'state': '开合或动作状态差异改变了具体剧情事件或人物处境；不影响剧情含义的站坐、俯身、手脚摆放差异只记提示，不能仅凭请求明确就确认错误',

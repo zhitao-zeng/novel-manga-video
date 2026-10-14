@@ -105,3 +105,26 @@ def test_minor_pose_label_never_clears_a_body_proportion_failure():
     raw['evidence']='坐姿不同，且连续帧头异常膨大、躯干明显缩短。'
     raw['body_artifact']=True
     assert policy.verify_to_verdict(raw)['severity']=='fail'
+
+
+@pytest.mark.parametrize('independent', [None, 'same_person_twice', 'visual_defects'])
+def test_permitted_memory_figure_does_not_clear_an_independent_picture_defect(monkeypatch,tmp_path,independent):
+    from novel_manga.application.review import adjudication
+    clip={'cast':['甲'],'prompt_h3':'An explicitly allowed blurred memory of 乙 appears behind 甲.'}
+    monkeypatch.setattr(adjudication.evidence,'collect_clip_evidence',lambda *a,**k:
+        ([],SimpleNamespace(legend=['当前人物和回忆影像'],segments={})))
+    def ask(parts,schema,name):
+        definition=schema['properties']['checks']['items']['properties']['error_facts']['properties']['extra_person']['description']
+        assert '本镜明确允许' in definition and '分身' in definition
+        checks=[{'id':0,'result':'dismissed','evidence':'本镜明确允许乙的回忆影像。',
+                 'instruction':'','error_facts':{k:False for k in adjudication.ERROR_FACTS}}]
+        if independent:
+            checks.append({'id':1,'result':'confirmed','evidence':'另有重复身体或明显比例失真。',
+                'instruction':'保留单一正常身体。',
+                'error_facts':{k:k==independent for k in adjudication.ERROR_FACTS}})
+        return {'observations':['甲与明确允许的乙回忆影像。'],'checks':checks}
+    monkeypatch.setattr(adjudication.cast_video,'ask',ask)
+    concerns=['回忆人影是否多余']+(['独立身体错误'] if independent else [])
+    verdict=adjudication._review_frames(clip,tmp_path/'v.mp4',None,tmp_path,{'severity':'fail'},concerns)
+    assert verdict['severity']==('fail' if independent else 'pass')
+    assert verdict['verify']['error_kinds']==([independent] if independent else [])
