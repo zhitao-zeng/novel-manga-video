@@ -141,7 +141,7 @@
         "model": "phanthy.com/deepseek-v4",
         "key_var": "PHANTHY_API_KEY",
         "slots": 8,
-        "note": "网关透传无费率ID（2026-10-10 实测零扣分，实际服务模型 kimi-k2.6 reasoning）；短 max_tokens 会被推理耗尽返回空 content"
+        "note": "登记不路由：身份审核33%错误率(3次1次true)、修复诊断归因泛泛(3/10)。仅适合简单分类打标；免费ID身份kimi-k2.6"
       },
       "phanthy-phancy": {
         "endpoint": "phanthy-phancy",
@@ -149,7 +149,7 @@
         "model": "phanthy.com/phancy-35b",
         "key_var": "PHANTHY_API_KEY",
         "slots": 8,
-        "note": "同 phanthy-dsv4：实测同为 kimi-k2.6 reasoning；费率未公布"
+        "note": "登记不路由：上游502持续不稳定；质量合格但通道脆弱"
       },
       "phanthy-ds41": {
         "endpoint": "phanthy-ds41",
@@ -157,7 +157,14 @@
         "model": "deepseek-v4.1-flash",
         "key_var": "PHANTHY_API_KEY",
         "slots": 8,
-        "note": "2026-10-10 主力：规划/审核/翻译切 Phanthy API（6并发实测全绿、长输出无天花板）；本地 DS/Flash-Next 保留记录不再默认使用"
+        "note": "主力：身份审核5/5、修复诊断fix_layer最准、提纲/压缩3家最优。reasoning失控仅影响长输出任务(导演稿)，轮换链兜底"
+      },
+      "glm-flash": {
+        "endpoint": "phanthy",
+        "base": "http://127.0.0.1:8789/v1",
+        "model": "glm-5.3-flash",
+        "key_var": "PHANTHY_API_KEY",
+        "slots": 8
       }
     }
   },
