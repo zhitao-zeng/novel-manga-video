@@ -294,3 +294,44 @@ def test_changed_runtime_reopens_blocked_input_without_resetting_take(tmp_path,m
     runtime['repair_extra_body']={'thinking':{'type':'disabled'},'output_config':{'effort':'low'}}
     assert 'a' in managed.candidates(directory,review)[0]
     assert managed.current_takes(directory,{'clips':clips},review)==takes
+
+
+def test_protocol_failure_continues_same_conversation_within_original_window(tmp_path,monkeypatch):
+    directory,clips,review=configured(tmp_path);config={'runs_root':str(tmp_path/'runs')};calls=[]
+    monkeypatch.setattr(agent,'load_config',lambda:config)
+    monkeypatch.setattr(agent,'provided_frames',lambda *a: ([], 'fixture unavailable'))
+    # Evidence remains available through a real fixture frame.
+    def frames(d,cid,video,target):
+        target.mkdir(parents=True,exist_ok=True);p=target/'frame.jpg';p.write_bytes(b'frame');return [p],'fixture'
+    monkeypatch.setattr(agent,'provided_frames',frames)
+    ticks=iter([100,400]);monkeypatch.setattr(agent.time,'monotonic',lambda:next(ticks))
+    def run(name,**kwargs):
+        calls.append(kwargs);work=Path(config['runs_root'])/name;out=work/'output';out.mkdir(exist_ok=True)
+        attempt=work/'attempts'/str(len(calls));attempt.mkdir(parents=True)
+        if len(calls)==1:
+            atomic_write_json(out/'decision.json',{'action':'edit','reason':'fix hoodie','evidence':['input/prompt.txt']})
+            (attempt/'session.jsonl').write_text(json.dumps({'type':'result','terminal_reason':'malformed_tool_use_exhausted'}))
+            return SimpleNamespace(ok=False,produced=['decision.json'],directory=attempt)
+        (out/'prompt.txt').write_text(candidate(clips[0])['prompt'])
+        return SimpleNamespace(ok=True,produced=['prompt.txt'],directory=attempt)
+    monkeypatch.setattr(agent,'run_agent',run)
+    result=agent.propose(directory,clips[0],review['a'])
+    assert result['action']=='edit' and len(calls)==2
+    assert calls[0]['timeout']==600 and calls[1]['timeout']==300
+    assert '--continue' in calls[1]['config']['extra_args']
+    assert 'saved conversation' in calls[1]['prompt'].read_text()
+
+
+def test_other_service_failure_does_not_start_protocol_continuation(tmp_path,monkeypatch):
+    directory,clips,review=configured(tmp_path);config={'runs_root':str(tmp_path/'runs')};calls=[]
+    monkeypatch.setattr(agent,'load_config',lambda:config)
+    def frames(d,cid,video,target):
+        target.mkdir(parents=True,exist_ok=True);p=target/'frame.jpg';p.write_bytes(b'frame');return [p],'fixture'
+    monkeypatch.setattr(agent,'provided_frames',frames)
+    def run(name,**kwargs):
+        calls.append(kwargs);work=Path(config['runs_root'])/name;attempt=work/'attempts/1';attempt.mkdir(parents=True)
+        (attempt/'session.jsonl').write_text(json.dumps({'type':'result','terminal_reason':'api_error'}))
+        return SimpleNamespace(ok=False,produced=[],directory=attempt)
+    monkeypatch.setattr(agent,'run_agent',run)
+    with pytest.raises(ValueError,match='did not produce'):agent.propose(directory,clips[0],review['a'])
+    assert len(calls)==1

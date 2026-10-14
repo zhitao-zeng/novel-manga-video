@@ -15,7 +15,7 @@ from novel_manga.review.contracts import MAX_IMAGES
 from novel_manga.review.storage import take_identity
 from novel_manga.util import atomic_write_json, read_json
 
-POLICY='final-movie-v1-source-and-caption-continuity'
+POLICY='final-movie-v2-approved-postproduction-caption-origin'
 
 
 def context(directory, media, movie):
@@ -170,15 +170,21 @@ def review_assembly(runner, media, *, receipt=None):
             if cid:frame(cid,duration-1.5,'interaction card; source clip supplies its ambience')
         final['issues'].extend(ambience_speech_issues(media,receipt,final['frames']))
         cues=caption_cues((Path(movie).parent/'subtitles.ass') if receipt else (media.get('assembly') or {}).get('ass'))
+        for row in final['frames']:
+            row['expected_captions']=[c['text'] for c in cues if c['start']<=row['seconds']<c['end']]
+            row['approved_labels']=[e['text'] for e in (receipt or {}).get('evidence_events',[])
+                                    if e['start']<=row['seconds']<e['end']]
         bible=ctx.bible.model_dump(mode='json') if hasattr(ctx.bible,'model_dump') else {}
         source_context={'bible':bible,'script':ctx.script,'layout':before['layout'],'interaction':interaction,
                         'allowed_overlays':(receipt or {}).get('evidence_events',[]),
-                        'caption_cues':cues,'postprocessing':(receipt or {}).get('packaging',{})}
+                        'caption_cues':cues,'postprocessing':(receipt or {}).get('packaging',{}),
+                        'caption_origin':'approved ASS added during assembly/postproduction; global movie time',
+                        'delivery_policy':(receipt or {}).get('delivery_policy',{})}
         endpoint=os.environ.get('SECOND_REVIEW_JUDGE','').strip()
         settings=endpoint_settings(endpoint) if endpoint in ENDPOINTS else None
         for group,start in enumerate(range(0,len(final['frames']),MAX_IMAGES-2),1):
             selected=final['frames'][start:start+MAX_IMAGES];ids=sorted({r['clip_id'] for r in selected})
-            current_requests=[{k:clips[cid].get(k) for k in ('clip_id','shot_indexes','prompt_h3','prompt','references')}
+            current_requests=[{k:clips[cid].get(k) for k in ('clip_id','shot_indexes','references')}
                               for cid in ids]
             schema=model.obj({'passed':{'type':'boolean'},'observations':{'type':'array','minItems':1,'items':{'type':'string'}},
                 'issues':{'type':'array','items':model.obj({
@@ -187,7 +193,7 @@ def review_assembly(runner, media, *, receipt=None):
                     'problem':{'type':'string'},'evidence':{'type':'string'},'source_basis':{'type':'string'}})}})
             parts=[]
             for n,row in enumerate(selected,1):
-                parts.extend([{'type':'text','text':f"frame {n}: {row['clip_id']} global {row['seconds']}s {row['label']}; source shots {row['shot_indexes']}"},
+                parts.extend([{'type':'text','text':f"frame {n}: {row['clip_id']} global {row['seconds']}s {row['label']}; source shots {row['shot_indexes']}; expected approved captions {row['expected_captions']}; approved labels {row['approved_labels']}"},
                               model.image_part(Path(row['path']),768)])
             parts.append({'type':'text','text':
                 '审核真正组装后的影片，逐张写实际观察，再对照批准源文、台词、人物与机位约束判定。只指认给出的帧/clip，不猜未显示的画面。'
@@ -196,10 +202,12 @@ def review_assembly(runner, media, *, receipt=None):
                 '大空间、倒影、正常摇晃、剪近景、湿衣/光照轻微色差、遮挡及作者明确的异象不自动算错。'
                 '身体左右、画面左右、自拍镜像要分清；俯拍不自动等于垂直90度。衣鞋款式、凭空设备、出口数量变化要有可见证据。'
                 '批准字幕/标记/水印允许，不能当作ghost text；但同一句出现原生和正式两层应报告。'
+                '这是后期成片，生成阶段不要字幕/水印的约束不适用于已批准的后期层。单层吻合expected_captions的字幕完全合法，'
+                '不能仅因成片有字就推断是原生生成字幕；只有可见重复层、未批准额外文字或与cue实际不符才报告。'
                 '字幕按当前口播分段，不能因为某抽帧在字幕间隙或没显示整句话就判漏句；提供了完整cue，先核对它。'
                 '引用可见frame_numbers和实际clip_ids，source_basis写原文/明确源约束，不把推断写成事实。拿不准的问题不要虚构。'
                 '这是抽帧，不得声称听过音轨。生成请求可能本身有错，批准源文/明确设定是叙事依据，不能把错误翻译当成允许偏差。'
-                '来源：'+json.dumps(source_context,ensure_ascii=False)+'\n实际当前请求：'+json.dumps(current_requests,ensure_ascii=False)})
+                '来源：'+json.dumps(source_context,ensure_ascii=False)+'\nclip与参考映射（生成请求不作为成片验收依据）：'+json.dumps(current_requests,ensure_ascii=False)})
             deadline=time.monotonic()+300
             for revision in range(2):
                 answer=model.ask_json(parts,schema,name='final_movie_continuity',max_tokens=2600,

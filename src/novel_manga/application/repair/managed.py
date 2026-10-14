@@ -51,7 +51,7 @@ def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inpu
     from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY, request_lane, load_config
     runtime=load_config() if enabled(directory) else None
     return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY, 'request_lane': request_lane(clip),
-                'repair_runtime':{k:runtime.get(k) for k in ('model','effort','context_window','max_thinking_tokens','repair_extra_body')}}
+                'repair_runtime':{**{k:runtime.get(k) for k in ('model','effort','context_window','max_thinking_tokens','repair_extra_body')}, 'tool_choice':{'type':'auto','disable_parallel_tool_use':True}}}
                if runtime is not None else {}),
             **({'final_cut':copy.deepcopy(verdict['final_cut'])} if verdict.get('final_cut') else {}),
             'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),

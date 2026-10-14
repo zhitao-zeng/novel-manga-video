@@ -203,7 +203,7 @@ def test_repair_request_parameters_are_scoped_without_changing_general_agent_con
         target.mkdir(parents=True);f=target/'frame.jpg';f.write_bytes(b'frame');return [f],'fixture'
     monkeypatch.setattr(agent,'provided_frames',frames)
     agent.propose(d,clips[0],review['a'],config=config)
-    assert seen[0]['extra_body']=={'max_tokens':4096,'thinking':{'type':'disabled'},'output_config':{'effort':'low'}}
+    assert seen[0]['extra_body']=={'max_tokens':4096,'thinking':{'type':'disabled'},'output_config':{'effort':'low'},'tool_choice':{'type':'auto','disable_parallel_tool_use':True}}
     assert seen[0]['max_thinking_tokens']==0 and seen[0]['effort']=='low'
-    assert seen[0]['extra_args']==['--no-session-persistence','--tools','Read,Bash,Write']
+    assert seen[0]['extra_args']==['--no-session-persistence','--tools','Read,Bash,Write','--include-partial-messages']
     assert config==original and 'thinking' not in config['extra_body']

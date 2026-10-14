@@ -219,8 +219,10 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
             config={**config,'max_thinking_tokens':0}
         if (repair.get('output_config') or {}).get('effort'):
             config={**config,'effort':repair['output_config']['effort']}
-    config = {**config, 'extra_args': [*config.get('extra_args', []),
-                                     '--tools', 'Read,Bash,Write']}
+    config = {**config, 'extra_body':{**(config.get('extra_body') or {}),
+                'tool_choice':(config.get('extra_body') or {}).get('tool_choice') or
+                              {'type':'auto','disable_parallel_tool_use':True}},
+              'extra_args': [*config.get('extra_args', []), '--tools', 'Read,Bash,Write', '--include-partial-messages']}
     lane = request_lane(clip)
     field = 'prompt_h3' if lane == 'h3' else 'prompt'
     if lane == 'h3':
@@ -348,21 +350,38 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
                                  'This is one request with a 600-second execution window. Use input/primary.json and its local shot/source facts first. Full evidence and original novel documents remain in input/evidence.json. '
                                  'Read history or whole-episode documents only when they resolve a specific contradiction; do not exhaust the file list. '
                                  'Once current frames, request and selected reference support a decision, write the final output immediately. '
-                                 'For edit, write decision.json and the complete prompt.txt together in one tool turn, then finish; do not leave only a decision while waiting for another model response. '
+                                 'For edit, write the complete prompt.txt and decision.json, then finish immediately. Use one tool call per response; sequential Write calls are allowed. '
                                  'Read any host rejection in primary.rejections: each contains the exact failed validation, '
                                  'the prior decision and, for edits, an input/rejected-candidate-N.txt file with the complete rejected request. '
                                  'Use that feedback to correct the specific conflict while preserving source, dialogue, bindings and timing. '
                                  'Do not generate video. Write one proposal in this invocation; only the host may request a bounded revision, '
                                  f'at most {MAX_CANDIDATES} candidates including the first. Do not retry autonomously.\n',encoding='utf-8')
+    deadline=time.monotonic()+600
     attempt=run_agent(run,config=config,timeout=600)
-    if not attempt.ok or 'decision.json' not in attempt.produced:
+    produced=set(attempt.produced)
+    terminal=protocol_failure(attempt)
+    remaining=int(deadline-time.monotonic())
+    if terminal and remaining>0:
+        recovery={'first_attempt':attempt.directory.name,'reason':terminal,'remaining_seconds':remaining}
+        atomic_write_json(work/'protocol-recovery.json',recovery)
+        continuation=work/'continue-protocol.txt'
+        continuation.write_text('Continue this same repair task from its saved conversation. The previous provider response '
+                                'claimed a tool call without valid tool contents. Keep already read evidence; open any required '
+                                'images still missing. Use one valid tool call at a time, finish the complete required output files '
+                                'and stop. Do not render, change source files, or repeat unrelated reading.')
+        attempt=run_agent(run,config={**config,'extra_args':[*config['extra_args'],'--continue']},
+                          timeout=remaining,prompt=continuation)
+        produced.update(attempt.produced)
+        recovery.update(continued_attempt=attempt.directory.name,ok=attempt.ok,produced=sorted(produced))
+        atomic_write_json(work/'protocol-recovery.json',recovery)
+    if not attempt.ok or 'decision.json' not in produced:
         raise ValueError('repair agent did not produce a current decision')
     answer=read_json(work/'output/decision.json',{})
     if answer.get('action') not in {'edit','retake','keep','stop'} or not answer.get('reason') or not answer.get('evidence'):
         raise ValueError('repair agent decision requires action, reason and evidence')
     answer.update(run=run,attempt=attempt.attempt if hasattr(attempt,'attempt') else attempt.directory.name)
     if answer['action']=='edit':
-        if 'prompt.txt' not in attempt.produced:raise ValueError('repair agent did not produce a current prompt')
+        if 'prompt.txt' not in produced:raise ValueError('repair agent did not produce a current prompt')
         answer['prompt']=(work/'output/prompt.txt').read_text(encoding='utf-8').strip()
         try:
             validate_request(clip,answer['prompt'])
@@ -387,3 +406,19 @@ def final_proposal(directory, plan, clip, decision):
     return RepairProposal(result={'changed':[clip['clip_id']],'why':decision['reason']},
                           script=read_json(directory/'chapter_script.json',{}),plan=candidate,notes=notes,
                           changes={clip['clip_id']:decision})
+
+
+def protocol_failure(attempt):
+    """Only the observed CLI protocol failure can continue, under the same window."""
+    directory=getattr(attempt,'directory',None)
+    if directory is None:return None
+    path=Path(directory)/'session.jsonl'
+    if not path.is_file():return None
+    result=None
+    for line in path.open():
+        try:row=json.loads(line)
+        except json.JSONDecodeError:continue
+        if row.get('type')=='result':result=row
+    if result and result.get('terminal_reason')=='malformed_tool_use_exhausted':
+        return result['terminal_reason']
+    return None
