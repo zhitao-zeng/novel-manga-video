@@ -17,6 +17,8 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
+FRAME_HANDOFF_POLICY = 'same-take-frames-v2-primary-vision'
+
 SECTIONS = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
             'overall_soundscape', 'non_diegetic_music')
 
@@ -115,9 +117,28 @@ def provided_frames(directory: Path, clip_id: str, video: Path, target: Path):
     return clip_frames(video, target, 4), 'host_uniform_10_to_90_percent'
 
 
+def unique_takes(videos):
+    """An archived copy of the same managed render is not another comparison take."""
+    paths, seen, skipped = [], [], 0
+    for video in dict.fromkeys(videos):
+        marker = read_json(video.parent / 'request.json', {}).get('managed_generation')
+        if isinstance(marker, dict) and marker:
+            if marker in seen:
+                skipped += 1
+                continue
+            seen.append(marker)
+        paths.append(video)
+    return paths, skipped
+
+
 def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     """No production writes. Container sees evidence copies, never the production directory."""
     config = config or load_config()
+    if config.get('repair_extra_body'):
+        config = {**config, 'extra_body': {**(config.get('extra_body') or {}),
+                                         **config['repair_extra_body']}}
+    config = {**config, 'extra_args': [*config.get('extra_args', []),
+                                     '--tools', 'Read,Bash,Write']}
     sections(clip.get('prompt_h3', ''))
     run = f'repair-{directory.name}-{clip["clip_id"]}-{time.time_ns()}'
     work = Path(config['runs_root'])/run
@@ -133,8 +154,9 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
     row = next((r for r in media.get('clips',[]) if r['clip_id']==clip['clip_id']), {})
     history = read_json(directory/'repair_history/history.json', {})
     from novel_manga.story.h3 import REQUEST_CONTENT_RULES
-    evidence = {'request_rules': REQUEST_CONTENT_RULES, 'clip': clip, 'shots_and_neighbours': shots, 'segments':read_json(directory/'segments.json', []),
-                'verdict':verdict, 'media':row, 'feedback':read_json(directory/'review_feedback.json', {}).get(clip['clip_id'],''),
+    evidence = {'frame_handoff_policy':FRAME_HANDOFF_POLICY, 'provider':'h3', 'request_field':'prompt_h3',
+                'request_rules': REQUEST_CONTENT_RULES, 'clip': clip, 'shots_and_neighbours': shots, 'segments':read_json(directory/'segments.json', []),
+                'verdict':verdict, 'media':row, 'preparation_problems':media.get('blocked_clips',{}).get(clip['clip_id'],[]), 'feedback':read_json(directory/'review_feedback.json', {}).get(clip['clip_id'],''),
                 'observations':history.get('observations',{}).get(clip['clip_id'],[]),
                 'trials':[{k:t.get(k) for k in ('id','method','changes','expected_notes')}
                           for t in history.get('trials',[]) if clip['clip_id'] in t.get('clips',[])],
@@ -145,16 +167,66 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None):
         evidence['references'].append({**ref,'path':str(target.relative_to(work))})
     video = (row.get('selected') or {}).get('video')
     videos = ([Path(video)] if video else []) + sorted((directory/'repair_history/takes'/clip['clip_id']).glob('*/clip.mp4'))[-3:]
-    for i,source in enumerate(dict.fromkeys(videos),1):
+    videos, skipped = unique_takes(videos)
+    evidence['duplicate_generation_copies_skipped'] = skipped
+    for i,source in enumerate(videos,1):
         if not source.is_file(): continue
         target=inputs/f'take-{i}'; target.mkdir()
         for name in ('clip.mp4','request.json','asr.json'):
             path=source if name=='clip.mp4' else source.parent/name
             if path.is_file():shutil.copy2(path,target/name)
-        evidence['takes'].append({'path':str(target.relative_to(work)), 'current':str(source)==video})
+        frames, provenance = provided_frames(directory,clip['clip_id'],source,target/'frames')
+        frame_record=read_json(target/'frames/frame-evidence.json',{})
+        times={Path(r['path']).name:r.get('seconds') for r in frame_record.get('frames',[])}
+        supplied=[{'path':str(frame.relative_to(work)),'seconds':times.get(frame.name)} for frame in frames]
+        atomic_write_json(target/'frames/frame-evidence.json', {
+            'video':str((target/'clip.mp4').relative_to(work)), 'source_video':str(source),
+            'source_take':take_identity(source), 'provenance':provenance, 'frames':supplied})
+        evidence['takes'].append({'path':str(target.relative_to(work)), 'current':str(source)==video,
+            'request':str((target/'request.json').relative_to(work)) if (target/'request.json').is_file() else None,
+            'asr':str((target/'asr.json').relative_to(work)) if (target/'asr.json').is_file() else None,
+            'frame_provenance':provenance, 'frames':supplied})
+    EPISODE_FILES = ('chapter_script.json', 'segments.json', 'source_trace.json')
+    BOOK_FILES = ('bible.json', 'entity_index.json', 'bible_aliases.json')
+    evidence['source_documents']=[]
+    files=[(directory/name,Path(name)) for name in (*EPISODE_FILES,'source.txt')]
+    trace=read_json(directory/'source_trace.json',{})
+    for key in ('original','storyboard'):
+        if trace.get(key):
+            source=Path(trace[key])
+            if source.is_file():files.append((source,Path('source_documents')/(key+source.suffix)))
+    checks=directory/'work/request_checks'
+    files += [(source,Path('request_checks')/source.name) for source in checks.glob(clip['clip_id']+'.*.json')]
+    files.append((checks/(clip['clip_id']+'.json'),Path('request_checks')/(clip['clip_id']+'.json')))
+    files += [(directory.parent/name,Path(name)) for name in (*BOOK_FILES,'story_bible.json','profile.json')]
+    files += [(directory/row['path'],Path(row['path']))
+              for row in read_json(directory/'intake.json',{}).get('documents',[])]
+    for source,relative in files:
+        if not source.is_file():continue
+        target=inputs/relative;target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(source,target)
+        evidence['source_documents'].append(str(target.relative_to(work)))
+    tools=work/'tools';tools.mkdir()
+    shutil.copy2(Path(__file__).with_name('video_frames.py'),tools/'video_frames.py')
+    evidence['video_reader']='python3 tools/video_frames.py take-1 --seconds 2.0'
+    (work/'owner').write_text(f'Existing bounded repair / {directory.name} / {clip["clip_id"]} / proposal only\n')
+    current = next((t for t in evidence['takes'] if t['current']), {})
+    evidence['primary_reading'] = {
+        'request': 'input/prompt.txt',
+        'current_frames': current.get('frames', []),
+        'reference_images': [r['path'] for r in evidence['references'] if r.get('role') != 'voice'],
+        'source': 'Use inline shots_and_neighbours and corresponding segments first; read extra source documents only for a specific unresolved fact.'}
+    evidence['reading_scope'] = 'One failed request; history and full-episode documents are optional evidence, not a mandatory reading list.'
     atomic_write_json(inputs/'evidence.json',evidence)
     (work/'prompt.txt').write_text('Read .claude/skills/video-repair/SKILL.md. Diagnose this failed clip from input/. '
                                  'Write output/decision.json and, only for edit, output/prompt.txt. '
+                                 'Actual video frames and timestamps are already in evidence.takes[].frames. Open current-take JPEGs first. '
+                                 'Use python3 tools/video_frames.py take-1 to list them. Do not read MP4 with the text reader, '
+                                 'install packages, or prepare a decoder. If supplied evidence is insufficient, write stop with the missing evidence. '
+                                 'This is one request with a600-second execution window. Use primary_reading and inline shot/source facts first. '
+                                 'Read history or whole-episode documents only when they resolve a specific contradiction; do not exhaust the file list. '
+                                 'Once current frames, request and selected reference support a decision, write the final output immediately. '
+                                 'For edit, write decision.json and the complete prompt.txt together in one tool turn, then finish; do not leave only a decision while waiting for another model response. '
                                  'Do not generate video. One proposal, no retries.\n',encoding='utf-8')
     attempt=run_agent(run,config=config,timeout=600)
     if not attempt.ok or 'decision.json' not in attempt.produced:

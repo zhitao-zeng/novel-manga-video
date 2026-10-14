@@ -34,5 +34,6 @@
  },
  "_switch_note": "2026-10-10 用户指示全切 Phanthy GLM(Flash-Next 已从8038下线);旧配置备份在 .bak-flashnext-20261010",
  "docker_network": "host",
- "_docker_network_note": "2026-10-10: phanthy 网关只听本机 127.0.0.1:8789,容器必须 host 网络才够得着"
+ "_docker_network_note": "2026-10-10: phanthy 网关只听本机 127.0.0.1:8789,容器必须 host 网络才够得着",
+ "context_window": 1000000
 }

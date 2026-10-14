@@ -48,7 +48,9 @@ def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = N
 def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inputs: RepairInputs | None = None) -> dict:
     inputs = inputs if inputs is not None else RepairInputs.load(directory)
     from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
-    return {'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
+    from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY
+    return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY} if enabled(directory) else {}),
+            'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
             'note':inputs.notes.get(clip['clip_id'],''),
             'source':source_state(directory,clip,inputs=inputs),'take':takes.get(clip['clip_id']),
             'error_kinds': (verdict.get('verify') or {}).get('error_kinds', []),

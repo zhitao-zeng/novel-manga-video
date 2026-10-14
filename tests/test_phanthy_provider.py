@@ -49,6 +49,12 @@ def test_shared_sandbox_arguments_are_provider_specific():
     assert any(v.startswith('CLAUDE_CODE_EXTRA_BODY=') for v in args)
 
 
+def test_custom_window_reaches_sandbox_without_changing_default():
+    assert sandbox.provider_container_args({}) == []
+    args = sandbox.provider_container_args({'context_window':1000000})
+    assert args == ['-e','CLAUDE_CODE_MAX_CONTEXT_TOKENS=1000000']
+
+
 @pytest.mark.parametrize('initial', [128, 1600, 1800, 6000])
 def test_measured_reasoning_cutoff_combines_existing_retry_allowances(monkeypatch, initial):
     doubled = min(16000, initial * 2)

@@ -136,3 +136,47 @@ def test_unconfirmed_review_frames_are_extracted_only_inside_run_copy(tmp_path, 
     assert provenance == 'host_uniform_10_to_90_percent'
     assert calls == [(current, target, 4)] and len(frames) == 4
     assert {p: p.read_bytes() for p in cache.iterdir()} == cached_before
+
+
+def test_propose_hands_current_and_history_frames_to_sandbox(tmp_path,monkeypatch,agent):
+    directory,current,historical,clip,media=setup_episode(tmp_path)
+    before={p:p.read_bytes() for p in directory.rglob('*') if p.is_file()}
+    mock_host_frames(agent,monkeypatch)
+    config={'runs_root':str(tmp_path/'runs')}
+    def execute(name,**kwargs):
+        work=Path(config['runs_root'])/name
+        evidence=json.loads((work/'input/evidence.json').read_text())
+        assert kwargs['timeout']==600
+        takes=evidence['takes']
+        assert [t['current'] for t in takes]==[True,False]
+        assert len(takes[0]['frames'])==3
+        assert takes[0]['frames'][-1]['seconds']==3
+        assert len(takes[1]['frames'])==4
+        for t in takes:
+            assert all((work/f['path']).is_file() for f in t['frames'])
+            assert (work/t['request']).is_file() and (work/t['asr']).is_file()
+        import subprocess,sys
+        answer=json.loads(subprocess.check_output([sys.executable,str(work/'tools/video_frames.py'),'take-1','--seconds','2.2']))
+        assert answer['frames'][0]['seconds']==2
+        assert answer['selection']=='nearest supplied frame'
+        write(work/'output/decision.json',{'action':'stop','reason':'fixture','evidence':['input/evidence.json']})
+        return SimpleNamespace(ok=True,produced=['decision.json'],attempt='test')
+    monkeypatch.setattr(agent,'run_agent',execute)
+    assert agent.propose(directory,clip,{},config=config)['action']=='stop'
+    assert all(p.read_bytes()==data for p,data in before.items())
+
+
+def test_actual_video_fallback_has_readable_images_and_timestamps(tmp_path,agent):
+    import subprocess
+    from PIL import Image
+    video=tmp_path/'actual.mp4'
+    subprocess.run(['ffmpeg','-y','-v','error','-f','lavfi','-i','color=c=blue:s=64x96:r=25:d=2',
+                    '-c:v','libx264','-pix_fmt','yuv420p',str(video)],check=True)
+    target=tmp_path/'run/frames'
+    frames,origin=agent.provided_frames(tmp_path,'x',video,target)
+    assert len(frames)==4 and origin=='host_uniform_10_to_90_percent'
+    record=json.loads((target/'frame-evidence.json').read_text())
+    assert record['frames'][0]['seconds']==pytest.approx(.2)
+    assert record['frames'][-1]['seconds']==pytest.approx(1.8)
+    for f in frames:
+        with Image.open(f) as image:assert image.height>image.width

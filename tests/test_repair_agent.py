@@ -111,6 +111,11 @@ def test_sandbox_exports_copies_and_requires_current_output(tmp_path,monkeypatch
         (work/'output/decision.json').write_text(json.dumps({'action':'retake','reason':'input correct','evidence':['input/take-1']}))
         return SimpleNamespace(ok=True,produced=['decision.json'],directory=work/'attempts/1')
     monkeypatch.setattr(agent,'run_agent',run)
+    def frames(directory,cid,video,target):
+        target.mkdir(parents=True)
+        frame=target/'frame_1.jpg';frame.write_bytes(b'fixture frame')
+        return [frame],'fixture'
+    monkeypatch.setattr(agent,'provided_frames',frames)
     decision=agent.propose(d,clips[0],review['a'],config=config)
     assert decision['action']=='retake'
 
@@ -179,3 +184,24 @@ def test_repair_accepts_fullwidth_compiled_dialogue_punctuation():
     agent.validate_prompt(c, c['prompt_h3'].replace('你好.', '你好。'))
     with pytest.raises(ValueError):
         agent.validate_prompt(c, c['prompt_h3'].replace('你好.', '你好？'))
+
+
+def test_repair_request_parameters_are_scoped_without_changing_general_agent_config(tmp_path,monkeypatch):
+    d,clips,review=configured(tmp_path)
+    config={'runs_root':str(tmp_path/'runs'),'extra_body':{'max_tokens':4096},
+            'repair_extra_body':{'thinking':{'type':'disabled'}},
+            'extra_args':['--no-session-persistence']}
+    original=copy.deepcopy(config);seen=[]
+    def run(name,**kwargs):
+        seen.append(kwargs['config'])
+        work=Path(config['runs_root'])/name;(work/'output').mkdir()
+        (work/'output/decision.json').write_text(json.dumps({'action':'retake','reason':'input correct','evidence':['input/prompt.txt']}))
+        return SimpleNamespace(ok=True,produced=['decision.json'],directory=work/'attempts/1')
+    monkeypatch.setattr(agent,'run_agent',run)
+    def frames(directory,cid,video,target):
+        target.mkdir(parents=True);f=target/'frame.jpg';f.write_bytes(b'frame');return [f],'fixture'
+    monkeypatch.setattr(agent,'provided_frames',frames)
+    agent.propose(d,clips[0],review['a'],config=config)
+    assert seen[0]['extra_body']=={'max_tokens':4096,'thinking':{'type':'disabled'}}
+    assert seen[0]['extra_args']==['--no-session-persistence','--tools','Read,Bash,Write']
+    assert config==original and 'thinking' not in config['extra_body']
