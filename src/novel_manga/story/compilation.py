@@ -560,7 +560,7 @@ class ClipCompiler:
         lines.append(f"画面呈现{(grammar or {}).get('style_line') or bible.visual_style}。")
         if self.options.camera_policy == 'authored':
             lines.append(f"镜头采用{frame['text']}；每个阶段按该镜已写明的机位与运动执行，未写运动则固定。"
-                         f"只在阶段边界切镜，不为交替景别添加切镜；{frame['composition']}；人物、双手与道具的变化按动作过程连续发生。")
+                         f"只按阶段边界或该镜原分镜明确写出的切镜执行，不为交替景别添加切镜；{frame['composition']}；人物、双手与道具的变化按动作过程连续发生。")
         else:
             lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")
         lines.append(f"声音包括角色对白、<{ambience_text}>和与动作同步的音效；无背景音乐。")

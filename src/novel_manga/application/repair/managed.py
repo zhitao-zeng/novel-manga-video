@@ -20,9 +20,15 @@ from novel_manga.application.review.store import current_takes
 import novel_manga.application.repair.history as history
 from novel_manga.story.h3 import request_issues, identity_issues, correction
 from novel_manga.application.repair.inputs import RepairInputs
+from novel_manga.application.repair import upstream
 
 from novel_manga.application.repair.history import MAX_GENERATED_TAKES, generated_counts, generation_limit
 REFRAME_POLICY = 'reframe-v3-reference-state-and-candidate-feedback'
+
+
+def agent_enabled(directory):
+    from .agent import enabled
+    return enabled(directory)
 
 
 def source_state(directory: Path, clip: dict, *, inputs: RepairInputs | None = None) -> dict:
@@ -53,6 +59,7 @@ def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inpu
     return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY, 'request_lane': request_lane(clip),
                 'repair_runtime':{**{k:runtime.get(k) for k in ('model','effort','context_window','max_thinking_tokens','repair_extra_body')}, 'tool_choice':{'type':'auto','disable_parallel_tool_use':True}}}
                if runtime is not None else {}),
+            **({'upstream_candidates':upstream.catalog(directory)} if runtime is not None else {}),
             **({'final_cut':copy.deepcopy(verdict['final_cut'])} if verdict.get('final_cut') else {}),
             'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
             'note':inputs.notes.get(clip['clip_id'],''),
@@ -75,7 +82,8 @@ def candidates(directory: Path, review: dict | None = None) -> tuple[list[str],d
         if ((cid not in review.get('feedback',{}) and not identity_issues(clip)) or verdict.get('technical') or clip.get('kind')!='video'
                 or not takes.get(cid) or verdict.get('video')!=takes[cid]['video'] or verdict.get('take')!=takes[cid]['take']):
             continue
-        if counts.get(cid,0)>=generation_limit(directory,cid,grants=grants):
+        if (counts.get(cid,0)>=generation_limit(directory,cid,grants=grants)
+                and not (agent_enabled(directory) and upstream.available(directory,cid))):
             blocked[cid]='effective clip retry budget used'
         else:
             previous = decisions.get(cid, {})
@@ -142,13 +150,14 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
     from novel_manga.application.profiles import plan_fingerprint
     from novel_manga.application.repair.source_recheck import prepare_source_recheck
     blocked = dict(blocked or {})
-    changed, accepted = [], []
+    changed, accepted, input_changed, needs_video = [], [], [], []
+    assembly_changed = False
     decisions = read(directory/'repair_routing.json', {})
     history.adopt_reviewed_run(directory)
     initial_count = len(history.load(directory)['trials'])
     for cid in targets:
         counts = generated_counts(history.load(directory))
-        if counts.get(cid, 0) >= generation_limit(directory, cid):
+        if counts.get(cid, 0) >= generation_limit(directory, cid) and not upstream.available(directory,cid):
             blocked[cid] = 'effective clip retry budget used'
             continue
         plan = read(directory/'clip_plan.json', {})
@@ -183,7 +192,7 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
             rejections = []
             for revision in range(agent.MAX_CANDIDATES):
                 candidate_row = None
-                require_current_inputs();require_video_budget()
+                require_current_inputs()
                 candidate_row = {'revision':revision+1,'status':'proposing'}
                 proposal_log['candidates'].append(candidate_row)
                 atomic_write_json(audit_path,proposal_log)
@@ -192,10 +201,32 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
                     candidate_row.update(candidate=copy.deepcopy(decision),status='proposed')
                     atomic_write_json(audit_path,proposal_log)
                     # Guard both sandbox time and request-check time before any write/adoption.
-                    require_current_inputs();require_video_budget()
+                    require_current_inputs()
                     action = decision['action']
                     if action == 'stop':raise ValueError('agent stopped: '+decision['reason'])
-                    if action == 'keep':
+                    if action in {'input','asset','audio'}:
+                        if not upstream.available(directory,cid):
+                            raise ValueError('upstream repair allowance used; preserve history and unresolved evidence')
+                        if action=='audio':
+                            result=upstream.adopt_audio(directory,clip,decision)
+                            assembly_changed=assembly_changed or result['assembly_changed']
+                        else:
+                            try:
+                                proposal=(upstream.input_proposal(directory,plan,clip,decision) if action=='input'
+                                          else upstream.create_asset(directory,clip,decision))
+                            except ValueError as error:
+                                raise agent.CandidateRejected(str(error),decision,stage='upstream_input') from error
+                            require_current_inputs()
+                            publish_candidate(directory,proposal,'agent_input',set(proposal.changed))
+                            input_changed.extend(proposal.changed)
+                            history.mark_extra_prepared(directory,proposal.changed)
+                            for key in proposal.changed:
+                                if history.extra_take_ready(directory,key):history.activate_extra_take(directory,key)
+                                if counts.get(key,0)<generation_limit(directory,key):changed.append(key)
+                                else:needs_video.append(key)
+                            result=proposal.result
+                        upstream.record(directory,cid,decision,result)
+                    elif action == 'keep':
                         if (verdict.get('final_cut') or {}).get('issues'):
                             raise agent.CandidateRejected(
                                 'keep 只复查原生片，不能解除当前实际成片的终审问题；'
@@ -206,6 +237,11 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
                         candidate_row['recheck_result'] = copy.deepcopy(result)
                         changed.extend(result['changed']);accepted.extend(result['accepted'])
                     else:
+                        try:require_video_budget()
+                        except ValueError as error:
+                            raise agent.CandidateRejected(str(error)+
+                                '; input/asset/audio preparation remains available; correct the earliest supported layer or stop, '
+                                'without requesting a new video seed.',decision,stage='video_budget') from error
                         if action == 'edit':
                             try:
                                 proposal = agent.final_proposal(directory,plan,clip,decision)
@@ -238,7 +274,7 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
                     feedback = error.feedback
                     candidate_row.update(candidate=feedback['candidate'],status='rejected',rejection=feedback)
                     atomic_write_json(audit_path,proposal_log)
-                    require_current_inputs();require_video_budget()
+                    require_current_inputs()
                     rejections.append(copy.deepcopy(feedback))
                     if revision+1==agent.MAX_CANDIDATES:raise
             decisions[cid] = {'at':time.strftime('%F %T'), 'action':action, 'diagnosis':decision,
@@ -259,7 +295,9 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
     for trial in record['trials'][initial_count:]:
         trial.update(managed=True,expected_plan=plan_fingerprint(final_plan),expected_notes=copy.deepcopy(final_notes))
     if len(record['trials'])>initial_count: history.save(directory,record)
-    result={'changed':list(dict.fromkeys(changed)), 'accepted':accepted, 'blocked':blocked,
+    result={'changed':list(dict.fromkeys(changed)), 'input_changed':list(dict.fromkeys(input_changed)),
+            'needs_video':list(dict.fromkeys(needs_video)), 'assembly_changed':assembly_changed,
+            'accepted':accepted, 'blocked':blocked,
             'service_failures':{cid:blocked[cid] for cid in targets if cid in blocked
                                 and decisions.get(cid,{}).get('retryable_service_failure')},
             'skip_render':not changed, 'generated_counts':generated_counts(record)}

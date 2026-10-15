@@ -138,6 +138,8 @@ def rebuild_clips(episode_dir: Path, bible_path: Path, script: dict, plan: dict,
                 skipped.append(f"{before['clip_id']}: {str(error)[:80]}")
                 pieces = []
             if not pieces:
+                if repack_report is not None:
+                    repack_report.setdefault('_compile_skipped',[]).append(before['clip_id'])
                 merged.append(before)
                 continue
             clip = {"kind": "video", "location": pieces[0]["location"], "shots": pieces,

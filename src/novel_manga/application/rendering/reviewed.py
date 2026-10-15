@@ -57,6 +57,8 @@ def _run(runner, *, repair_existing=False, final_review=None):
     final_review = final_review or (lambda media: final_cut.review_assembly(runner,media))
     def observe_final():
         nonlocal report,review
+        from novel_manga.application.repair.ambience import apply_assembly
+        report=apply_assembly(directory,report,context=ctx)
         # The exporter receives an honest current native result, not an old pass.
         report=save_result(directory,report,review,plan=ctx.clip_plan,
                            rounds=rounds,corrections=corrected,blocked=blocked)
@@ -78,7 +80,8 @@ def _run(runner, *, repair_existing=False, final_review=None):
     # loop, rather than spending that opportunity on an arbitrary loop counter.
     remaining=sum(max(0,managed.generation_limit(directory,c['clip_id'])-counts.get(c['clip_id'],0))
                   for c in ctx.clip_plan['clips'] if c.get('kind')=='video')
-    for _ in range(max(1,remaining+1)):
+    upstream_rounds=2*len([c for c in ctx.clip_plan['clips'] if c.get('kind')=='video'])
+    for _ in range(max(1,remaining+1)+upstream_rounds):
         observe_final()
         input_blocked = {}
         if report.get('blocked_clips') and not ctx.options.cache_only:
@@ -110,6 +113,9 @@ def _run(runner, *, repair_existing=False, final_review=None):
             _load_current(runner)
             review = read_json(directory / 'episode_review.json', review)
             report = read_json(directory / 'thin_media_report.json', report)
+            if prepared.get('assembly_changed'):
+                # Re-export the card/audio and run both movie reviewers. No video job.
+                continue
             if prepared.get('accepted'):
                 # A native keep may correct an erroneous finding, but cannot
                 # certify the unchanged delivered movie by itself.

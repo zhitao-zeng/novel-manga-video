@@ -240,3 +240,25 @@ def build_references(cast: list[str], location_short: str | None, bible: StoryBi
     if prop_bindings:
         location_binding += ("。" if location_binding else '') + "。".join(prop_bindings)
     return references, bindings, location_binding
+
+
+def select_reference_views(references,bindings,choices):
+    """Bind reviewed body/portrait views of the same actor through existing picture tags."""
+    from novel_manga.story.h3 import view_of
+    for name,choice in choices.items():
+        own=[r for r in references if r.get('role')=='character' and r.get('name')==name]
+        if not own:raise ValueError('body/face views require an existing actor reference')
+        body=next((r for r in own if view_of(r)!='expressions'),own[0])
+        face=next((r for r in own if view_of(r)=='expressions'),None)
+        if face is None:
+            face={**body,'view':'expressions','tag':f'@图片{1+sum(r.get("role")!="voice" for r in references)}'}
+            references.append(face)
+        face['path']=choice['face'];face['view']='expressions'
+        body.update(path=choice['body'],view='turnaround',asset_id=choice.get('asset_id',body.get('asset_id')))
+        text=(f'<{name}>对应{body["tag"]}和{face["tag"]}：{face["tag"]}定五官、发型、年龄感和肤色，'
+              f'{body["tag"]}定身体比例、服装版型、主色和配饰；两张都不采用背景、姿势和构图；该角色只能出现一次')
+        for index,binding in enumerate(bindings):
+            if binding.startswith(f'<{name}>'):
+                anchor=f'{name}的辨识特征：'
+                bindings[index]=text+(('。'+anchor+binding.split(anchor,1)[1]) if anchor in binding else '')
+    return references,bindings

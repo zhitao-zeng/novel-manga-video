@@ -19,7 +19,7 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v5-request-lane-independent-review-service-resume'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v6-request-lane-source-reference-audio-actions'
 MAX_CANDIDATES = 3
 
 
@@ -320,6 +320,19 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
     shutil.copy2(Path(__file__).with_name('video_frames.py'),tools/'video_frames.py')
     evidence['video_reader']='python3 tools/video_frames.py take-1 --seconds 2.0'
     current = next((t for t in evidence['takes'] if t['current']), {})
+    from novel_manga.application.repair import upstream
+    choices=copy.deepcopy(upstream.catalog(directory))
+    for number,asset in enumerate(choices.get('assets',[]),1):
+        source=Path(asset['path'])
+        if not source.is_absolute():source=directory.parent/source
+        target=inputs/f'candidate-asset-{number}{source.suffix}'
+        shutil.copy2(source,target)
+        asset['path']=str(target.relative_to(work))
+    from novel_manga.application.repair.history import generation_counts,generation_limit
+    choices['video_remaining']=max(0,generation_limit(directory,clip['clip_id'])-generation_counts(directory).get(clip['clip_id'],0))
+    choices['upstream_remaining']=max(0,2-len(upstream.records(directory,clip['clip_id'])))
+    choices['source_patch_fields']=sorted(upstream.SHOT_FIELDS)
+    atomic_write_json(inputs/'upstream.json',choices)
     evidence['primary_reading'] = {
         'request': 'input/prompt.txt',
         'current_frames': current.get('frames', []),
@@ -339,6 +352,7 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
                             if str(row.get('segment_id')) in related_segments],
         'references': evidence['references'],
         'verdict': evidence['verdict'], 'rejections':feedback,
+        'upstream':'input/upstream.json',
         **({'final_cut':final_cut} if final_cut is not None else {}),
         'candidate_revision':len(feedback)+1, 'candidate_limit':MAX_CANDIDATES})
     (work/'prompt.txt').write_text('Read input/primary.json first. When primary.final_cut is present, first open its frames[].path JPEGs '
@@ -347,6 +361,9 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
                                  'Native footage cannot substitute for final-movie continuity. Reports are findings to verify, not picture facts to assume. '
                                  'Then open primary.current_frames[].path JPEGs; without final_cut, start with those current native-take images. '
                                  'Read .claude/skills/video-repair/SKILL.md. Diagnose this failed clip from input/. '
+                                 'Read input/upstream.json for reviewed alternative assets, source correction suggestions, audio candidates and current permissions. '
+                                 'Choose input for source/reference corrections, asset for a necessary missing corrected reference, audio for interaction ambience assembly, '
+                                 'edit only for a proven final-English-only defect, retake only for already-correct input with unused video permission, keep or stop. '
                                  'Write output/decision.json and, only for edit, output/prompt.txt. '
                                  'Actual native video frames and local timestamps are in evidence.takes[].frames. '
                                  'Use python3 tools/video_frames.py take-1 to list them. Do not read MP4 with the text reader, '
@@ -390,7 +407,7 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
     if not attempt.ok or 'decision.json' not in produced:
         raise AgentUnavailable('repair agent did not produce a current decision')
     answer=read_json(work/'output/decision.json',{})
-    if answer.get('action') not in {'edit','retake','keep','stop'} or not answer.get('reason') or not answer.get('evidence'):
+    if answer.get('action') not in {'edit','retake','keep','stop','input','asset','audio'} or not answer.get('reason') or not answer.get('evidence'):
         raise ValueError('repair agent decision requires action, reason and evidence')
     answer.update(run=run,attempt=attempt.attempt if hasattr(attempt,'attempt') else attempt.directory.name)
     if answer['action']=='edit':

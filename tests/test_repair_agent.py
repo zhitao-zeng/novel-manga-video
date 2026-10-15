@@ -71,10 +71,10 @@ def test_first_failure_uses_agent_instead_of_old_route_and_keeps_budget(tmp_path
     assert trial['method']=='agent_prompt' and trial['managed']
 
 
-def test_budget_exhaustion_never_launches_agent(tmp_path,monkeypatch):
+def test_budget_exhaustion_rejects_retake_without_debit(tmp_path,monkeypatch):
     d,clips,_=configured(tmp_path)
     rec=history.load(d);rec['prior_generation_counts']={'clips':{'a':3}};history.save(d,rec)
-    monkeypatch.setattr(agent,'propose',lambda *a,**k:pytest.fail('no remaining video budget'))
+    monkeypatch.setattr(agent,'propose',lambda *a,**k:{'action':'retake','reason':'same input','evidence':['current']})
     result=managed.prepare(d,['a'])
     assert not result['changed'] and 'budget' in result['blocked']['a']
 

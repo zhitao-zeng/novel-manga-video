@@ -11,7 +11,13 @@ def context(directory, media, movie):
     directory=Path(directory)
     plan=read_json(directory/'clip_plan.json',{})
     native=read_json(directory/'episode_review.json',{}).get('clips',{})
+    delivery=read_json(directory/'delivery_policy.json',{})
+    audio=delivery.get('interaction_ambience')or{}
     return {'movie':take_identity(Path(movie)), 'plan':plan_fingerprint(plan),
+            'delivery_policy':delivery,
+            'ambience_asset':take_identity(Path(audio['path'])) if audio.get('path') else None,
+            'clip_ambience_assets':{key:take_identity(Path(value['path']))
+                                    for key,value in (delivery.get('clip_ambience')or{}).items()},
             'h3':h3_prompt_fingerprint(plan),
             'script':read_json(directory/'chapter_script.json',{}),
             'bible':read_json(directory.parent/'story_bible.json',{}),

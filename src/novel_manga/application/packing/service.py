@@ -120,6 +120,9 @@ def clip_entry(clip: dict, clip_id: str, ctx: dict, override: dict | None = None
     for ref in references:
         if ref.get('role') in {'character', 'location'} and ref.get('name') in chosen_pictures:
             ref['path'] = str(chosen_pictures[ref['name']])
+    if override.get('reference_views'):
+        from novel_manga.application.packing.assets import select_reference_views
+        references,bindings=select_reference_views(references,bindings,override['reference_views'])
     if any(s.get('scene_id') for s in clip['shots']):
         location_binding = location_binding.replace('、固定道具和光线', '和地形；时间、光线和可移动道具以本场逐镜描述为准')
     spoken = [t for s in clip['shots'] for t in s.get('turns', [])

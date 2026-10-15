@@ -90,6 +90,10 @@ def ambience_speech_issues(media, receipt, frames):
     """Sentence ASR proves speech overlap; it does not prove subjective sound quality."""
     source=(receipt or {}).get('ambience_source')
     if not source:return []
+    if source.get('kind')=='independent_asset':
+        from novel_manga.application.repair.ambience import validate
+        validate(source)
+        return []
     spans={r['unit_id']:r for r in (media.get('assembly') or {}).get('timeline',[])}
     row=next((r for r in media.get('clips',[]) if r['clip_id']==source['clip_id']),None)
     span=spans.get(source['clip_id'])

@@ -45,6 +45,8 @@ ASK = (
     "The marker is replaced with the full bound utterance, speaker and voice reference. "
     "Write its vocal delivery once as a separate English sentence beside it, combining the supplied emotion "
     "with the dramatic intention; do not also narrate speaking/finishing or another vocal tone. "
+    "A recording camera or phone is the viewpoint, not an automatically visible prop; preserve authored off-screen equipment state. "
+    "A silent_action interval must explicitly contain no speech, even when another stage in the same request has dialogue. "
     "Use only supplied Subject tags and preserve visible versus off-screen people, wearing versus "
     "independent objects, anatomy and individual body counts. "
     "Write physical audio only in soundscape: include every authored action sound with its shot number "
@@ -87,7 +89,7 @@ def request_context(clip: dict, episode_dir: Path | None, *, source_script=None)
     source = [r for r in rows if str(r.get('segment_id')) in ids]
     script = source_script if source_script is not None else read_json(directory / 'chapter_script.json', {})
     indexes = set(clip.get('shot_indexes', []))
-    fields = ('origin_index', 'wears', 'props', 'scene_objects', 'source_quote')
+    fields = ('origin_index', 'wears', 'props', 'scene_objects', 'source_quote', 'camera', 'sfx', 'start_state', 'end_state', 'avoid')
     if 'action_bindings' not in clip:
         fields += ('actions',)
     # The plan addresses prepared stage indexes, not origin_index retained from an older split.
