@@ -18,6 +18,18 @@ def catalog(directory):
     return read_json(directory/'repair_candidates.json',{})
 
 
+def catalog_for_clip(directory,clip):
+    value=copy.deepcopy(catalog(directory))
+    bindings={(r.get('role'),r.get('name')) for r in clip.get('references',[])}
+    def usable(asset):
+        binding=asset.get('binding')or asset
+        return (binding.get('role'),binding.get('name')) in bindings
+    value['assets']=[asset for asset in value.get('assets',[]) if usable(asset)]
+    value['source_suggestions']=[row for row in value.get('source_suggestions',[]) if row.get('clip_id')==clip['clip_id']]
+    value['current_reference_bindings']=[{'role':role,'name':name} for role,name in sorted(bindings)]
+    return value
+
+
 def records(directory,cid):
     return [read_json(p,{}) for p in (directory/'work/input_repairs').glob(f'{cid}-upstream-*.json')]
 
@@ -75,7 +87,10 @@ def _selected_assets(directory,choices,clips):
         binding=entry.get('binding')or{'role':entry['role'],'name':entry['name']}
         entry={**entry,'role':binding['role'],'name':binding['name']}
         if not any(r.get('role')==entry['role'] and r.get('name')==entry['name'] for c in clips for r in c.get('references',[])):
-            raise ValueError('reference candidate does not match a selected existing binding')
+            available=sorted({f'{r.get("role")}/{r.get("name")}' for c in clips for r in c.get('references',[])})
+            raise ValueError(f'candidate {entry["id"]} requests {entry["role"]}/{entry["name"]}, '
+                             f'which has no reference binding in this scope; available bindings: {available}. '
+                             'Do not add a visible actor to a POV-only shot; use its applicable location candidate and source fields.')
         selected.append({**entry,'path':str(image.resolve())})
     return selected
 
@@ -103,6 +118,11 @@ def input_proposal(directory,plan,clip,decision):
     if not patches and not assets:raise ValueError('input repair has no source or reference correction')
     quote=str(decision.get('source_quote')or'').strip();source=source_text(directory,script)
     if not quote or quote not in source:raise ValueError('input repair requires a verbatim source quote')
+    # clip_ids permits a scope; it does not ask the current compiler to refresh every entry.
+    targets={c['clip_id'] for c in chosen if seen.intersection(c.get('shot_indexes',[])) or any(
+        (r.get('role'),r.get('name'))==(a['role'],a['name']) for r in c.get('references',[]) for a in assets)}
+    if clip['clip_id'] not in targets:raise ValueError('input correction does not affect its current target')
+    indexes={i for c in chosen if c['clip_id'] in targets for i in c.get('shot_indexes',[])}
     check=check_source(source,quote,patches,assets,[shots[i] for i in sorted(indexes)])
     if check.get('consistent') is not True or check.get('problems'):raise ValueError('source correction did not pass review')
     structural={}
@@ -121,28 +141,30 @@ def input_proposal(directory,plan,clip,decision):
                 override.setdefault('reference_views',{})[asset['name']]={'body':asset['path'],
                     'face':str(face_path),'asset_id':asset['id']}
             else:override.setdefault('reference_paths',{})[asset['name']]=asset['path']
-    if patches or assets:
-        candidate,changed=rebuild_clips(directory,directory.parent/'story_bible.json',candidate_script,seed_plan,targets,
-                                        preserve_timing=True,repack_report=structural)
-    else:candidate,changed=copy.deepcopy(plan),[]
+    baseline_report={}
+    baseline,_=rebuild_clips(directory,directory.parent/'story_bible.json',script,plan,targets,
+                             preserve_timing=True,repack_report=baseline_report)
+    if baseline_report.get('_compile_skipped'):
+        raise ValueError('baseline source compiler skipped clips: '+str(baseline_report['_compile_skipped']))
+    candidate,compiled_changes=rebuild_clips(directory,directory.parent/'story_bible.json',candidate_script,seed_plan,targets,
+                                            preserve_timing=True,repack_report=structural)
     if structural.get('_compile_skipped'):
         raise ValueError('source correction compiler skipped clips: '+str(structural['_compile_skipped']))
     if [c['clip_id'] for c in candidate['clips']]!=[c['clip_id'] for c in plan['clips']]:
         raise ValueError('input correction changed clip grouping')
-    old={c['clip_id']:c for c in plan['clips']};changed=set(changed)
-    if changed-targets:raise ValueError('input compiler changed unrelated clips')
+    old={c['clip_id']:c for c in plan['clips']}
+    if set(compiled_changes)-targets:raise ValueError('input compiler changed unrelated clips')
+    base={c['clip_id']:c for c in baseline['clips']}
+    effect_fields=('prompt','references','lines','chat_lines','shot_indexes','request_seconds','shot_timing',
+                   'action_bindings','wears_bindings','dialogue_bindings','audio_delivery','inner_voice')
+    changed={c['clip_id'] for c in candidate['clips'] if c['clip_id'] in targets and any(
+        c.get(field)!=base[c['clip_id']].get(field) for field in effect_fields)}
+    if not changed:raise ValueError('no candidate input effect beyond current compiler drift')
+    candidate['clips']=[c if c['clip_id'] in changed else copy.deepcopy(old[c['clip_id']]) for c in candidate['clips']]
     notes=read_json(directory/'review_feedback.json',{})
     for target in candidate['clips']:
         cid=target['clip_id']
         if cid not in targets:continue
-        for asset in assets:
-            if asset.get('mode')=='body_view':continue
-            for ref in target.get('references',[]):
-                if (ref.get('role'),ref.get('name'))==(asset['role'],asset['name']):
-                    if ref.get('path')!=asset['path']:
-                        ref.update(path=asset['path'],asset_id=asset['id'])
-                        target.setdefault('override',{}).setdefault('reference_paths',{})[asset['name']]=asset['path']
-                        changed.add(cid)
         if cid not in changed:continue
         before=old[cid]
         for key in ('shot_indexes','request_seconds','shot_timing','lines','chat_lines'):
@@ -160,7 +182,11 @@ def input_proposal(directory,plan,clip,decision):
         notes.pop(cid,None)
     if not changed:raise ValueError('source correction did not reach actual request')
     return RepairProposal({'changed':sorted(changed),'why':decision.get('reason','source/reference correction'),
-                            'source_check':check},script=candidate_script,plan=candidate,notes=notes,
+                            'source_check':check,'baseline_recompiled_with_current_code':True,
+                            'material_changes':{c['clip_id']:[field for field in effect_fields
+                                if c.get(field)!=base[c['clip_id']].get(field)]
+                                for c in candidate['clips'] if c['clip_id'] in changed}},
+                          script=candidate_script,plan=candidate,notes=notes,
                           changes={cid:decision for cid in changed},
                           posture_states=structural.get('_posture_states'),visor_states=structural.get('_visor_states'))
 

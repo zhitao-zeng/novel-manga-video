@@ -85,7 +85,7 @@ def test_false_compiled_camera_is_rejected_before_publication(tmp_path,monkeypat
     d,s,p,c,source=setup_case(tmp_path)
     monkeypatch.setattr(upstream,'check_source',lambda *a:{'consistent':True,'problems':[]})
     def rebuild(*a,**kw):
-        plan=copy.deepcopy(p);plan['clips'][0]['prompt']='changed';return plan,['a']
+        plan=copy.deepcopy(p);plan['clips'][0]['prompt']=a[2]['shots'][0]['camera'];return plan,['a']
     monkeypatch.setattr(upstream,'rebuild_clips',rebuild)
     monkeypatch.setattr(upstream,'convert',lambda clip,**kw:clip.update(prompt_h3='reveals recording phone'))
     monkeypatch.setattr(upstream,'check_request',lambda *a:{'consistent':True,'problems':[]})
@@ -151,6 +151,8 @@ def test_ordinary_implicit_expression_view_keeps_existing_hd_face_without_third_
     assert refs[1]['view']=='expressions' and '@图片2定五官' in bindings[0]
 
 
+
+
 def test_zero_video_budget_returns_bad_retake_to_agent_for_source_action(tmp_path,monkeypatch):
     from novel_manga.application.repair import agent,managed,upstream
     from novel_manga.repair.proposal import RepairProposal
@@ -166,3 +168,57 @@ def test_zero_video_budget_returns_bad_retake_to_agent_for_source_action(tmp_pat
     result=managed.prepare_agent_batch(d,['a'])
     assert len(calls)==2 and calls[1][0]['stage']=='video_budget'
     assert result['input_changed']==['a'] and result['skip_render'] and result['changed']==[]
+
+
+def test_catalog_only_exposes_assets_and_source_suggestions_usable_by_current_clip(tmp_path):
+    from novel_manga.application.repair import upstream
+    d,s,p,c,source=setup_case(tmp_path);c['references']=[{'role':'location','name':'pool'}]
+    atomic_write_json(d/'repair_candidates.json',{'assets':[
+        {'id':'water','role':'location','name':'display','binding':{'role':'location','name':'pool'}},
+        {'id':'wardrobe','role':'wardrobe','name':'display','binding':{'role':'character','name':'A'}}],
+        'source_suggestions':[{'clip_id':'a'},{'clip_id':'b'}]})
+    visible=upstream.catalog_for_clip(d,c)
+    assert [a['id']for a in visible['assets']]==['water']
+    assert visible['source_suggestions']==[{'clip_id':'a'}]
+
+
+def test_compiler_boilerplate_drift_is_not_a_new_source_effect(tmp_path,monkeypatch):
+    from novel_manga.application.repair import upstream
+    d,s,p,c,source=setup_case(tmp_path)
+    monkeypatch.setattr(upstream,'check_source',lambda *a:{'consistent':True,'problems':[]})
+    def rebuild(*a,**kw):
+        value=copy.deepcopy(p);value['clips'][0]['prompt']='current compiler boilerplate';return value,['a']
+    monkeypatch.setattr(upstream,'rebuild_clips',rebuild)
+    monkeypatch.setattr(upstream,'convert',lambda *a,**kw:pytest.fail('no candidate effect, do not translate/render'))
+    with pytest.raises(ValueError,match='candidate input effect'):
+        upstream.input_proposal(d,p,c,{'source_quote':source,'shots':[{'index':1,'camera':'metadata not compiled'}]})
+    assert read_json(d/'clip_plan.json')==p
+
+
+def test_scope_is_a_ceiling_only_directly_changed_shots_are_rebuilt(tmp_path,monkeypatch):
+    from novel_manga.application.repair import upstream
+    d,s,p,c,source=setup_case(tmp_path)
+    monkeypatch.setattr(upstream,'check_source',lambda *a:{'consistent':True,'problems':[]})
+    calls=[]
+    def rebuild(directory,bible,script,plan,targets,**kw):
+        calls.append(targets);value=copy.deepcopy(p);value['clips'][0]['prompt']=script['shots'][0]['visual_prompt'];return value,['a']
+    monkeypatch.setattr(upstream,'rebuild_clips',rebuild)
+    monkeypatch.setattr(upstream,'convert',lambda clip,**kw:clip.update(prompt_h3='compiled'))
+    monkeypatch.setattr(upstream,'check_request',lambda *a:{'consistent':True,'problems':[]})
+    monkeypatch.setattr(upstream,'check_compilation',lambda *a:{'consistent':True,'problems':[]})
+    out=upstream.input_proposal(d,p,c,{'clip_ids':['a','b'],'source_quote':source,'shots':[{'index':1,'visual_prompt':'new actual action'}]})
+    assert calls==[{'a'},{'a'}] and out.changed==['a'] and out.plan['clips'][1]==p['clips'][1]
+
+
+def test_multi_clip_source_candidate_is_not_prepared_twice_before_render(tmp_path,monkeypatch):
+    from novel_manga.application.repair import agent,managed,upstream
+    from novel_manga.repair.proposal import RepairProposal
+    from tests.test_repair_agent import configured
+    d,clips,_=configured(tmp_path);calls=[]
+    def propose(directory,clip,*args,**kw):
+        calls.append(clip['clip_id']);return {'action':'input','reason':'shared source correction','evidence':['source']}
+    monkeypatch.setattr(agent,'propose',propose)
+    plan=read_json(d/'clip_plan.json');plan['clips'][0]['prompt']='a new';plan['clips'][1]['prompt']='b new'
+    monkeypatch.setattr(upstream,'input_proposal',lambda *a:RepairProposal({'changed':['a','b']},script=read_json(d/'chapter_script.json'),plan=plan,notes={},changes={}))
+    out=managed.prepare_agent_batch(d,['a','b'])
+    assert calls==['a'] and out['input_changed']==['a','b']

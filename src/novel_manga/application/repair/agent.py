@@ -19,7 +19,7 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v6-request-lane-source-reference-audio-actions'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v7-request-lane-scoped-upstream-material-effects'
 MAX_CANDIDATES = 3
 
 
@@ -321,7 +321,7 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
     evidence['video_reader']='python3 tools/video_frames.py take-1 --seconds 2.0'
     current = next((t for t in evidence['takes'] if t['current']), {})
     from novel_manga.application.repair import upstream
-    choices=copy.deepcopy(upstream.catalog(directory))
+    choices=upstream.catalog_for_clip(directory,clip)
     for number,asset in enumerate(choices.get('assets',[]),1):
         source=Path(asset['path'])
         if not source.is_absolute():source=directory.parent/source

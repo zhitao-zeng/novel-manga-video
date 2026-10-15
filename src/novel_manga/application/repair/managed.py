@@ -156,6 +156,7 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
     history.adopt_reviewed_run(directory)
     initial_count = len(history.load(directory)['trials'])
     for cid in targets:
+        if cid in input_changed:continue
         counts = generated_counts(history.load(directory))
         if counts.get(cid, 0) >= generation_limit(directory, cid) and not upstream.available(directory,cid):
             blocked[cid] = 'effective clip retry budget used'
