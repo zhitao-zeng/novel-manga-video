@@ -42,8 +42,13 @@ def records(directory,cid):
     return [read_json(p,{}) for p in (directory/'work/input_repairs').glob(f'{cid}-upstream-*.json')]
 
 
+def limit(directory,cid):
+    from novel_manga.application.repair.history import input_limit
+    return input_limit(directory,cid,default=2)
+
+
 def available(directory,cid):
-    return len(records(directory,cid))<2
+    return len(records(directory,cid))<limit(directory,cid)
 
 
 def record(directory,cid,decision,result):

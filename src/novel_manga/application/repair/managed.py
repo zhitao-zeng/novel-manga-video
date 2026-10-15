@@ -57,7 +57,15 @@ def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inpu
     from novel_manga.application.preparation.request_check import POLICY as INPUT_POLICY
     from novel_manga.application.repair.agent import enabled, FRAME_HANDOFF_POLICY, request_lane, load_config
     runtime=load_config() if enabled(directory) else None
+    allowances={}
+    if runtime is not None:
+        cid=clip['clip_id'];video_limit=generation_limit(directory,cid);upstream_limit=upstream.limit(directory,cid)
+        allowances={'video_limit':video_limit,
+                    'video_remaining':max(0,video_limit-history.generation_counts(directory).get(cid,0)),
+                    'upstream_limit':upstream_limit,
+                    'upstream_remaining':max(0,upstream_limit-len(upstream.records(directory,cid)))}
     return {**({'repair_evidence_policy': FRAME_HANDOFF_POLICY, 'request_lane': request_lane(clip),
+                'repair_allowances':allowances,
                 'repair_runtime':{**{k:runtime.get(k) for k in ('model','effort','context_window','max_thinking_tokens','repair_extra_body')}, 'tool_choice':{'type':'auto','disable_parallel_tool_use':True}}}
                if runtime is not None else {}),
             **({'upstream_candidates':upstream.catalog(directory)} if runtime is not None else {}),

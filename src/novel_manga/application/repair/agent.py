@@ -335,7 +335,7 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
             (ref.get('role'),ref.get('name'))==(binding.get('role'),binding.get('name'))]
     from novel_manga.application.repair.history import generation_counts,generation_limit
     choices['video_remaining']=max(0,generation_limit(directory,clip['clip_id'])-generation_counts(directory).get(clip['clip_id'],0))
-    choices['upstream_remaining']=max(0,2-len(upstream.records(directory,clip['clip_id'])))
+    choices['upstream_remaining']=max(0,upstream.limit(directory,clip['clip_id'])-len(upstream.records(directory,clip['clip_id'])))
     from novel_manga.application.review.final_dispute import available as dispute_available
     choices['final_dispute_remaining']=int(dispute_available(directory,clip['clip_id']))
     choices['source_patch_fields']=sorted(upstream.SHOT_FIELDS)
