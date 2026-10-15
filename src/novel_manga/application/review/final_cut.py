@@ -7,40 +7,20 @@ import subprocess
 import time
 from pathlib import Path
 
-from novel_manga.application.profiles import plan_fingerprint, h3_prompt_fingerprint
 from novel_manga.llm import client as model
 from novel_manga.llm.config import ENDPOINTS, endpoint_settings
 from novel_manga.media.speech_repair import merge_note
 from novel_manga.review.contracts import MAX_IMAGES
-from novel_manga.review.storage import take_identity
 from novel_manga.util import atomic_write_json, read_json
 
-POLICY='final-movie-v2-approved-postproduction-caption-origin'
-
-
-def context(directory, media, movie):
-    directory=Path(directory)
-    plan=read_json(directory/'clip_plan.json',{})
-    native=read_json(directory/'episode_review.json',{}).get('clips',{})
-    return {'movie':take_identity(Path(movie)), 'plan':plan_fingerprint(plan),
-            'h3':h3_prompt_fingerprint(plan),
-            'script':read_json(directory/'chapter_script.json',{}),
-            'bible':read_json(directory.parent/'story_bible.json',{}),
-            'layout':read_json(directory.parent/'layout.json',{}),
-            'notes':read_json(directory/'review_feedback.json',{}),
-            'references':{ref['path']:take_identity(directory.parent/ref['path'])
-                          for clip in plan.get('clips',[]) for ref in clip.get('references',[])},
-            'native_judgments':{cid:{k:row.get(k) for k in ('verify','policy','review_mode','scripted','story_ok','story_issue','feedback')}
-                                for cid,row in native.items()},
-            'takes':{r['clip_id']:(take_identity(Path(r['selected']['video']))
-                                  if (r.get('selected') or {}).get('video') else None)
-                     for r in media.get('clips',[])},
-            'speech_chunks':{r['clip_id']:(r.get('selected') or {}).get('chunks',[]) for r in media.get('clips',[])}}
+from .movie_context import POLICY, context
 
 
 def current(directory, media, final):
+    from . import independent
     return bool(isinstance(final,dict) and final.get('movie') and final.get('policy')==POLICY
-                and final.get('context')==context(directory,media,final.get('movie','')))
+                and final.get('context')==context(directory,media,final.get('movie',''))
+                and independent.current(directory,final))
 
 
 def apply_feedback(directory, review, final):
@@ -139,7 +119,12 @@ def review_assembly(runner, media, *, receipt=None):
     (root/'owner').write_text('existing reviewed pipeline: final movie observations; no manual shot repair\n')
     before=context(directory,media,movie)
     cached=read_json(directory/'final_cut_review.json',{})
-    if cached.get('context')==before and cached.get('policy')==POLICY and cached.get('complete') is True:return cached
+    from . import independent
+    if (cached.get('context')==before and cached.get('policy')==POLICY
+            and cached.get('automatic_review',cached).get('complete') is True):
+        cached=independent.combine(directory,cached)
+        atomic_write_json(directory/'final_cut_review.json',cached)
+        return cached
     target=root/f'review-{len(list(root.glob("review-*")))+1:03d}';target.mkdir()
     final={'policy':POLICY,'movie':str(movie),'context':before,'complete':False,'passed':False,
            'frames':[],'groups':[],'responses':[],'issues':[],'errors':[],
@@ -231,4 +216,5 @@ def review_assembly(runner, media, *, receipt=None):
         final.update(complete=True,passed=not final['issues'])
     except Exception as error:
         final['errors'].append(type(error).__name__+': '+str(error)[:250])
+    final=independent.combine(directory,final)
     save();return final

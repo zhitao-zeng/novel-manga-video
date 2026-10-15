@@ -87,6 +87,8 @@ def publish_if_ready(directory: Path, review: dict, takes: dict) -> bool:
         relocated = copy.deepcopy(final_review)
         relocated['movie'] = str(final)
         relocated['context'] = final_cut.context(directory, media, final)
+        from novel_manga.application.review import independent
+        independent.relocate(directory, relocated)
         media['final_cut_review'] = relocated
         atomic_write_json(directory/'final_cut_review.json', relocated)
     if assembly.get("media_qc"):

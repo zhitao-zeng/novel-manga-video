@@ -9,7 +9,7 @@ import shutil
 import time
 from pathlib import Path
 
-from novel_manga.application.agents.sandbox import load_config, run_agent
+from novel_manga.application.agents.sandbox import load_config, run_agent, protocol_failure
 from novel_manga.application.configuration import project_root
 from novel_manga.application.profiles import h3_stamp
 from novel_manga.repair.proposal import RepairProposal
@@ -406,19 +406,3 @@ def final_proposal(directory, plan, clip, decision):
     return RepairProposal(result={'changed':[clip['clip_id']],'why':decision['reason']},
                           script=read_json(directory/'chapter_script.json',{}),plan=candidate,notes=notes,
                           changes={clip['clip_id']:decision})
-
-
-def protocol_failure(attempt):
-    """Only the observed CLI protocol failure can continue, under the same window."""
-    directory=getattr(attempt,'directory',None)
-    if directory is None:return None
-    path=Path(directory)/'session.jsonl'
-    if not path.is_file():return None
-    result=None
-    for line in path.open():
-        try:row=json.loads(line)
-        except json.JSONDecodeError:continue
-        if row.get('type')=='result':result=row
-    if result and result.get('terminal_reason')=='malformed_tool_use_exhausted':
-        return result['terminal_reason']
-    return None

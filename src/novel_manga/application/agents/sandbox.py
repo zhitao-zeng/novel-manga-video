@@ -239,3 +239,19 @@ def run_agent(run: str, *, skills: str = "", config: dict | None = None, model: 
         + (f"（output/ 里另有 {kept} 个是更早的尝试留下的）" if kept else ""))
     return Attempt(run=run, directory=attempt, exit_code=code, seconds=elapsed,
                    produced=produced, kept=kept, record=record)
+
+
+def protocol_failure(attempt):
+    """Only the observed CLI protocol failure can continue, under the same window."""
+    directory=getattr(attempt,'directory',None)
+    if directory is None:return None
+    path=Path(directory)/'session.jsonl'
+    if not path.is_file():return None
+    result=None
+    for line in path.open():
+        try:row=json.loads(line)
+        except json.JSONDecodeError:continue
+        if row.get('type')=='result':result=row
+    if result and result.get('terminal_reason')=='malformed_tool_use_exhausted':
+        return result['terminal_reason']
+    return None

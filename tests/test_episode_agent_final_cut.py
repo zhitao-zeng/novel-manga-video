@@ -163,3 +163,33 @@ def test_highlevel_native_keep_does_not_clear_current_final_cut_findings(host,mo
     assert result['ok'] is False and 'native keep cannot resolve current final-cut' in result['blocked']['clip_01']
     assert result['accepted']==[] and history.generation_counts(ctx.episode_dir)==counts
     assert read_json(ctx.episode_dir/'episode_review.json')['final_cut_feedback']['clip_01']
+
+
+def test_independent_art_findings_block_novel_finish_and_reach_episode_agent(host, monkeypatch, tmp_path):
+    from novel_manga.application.review import independent
+    ctx,tools,events,state=host
+    tools.dispatch('render'); counts=history.generation_counts(ctx.episode_dir)
+    final=read_json(ctx.episode_dir/'final_cut_review.json')
+    image=tmp_path/'actual-final.jpg'; image.write_bytes(b'actual assembled frame fixture')
+    frame={'path':str(image),'clip_id':'clip_01','seconds':2.5,'label':'middle','shot_indexes':[1]}
+    final['frames']=[frame]; atomic_write_json(ctx.episode_dir/'final_cut_review.json',final)
+    raw={'movie':final['movie'],'complete':True,'passed':False,'observations':['the sole camera phone is visible'],
+         'frames':[frame],'issues':[{'id':'phone','clip_ids':['clip_01'],'problem':'sole recording phone visible',
+         'source_basis':'approved single phone viewpoint','evidence':'actual current final frame',
+         'frame_paths':[str(image)]}]}
+    independent.register(ctx.episode_dir,read_json(ctx.episode_dir/'thin_media_report.json'),raw)
+    # A Qwen-only final result must not bypass a required independent result.
+    assert tools.dispatch('finish')['passed'] is False
+    fake_qwen=final_cut.review_assembly
+    def both(runner,report,**kwargs):
+        result=fake_qwen(runner,report,**kwargs); result['frames']=[frame]
+        return independent.combine(ctx.episode_dir,result)
+    monkeypatch.setattr(final_cut,'review_assembly',both)
+    review=tools.dispatch('review')
+    assert 'sole recording phone visible' in review['feedback']['clip_01']
+    assert tools.dispatch('finish')['passed'] is False
+    atomic_write_json(ctx.work_dir/'output/repair.json',{'decisions':[
+        {'clip_id':'clip_01','action':'keep','reason':'native take already passed'}]})
+    applied=tools.dispatch('apply')
+    assert not applied['ok'] and 'native keep cannot resolve' in applied['blocked']['clip_01']
+    assert history.generation_counts(ctx.episode_dir)==counts
