@@ -45,7 +45,8 @@ def validate(answer, frames, *, previous=()):
                 or not row.get('frame_paths') or any(p not in by_path for p in row['frame_paths'])
                 or not set(issue['clip_ids']) <= {by_path[p]['clip_id'] for p in row['frame_paths']}):
             raise ValueError('independent recheck omitted a prior finding or its current picture evidence')
-        if row['status'] == 'present' and not any(r.get('prior_id') == issue['id'] for r in answer['issues']):
+        if row['status'] == 'present' and not any(
+                r.get('prior_id') == issue['id'] or r.get('id') == issue['id'] for r in answer['issues']):
             raise ValueError('independent recheck dropped a finding it still observes')
 
 

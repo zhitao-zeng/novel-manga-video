@@ -100,6 +100,16 @@ def test_current_movie_review_must_explicitly_resolve_every_prior_finding(tmp_pa
     independent.validate(answer, final['frames'], previous=raw['issues'])
 
 
+def test_retained_issue_id_is_a_complete_prior_link_without_duplicate_field(tmp_path, monkeypatch):
+    runner, media, final, raw = setup(tmp_path, monkeypatch)
+    answer={**copy.deepcopy(raw),'prior_findings':[{'id':'phone','status':'present','evidence':'same current camera defect',
+                                   'frame_paths':[raw['frames'][0]['path']]}]}
+    independent.validate(answer,final['frames'],previous=raw['issues'])
+    answer['issues'][0]['id']='unrelated-finding'
+    with pytest.raises(ValueError,match='dropped a finding'):
+        independent.validate(answer,final['frames'],previous=raw['issues'])
+
+
 def test_independent_failure_respects_exhausted_original_video_limit(tmp_path, monkeypatch):
     runner, media, final, raw = setup(tmp_path, monkeypatch)
     independent.register(tmp_path, media, raw)
