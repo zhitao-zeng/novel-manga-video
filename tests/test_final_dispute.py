@@ -193,6 +193,60 @@ def test_picture_dispute_cannot_overrule_measured_audio_issue(tmp_path, monkeypa
         final_dispute_review.adjudicate(tmp_path, 'a', {'reason': 'silent', 'evidence': ['JPEG']})
 
 
+@pytest.mark.parametrize('next_action', ['keep', 'stop'])
+def test_exhausted_upstream_candidate_gets_feedback_before_dispute_or_stop(tmp_path, monkeypatch, next_action):
+    from tests.test_repair_agent import configured
+    from novel_manga.application.repair import agent, managed, history, upstream
+    directory, clips, _ = configured(tmp_path)
+    movie = directory/'movie.mp4'; movie.write_bytes(b'current movie')
+    image = directory/'frame.jpg'; image.write_bytes(b'current movie frame')
+    media = read_json(directory/'thin_media_report.json')
+    issue = {'id': 'phone', 'clip_ids': ['a'], 'problem': 'phone visible', 'source_basis': 'sole camera',
+             'evidence': 'claimed screen', 'frame_paths': [str(image)]}
+    final = {'movie': str(movie), 'policy': final_cut.POLICY, 'context': final_cut.context(directory, media, movie),
+             'complete': True, 'passed': False, 'issues': [issue], 'errors': [],
+             'frames': [{'clip_id': 'a', 'path': str(image), 'seconds': 2.5, 'label': 'middle'}]}
+    atomic_write_json(directory/'final_cut_review.json', final)
+    atomic_write_json(directory/'episode_review.json', final_cut.apply_feedback(
+        directory, read_json(directory/'episode_review.json'), final))
+    record = history.load(directory); record['prior_generation_counts'] = {'clips': {'a': 4}}
+    history.save(directory, record)
+    atomic_write_json(directory/'repair_budget_grants.json', {'a': {'limit': 4, 'reason': 'existing authorized take'}})
+    for _ in range(2): upstream.record(directory, 'a', {}, {})
+    review = read_json(directory/'episode_review.json')
+    old_state = managed.input_state(directory, clips[0], review['clips']['a'],
+                                    managed.current_takes(directory, {'clips': clips}, review))
+    old_state['repair_evidence_policy'] = 'same-take-frames-v8-active-reference-aliases-and-staged-inputs'
+    atomic_write_json(directory/'repair_routing.json', {'a': {
+        'status': 'blocked', 'reason': 'upstream repair allowance used', 'inputs': old_state}})
+    assert 'a' in managed.candidates(directory)[0]
+    names = ('chapter_script.json', 'clip_plan.json', 'repair_history/history.json', 'repair_budget_grants.json')
+    before = {name: (directory/name).read_bytes() for name in names}
+    candidates = []; observations = []
+    def propose(*args, rejections=None):
+        candidates.append(rejections or [])
+        assert len(candidates) <= 2
+        return {'action': 'input' if len(candidates) == 1 else next_action,
+                'reason': 'verify current phone evidence', 'evidence': ['current JPEG']}
+    monkeypatch.setattr(agent, 'propose', propose)
+    monkeypatch.setattr(upstream, 'input_proposal', lambda *a: pytest.fail('exhausted input must not execute'))
+    def observe(d, current, *, dispute):
+        observations.append('independent')
+        return resolution(current, dispute['findings'], extra=True)
+    monkeypatch.setattr(independent, 'observe', observe)
+    result = managed.prepare_agent_batch(directory, ['a'])
+    assert len(candidates) == 2 and candidates[1][0]['stage'] == 'upstream_budget'
+    feedback = str(candidates[1][0])
+    assert 'video_remaining=0' in feedback and 'keep' in feedback and 'stop' in feedback
+    assert result['skip_render'] and result['changed'] == []
+    assert observations == (['independent'] if next_action == 'keep' else [])
+    assert result['review_changed'] is (next_action == 'keep')
+    if next_action == 'stop': assert 'agent stopped' in result['blocked']['a']
+    assert read_json(directory/'final_cut_review.json')['passed'] is False
+    assert {name: (directory/name).read_bytes() for name in names} == before
+    assert history.generation_counts(directory)['a'] == 4
+
+
 def test_dispute_resolution_survives_cached_recombine_and_controlled_movie_publication(tmp_path, monkeypatch):
     from novel_manga.application.review import final_dispute
     media, final = current_case(tmp_path, monkeypatch)

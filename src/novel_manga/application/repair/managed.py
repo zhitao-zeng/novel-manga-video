@@ -213,7 +213,16 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
                     if action == 'stop':raise ValueError('agent stopped: '+decision['reason'])
                     if action in {'input','asset','audio'}:
                         if not upstream.available(directory,cid):
-                            raise ValueError('upstream repair allowance used; preserve history and unresolved evidence')
+                            remaining=max(0,generation_limit(directory,cid)-generated_counts(history.load(directory)).get(cid,0))
+                            dispute_remaining=int(final_dispute.available(directory,cid))
+                            raise agent.CandidateRejected(
+                                f'upstream_remaining=0; video_remaining={remaining}; final_dispute_remaining={dispute_remaining}. '
+                                'input/asset/audio are unavailable: upstream repair allowance is exhausted. '
+                                'edit/retake are allowed only with existing video_remaining > 0. '
+                                'For a disputed current final-movie finding, keep requires actual current JPEG evidence '
+                                'and final_dispute_remaining > 0; it requests independent review, not acceptance. '
+                                'Otherwise stop with the unresolved evidence. No allowance is added or reset.',
+                                decision,stage='upstream_budget')
                         if action=='audio':
                             result=upstream.adopt_audio(directory,clip,decision)
                             assembly_changed=assembly_changed or result['assembly_changed']

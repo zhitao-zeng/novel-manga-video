@@ -19,7 +19,7 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v9-request-lane-active-reference-aliases'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v10-request-lane-upstream-budget-feedback'
 MAX_CANDIDATES = 3
 
 
