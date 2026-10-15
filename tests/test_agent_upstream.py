@@ -51,6 +51,30 @@ def test_unreviewed_reference_cannot_be_selected(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match='review|image|图片'):upstream.input_proposal(d,p,c,{'action':'input','source_quote':source,'assets':[{'candidate_id':'body'}]})
 
 
+def test_existing_reviewed_asset_can_cite_its_approved_design_source(tmp_path,monkeypatch):
+    from novel_manga.application.repair import upstream
+    from PIL import Image
+    d,s,p,c,source=setup_case(tmp_path);c['references']=[{'role':'location','name':'pool','path':'old.jpeg'}]
+    image=d/'water.png';Image.new('RGB',(8,8)).save(image)
+    quote='Approved setting: continuous shallow water, no dry bank.'
+    atomic_write_json(d/'repair_candidates.json',{'assets':[{'id':'water','role':'location','name':'pool',
+        'path':str(image),'source_quote':quote,'review':{'consistent':True,'problems':[]}}]})
+    def check_source(text,cited,*args):
+        assert cited==quote and quote in text
+        return {'consistent':True,'problems':[]}
+    monkeypatch.setattr(upstream,'check_source',check_source)
+    def rebuild(*args,**kwargs):
+        value=copy.deepcopy(args[3]);entry=value['clips'][0]
+        if entry.get('override'):entry['references'][0]['path']=str(image)
+        return value,['a']
+    monkeypatch.setattr(upstream,'rebuild_clips',rebuild)
+    monkeypatch.setattr(upstream,'convert',lambda clip,**kw:clip.update(prompt_h3='correct setting'))
+    monkeypatch.setattr(upstream,'check_request',lambda *a:{'consistent':True,'problems':[]})
+    monkeypatch.setattr(upstream,'check_compilation',lambda *a:{'consistent':True,'problems':[]})
+    result=upstream.input_proposal(d,p,c,{'source_quote':quote,'assets':[{'candidate_id':'water'}]})
+    assert result.changed==['a'] and result.script==s
+
+
 def test_audio_adoption_preserves_plan_history_and_video_budget(tmp_path):
     from novel_manga.application.repair import upstream
     d,s,p,c,source=setup_case(tmp_path);audio=d/'ambience.wav'
@@ -73,11 +97,15 @@ def test_exhausted_video_still_prepares_source_without_render_permission(tmp_pat
     monkeypatch.setattr(agent,'propose',lambda *a,**k:{'action':'input','reason':'fix source','evidence':['input/primary.json'],'source_quote':'source','shots':[]})
     from novel_manga.repair.proposal import RepairProposal
     new=copy.deepcopy(read_json(d/'clip_plan.json'));new['clips'][0]['prompt']='source corrected'
+    active=(d/'clip_plan.json').read_bytes();source=(d/'chapter_script.json').read_bytes()
     monkeypatch.setattr(upstream,'input_proposal',lambda *a:RepairProposal({'changed':['a']},script=read_json(d/'chapter_script.json'),plan=new,notes={},changes={'a':{'action':'input'}}))
     result=managed.prepare_agent_batch(d,['a'])
     assert result['input_changed']==['a'] and result['skip_render'] is True
     assert result['changed']==[] and 'a' in result['needs_video']
-    assert len(history.load(d)['trials'])==1
+    assert len(history.load(d)['trials'])==0
+    assert (d/'clip_plan.json').read_bytes()==active and (d/'chapter_script.json').read_bytes()==source
+    staged=list((d/'work/pending_inputs').glob('*.json'))
+    assert len(staged)==1 and read_json(staged[0])['proposal']['plan']==new
 
 
 def test_false_compiled_camera_is_rejected_before_publication(tmp_path,monkeypatch):

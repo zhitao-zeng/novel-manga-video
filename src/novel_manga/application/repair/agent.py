@@ -19,7 +19,7 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v7-request-lane-scoped-upstream-material-effects'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v8-request-lane-dispute-and-staged-inputs'
 MAX_CANDIDATES = 3
 
 
@@ -331,6 +331,8 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
     from novel_manga.application.repair.history import generation_counts,generation_limit
     choices['video_remaining']=max(0,generation_limit(directory,clip['clip_id'])-generation_counts(directory).get(clip['clip_id'],0))
     choices['upstream_remaining']=max(0,2-len(upstream.records(directory,clip['clip_id'])))
+    from novel_manga.application.review.final_dispute import available as dispute_available
+    choices['final_dispute_remaining']=int(dispute_available(directory,clip['clip_id']))
     choices['source_patch_fields']=sorted(upstream.SHOT_FIELDS)
     atomic_write_json(inputs/'upstream.json',choices)
     evidence['primary_reading'] = {

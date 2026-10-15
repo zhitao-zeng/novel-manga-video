@@ -21,6 +21,7 @@ import novel_manga.application.repair.history as history
 from novel_manga.story.h3 import request_issues, identity_issues, correction
 from novel_manga.application.repair.inputs import RepairInputs
 from novel_manga.application.repair import upstream
+from novel_manga.application.review import final_dispute
 
 from novel_manga.application.repair.history import MAX_GENERATED_TAKES, generated_counts, generation_limit
 REFRAME_POLICY = 'reframe-v3-reference-state-and-candidate-feedback'
@@ -60,6 +61,7 @@ def input_state(directory: Path, clip: dict, verdict: dict, takes: dict, *, inpu
                 'repair_runtime':{**{k:runtime.get(k) for k in ('model','effort','context_window','max_thinking_tokens','repair_extra_body')}, 'tool_choice':{'type':'auto','disable_parallel_tool_use':True}}}
                if runtime is not None else {}),
             **({'upstream_candidates':upstream.catalog(directory)} if runtime is not None else {}),
+            **({'final_dispute_available':final_dispute.available(directory, clip['clip_id'])} if runtime is not None else {}),
             **({'final_cut':copy.deepcopy(verdict['final_cut'])} if verdict.get('final_cut') else {}),
             'reframe_policy': REFRAME_POLICY, 'input_check_policy': INPUT_POLICY, 'clip':history.accepted_clip_material(clip),
             'note':inputs.notes.get(clip['clip_id'],''),
@@ -83,7 +85,8 @@ def candidates(directory: Path, review: dict | None = None) -> tuple[list[str],d
                 or not takes.get(cid) or verdict.get('video')!=takes[cid]['video'] or verdict.get('take')!=takes[cid]['take']):
             continue
         if (counts.get(cid,0)>=generation_limit(directory,cid,grants=grants)
-                and not (agent_enabled(directory) and upstream.available(directory,cid))):
+                and not (agent_enabled(directory) and (upstream.available(directory,cid)
+                                                       or final_dispute.available(directory,cid)))):
             blocked[cid]='effective clip retry budget used'
         else:
             previous = decisions.get(cid, {})
@@ -149,16 +152,19 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
     from novel_manga.application.preparation.request_check import request_consistency
     from novel_manga.application.profiles import plan_fingerprint
     from novel_manga.application.repair.source_recheck import prepare_source_recheck
+    from novel_manga.application.repair.pending_inputs import prepare_publication
     blocked = dict(blocked or {})
     changed, accepted, input_changed, needs_video = [], [], [], []
     assembly_changed = False
+    review_changed = False
     decisions = read(directory/'repair_routing.json', {})
     history.adopt_reviewed_run(directory)
     initial_count = len(history.load(directory)['trials'])
     for cid in targets:
         if cid in input_changed:continue
         counts = generated_counts(history.load(directory))
-        if counts.get(cid, 0) >= generation_limit(directory, cid) and not upstream.available(directory,cid):
+        if (counts.get(cid, 0) >= generation_limit(directory, cid)
+                and not upstream.available(directory,cid) and not final_dispute.available(directory,cid)):
             blocked[cid] = 'effective clip retry budget used'
             continue
         plan = read(directory/'clip_plan.json', {})
@@ -218,25 +224,26 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
                             except ValueError as error:
                                 raise agent.CandidateRejected(str(error),decision,stage='upstream_input') from error
                             require_current_inputs()
-                            publish_candidate(directory,proposal,'agent_input',set(proposal.changed))
+                            publication=prepare_publication(directory,proposal,'agent_input',counts=counts)
                             input_changed.extend(proposal.changed)
-                            history.mark_extra_prepared(directory,proposal.changed)
-                            for key in proposal.changed:
-                                if history.extra_take_ready(directory,key):history.activate_extra_take(directory,key)
-                                if counts.get(key,0)<generation_limit(directory,key):changed.append(key)
-                                else:needs_video.append(key)
-                            result=proposal.result
+                            if publication['published']:changed.extend(proposal.changed)
+                            else:needs_video.extend(proposal.changed)
+                            result={**proposal.result,**publication}
                         upstream.record(directory,cid,decision,result)
                     elif action == 'keep':
                         if (verdict.get('final_cut') or {}).get('issues'):
-                            raise agent.CandidateRejected(
-                                'keep 只复查原生片，不能解除当前实际成片的终审问题；'
-                                '请针对已提供的成片证据提出具体输入修复/retake，或有依据地 stop。'
-                                '未解决问题：'+str(verdict['final_cut']['issues']),
-                                decision,stage='unresolved_final_keep')
-                        result = prepare_source_recheck(directory, [cid])
+                            if not decision.get('evidence'):
+                                raise agent.CandidateRejected(
+                                    '终审争议需要当前实际成片JPEG的证据；原生片通过不能解除终审问题。'
+                                    '请指出具体当前画面和争议，或按实际问题提出修复/stop。',
+                                    decision, stage='unresolved_final_keep')
+                            from novel_manga.application.review.final_dispute_review import adjudicate
+                            result = adjudicate(directory, cid, decision)
+                            review_changed = review_changed or result['review_changed']
+                        else:
+                            result = prepare_source_recheck(directory, [cid])
+                            changed.extend(result['changed']);accepted.extend(result['accepted'])
                         candidate_row['recheck_result'] = copy.deepcopy(result)
-                        changed.extend(result['changed']);accepted.extend(result['accepted'])
                     else:
                         try:require_video_budget()
                         except ValueError as error:
@@ -298,6 +305,7 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
     if len(record['trials'])>initial_count: history.save(directory,record)
     result={'changed':list(dict.fromkeys(changed)), 'input_changed':list(dict.fromkeys(input_changed)),
             'needs_video':list(dict.fromkeys(needs_video)), 'assembly_changed':assembly_changed,
+            'review_changed':review_changed,
             'accepted':accepted, 'blocked':blocked,
             'service_failures':{cid:blocked[cid] for cid in targets if cid in blocked
                                 and decisions.get(cid,{}).get('retryable_service_failure')},

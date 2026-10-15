@@ -108,7 +108,9 @@ def input_proposal(directory,plan,clip,decision):
     for patch in patches:
         index=patch.get('index')
         if index not in indexes or index in seen or set(patch)-{'index'}-SHOT_FIELDS:
-            raise ValueError('source patch changes protected fields or outside current clip scope')
+            raise ValueError(f'invalid source patch {patch}: allowed shot indexes={sorted(indexes)}; '
+                             f'allowed fields={sorted(SHOT_FIELDS)}. Write actual field:text pairs, '
+                             'not supported_source_fields. For reference-only selection omit shots entirely.')
         if any(not isinstance(v,str) for k,v in patch.items() if k!='index'):
             raise ValueError('source patch fields must be text')
         if any(index in c.get('shot_indexes',[]) and c['clip_id'] not in targets for c in plan['clips']):
@@ -117,6 +119,9 @@ def input_proposal(directory,plan,clip,decision):
     assets=_selected_assets(directory,decision.get('assets')or[],chosen)
     if not patches and not assets:raise ValueError('input repair has no source or reference correction')
     quote=str(decision.get('source_quote')or'').strip();source=source_text(directory,script)
+    # Selecting an already independently reviewed asset may cite that asset's
+    # approved design passage; it need not also occur in this scene's dialogue.
+    source+='\n'+'\n'.join(str(a.get('source_quote')or'') for a in assets)
     if not quote or quote not in source:raise ValueError('input repair requires a verbatim source quote')
     # clip_ids permits a scope; it does not ask the current compiler to refresh every entry.
     targets={c['clip_id'] for c in chosen if seen.intersection(c.get('shot_indexes',[])) or any(
