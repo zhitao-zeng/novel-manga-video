@@ -59,6 +59,23 @@ def test_final_failure_is_not_cleared_by_native_keep(tmp_path,monkeypatch):
     assert out['quality_review']['remaining']==['a']
 
 
+def test_old_failed_final_does_not_erase_native_readiness_for_new_assembly(tmp_path,monkeypatch):
+    runner,report,movie=fixture(tmp_path,monkeypatch)
+    monkeypatch.setattr(reviewed.managed,'candidates',lambda *a:([],{}))
+    out=reviewed.run(runner,repair_existing=True,final_review=lambda m:verdict(movie,False))
+    assert out['quality_review']['native_content_passed'] is True
+    native=json.loads((tmp_path/'episode_review.json').read_text())
+    native['feedback']={};native.pop('final_cut_feedback',None);native.pop('native_feedback_before_final',None)
+    report['clips'][0]['selected']['video']=str(tmp_path/'new-take.mp4')
+    (tmp_path/'new-take.mp4').write_bytes(b'new native take')
+    # A fresh native recheck has no final feedback for the changed take.
+    native['clips']['a'].pop('final_cut',None)
+    from novel_manga.application.review.execution import save_result
+    out=save_result(tmp_path,report,native,plan=runner.context.clip_plan)
+    assert out['quality_review']['native_content_passed'] is True
+    assert out['quality_review']['content_passed'] is False
+
+
 def test_incomplete_final_review_does_not_start_blind_repair(tmp_path,monkeypatch):
     runner,report,movie=fixture(tmp_path,monkeypatch)
     monkeypatch.setattr(reviewed.managed,'candidates',lambda *a:([],{}))
@@ -86,3 +103,29 @@ def test_partial_final_findings_do_not_start_blind_repair(tmp_path,monkeypatch):
                             'complete':False,'errors':['later frame group service failed']})
     assert out['quality_review']['passed'] is False
     assert out['quality_review']['final_cut_complete'] is False
+
+
+def test_partial_repair_success_does_not_retry_unavailable_agent_in_same_run(tmp_path,monkeypatch):
+    runner,report,movie=fixture(tmp_path,monkeypatch);events=[]
+    runner.context.clip_plan['clips'].append({'clip_id':'b','kind':'video','shot_indexes':[2]})
+    (tmp_path/'clip_plan.json').write_text(json.dumps(runner.context.clip_plan))
+    report['clip_plan_fingerprint']=reviewed.plan_fingerprint(runner.context.clip_plan)
+    (tmp_path/'thin_media_report.json').write_text(json.dumps(report))
+    native=json.loads((tmp_path/'episode_review.json').read_text())
+    native['clips']['b']={**native['clips']['a']}
+    monkeypatch.setattr(reviewed,'_review',lambda *a,**k:json.loads(json.dumps(native)))
+    monkeypatch.setattr(reviewed.managed,'candidates',lambda d,r:(list(r['feedback']),{}))
+    def final(media):
+        result=verdict(movie,False)
+        if not events:result['issues'].append({**result['issues'][0],'clip_ids':['b']})
+        return result
+    def prepare(d,ids):
+        events.append(('prepare',ids))
+        return {'changed':['b'],'skip_render':False,'blocked':{'a':'API unavailable'},
+                'service_failures':{'a':'API unavailable'}}
+    monkeypatch.setattr(reviewed.managed,'prepare',prepare)
+    def render():events.append(('render','b'));movie.write_bytes(b'repaired b');return report
+    runner.run=render
+    out=reviewed.run(runner,repair_existing=True,final_review=final)
+    assert events==[('prepare',['a','b']),('render','b')]
+    assert out['quality_review']['blocked']['a']=='API unavailable'

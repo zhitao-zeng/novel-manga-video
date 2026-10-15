@@ -160,3 +160,17 @@ def test_current_independent_results_survive_controlled_publication_copy(tmp_pat
     combined['context'] = final_cut.context(tmp_path, media, published)
     independent.relocate(tmp_path, combined)
     assert final_cut.current(tmp_path, media, combined)
+
+
+def test_service_blocked_repair_does_not_reload_an_old_qwen_only_media_report(tmp_path, monkeypatch):
+    runner, media, final, raw = setup(tmp_path, monkeypatch)
+    media['final_cut_review'] = final
+    atomic_write_json(tmp_path/'thin_media_report.json', media)
+    independent.register(tmp_path, media, raw)
+    monkeypatch.setattr(reviewed.managed, 'candidates', lambda d, r: (list(r['feedback']), {}))
+    monkeypatch.setattr(reviewed.managed, 'prepare', lambda d, ids: {
+        'changed': [], 'accepted': [], 'blocked': {'a': 'API quota unavailable'}, 'skip_render': True})
+    result = reviewed.run(runner, repair_existing=True, final_review=lambda r: independent.combine(tmp_path, final))
+    assert result['final_cut_review']['independent_review']['issues'][0]['id'] == 'phone'
+    assert read_json(tmp_path/'thin_media_report.json')['final_cut_review'] == result['final_cut_review']
+    assert result['quality_review']['remaining'] == ['a']

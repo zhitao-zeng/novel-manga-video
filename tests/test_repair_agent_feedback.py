@@ -179,6 +179,23 @@ def test_service_failure_is_not_a_candidate_rejection_retry(tmp_path,monkeypatch
     assert audit(directory)['candidates'][0]['status']=='stopped'
 
 
+def test_sdk_service_failure_retries_only_on_next_explicit_resume_without_new_video_budget(tmp_path,monkeypatch):
+    directory,clips,_=configured(tmp_path);calls=[]
+    def propose(d,clip,verdict,*,rejections=None):
+        calls.append(1)
+        if len(calls)==1:raise agent.AgentUnavailable('repair agent unavailable: HTTP 402')
+        return candidate(clip)
+    monkeypatch.setattr(agent,'propose',propose)
+    monkeypatch.setattr(agent,'check_request',lambda *a:{'consistent':True,'problems':[]})
+    first=managed.prepare(directory,['a'])
+    assert calls==[1] and first['skip_render']
+    assert read_json(directory/'repair_routing.json')['a']['retryable_service_failure'] is True
+    assert 'a' in managed.candidates(directory)[0]
+    second=managed.prepare(directory,['a'])
+    assert calls==[1,1] and second['changed']==['a']
+    assert not any(managed.generated_counts(history.load(directory)).values())
+
+
 def test_budget_exhaustion_between_rejected_candidates_does_not_call_agent_again(tmp_path,monkeypatch):
     directory,clips,_=configured(tmp_path);calls=[]
     monkeypatch.setattr(agent,'propose',lambda *a,**k:calls.append(1) or candidate(a[1],wrong=True))

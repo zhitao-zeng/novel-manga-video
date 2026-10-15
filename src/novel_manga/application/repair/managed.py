@@ -79,7 +79,7 @@ def candidates(directory: Path, review: dict | None = None) -> tuple[list[str],d
             blocked[cid]='effective clip retry budget used'
         else:
             previous = decisions.get(cid, {})
-            if previous.get('status') == 'blocked':
+            if previous.get('status') == 'blocked' and not previous.get('retryable_service_failure'):
                 inputs = inputs if inputs is not None else RepairInputs.load(directory)
                 if previous.get('inputs') == input_state(directory, clip, verdict, takes, inputs=inputs):
                     blocked[cid] = previous.get('reason', 'preparation requires corrected inputs')
@@ -157,7 +157,8 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
         verdict = review.get('clips', {}).get(cid, {})
         before = input_state(directory, clip, verdict, current_takes(directory, plan, review))
         previous=decisions.get(cid,{})
-        if previous.get('status')=='blocked' and previous.get('inputs')==before:
+        if (previous.get('status')=='blocked' and not previous.get('retryable_service_failure')
+                and previous.get('inputs')==before):
             blocked[cid]=previous.get('reason','unchanged rejected repair')
             continue
         source_before = read(directory/'chapter_script.json', {})
@@ -250,6 +251,7 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
                 atomic_write_json(audit_path,proposal_log)
             blocked[cid] = str(error)[:350]
             decisions[cid] = {'status':'blocked', 'reason':blocked[cid], 'inputs':before,
+                              'retryable_service_failure':isinstance(error,agent.AgentUnavailable),
                               **({'candidate_audit':str(audit_path)} if proposal_log is not None else {})}
         atomic_write_json(directory/'repair_routing.json', decisions)
     record=history.load(directory); final_plan=read(directory/'clip_plan.json',{})
@@ -258,6 +260,8 @@ def prepare_agent_batch(directory: Path, targets: list[str], blocked=None) -> di
         trial.update(managed=True,expected_plan=plan_fingerprint(final_plan),expected_notes=copy.deepcopy(final_notes))
     if len(record['trials'])>initial_count: history.save(directory,record)
     result={'changed':list(dict.fromkeys(changed)), 'accepted':accepted, 'blocked':blocked,
+            'service_failures':{cid:blocked[cid] for cid in targets if cid in blocked
+                                and decisions.get(cid,{}).get('retryable_service_failure')},
             'skip_render':not changed, 'generated_counts':generated_counts(record)}
     atomic_write_json(directory/'managed_repair_report.json',result)
     return result

@@ -19,8 +19,12 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v4-request-lane-and-candidate-feedback'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v5-request-lane-independent-review-service-resume'
 MAX_CANDIDATES = 3
+
+
+class AgentUnavailable(ValueError):
+    """SDK execution/service failed; another explicit resume may retry unchanged inputs."""
 
 SECTIONS = ('subject_definitions', 'summary', 'retention_analysis', 'detailed_description',
             'overall_soundscape', 'non_diegetic_music')
@@ -375,7 +379,7 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
         recovery.update(continued_attempt=attempt.directory.name,ok=attempt.ok,produced=sorted(produced))
         atomic_write_json(work/'protocol-recovery.json',recovery)
     if not attempt.ok or 'decision.json' not in produced:
-        raise ValueError('repair agent did not produce a current decision')
+        raise AgentUnavailable('repair agent did not produce a current decision')
     answer=read_json(work/'output/decision.json',{})
     if answer.get('action') not in {'edit','retake','keep','stop'} or not answer.get('reason') or not answer.get('evidence'):
         raise ValueError('repair agent decision requires action, reason and evidence')

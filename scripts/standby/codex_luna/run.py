@@ -14,8 +14,10 @@ def main(argv=None):
     os.environ['PYTHONPATH'] = os.pathsep.join(paths + ([os.environ['PYTHONPATH']] if os.environ.get('PYTHONPATH') else []))
     import luna_transport
     import luna_session
+    import luna_sandbox
     luna_transport.install()
     luna_session.install()
+    luna_sandbox.install()
     from novel_manga.application.agents.episode.cli import main as episode_main
     return episode_main(argv)
 

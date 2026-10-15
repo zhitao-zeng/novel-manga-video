@@ -53,6 +53,7 @@ def _run(runner, *, repair_existing=False, final_review=None):
         history.adopt_reviewed_run(directory)
     review = _review(directory, fresh=not repair_existing)
     rounds, corrected, blocked = [], [], {}
+    deferred_services = {}
     final_review = final_review or (lambda media: final_cut.review_assembly(runner,media))
     def observe_final():
         nonlocal report,review
@@ -67,6 +68,11 @@ def _run(runner, *, repair_existing=False, final_review=None):
             review=final_cut.apply_feedback(directory,review,final)
             atomic_write_json(directory/'episode_review.json',review)
             atomic_write_json(directory/'final_cut_review.json',final)
+            # A blocked/keep preparation reloads this file before returning.
+            # Persist both review channels now, rather than reloading an old
+            # Qwen-only snapshot after a service failure with no new render.
+            report=save_result(directory,report,review,plan=ctx.clip_plan,
+                               rounds=rounds,corrections=corrected,blocked=blocked)
     counts=history.generation_counts(directory)
     # The history remains the limit. Allow a final-review round after the native
     # loop, rather than spending that opportunity on an arbitrary loop counter.
@@ -76,7 +82,10 @@ def _run(runner, *, repair_existing=False, final_review=None):
         observe_final()
         input_blocked = {}
         if report.get('blocked_clips') and not ctx.options.cache_only:
-            prepared_input = managed.prepare_request_conflicts(directory, report)
+            pending_report = {**report, 'blocked_clips':{cid: value for cid, value in report['blocked_clips'].items()
+                                                       if cid not in deferred_services}}
+            prepared_input = managed.prepare_request_conflicts(directory, pending_report)
+            deferred_services.update(prepared_input.get('service_failures') or {})
             input_blocked = prepared_input.get('blocked') or {}
             blocked = input_blocked
             if prepared_input.get('changed'):
@@ -87,10 +96,12 @@ def _run(runner, *, repair_existing=False, final_review=None):
                 review = _review(directory, fresh=False)
                 continue
         eligible, blocked = managed.candidates(directory, review)
-        blocked = {**input_blocked, **blocked}
+        eligible = [cid for cid in eligible if cid not in deferred_services]
+        blocked = {**input_blocked, **blocked, **deferred_services}
         if ctx.options.cache_only or not eligible:
             break
         prepared = managed.prepare(directory, eligible)
+        deferred_services.update(prepared.get('service_failures') or {})
         rounds.append(prepared); blocked.update(prepared.get('blocked') or {})
         corrected.extend(prepared.get('changed') or [])
         if prepared.get('skip_render'):
