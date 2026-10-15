@@ -25,6 +25,14 @@ def catalog_for_clip(directory,clip):
         binding=asset.get('binding')or asset
         return (binding.get('role'),binding.get('name')) in bindings
     value['assets']=[asset for asset in value.get('assets',[]) if usable(asset)]
+    for asset in value['assets']:
+        binding=asset.get('binding')or asset
+        asset['source_path']=str((directory.parent/asset['path']).resolve()) if asset.get('path') else None
+        selected=[ref for ref in clip.get('references',[]) if ref.get('path') and
+                  (ref.get('role'),ref.get('name'))==(binding.get('role'),binding.get('name')) and
+                  str((directory.parent/ref['path']).resolve())==asset['source_path']]
+        asset['currently_selected']=bool(selected)
+        asset['selected_reference_tags']=[ref['tag'] for ref in selected if ref.get('tag')]
     value['source_suggestions']=[row for row in value.get('source_suggestions',[]) if row.get('clip_id')==clip['clip_id']]
     value['current_reference_bindings']=[{'role':role,'name':name} for role,name in sorted(bindings)]
     return value
@@ -164,7 +172,19 @@ def input_proposal(directory,plan,clip,decision):
                    'action_bindings','wears_bindings','dialogue_bindings','audio_delivery','inner_voice')
     changed={c['clip_id'] for c in candidate['clips'] if c['clip_id'] in targets and any(
         c.get(field)!=base[c['clip_id']].get(field) for field in effect_fields)}
-    if not changed:raise ValueError('no candidate input effect beyond current compiler drift')
+    if not changed:
+        selected=[]
+        for current in chosen:
+            for asset in catalog_for_clip(directory,current)['assets']:
+                if asset['id'] in {a['id'] for a in assets} and asset['currently_selected']:
+                    selected.append(f'{current["clip_id"]}: candidate {asset["id"]} already selected at '
+                                    f'{asset["selected_reference_tags"]}; source_path={asset["source_path"]}')
+        detail=('; '+ '; '.join(selected)+
+                '. This selection is already active; sandbox filenames are aliases, not different assets. '
+                'Recheck actual current frames: selected input does not prove the video passed. '
+                'Use keep with picture evidence for an erroneous native finding; '
+                'if a real deviation remains and no video allowance is left, stop.') if selected else ''
+        raise ValueError('no candidate input effect beyond current compiler drift'+detail)
     candidate['clips']=[c if c['clip_id'] in changed else copy.deepcopy(old[c['clip_id']]) for c in candidate['clips']]
     notes=read_json(directory/'review_feedback.json',{})
     for target in candidate['clips']:

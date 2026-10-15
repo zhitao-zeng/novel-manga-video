@@ -19,7 +19,7 @@ from novel_manga.application.review.evidence import clip_frames
 from novel_manga.review.storage import take_identity
 from novel_manga.util import read_json, atomic_write_json
 
-FRAME_HANDOFF_POLICY = 'same-take-frames-v8-request-lane-dispute-and-staged-inputs'
+FRAME_HANDOFF_POLICY = 'same-take-frames-v9-request-lane-active-reference-aliases'
 MAX_CANDIDATES = 3
 
 
@@ -274,6 +274,7 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
         shutil.copy2(source,target)
         scope = read_json(source.with_suffix(source.suffix + '.origin.json'), {}).get('reference_scope')
         evidence['references'].append({**ref,'path':str(target.relative_to(work)),
+                                       'source_path':str(source.resolve()),
                                        **({'reference_scope':scope} if scope else {})})
     video = (row.get('selected') or {}).get('video') or verdict.get('video')
     videos = ([Path(video)] if video else []) + sorted((directory/'repair_history/takes'/clip['clip_id']).glob('*/clip.mp4'))[-3:]
@@ -328,6 +329,10 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
         target=inputs/f'candidate-asset-{number}{source.suffix}'
         shutil.copy2(source,target)
         asset['path']=str(target.relative_to(work))
+        binding=asset.get('binding')or asset
+        asset['selected_reference_paths']=[ref['path'] for ref in evidence['references']
+            if ref['source_path']==asset['source_path'] and
+            (ref.get('role'),ref.get('name'))==(binding.get('role'),binding.get('name'))]
     from novel_manga.application.repair.history import generation_counts,generation_limit
     choices['video_remaining']=max(0,generation_limit(directory,clip['clip_id'])-generation_counts(directory).get(clip['clip_id'],0))
     choices['upstream_remaining']=max(0,2-len(upstream.records(directory,clip['clip_id'])))
