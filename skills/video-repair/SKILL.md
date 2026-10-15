@@ -3,6 +3,35 @@ name: video-repair
 description: Diagnose a failed video clip from source, requests, images, actual takes and review history, then propose a bounded model-specific request correction.
 ---
 
+## Core repair principles
+
+- **Replace superseded logic.** When correcting timing, actions or states, rewrite
+  the affected description and remove the conflicting old instruction. Do not keep
+  both and append a contrary correction. Superseded clauses must be absent from
+  the final candidate: a later paragraph labelled "correction" does not remove
+  them, and presumed precedence between paragraphs does not resolve the defect.
+  Compatible new detail is allowed; read the complete repaired request as one plan.
+- **Use one chronology.** Describe an opening state, ordered actions and an ending
+  state. Within a continuous scene, carry that ending state into the next cut until
+  an authored action changes it. Do not replay a completed action to establish its
+  result again.
+- **Repair the evidenced cause.** Compare source, selected references, actual request
+  and current take. Correct the earliest supported defect. A bad take does not by
+  itself prove its inputs wrong; an old review claim is not current-frame evidence.
+  A filename or written observation does not prove that the model received an image.
+  For temporal or spatial defects, compare chronological raw/final evidence and
+  neighbouring cuts using fixed world landmarks; small contact sheets can hide
+  high-frequency movement, and screen left/right does not establish world seats.
+- **Distinguish validation from success.** Host `check` validates its reported
+  contract and permissions; it does not establish semantic consistency or a better
+  film. Before submission, judge whether the complete candidate follows these
+  principles. A replacement still needs actual independent acceptance.
+
+Apply these principles even when no matching case is retrieved. Individual cases
+are optional evidence for a remedy, not a prerequisite for the general rules.
+
+## Clip repair workflow
+
 The host already decoded the videos. When primary.final_cut is present, first inspect its supplied final-cut JPEGs and verify the reported issues against actual pictures and source_basis. Those timestamps are global seconds in the reviewed final movie and include any relevant neighbouring clip boundary; do not substitute native-take frames for final-movie continuity or blindly turn a report into a fact. Missing or inconclusive final-cut evidence requires stop with the precise missing evidence, or keep for an independently verified false positive. For native findings, start by reading the current take's JPEGs in evidence.takes[].frames; their seconds are sample times within that take. Use `python3 tools/video_frames.py take-1` or `--seconds 2.0` to locate supplied native frames. The time selector returns the nearest supplied sample, not a new exact-time extraction. Check each take's own request and ASR; reference cards are not actual generated footage. Do not use Read on MP4, install packages, probe system video libraries, or spend the repair window preparing tools. If images cannot support a decision, output stop with the precise missing evidence. Produce output/decision.json within this attempt even when blocked.
 
 Read input/primary.json first; input/evidence.json retains the full source and history. This task diagnoses and repairs one failed clip through its earliest wrong input within a 600-second execution window. Read input/upstream.json for actual reviewed alternatives and source/audio candidates; zero video balance still permits bounded input/audio repair. Start with the current frames, actual request, selected reference and inline target/neighbouring shots with their source facts. Historical takes, whole-episode source documents, interaction/overlay files and asset profiles are available for specific unresolved contradictions, not a mandatory reading list. Do not re-read an archived copy of the current render as if it were a prior generation. Once primary evidence supports input, asset, audio, edit, retake, keep or stop, write the final output immediately; do not spend the window exhausting auxiliary files. Use the shared request_rules supplied by the production compiler. Compare the actual picture with the intended shot; do not merely repeat the reviewer. A positive reference check is not proof of correct plot or object counts. Treat proposed generation causes as hypotheses unless supported by a direct input contradiction or controlled evidence; an omitted descriptive phrase alone does not prove why the model erred. Category changes can describe the same visible fault.
@@ -34,3 +63,17 @@ For `keep` disputing a final-movie finding, cite the actual supplied final JPEGs
 Repeated same defect after a corrected source/ref must stop for a changed strategy. Do not keep adding prohibitions or spend a new seed without a materially different supported input. Corrected inputs at zero video budget remain prepared with needs_video; the host alone may activate an explicitly authorized conditional take after validation. A stopped action never grants video permission.
 
 Identity portraits constrain only visible design. Do not infer hidden clothes/equipment are absent or replace current-phase wardrobe with an old full-body description. Check actual visible contradictions and current source facts.
+
+## Shared stability experience
+
+In the recorded Guangming754 repair, the street reference was replaced by the
+existing rooftop reference and an over-shoulder/frontal conflict was rewritten
+as a same-camera, single-person three-quarter front shot. One new take was then
+checked for native-frame motion, visible bodies and the remaining media gates.
+This composite result does not establish that one camera phrase cures shaking.
+In722 and752, fixed framing with localized subject movement yielded steadier
+takes;722 also required a further repair after a steady take introduced a cloned
+companion.752's formal targeted review remained incomplete, and722 retained an
+unresolved background-prop finding. Recorded improvement is not universal or
+whole-episode acceptance. Choose the camera from the current task and evidence;
+historical examples do not override an approved moving shot or grant a retake.

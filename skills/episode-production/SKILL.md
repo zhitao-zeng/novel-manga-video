@@ -5,6 +5,35 @@ description: Author, execute and repair one novel episode from original text or 
 
 # Episode production
 
+## Core repair principles
+
+- **Replace superseded logic.** When correcting timing, actions or states, rewrite
+  the affected description and remove the conflicting old instruction. Do not keep
+  both and append a contrary correction. Superseded clauses must be absent from
+  the final candidate: a later paragraph labelled "correction" does not remove
+  them, and presumed precedence between paragraphs does not resolve the defect.
+  Compatible new detail is allowed; read the complete repaired request as one plan.
+- **Use one chronology.** Describe an opening state, ordered actions and an ending
+  state. Within a continuous scene, carry that ending state into the next cut until
+  an authored action changes it. Do not replay a completed action to establish its
+  result again.
+- **Repair the evidenced cause.** Compare source, selected references, actual request
+  and current take. Correct the earliest supported defect. A bad take does not by
+  itself prove its inputs wrong; an old review claim is not current-frame evidence.
+  A filename or written observation does not prove that the model received an image.
+  For temporal or spatial defects, compare chronological raw/final evidence and
+  neighbouring cuts using fixed world landmarks; small contact sheets can hide
+  high-frequency movement, and screen left/right does not establish world seats.
+- **Distinguish validation from success.** Host `check` validates its reported
+  contract and permissions; it does not establish semantic consistency or a better
+  film. Before submission, judge whether the complete candidate follows these
+  principles. A replacement still needs actual independent acceptance.
+
+Apply these principles even when no matching case is retrieved. Individual cases
+are optional evidence for a remedy, not a prerequisite for the general rules.
+
+## Current task and workflow
+
 When present, begin with `input/current-task.json`: it identifies the current
 phase, targets, exact operation choices and evidence files. Full live state is
 in `input/current-status.json`; older failures are history and do not expand
@@ -71,10 +100,8 @@ empty scene and bind it to this episode's shots. Use `status.input_repairs` to
 inspect partial progress. When it provides `resume_action`, submit that action
 once to continue with already-generated images instead of starting a new repair.
 
-Write each event once, with an opening state, chronological action and persistent
-ending state that connects to the next authored cut. A correction replaces the
-affected conflicting description. Physical sounds follow their scene sources and
-action timing; speech, private thought and environment sound remain distinct.
+Physical sounds follow their scene sources and action timing; speech, private
+thought and environment sound remain distinct.
 For postmix, separate a pure single-thinker clip and keep its words in structured
 turns for recording; its H3 visual request contains visual acting and scene sound.
 Use the manifest's limits and the selected profile, while choosing cinematic rhythm
