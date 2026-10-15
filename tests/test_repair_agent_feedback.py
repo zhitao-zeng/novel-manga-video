@@ -352,3 +352,26 @@ def test_other_service_failure_does_not_start_protocol_continuation(tmp_path,mon
     monkeypatch.setattr(agent,'run_agent',run)
     with pytest.raises(ValueError,match='did not produce'):agent.propose(directory,clips[0],review['a'])
     assert len(calls)==1
+
+
+@pytest.mark.parametrize('first_file',['decision.json','prompt.txt'])
+def test_successful_sdk_with_partial_outputs_gets_one_completion_under_same_deadline(tmp_path,monkeypatch,first_file):
+    directory,clips,review=configured(tmp_path);config={'runs_root':str(tmp_path/'runs')};calls=[]
+    monkeypatch.setattr(agent,'load_config',lambda:config)
+    def frames(d,cid,video,target):
+        target.mkdir(parents=True,exist_ok=True);p=target/'frame.jpg';p.write_bytes(b'frame');return [p],'fixture'
+    monkeypatch.setattr(agent,'provided_frames',frames)
+    ticks=iter([100,155]);monkeypatch.setattr(agent.time,'monotonic',lambda:next(ticks))
+    def execute(name,**kwargs):
+        calls.append(kwargs);work=Path(config['runs_root'])/name;out=work/'output';out.mkdir(exist_ok=True)
+        attempt=work/'attempts'/str(len(calls));attempt.mkdir(parents=True)
+        file=first_file if len(calls)==1 else ('prompt.txt' if first_file=='decision.json' else 'decision.json')
+        if file=='decision.json':atomic_write_json(out/file,{'action':'edit','reason':'preserve source clothing','evidence':['input/primary.json']})
+        else:(out/file).write_text(candidate(clips[0])['prompt'])
+        if len(calls)==2:
+            assert 'missing required files' in kwargs['prompt'].read_text()
+        return SimpleNamespace(ok=True,produced=[file],directory=attempt)
+    monkeypatch.setattr(agent,'run_agent',execute)
+    result=agent.propose(directory,clips[0],review['a'])
+    assert result['action']=='edit' and len(calls)==2
+    assert calls[0]['timeout']==600 and calls[1]['timeout']==545

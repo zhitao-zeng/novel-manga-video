@@ -364,13 +364,22 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
     attempt=run_agent(run,config=config,timeout=600)
     produced=set(attempt.produced)
     terminal=protocol_failure(attempt)
+    missing=['decision.json'] if 'decision.json' not in produced else []
+    if (attempt.ok and 'decision.json' in produced and read_json(work/'output/decision.json',{}).get('action')=='edit'
+            and 'prompt.txt' not in produced):
+        missing.append('prompt.txt')
     remaining=int(deadline-time.monotonic())
-    if terminal and remaining>0:
-        recovery={'first_attempt':attempt.directory.name,'reason':terminal,'remaining_seconds':remaining}
+    if (terminal or (attempt.ok and missing)) and remaining>0:
+        recovery={'first_attempt':attempt.directory.name,'reason':terminal or 'missing_current_outputs',
+                  'missing_files':missing,'remaining_seconds':remaining}
         atomic_write_json(work/'protocol-recovery.json',recovery)
         continuation=work/'continue-protocol.txt'
-        continuation.write_text('Continue this same repair task from its saved conversation. The previous provider response '
-                                'claimed a tool call without valid tool contents. Keep already read evidence; open any required '
+        problem=('The previous provider claimed a tool call without valid tool contents.' if terminal else
+                 'The host received current files '+str(sorted(produced))+' but is missing required files '+str(missing)+'.')
+        continuation.write_text('Continue this same repair task from its saved conversation or saved workspace evidence. '+problem+
+                                ' A completion message does not substitute for actual output files. '
+                                'Read prompt.txt for the original task if this is a fresh native context. '
+                                'Keep already read evidence and existing valid outputs; open any required '
                                 'images still missing. Use one valid tool call at a time, finish the complete required output files '
                                 'and stop. Do not render, change source files, or repeat unrelated reading.')
         attempt=run_agent(run,config={**config,'extra_args':[*config['extra_args'],'--continue']},
@@ -385,7 +394,7 @@ def propose(directory: Path, clip: dict, verdict: dict, *, config=None, rejectio
         raise ValueError('repair agent decision requires action, reason and evidence')
     answer.update(run=run,attempt=attempt.attempt if hasattr(attempt,'attempt') else attempt.directory.name)
     if answer['action']=='edit':
-        if 'prompt.txt' not in produced:raise ValueError('repair agent did not produce a current prompt')
+        if 'prompt.txt' not in produced:raise AgentUnavailable('repair agent did not produce a current prompt')
         answer['prompt']=(work/'output/prompt.txt').read_text(encoding='utf-8').strip()
         try:
             validate_request(clip,answer['prompt'])

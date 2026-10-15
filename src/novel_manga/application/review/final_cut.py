@@ -191,6 +191,7 @@ def review_assembly(runner, media, *, receipt=None):
                 '不能仅因成片有字就推断是原生生成字幕；只有可见重复层、未批准额外文字或与cue实际不符才报告。'
                 '字幕按当前口播分段，不能因为某抽帧在字幕间隙或没显示整句话就判漏句；提供了完整cue，先核对它。'
                 '引用可见frame_numbers和实际clip_ids，source_basis写原文/明确源约束，不把推断写成事实。拿不准的问题不要虚构。'
+                'issues.clip_ids只列实际违反批准源文、需要修正的坏镜头。正确对照镜头可放frame_numbers作比较，不能一并派发重拍。'
                 '这是抽帧，不得声称听过音轨。生成请求可能本身有错，批准源文/明确设定是叙事依据，不能把错误翻译当成允许偏差。'
                 '来源：'+json.dumps(source_context,ensure_ascii=False)+'\nclip与参考映射（生成请求不作为成片验收依据）：'+json.dumps(current_requests,ensure_ascii=False)})
             deadline=time.monotonic()+300

@@ -8,7 +8,7 @@ from pathlib import Path
 from novel_manga.application.agents.sandbox import load_config, run_agent
 from novel_manga.util import atomic_write_json, read_json
 
-POLICY = 'independent-movie-v1'
+POLICY = 'independent-movie-v2-offending-clip-attribution'
 
 
 def required(directory):
@@ -124,6 +124,10 @@ def observe(directory, final, *, config=None):
         'prior_findings (one {id, status: resolved or present, evidence, frame_paths} for EVERY previous issue). '
         'All frame paths must be input/frame-NNN.jpg from the supplied list. Each issue/disposition must cite actual '
         'current pictures for every clip it names. If still present, include an issue with prior_id equal to that prior id. '
+        'issues.clip_ids names ONLY the clips that actually violate the approved source and need correction. '
+        'Correct comparison/anchor clips must stay out of clip_ids; retain their JPEGs in frame_paths as evidence. '
+        'For wardrobe discontinuity, compare each clip to the approved outfit: do not label a correct gray-outfit '
+        'anchor as defective merely because another clip changes to a wrong color. '
         'Use complete=false and explain missing evidence if unable to finish; never claim passage without reading pictures. '
         'Keep old issue ids when still present. This is one bounded 600-second review, not a repair task.\n')
     deadline = time.monotonic()+600

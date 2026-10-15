@@ -16,8 +16,8 @@ from .identity import canonical_entity
 # Delivery modifiers and punctuation do not change the explicitly bound speaker.
 # Stop at sentence/tag boundaries so an unrelated later utterance cannot inherit it.
 BOUND_SPEECH = re.compile(
-    r"(?:<Subject (\d+)>|An off-screen voice)\s+\(S(\d+)\)\s+"
-    r"(?:says|asks|replies|whispers|shouts|calls out|murmurs|exclaims|sings)"
+    r"(?:<Subject (\d+)>|(?:An|The) off-screen voice)\s+\(S(\d+)\)\s+"
+    r"(?:says|asks|replies|whispers|shouts|calls out|murmurs|exclaims|sings|delivers the existing line),?"
     r"((?:\s+[A-Za-z-]+ly(?:\s+(?:and|but)\s+[A-Za-z-]+ly)*)?"
     r"(?:\s+(?:in|with)\s+[^<>.!?;\n]*?)?)"
     r"\s*[,;:]?\s*<d>\[Chinese\]\s*(.*?)</d>", re.S)
@@ -26,7 +26,7 @@ BOUND_SPEECH = re.compile(
 def speech_is_offscreen(speech) -> bool:
     return speech[1] is None or 'off-screen voiceover' in (speech[3] or '')
 
-POLICY = 'grounded-dialogue-binding-v1'
+POLICY = 'grounded-dialogue-binding-v2-explicit-delivery-phrasing'
 TERMINAL_PUNCT = "。！？…!?"
 SFX_ONLY = re.compile(r"^[\u4e00-\u9fff]{1,5}声$")
 
