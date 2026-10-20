@@ -155,7 +155,14 @@ def _observe(conductor, row, processes):
             reason = ('unresolved clips: ' + ', '.join(quality['remaining']) if quality.get('remaining')
                       else quality.get('reason') or 'episode finished with unresolved checks')
         row.update(status=result['status'], phase=result.get('phase') or result['status'],
-                   reason=reason, passed=result.get('passed') is True)
+                   reason=reason, passed=result.get('passed') is True, delivery=result.get('delivery'))
+        if row['passed'] and (row.get('delivery') or {}).get('status') == 'pending':
+            # Resume the accepted host result, not another repair or generation.
+            # agent-run remains finished so the ordinary entrypoint skips Agent work.
+            row.update(status='deferred', phase='delivery', waiting_for='upload',
+                       reason=row['delivery']['reason'])
+        elif row['passed'] and (row.get('delivery') or {}).get('verified_remote'):
+            row['waiting_for'] = None
         return
     if row.get('status') == 'working':
         row.update(status='blocked', phase='blocked', reason='episode worker exited without a final or paused result')

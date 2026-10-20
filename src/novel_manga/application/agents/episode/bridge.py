@@ -145,14 +145,21 @@ class EpisodeBridge:
                 self._job = self._job_status()
                 self._save_job()
 
-    def handle(self, action, payload):
+    def operation_status(self):
+        """Poll owned host work without rereading the episode and repair history."""
         with self._lock:
             busy = (self._job is not None and self._job.get('status') == 'accepted') or (self._future is not None and not self._future.done())
+            return {'busy': busy, 'job': self._job_status()}
+
+    def handle(self, action, payload):
+        with self._lock:
+            operation = self.operation_status()
+            busy = operation['busy']
             waiting_turn = bool(self._turn_active and self._job and self._job.get('status') == 'accepted')
             handoff = ({'yield': True, 'next': 'End this Agent turn now. The accepted operation cannot start until you return; the host will resume you with its result.'}
                        if waiting_turn else {})
             if action == 'status':
-                return {'ok': True, **self._dispatch('status', {}), 'busy': busy, 'job': self._job_status(), **handoff}
+                return {'ok': True, **self._dispatch('status', {}), **operation, **handoff}
             if busy:
                 return {'ok': False, 'status': 'busy', 'job_id': self._job['id'],
                         'error': 'An episode operation is pending; end this turn for the host to execute it.'

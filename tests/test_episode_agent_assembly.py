@@ -133,6 +133,24 @@ def test_accepted_render_assembles_after_independent_review_and_finish_reuses_it
     assert history.generation_counts(ctx.episode_dir) == counts
 
 
+def test_finish_bundles_current_cover_with_movie_without_extra_generation(host):
+    ctx,tools,events,_ = host
+    tools.dispatch('render')
+    path = ctx.episode_dir/'thin_media_report.json'
+    report = read_json(path)
+    cover = ctx.episode_dir/'cover.jpeg'; cover.write_bytes(b'current corresponding JPEG')
+    report['assembly']['cover'] = str(cover)
+    atomic_write_json(path, report)
+    counts = history.generation_counts(ctx.episode_dir)
+    answer = tools.dispatch('finish')
+    manifest = read_json(ctx.run_dir/'final-candidate/manifest.json')
+    assert answer['passed'] and answer['cover'] == manifest['cover']
+    assert Path(manifest['cover']).read_bytes() == cover.read_bytes()
+    assert Path(manifest['movie']).read_bytes() == Path(report['assembly']['final_video']).read_bytes()
+    assert history.generation_counts(ctx.episode_dir) == counts
+    assert events == ['render','review','assemble']
+
+
 @pytest.mark.parametrize('failure,allowed', [('silence_ratio',True),('long_silence',True),
     ('black_frames',True),('long_freeze',True),('resolution',False)])
 def test_final_clip_technical_failure_can_reach_bounded_repair(host,failure,allowed):

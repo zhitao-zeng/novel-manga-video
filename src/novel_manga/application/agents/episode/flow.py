@@ -27,7 +27,9 @@ def run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
     """One agent owns creative decisions; this controller only waits and resumes operations."""
     from novel_manga.llm import usage as llm_usage
     with lifecycle.episode_lock(ctx), llm_usage.scope(novel=ctx.episode_dir.parent.name, episode=ctx.episode_dir.name, stage='episode_agent'):
-        return _run_episode(ctx, config=config, timeout=timeout, retry_issues=retry_issues)
+        result = _run_episode(ctx, config=config, timeout=timeout, retry_issues=retry_issues)
+        from novel_manga.application.production.modelscope_delivery import deliver_if_configured
+        return deliver_if_configured(ctx, result)
 
 
 def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):

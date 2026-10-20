@@ -87,6 +87,11 @@ class EpisodeCompletion:
         if movie and Path(movie).is_file():
             copied_movie = final / f'{self.ctx.episode_dir.name}-episode-agent.mp4'
             shutil.copy2(movie, copied_movie)
+        cover = (report.get('assembly') or {}).get('cover')
+        copied_cover = None
+        if cover and Path(cover).is_file() and Path(cover).stat().st_size:
+            copied_cover = final / f'{self.ctx.episode_dir.name}-cover.jpeg'
+            shutil.copy2(cover, copied_cover)
         for path in (self.ctx.run_dir / 'result.json', self.ctx.episode_dir / 'chapter_script.json',
                      self.ctx.episode_dir / 'clip_plan.json', self.ctx.episode_dir / 'episode_review.json',
                      self.ctx.episode_dir / 'episode_execution.json'):
@@ -107,13 +112,15 @@ class EpisodeCompletion:
             'actual_video_counts': history.generation_counts(self.ctx.episode_dir),
             'voice_recording_counts': voices, 'voice_recording_blocked': self.evidence.voice_recording_blocks(plan),
             'author_session': author_session,
-            'movie': str(copied_movie) if copied_movie else None, 'frozen': read_json(self.ctx.run_dir / 'frozen.json')}
+            'movie': str(copied_movie) if copied_movie else None,
+            'cover': str(copied_cover) if copied_cover else None,
+            'frozen': read_json(self.ctx.run_dir / 'frozen.json')}
         atomic_write_json(final / 'manifest.json', manifest)
         atomic_write_json(self.ctx.work_dir / 'input/latest-finish.json', manifest)
         record_state(self.ctx, 'finished' if manifest['passed'] else 'finished_with_issues', movie=manifest['movie'])
         return {'ok': True, 'passed': manifest['passed'],
                 'quality_review': {key: quality.get(key) for key in
                                   ('passed', 'missing_reviews', 'review_errors', 'remaining', 'reason')},
-                'technical_passed': manifest['technical_passed'], 'movie': manifest['movie'],
+                'technical_passed': manifest['technical_passed'], 'movie': manifest['movie'], 'cover': manifest['cover'],
                 'artifact': 'input/latest-finish.json', 'manifest': str(final / 'manifest.json'),
                 'generation_counts': manifest['actual_video_counts']}

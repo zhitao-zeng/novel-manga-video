@@ -24,7 +24,7 @@ from novel_manga.application.agents.sandbox import load_config
 
 
 def wait_for_idle(bridge):
-    status = bridge.handle('status', {})
+    status = bridge.operation_status()
     next_update = time.monotonic() + 30
     while status.get('busy'):
         if time.monotonic() >= next_update:
@@ -32,8 +32,8 @@ def wait_for_idle(bridge):
             print(f"Waiting for episode operation {job.get('id')}: {job.get('action')}", flush=True)
             next_update = time.monotonic() + 30
         time.sleep(0.2)
-        status = bridge.handle('status', {})
-    return status
+        status = bridge.operation_status()
+    return bridge.handle('status', {})
 
 
 def paused():

@@ -1066,6 +1066,31 @@ def test_completed_finish_receipt_recovers_after_crash_even_if_deadline_expired(
     assert result['deadline'] < time.time()
 
 
+def test_accepted_episode_resumes_delivery_without_agent_or_renewed_budget(ctx, config, monkeypatch):
+    from novel_manga.application.production import modelscope_delivery
+    calls = install_fake_runtime(monkeypatch, ctx)
+    saved = {'status': 'finished', 'phase': 'finished', 'passed': True,
+             'attempts': [1, 2, 3], 'deadline': time.time()-300, 'remaining_seconds': 0,
+             'delivery': {'status': 'pending', 'reason': 'upload interrupted'}, 'exit_code': 2}
+    atomic_write_json(ctx.run_dir/'agent-run.json', saved)
+    atomic_write_json(ctx.source_novel_dir/'modelscope_delivery.json', {'repository': 'owner/book'})
+    monkeypatch.setattr(episode_turns, 'run_session', lambda *a, **k: pytest.fail('accepted Agent resumed'))
+    monkeypatch.setattr(flow, 'EpisodeBridge', lambda *a: pytest.fail('accepted media tools restarted'))
+    uploads = []
+    def upload(command, **options):
+        from types import SimpleNamespace
+        uploads.append(command)
+        atomic_write_json(ctx.run_dir/'delivery/modelscope.json',
+                          {'verified_remote': True, 'repository': 'owner/book'})
+        return SimpleNamespace(returncode=0)
+    monkeypatch.setattr(modelscope_delivery.subprocess, 'run', upload)
+    result = flow.run_episode(ctx, config=config)
+    assert result['passed'] and result['status'] == 'finished'
+    assert result['attempts'] == saved['attempts'] and result['deadline'] == saved['deadline']
+    assert result['remaining_seconds'] == 0 and calls == []
+    assert len(uploads) == 1 and result['delivery']['verified_remote'] and result['exit_code'] == 0
+
+
 def test_pause_interrupts_waiting_for_model_without_invocation(ctx, config, monkeypatch):
     install_fake_runtime(monkeypatch, ctx)
     monkeypatch.setenv('NOVEL_MODEL_RESOURCES', json.dumps([{'base': config['base_url'], 'slots': 1}]))
