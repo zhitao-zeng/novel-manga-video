@@ -73,11 +73,13 @@ def host(tmp_path, monkeypatch):
             return report
 
         def assemble(self, rows):
+            from novel_manga.application.review.movie_context import assembly_inputs
             events.append('assemble')
             assert all(Path(r['selected']['video']).is_file() for r in rows)
             video = ctx.episode_dir/'candidate.mp4'
             video.write_bytes(b'assembled candidate')
             return {'final_video':str(video),'thin_passed':state['technical_passed'],
+                    'source_inputs':assembly_inputs(read_json(ctx.episode_dir/'clip_plan.json'), {'clips':rows}),
                     'media_qc_passed':state['technical_passed']}
 
     def review(directory, *, fresh):
@@ -149,6 +151,23 @@ def test_finish_bundles_current_cover_with_movie_without_extra_generation(host):
     assert Path(manifest['movie']).read_bytes() == Path(report['assembly']['final_video']).read_bytes()
     assert history.generation_counts(ctx.episode_dir) == counts
     assert events == ['render','review','assemble']
+
+
+def test_replaced_selected_take_reassembles_without_video_generation(host):
+    from novel_manga.application.review.movie_context import assembly_current
+    ctx,tools,events,_=host
+    tools.dispatch('render')
+    report=read_json(ctx.episode_dir/'thin_media_report.json')
+    assert assembly_current(ctx.episode_dir,report)
+    current=report['clips'][0]['selected']
+    edited=Path(current['video']).with_name('postprocessed.mp4')
+    edited.write_bytes(b'new current postprocessed take')
+    current['postmix_video']=str(edited)
+    counts=history.generation_counts(ctx.episode_dir)
+    result=tools.media.review_final(report)
+    assert assembly_current(ctx.episode_dir,result)
+    assert history.generation_counts(ctx.episode_dir)==counts
+    assert events==['render','review','assemble','assemble']
 
 
 @pytest.mark.parametrize('failure,allowed', [('silence_ratio',True),('long_silence',True),

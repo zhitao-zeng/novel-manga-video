@@ -1,3 +1,4 @@
+from novel_manga.application.review.movie_context import assembly_inputs
 import copy
 from pathlib import Path
 from types import SimpleNamespace
@@ -145,6 +146,9 @@ def test_exhausted_video_and_upstream_still_allow_one_actual_movie_dispute(tmp_p
     directory, clips, _ = configured(tmp_path)
     media = read_json(directory/'thin_media_report.json')
     movie = directory/'movie.mp4'; movie.write_bytes(b'current delivered movie')
+    media.setdefault('assembly', {}).update(final_video=str(movie),
+        source_inputs=assembly_inputs(read_json(directory/'clip_plan.json'),media))
+    atomic_write_json(directory/'thin_media_report.json',media)
     image = directory/'frame.jpg'; image.write_bytes(b'current delivered JPEG')
     frame = {'clip_id': 'a', 'path': str(image), 'seconds': 2.5, 'label': 'middle'}
     issue = {'id': 'phone', 'clip_ids': ['a'], 'problem': 'phone visible', 'source_basis': 'sole camera',
@@ -201,6 +205,9 @@ def test_exhausted_upstream_candidate_gets_feedback_before_dispute_or_stop(tmp_p
     movie = directory/'movie.mp4'; movie.write_bytes(b'current movie')
     image = directory/'frame.jpg'; image.write_bytes(b'current movie frame')
     media = read_json(directory/'thin_media_report.json')
+    media.setdefault('assembly', {}).update(final_video=str(movie),
+        source_inputs=assembly_inputs(read_json(directory/'clip_plan.json'),media))
+    atomic_write_json(directory/'thin_media_report.json',media)
     issue = {'id': 'phone', 'clip_ids': ['a'], 'problem': 'phone visible', 'source_basis': 'sole camera',
              'evidence': 'claimed screen', 'frame_paths': [str(image)]}
     final = {'movie': str(movie), 'policy': final_cut.POLICY, 'context': final_cut.context(directory, media, movie),

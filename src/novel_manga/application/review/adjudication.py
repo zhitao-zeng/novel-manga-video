@@ -8,14 +8,14 @@ from novel_manga.application.review import cast_video, evidence
 from novel_manga.review.prompts import shot_contract, story_block
 from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
-POLICY = 'visual-adjudication-v5-permitted-figures'
+POLICY = 'visual-adjudication-v7-movie-significance'
 ERROR_FACTS = {
     'scene_missing': '剧情所需的具体场所整体消失或明显错位；装饰色差、裁切或虚化不算',
     'same_person_twice': '同一具体人物同时出现两个独立身体；衣服错、换装、独立空甲都不能证明分身',
     'extra_person': '出现本镜不允许的额外人物，但不能确定是同一人物复制。本镜明确允许的回忆、梦境或投影形象也属于允许的画面内容；不在现实在场名单或轮廓较清晰不能单独证明多出真实人物。仍须按原文和本镜事件判断身份、行为及是否影响剧情，不能借回忆标签放行未获允许的人物或分身',
     'extra_object': '独立物件数量超出本镜要求，不把穿戴物另算一个身体',
     'appearance': '外观差异改变了人物身份或具体剧情功能；普通服装、配饰、配色差异不属于阻塞错误',
-    'state': '开合或动作状态差异改变了具体剧情事件或人物处境；不影响剧情含义的站坐、俯身、手脚摆放差异只记提示，不能仅凭请求明确就确认错误',
+    'state': '开合或动作状态差异改变了关键剧情事件或人物处境；不影响剧情含义的站坐、动作幅度、非关键小动作省略和道具局部形状差异只记提示，不能仅凭请求明确就确认错误',
     'visual_defects': '异常身体结构、附肢、变形或计划没有要求的明显视觉异常',
     'action_by_wrong_person': '应由甲完成的动作实际由乙完成',
     'actor_missing': '本镜明确应可见的人物缺席，构图裁切不算',
@@ -98,9 +98,38 @@ def outdated(verdict):
 
 
 def check_inputs(clip, work_dir, verdict, *, video=None, bible=None):
-    """A frame judgment cannot waive a conflicting request/card pair by treating the bad request as truth."""
+    """Retain input defects; current delivered-source acceptance is distinct from generation readiness."""
     if not clip.get('prompt_h3') or not any(r.get('role') != 'voice' for r in clip.get('references', [])):
         return verdict
+    previous = verdict.get('verify') or {}
+    record = previous.get('adjudication') or {}
+    checks = record.get('checks') or []
+    visual = apply(verdict, record, record['concerns']) if checks else copy.deepcopy(verdict)
+    kinds = set((visual.get('verify') or {}).get('error_kinds') or [])
+    # The clip observer can prove a detail differs; the current full-movie
+    # judgment determines whether that difference actually changes the story.
+    if (visual.get('severity') in {'pass','minor'} or
+            (visual.get('severity') == 'fail' and kinds and kinds <= {'appearance','state'}
+             and not visual.get('confirmed'))):
+        from . import final_cut
+        from novel_manga.util import read_json
+        directory=work_dir.parents[2]
+        media=read_json(directory/'thin_media_report.json',{})
+        final=read_json(directory/'final_cut_review.json',{})
+        if (final_cut.current(directory,media,final) and final.get('complete') is True
+                and final.get('passed') is True and not final.get('issues') and not final.get('errors')):
+            if visual.get('severity') == 'fail':
+                visual.update(severity='minor',identity_ok=True,story_ok=True,feedback='')
+                visual['verify'].update(verdict='subtle',instruction='')
+            if previous.get('request_check'):
+                visual['verify']['request_check']=copy.deepcopy(previous['request_check'])
+                visual['verify']['request_conflict']=previous.get('request_conflict',False)
+                if previous['request_check'].get('consistent') is not True:
+                    visual['verify']['input_warning']='；'.join(previous['request_check'].get('problems') or ['input readiness remains separate'])
+            visual.setdefault('verify',{})['movie_significance']={
+                'movie':final['movie'],'policy':final['policy'],
+                'result':'current approved-source movie is understandable; local observations retained'}
+            return visual
     from novel_manga.application.preparation.request_check import current_request, RequestCheckIncomplete
     try:
         checked = current_request(work_dir.parents[2], clip)
@@ -131,6 +160,19 @@ def check_inputs(clip, work_dir, verdict, *, video=None, bible=None):
     out['verify']['request_check'] = checked
     if checked.get('consistent') is not True or checked.get('problems'):
         detail = '；'.join(checked.get('problems') or ['拍摄请求与实际参考图不一致'])
+        # A request/card mismatch is not a movie defect when both the current
+        # visual adjudication and current approved-source movie review passed.
+        # This never approves those inputs for another generation.
+        if out.get('severity') in {'pass', 'minor'}:
+            from . import final_cut
+            from novel_manga.util import read_json
+            directory = work_dir.parents[2]
+            media = read_json(directory/'thin_media_report.json', {})
+            final = read_json(directory/'final_cut_review.json', {})
+            if (final_cut.current(directory, media, final) and final.get('complete') is True
+                    and final.get('passed') is True and not final.get('issues') and not final.get('errors')):
+                out['verify'].update(request_conflict=True, input_warning=detail)
+                return out
         instruction = '统一当前请求与实际参考。参考图观察：' + '；'.join(checked.get('observations', []))
         out['verify'].update(request_conflict=True, verdict='obvious',
                              evidence='；'.join(x for x in (out['verify'].get('evidence'), detail) if x),

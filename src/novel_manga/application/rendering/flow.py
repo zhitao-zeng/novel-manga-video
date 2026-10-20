@@ -215,6 +215,7 @@ class ThinMediaRunner:
 
     def assemble(self, results: list[dict]) -> AssemblyResult:
         from novel_manga.application.repair.delivery import assembly_directory
+        from novel_manga.application.review.movie_context import assembly_inputs
         output_dir = assembly_directory(self.context.episode_dir)
         started = time.monotonic()
         assembly = postprocess.assemble(self.context, results, output_dir)
@@ -229,7 +230,8 @@ class ThinMediaRunner:
                            subtitles_required=needs_subtitles or bool(assembly['subtitle_events']))
         freeze = float(qc.get('checks', {}).get('long_freeze', {}).get('detail', {}).get('max_freeze_seconds', 0.0))
         other_checks = [v.get('passed') for k, v in qc.get('checks', {}).items() if k != 'long_freeze']
-        return {**assembly, 'media_qc_passed': bool(qc.get('passed')), 'max_hold_seconds': freeze,
+        return {**assembly, 'source_inputs': assembly_inputs(self.context.clip_plan, {'clips': results}),
+                'media_qc_passed': bool(qc.get('passed')), 'max_hold_seconds': freeze,
                 'thin_passed': all(other_checks) and freeze <= MAX_HOLD_SECONDS, 'media_qc': qc,
                 'timing': {'postprocess_s': round(encoded-started, 3),
                            'media_qc_s': round(time.monotonic()-encoded, 3)}}

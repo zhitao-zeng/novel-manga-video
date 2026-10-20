@@ -10,16 +10,17 @@ from pathlib import Path
 from novel_manga.llm import client as model
 from novel_manga.llm.config import ENDPOINTS, endpoint_settings
 from novel_manga.media.speech_repair import merge_note
-from novel_manga.review.contracts import MAX_IMAGES
+from novel_manga.review.contracts import MAX_IMAGES, WATCHABLE_CRITERIA
 from novel_manga.util import atomic_write_json, read_json
 
-from .movie_context import POLICY, context
+from .movie_context import POLICY, context, same_evidence, assembly_current, approved_source, actual_speech
 
 
 def current(directory, media, final):
     from . import independent
-    return bool(isinstance(final,dict) and final.get('movie') and final.get('policy')==POLICY
-                and final.get('context')==context(directory,media,final.get('movie',''))
+    return bool(assembly_current(directory, media)
+                and isinstance(final,dict) and final.get('movie') and final.get('policy')==POLICY
+                and same_evidence(final.get('context'),context(directory,media,final.get('movie','')))
                 and independent.current(directory,final))
 
 
@@ -86,6 +87,24 @@ def validate_group(answer, selected):
             raise ValueError('final reviewer clip has no cited visible evidence')
 
 
+def completed_group(cached, current, number, selected):
+    """A stream failure in a later group does not erase an earlier valid judgment."""
+    if cached.get('policy') != POLICY or not same_evidence(cached.get('context'), current):
+        return None
+    start=(number-1)*(MAX_IMAGES-2)
+    old_frames=cached.get('frames', [])[start:start+MAX_IMAGES]
+    facts=lambda rows:[{k:v for k,v in row.items() if k!='path'} for row in rows]
+    groups=cached.get('groups') or []
+    if number>len(groups) or facts(old_frames)!=facts(selected):
+        return None
+    answer=copy.deepcopy(groups[number-1])
+    try:
+        validate_group(answer,selected)
+    except (ValueError,KeyError,TypeError):
+        return None
+    return answer
+
+
 def ambience_speech_issues(media, receipt, frames):
     """Sentence ASR proves speech overlap; it does not prove subjective sound quality."""
     source=(receipt or {}).get('ambience_source')
@@ -119,12 +138,14 @@ def review_assembly(runner, media, *, receipt=None):
     ctx=runner.context;directory=ctx.episode_dir
     source=(receipt or {}).get('final_video') or (media.get('assembly') or {}).get('final_video')
     if not source:return None  # first-pass production has not assembled a movie
+    if not assembly_current(directory, media):
+        raise ValueError('assemble current selected takes before whole-movie review')
     movie=Path(source);root=directory/'work/final_cut_review';root.mkdir(parents=True,exist_ok=True)
     (root/'owner').write_text('existing reviewed pipeline: final movie observations; no manual shot repair\n')
     before=context(directory,media,movie)
     cached=read_json(directory/'final_cut_review.json',{})
     from . import independent
-    if (cached.get('context')==before and cached.get('policy')==POLICY
+    if (same_evidence(cached.get('context'),before) and cached.get('policy')==POLICY
             and cached.get('automatic_review',cached).get('complete') is True):
         cached=independent.combine(directory,cached)
         atomic_write_json(directory/'final_cut_review.json',cached)
@@ -163,8 +184,8 @@ def review_assembly(runner, media, *, receipt=None):
             row['expected_captions']=[c['text'] for c in cues if c['start']<=row['seconds']<c['end']]
             row['approved_labels']=[e['text'] for e in (receipt or {}).get('evidence_events',[])
                                     if e['start']<=row['seconds']<e['end']]
-        bible=ctx.bible.model_dump(mode='json') if hasattr(ctx.bible,'model_dump') else {}
-        source_context={'bible':bible,'script':ctx.script,'layout':before['layout'],'interaction':interaction,
+        source_context={'bible':before['bible'],**approved_source(ctx.script,ctx.clip_plan),
+                        'actual_speech':actual_speech(media), 'layout':before['layout'],'interaction':interaction,
                         'allowed_overlays':(receipt or {}).get('evidence_events',[]),
                         'caption_cues':cues,'postprocessing':(receipt or {}).get('packaging',{}),
                         'caption_origin':'approved ASS added during assembly/postproduction; global movie time',
@@ -173,6 +194,15 @@ def review_assembly(runner, media, *, receipt=None):
         settings=endpoint_settings(endpoint) if endpoint in ENDPOINTS else None
         for group,start in enumerate(range(0,len(final['frames']),MAX_IMAGES-2),1):
             selected=final['frames'][start:start+MAX_IMAGES];ids=sorted({r['clip_id'] for r in selected})
+            saved_group=completed_group(cached,before,group,selected)
+            if saved_group is not None:
+                for issue in saved_group['issues']:
+                    issue['frame_paths']=[selected[n-1]['path'] for n in issue['frame_numbers']]
+                final['groups'].append(saved_group)
+                final['issues'].extend(saved_group['issues'])
+                final['responses'].append({'group':group,'reused_from':cached['frames'][start]['path']})
+                save()
+                continue
             current_requests=[{k:clips[cid].get(k) for k in ('clip_id','shot_indexes','references')}
                               for cid in ids]
             schema=model.obj({'passed':{'type':'boolean'},'observations':{'type':'array','minItems':1,'items':{'type':'string'}},
@@ -184,7 +214,7 @@ def review_assembly(runner, media, *, receipt=None):
             for n,row in enumerate(selected,1):
                 parts.extend([{'type':'text','text':f"frame {n}: {row['clip_id']} global {row['seconds']}s {row['label']}; source shots {row['shot_indexes']}; expected approved captions {row['expected_captions']}; approved labels {row['approved_labels']}"},
                               model.image_part(Path(row['path']),768)])
-            parts.append({'type':'text','text':
+            parts.append({'type':'text','text':WATCHABLE_CRITERIA+'\n'+
                 '审核真正组装后的影片，逐张写实际观察，再对照批准源文、台词、人物与机位约束判定。只指认给出的帧/clip，不猜未显示的画面。'
                 '重点看目标与画面是否自相矛盾、动作因果、同一空间/服装/道具/摄影机的跨镜连续性、字幕和互动结尾。'
                 '原稿若明确单人单手机第一人称，就不能从外部拍到正在录像的同一手机；若没有该限制，合理第三人称镜头允许。'
@@ -197,6 +227,7 @@ def review_assembly(runner, media, *, receipt=None):
                 '引用可见frame_numbers和实际clip_ids，source_basis写原文/明确源约束，不把推断写成事实。拿不准的问题不要虚构。'
                 'issues.clip_ids只列实际违反批准源文、需要修正的坏镜头。正确对照镜头可放frame_numbers作比较，不能一并派发重拍。'
                 '这是抽帧，不得声称听过音轨。生成请求可能本身有错，批准源文/明确设定是叙事依据，不能把错误翻译当成允许偏差。'
+                'actual_speech是当前选片已有ASR和语音门结果；判定对白是否表达过时结合实际识别文本和字幕cue，不能凭抽帧未见张嘴判缺对白。'
                 '来源：'+json.dumps(source_context,ensure_ascii=False)+'\nclip与参考映射（生成请求不作为成片验收依据）：'+json.dumps(current_requests,ensure_ascii=False)})
             deadline=time.monotonic()+300
             for revision in range(2):
@@ -217,7 +248,7 @@ def review_assembly(runner, media, *, receipt=None):
             for issue in answer['issues']:
                 issue['frame_paths']=[selected[n-1]['path'] for n in issue['frame_numbers']]
             final['groups'].append(answer);final['issues'].extend(answer['issues']);save()
-        if before!=context(directory,media,movie):raise ValueError('movie or episode inputs changed during final review')
+        if not same_evidence(before,context(directory,media,movie)):raise ValueError('movie or episode inputs changed during final review')
         final.update(complete=True,passed=not final['issues'])
     except Exception as error:
         final['errors'].append(type(error).__name__+': '+str(error)[:250])

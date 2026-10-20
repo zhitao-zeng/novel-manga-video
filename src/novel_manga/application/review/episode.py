@@ -58,7 +58,11 @@ def _review_episode(episode_dir: Path, video_name: str = "clip.mp4", *, fresh: b
     if not review_contracts.current_review(previous,mode):
         # A keep/source recheck may have verified individual clips in the new
         # mode while the rest of the episode still awaits that method.
-        earlier = {cid:row for cid,row in earlier.items() if review_contracts.current_review(row,mode)}
+        relaxed = (previous.get('policy') == 'thin-review-v1.24-watchable-posture'
+                   and review_contracts.POLICY == 'thin-review-v1.25-watchable-core-events'
+                   and previous.get('review_mode') == mode)
+        earlier = {cid:row for cid,row in earlier.items() if review_contracts.current_review(row,mode)
+                   or (relaxed and row.get('severity') in {'pass','minor'})}
     resume = not fresh if fresh is not None else os.environ.get("NOVEL_REVIEW_FRESH", "").strip() != "1"
     def checkpoint():
         # A long review may outlive its terminal. Save each completed take so a restart reuses it;

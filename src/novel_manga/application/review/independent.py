@@ -7,6 +7,8 @@ from pathlib import Path
 
 from novel_manga.application.agents.sandbox import load_config, run_agent
 from novel_manga.util import atomic_write_json, read_json
+from novel_manga.review.contracts import WATCHABLE_CRITERIA
+from .movie_context import same_evidence, actual_speech, approved_source
 
 POLICY = 'independent-movie-v3-actual-reference-evidence-and-report-feedback'
 
@@ -21,7 +23,7 @@ def current(directory, final):
     independent = final.get('independent_review')
     saved = read_json(Path(directory)/'independent_review.json', {})
     return bool(independent and independent == saved and independent.get('policy') == POLICY
-                and independent.get('context') == final.get('context'))
+                and same_evidence(independent.get('context'), final.get('context')))
 
 
 def validate(answer, frames, *, previous=()):
@@ -113,7 +115,7 @@ def register(directory, media, report):
     raw = read_json(Path(report)) if not isinstance(report, dict) else copy.deepcopy(report)
     final = read_json(directory/'final_cut_review.json', {})
     if (final.get('policy') != FINAL_POLICY
-            or final.get('context') != context(directory, media, final.get('movie', ''))
+            or not same_evidence(final.get('context'), context(directory, media, final.get('movie', '')))
             or final.get('automatic_review', final).get('complete') is not True
             or raw.get('movie') != final.get('movie')):
         raise ValueError('independent report must identify the current reviewed movie')
@@ -140,7 +142,7 @@ def observe(directory, final, *, config=None, dispute=None):
     directory = Path(directory)
     previous = ({'issues': dispute['findings']} if dispute is not None
                 else read_json(directory/'independent_review.json', {}))
-    if (dispute is None and previous.get('context') == final['context'] and previous.get('policy') == POLICY
+    if (dispute is None and same_evidence(previous.get('context'), final['context']) and previous.get('policy') == POLICY
             and previous.get('complete') is True):
         validate(previous, previous['frames'])
         return previous
@@ -167,12 +169,15 @@ def observe(directory, final, *, config=None, dispute=None):
         disputed_paths = {p for issue in dispute['findings'] for p in issue.get('frame_paths', [])}
         primary = [f for f in frames if f in primary or originals[f['path']] in disputed_paths]
     source = {k: final['context'].get(k) for k in ('script', 'bible', 'layout')}
+    source.update(approved_source(source.get('script') or {}, read_json(directory/'clip_plan.json', {})))
     prior = [{k: v for k, v in issue.items() if k != 'frame_paths'} for issue in previous.get('issues', [])]
     atomic_write_json(inputs/'review.json', {'frames': frames, 'primary_frames': primary,
+        'actual_speech': actual_speech(read_json(directory/'thin_media_report.json', {})),
         'approved_source': source, 'approved_references': copy_references(directory, final, inputs), 'prior_findings': prior,
         **({'dispute': {k: dispute[k] for k in ('reason', 'evidence')}} if dispute is not None else {}),
         'caption_policy': 'expected_captions and approved_labels are valid postproduction layers; report actual extra/duplicate text only'})
     (work/'prompt.txt').write_text(
+        WATCHABLE_CRITERIA + '\n'
         'Independently review the actual movie pictures. Read input/review.json then open every primary_frames JPEG '
         'with Read. Open other frames to check a contradiction or prior finding. Judge approved source, goals and '
         'physical/camera/wardrobe/prop/spatial continuity across clips. Approved captions and labels are allowed; '

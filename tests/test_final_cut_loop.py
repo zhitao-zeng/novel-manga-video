@@ -8,12 +8,14 @@ from novel_manga.media.context import RenderContext, RenderOptions
 
 
 def fixture(tmp_path,monkeypatch):
+    from novel_manga.application.review.movie_context import assembly_inputs
     clip={'clip_id':'a','kind':'video','shot_indexes':[1]}
     plan={'clips':[clip]};movie=tmp_path/'movie.mp4';movie.write_bytes(b'assembled')
     video=tmp_path/'clip.mp4';video.write_bytes(b'current native take')
     report={'clips':[{'clip_id':'a','selected':{'video':str(video)}}],
             'assembly':{'thin_passed':True,'final_video':str(movie)},
             'clip_plan_fingerprint':reviewed.plan_fingerprint(plan)}
+    report['assembly']['source_inputs']=assembly_inputs(plan,report)
     native={'clips':{'a':{'severity':'pass','video':str(video),'take':[1,2,3]}},'feedback':{}}
     for name,data in [('clip_plan.json',plan),('chapter_script.json',{}),
                       ('review_feedback.json',{}),('thin_media_report.json',report),('episode_review.json',native)]:

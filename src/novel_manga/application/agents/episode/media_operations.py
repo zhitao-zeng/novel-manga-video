@@ -116,6 +116,22 @@ class MediaOperations:
         from novel_manga.application.rendering.reviewed import _load_current
         from novel_manga.application.review import final_cut
         from novel_manga.application.review.execution import save_result
+        from novel_manga.application.review.execution import media_matches
+        from novel_manga.application.review.movie_context import assembly_current, assembly_inputs
+        if not assembly_current(self.ctx.episode_dir, report):
+            plan = read_json(self.ctx.episode_dir/'clip_plan.json', {})
+            inputs = assembly_inputs(plan, report)
+            if (inputs['takes'] and all(take for cid, take in inputs['takes'])
+                    and media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {}))):
+                return self.assemble(report, runner)
+            # An old movie is not evidence about missing/replaced current takes.
+            review = final_cut.apply_feedback(self.ctx.episode_dir,
+                read_json(self.ctx.episode_dir/'episode_review.json', {}), None)
+            atomic_write_json(self.ctx.episode_dir/'episode_review.json', review)
+            prior = report.get('quality_review') or {}
+            return save_result(self.ctx.episode_dir, report, review,
+                rounds=prior.get('repair_rounds', []), corrections=prior.get('automatic_corrections', []),
+                blocked=prior.get('blocked', {}))
         final = report.get('final_cut_review') or read_json(self.ctx.episode_dir/'final_cut_review.json', None)
         if not (final_cut.current(self.ctx.episode_dir,report,final) and final.get('complete') is True):
             if runner is None:

@@ -6,6 +6,7 @@ Only model calls and frame extraction are replaced. Real card encoding, evidence
 loading, prompt construction and reply handling run through the production code.
 """
 import ast
+import pytest
 import contextlib
 import copy
 import json
@@ -219,3 +220,33 @@ def test_frame_review_uses_selected_judge_not_agent_environment(monkeypatch):
     judges.judge_clip_verify({}, Path('unused'), None, {}, '', Path('unused'))
     assert calls[0][0] == ['http://127.0.0.1:8789/v1']
     assert calls[0][1]['model'] == 'deepseek-v4.1-flash'
+
+
+@pytest.mark.parametrize('changed_take',[False,True])
+def test_relaxed_watchable_policy_reuses_valid_passes_but_rechecks_failures(tmp_path,monkeypatch,changed_take):
+    from novel_manga.review.contracts import VERIFY_FLAGS
+    from novel_manga.application.review import cast_video
+    book=tmp_path/'book';directory=book/'book_1';directory.mkdir(parents=True)
+    (book/'story_bible.json').write_text(StoryBible(novel_title='n',genre='g',visual_style='v',
+        palette='p',style_fingerprint='f',characters=[],locations=[]).model_dump_json())
+    (book/'profile.json').write_text(json.dumps({'review_mode':'verify'}))
+    (directory/'clip_plan.json').write_text(json.dumps({'clips':[
+        {'clip_id':cid,'kind':'video'}for cid in ['passed','failed']]}))
+    videos=[]
+    for cid in ['passed','failed']:
+        p=directory/'work/clips'/cid/'attempt_01/clip.mp4';p.parent.mkdir(parents=True);p.write_bytes(b'original current take');videos.append(p)
+    monkeypatch.setattr(cast_video,'enabled',lambda:False)
+    monkeypatch.setenv('NOVEL_REVIEW_MODE','verify')
+    fine={'verdict':'fine','scene_missing':False,'count_checks':[],**{key:False for key in VERIFY_FLAGS}}
+    monkeypatch.setattr(judges,'judge_clip',lambda *a:{'severity':'pass','verify':copy.deepcopy(fine)})
+    first=episode_review.review_episode(directory)
+    first['policy']='thin-review-v1.24-watchable-posture'
+    first['clips']['failed'].update(severity='fail',verify={**fine,'verdict':'obvious'})
+    (directory/'episode_review.json').write_text(json.dumps(first))
+    if changed_take:videos[0].write_bytes(b'a changed take must be judged')
+    calls=[]
+    monkeypatch.setattr(judges,'judge_clip',lambda clip,*a:calls.append(clip['clip_id'])or
+                        {'severity':'pass','verify':copy.deepcopy(fine)})
+    result=episode_review.review_episode(directory,fresh=False)
+    assert calls==(['passed','failed']if changed_take else ['failed'])
+    assert result['clips']['passed']['severity']=='pass' and result['clips']['failed']['severity']=='pass'

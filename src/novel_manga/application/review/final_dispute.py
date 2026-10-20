@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from novel_manga.util import atomic_write_json, read_json
+from .movie_context import same_evidence
 
 
 def records(directory):
@@ -25,14 +26,14 @@ def available(directory, cid):
             cid in i.get('clip_ids', []) and i.get('frame_paths') and not i.get('audio_evidence')
             for i in final.get('issues', [])):
         return False
-    return (not any(attempted(r, cid) and r.get('context') == final.get('context') for r in records(directory))
-            and final.get('context') == context(directory, read_json(directory/'thin_media_report.json', {}), final.get('movie', '')))
+    return (not any(attempted(r, cid) and same_evidence(r.get('context'), final.get('context')) for r in records(directory))
+            and same_evidence(final.get('context'), context(directory, read_json(directory/'thin_media_report.json', {}), final.get('movie', ''))))
 
 
 def apply(directory, final):
     """Apply current adjudications without rewriting either original reviewer report."""
     relevant = [r for r in records(directory) if r.get('status') == 'complete'
-                and r.get('context') == final.get('context')]
+                and same_evidence(r.get('context'), final.get('context'))]
     if not relevant:
         return final
     result = copy.deepcopy(final)

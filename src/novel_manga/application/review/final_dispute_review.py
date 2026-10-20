@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 from novel_manga.util import atomic_write_json, read_json
 from .final_dispute import records, attempted, apply
+from .movie_context import same_evidence
 
 
 def adjudicate(directory, cid, decision):
@@ -15,7 +16,7 @@ def adjudicate(directory, cid, decision):
     final = read_json(directory/'final_cut_review.json', {})
     if not final_cut.current(directory, media, final) or final.get('complete') is not True:
         raise ValueError('final dispute requires a complete current movie review')
-    if any(attempted(r, cid) and r.get('context') == final['context'] for r in records(directory)):
+    if any(attempted(r, cid) and same_evidence(r.get('context'), final['context']) for r in records(directory)):
         raise ValueError('final dispute already attempted for this clip and movie context')
     requested = decision.get('finding_ids')
     if requested is not None and (not isinstance(requested, list) or not requested):
@@ -42,7 +43,7 @@ def adjudicate(directory, cid, decision):
     try:
         answer = independent.observe(directory, final, dispute=dispute)
         record['result'] = answer
-        if answer.get('errors') or answer.get('context') != final['context']:
+        if answer.get('errors') or not same_evidence(answer.get('context'), final['context']):
             raise ValueError('independent dispute review failed or identified a different movie')
         independent.validate(answer, final['frames'], previous=dispute['findings'])
         resolved = {r['id'] for r in answer['prior_findings'] if r['status'] == 'resolved'}

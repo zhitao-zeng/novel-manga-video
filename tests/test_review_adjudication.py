@@ -433,3 +433,49 @@ def test_episode_persists_visual_failure_alongside_incomplete_request(tmp_path, 
     assert resumed['error_rounds'] == 0
     assert resumed['clips']['c']['severity'] == 'fail'
     assert resumed['clips']['c']['verify']['error_kinds'] == ['same_person_twice']
+
+
+def test_current_movie_and_visual_pass_retire_only_the_input_acceptance_veto(tmp_path, monkeypatch):
+    from novel_manga.application.review import adjudication,final_cut
+    from novel_manga.application.preparation import request_check
+    from novel_manga.util import atomic_write_json
+    directory=tmp_path/'book/ep';directory.mkdir(parents=True)
+    checked={'consistent':False,'observations':['reference has city buildings'],'problems':['request says empty platform']}
+    monkeypatch.setattr(request_check,'current_request',lambda *a:checked)
+    monkeypatch.setattr(final_cut,'current',lambda *a:True)
+    atomic_write_json(directory/'final_cut_review.json',{'movie':'current.mp4','policy':final_cut.POLICY,'complete':True,'passed':True,'issues':[],'errors':[]})
+    verdict=apply(candidate(),{'checks':[{'id':0,'result':'dismissed','evidence':'current movie platform and dialogue are understandable','instruction':''}]},['background design'])
+    verdict['verify'].update(request_check=checked,request_conflict=True)
+    out=adjudication.check_inputs({'prompt_h3':'empty platform','references':[{'role':'location'}]},directory/'work/review/c',verdict)
+    assert out['severity']=='pass'and not out.get('feedback')
+    assert out['verify']['request_check']==checked  # no false input approval
+    assert out['verify']['request_conflict']is True
+    assert out['verify']['input_warning']=='request says empty platform'
+
+
+def test_current_movie_decides_significance_without_erasing_local_state_observation(tmp_path,monkeypatch):
+    from novel_manga.application.review import adjudication,final_cut
+    from novel_manga.util import atomic_write_json
+    directory=tmp_path/'book/ep';directory.mkdir(parents=True)
+    monkeypatch.setattr(final_cut,'current',lambda *a:True)
+    atomic_write_json(directory/'final_cut_review.json',{'movie':'current.mp4','policy':final_cut.POLICY,'complete':True,'passed':True,'issues':[],'errors':[]})
+    verdict=apply(candidate(),{'checks':[{'id':0,'result':'confirmed','error_facts':{k:k=='state'for k in ERROR_FACTS},'evidence':'impact mark has a different shape','instruction':'copy the exact imprint'}]},['local effect detail'])
+    out=adjudication.check_inputs({'prompt_h3':'same event','references':[{'role':'location'}]},directory/'work/review/c',verdict)
+    assert out['severity']=='minor'and not out['feedback']
+    assert out['verify']['adjudication']['confirmed']is True
+    assert out['verify']['error_kinds']==['state']
+    assert out['verify']['movie_significance']['movie']=='current.mp4'
+
+
+def test_movie_pass_never_erases_a_confirmed_visual_error(tmp_path, monkeypatch):
+    from novel_manga.application.review import adjudication,final_cut
+    from novel_manga.application.preparation import request_check
+    from novel_manga.util import atomic_write_json
+    directory=tmp_path/'book/ep';directory.mkdir(parents=True)
+    monkeypatch.setattr(request_check,'current_request',lambda *a:{'consistent':False,'problems':['input conflict']})
+    monkeypatch.setattr(final_cut,'current',lambda *a:True)
+    atomic_write_json(directory/'final_cut_review.json',{'complete':True,'passed':True,'issues':[],'errors':[]})
+    verdict=apply(candidate(),{'checks':[{'id':0,'result':'confirmed','error_facts':{k:k=='same_person_twice'for k in ERROR_FACTS},'evidence':'two actual independent copies','instruction':'keep one person'}]},['clone'])
+    out=adjudication.check_inputs({'prompt_h3':'one person','references':[{'role':'character'}]},directory/'work/review/c',verdict)
+    assert out['severity']=='fail'
+    assert out['verify']['error_kinds']==['same_person_twice']
