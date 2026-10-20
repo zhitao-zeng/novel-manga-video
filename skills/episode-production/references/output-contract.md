@@ -269,6 +269,14 @@ A malformed saved request is not offered as a service continuation; use its
 remaining `revision_available` allowance to correct it, or stop if exhausted.
 Changing only invalid parameters/error messages without applying a repair does
 not count as progress and does not extend the operation limits.
+
+When `repair_actions` offers `crop`, submit it alone:
+`{"decisions":[{"clip_id":"clip_01","action":"crop","reason":"Remove the edge artifact while keeping the important action","crop":{"x":0.13,"y":0,"width":0.56}}]}`.
+Coordinates and width are fractions of the original current take. The production
+aspect ratio determines height; the window must fit. The host preserves original
+footage, audio, ASR and generation counts, reuses an identical crop, then reviews
+the derived take through the normal acceptance path. It does not alter the source
+script or request, and must retain key people and events.
 `revision_available` permits one changed source proposal after rejection. Correct
 the reported attribution rather than repeating it. Shared phase/location changes
 may patch shots in their dependent clips; `motion_prompt` and `end_state` also

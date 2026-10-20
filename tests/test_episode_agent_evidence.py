@@ -25,10 +25,12 @@ def evidence_case(tmp_path, monkeypatch):
         video = ctx.episode_dir/'work/clips'/cid/'attempt_01/clip.mp4'
         video.parent.mkdir(parents=True)
         video.write_bytes(b'current take')
+        (video.parent/'native.wav').write_bytes(b'current cached audio')
         rows.append({'clip_id': cid, 'selected': {'video': str(video), 'passed': True,
                      'reference': '你来啦。', 'hypothesis': '你来啦。', 'chunks': []}})
         verdicts[cid] = {'severity': 'pass', 'video': str(video), 'take': take_identity(video)}
     verdicts['clip_02']['severity'] = 'fail'
+    (ctx.episode_dir/'native.wav').write_bytes(b'current cached postmix audio')
     review = {'policy': REVIEW_POLICY, 'review_mode':'classic', 'clips': verdicts, 'feedback': {'clip_02': 'wrong action'}}
     report = {'status': 'clips_ready', 'clips': rows, 'failed_clips': [], 'gate_failed_clips': [],
               'blocked_clips': {}, 'clip_plan_fingerprint': plan_fingerprint(plan),

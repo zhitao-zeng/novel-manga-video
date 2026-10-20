@@ -124,6 +124,8 @@ def test_novel_audio_candidate_passes_existing_controlled_publication(episode,tm
     plan['clips'][0].update(shot_indexes=[1],lines=[])
     atomic_write_json(directory/'clip_plan.json',plan)
     media['clip_plan_fingerprint']=plan_fingerprint(plan)
+    from novel_manga.application.review.movie_context import assembly_inputs
+    media['assembly']['source_inputs']=assembly_inputs(plan,media)
     media['assembly']['timeline']=[{'unit_id':'clip_01','start':0,'end':8}]
     room=tmp_path/'room.wav'
     with wave.open(str(room),'wb') as f:f.setparams((1,2,48000,0,'NONE','not compressed'));f.writeframes(b'\0\0'*144000)

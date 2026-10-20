@@ -138,6 +138,10 @@ def save_result(directory, media, review, *, plan=None, rounds=(), corrections=(
     """The same technical/content acceptance for a single run and a batch review."""
     plan = plan if plan is not None else read_json(directory / 'clip_plan.json', {})
     from novel_manga.application.review import final_cut
+    final_required = final_cut.required(directory)
+    if not final_required:
+        review = final_cut.apply_feedback(directory, review, None)
+        atomic_write_json(directory/'episode_review.json', review)
     final=media.get('final_cut_review') or read_json(directory/'final_cut_review.json',None)
     if final is not None:media['final_cut_review']=final
     final_current=final_cut.current(directory,media,final) if final is not None else False
@@ -160,7 +164,16 @@ def save_result(directory, media, review, *, plan=None, rounds=(), corrections=(
     )
     native=final_cut.apply_feedback(directory,review,None)
     result['native_content_passed']=evaluate_acceptance(planned,media,native,stale=stale).content_passed
-    if final is not None:
+    if not final_required:
+        decision = read_json(directory/'work/review/final_movie_policy.json', {})
+        result.update(final_cut_required=False,
+                      final_cut_status='skipped_by_user' if decision.get('authorization') else 'not_required',
+                      final_cut_passed=None, final_cut_complete=False, final_cut_errors=[])
+        if decision.get('authorization'):
+            result['final_cut_authorization'] = decision['authorization']
+        if (media.get('assembly') or {}).get('final_video') and not final_cut.assembly_current(directory, media):
+            result.update(passed=False, reason='assemble current selected takes before delivery')
+    elif final is not None:
         final_passed=final_current and final.get('complete') is True and final.get('passed') is True and not final.get('issues') and not final.get('errors')
         result.update(final_cut_passed=bool(final_passed),
                       final_cut_complete=final_current and final.get('complete') is True,
@@ -168,6 +181,10 @@ def save_result(directory, media, review, *, plan=None, rounds=(), corrections=(
         if not final_passed:
             result.update(passed=False,content_passed=False,
                           reason='final movie review failed or is incomplete/stale')
+    else:
+        result.update(passed=False, final_cut_required=True, final_cut_passed=False,
+                      final_cut_complete=False, final_cut_errors=[],
+                      reason='required final movie review is incomplete')
     media['quality_review'] = result
     if write_media:
         atomic_write_json(directory / 'thin_media_report.json', media)

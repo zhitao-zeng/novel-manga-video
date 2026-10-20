@@ -94,7 +94,7 @@ def retry_suffix(ctx, clip: dict, attempt: int) -> str:
 def english_correction_for_new_take(ctx, clip: dict) -> bool:
     """Keep old passed caches; a new corrected H3 take must use its English version."""
     note = str(ctx.feedback.get(clip['clip_id']) or '').strip()
-    if not ctx.settings.local_h3_base_url or not note:
+    if not generation.h3_lane(ctx) or not note:
         return False
     from novel_manga.application.profiles import h3_prompt_outdated
     if h3_prompt_outdated(clip, note):

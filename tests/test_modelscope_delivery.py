@@ -42,6 +42,7 @@ def bundle(tmp_path, monkeypatch):
     movie.write_bytes(b'accepted current movie')
     cover = movie.with_name('cover.jpeg'); cover.write_bytes(b'corresponding cover')
     manifest = {'passed': True, 'quality_review': {'passed': True},
+                'episode_status': 'done',
                 'movie': str(movie), 'cover': str(cover)}
     atomic_write_json(movie.parent/'manifest.json', manifest)
     return novel, run, movie, cover
@@ -91,12 +92,13 @@ def test_incomplete_remote_bundle_cannot_be_certified(bundle, missing):
     assert not (bundle[1]/'delivery/modelscope.json').exists()
 
 
-@pytest.mark.parametrize('bad', ['missing_cover', 'failed', 'quality_failed'])
+@pytest.mark.parametrize('bad', ['missing_cover', 'failed', 'quality_failed', 'not_done'])
 def test_unaccepted_or_incomplete_local_bundle_cannot_upload(bundle, bad):
     manifest = bundle[2].parent/'manifest.json'; data = read_json(manifest)
     if bad == 'missing_cover': data['cover'] = None
     elif bad == 'failed': data['passed'] = False
-    else: data['quality_review']['passed'] = False
+    elif bad=='quality_failed': data['quality_review']['passed'] = False
+    else: data['episode_status']='done_with_warnings'
     atomic_write_json(manifest, data)
     api = Api()
     with pytest.raises(ValueError): upload(bundle, api)

@@ -57,6 +57,7 @@ def host(tmp_path, monkeypatch):
                     expected_plan=plan_fingerprint(plan),expected_notes={})
                 atomic_write_json(video.parent/'request.json',request)
                 video.write_bytes(b'current selected video')
+                (video.parent/'native.wav').write_bytes(b'current selected audio')
                 history.complete_generation(ctx.episode_dir,cid,video,duration=15)
                 rows.append({'clip_id':cid,'attempts':[], 'selected':{'video':str(video),
                     'passed':cid not in state['speech_failed'], 'duration':15, 'chunks':[]}})
@@ -83,11 +84,12 @@ def host(tmp_path, monkeypatch):
                     'media_qc_passed':state['technical_passed']}
 
     def review(directory, *, fresh):
+        from novel_manga.media.results import selected_video
         events.append('review')
         assert fresh is False
         report = read_json(directory/'thin_media_report.json')
-        rows = {r['clip_id']:{'video':r['selected']['video'],
-                  'take':take_identity(Path(r['selected']['video'])),
+        rows = {r['clip_id']:{'video':selected_video(r['selected']),
+                  'take':take_identity(Path(selected_video(r['selected']))),
                   'severity':'review_error' if r['clip_id'] in state['review_error'] else
                              'fail' if r['clip_id'] in state['feedback'] else 'pass'}
                 for r in report['clips'] if r.get('selected') and r['clip_id'] not in state['review_missing']}
@@ -116,6 +118,8 @@ def host(tmp_path, monkeypatch):
         atomic_write_json(ctx.episode_dir/'final_cut_review.json',final)
         return final
     monkeypatch.setattr(final_cut,'review_assembly',final_review)
+    atomic_write_json(ctx.episode_dir/'work/review/final_movie_policy.json',
+                      {'required':True,'authorization':'tests explicitly exercise whole-movie findings'})
     return ctx,EpisodeTools(ctx),events,state
 
 
@@ -516,6 +520,7 @@ def test_review_analysis_cannot_generate_voice_or_brighten_a_take(host,monkeypat
             assert self.context.options.cache_only, 'independent voice preparation must not submit'
             return check_clip_black(self.context,clip,{'passed':True,'chunks':[],'issues':[]},video)
     runner=Analyser()
+    runner.assemble=tools.media.runner().assemble
     monkeypatch.setattr(tools.media,'runner',lambda:runner)
     monkeypatch.setattr('novel_manga.application.rendering.reviewed._load_current',lambda r:None)
     monkeypatch.setattr('novel_manga.application.repair.recovery.black_ranges',lambda *a:[(0,2)])

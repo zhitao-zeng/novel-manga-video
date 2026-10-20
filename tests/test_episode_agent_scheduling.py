@@ -1091,6 +1091,28 @@ def test_accepted_episode_resumes_delivery_without_agent_or_renewed_budget(ctx, 
     assert len(uploads) == 1 and result['delivery']['verified_remote'] and result['exit_code'] == 0
 
 
+def test_host_reviews_applied_crop_and_finishes_without_another_agent_or_render(ctx,config,monkeypatch):
+    calls=install_fake_runtime(monkeypatch,ctx);bridges=capture_bridge(monkeypatch)
+    original=flow.EpisodeTools
+    class Tools(original):
+        def dispatch(self,action,payload):
+            result=super().dispatch(action,payload)
+            if action=='apply':result.update(media_changed=['clip_01'],media_operation='crop',review_required=True)
+            if action=='review':result.update(quality_passed=True)
+            return result
+    monkeypatch.setattr(flow,'EpisodeTools',Tools)
+    sessions=[]
+    def session(work,prompt,**options):
+        sessions.append(1);assert len(sessions)==1
+        atomic_write_json(work/'episode-session.json',{'session_id':'same-session'})
+        bridges[-1].handle('apply',{})
+        return fake_attempt(ctx,1)
+    monkeypatch.setattr(episode_turns,'run_session',session)
+    result=flow.run_episode(ctx,config=config)
+    assert result['passed'] and sessions==[1]
+    assert [a for a in calls if a!='status']==['apply','review','finish']
+
+
 def test_pause_interrupts_waiting_for_model_without_invocation(ctx, config, monkeypatch):
     install_fake_runtime(monkeypatch, ctx)
     monkeypatch.setenv('NOVEL_MODEL_RESOURCES', json.dumps([{'base': config['base_url'], 'slots': 1}]))

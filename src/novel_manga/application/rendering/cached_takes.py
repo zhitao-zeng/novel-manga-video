@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 
-from novel_manga.media import cache
+from novel_manga.media import cache, generation
 
 
 POLICY = "thin-media-v22-coverage-gate"
@@ -29,7 +29,7 @@ from . import clip_analysis
 def approved_cached_take(ctx, clip: dict) -> dict | None:
     """Reuse proof from an existing take, never issue a new over-budget request."""
     from novel_manga.application.profiles import h3_prompt_outdated
-    if ctx.settings.local_h3_base_url and h3_prompt_outdated(clip, str(ctx.feedback.get(clip["clip_id"], ""))):
+    if generation.h3_lane(ctx) and h3_prompt_outdated(clip, str(ctx.feedback.get(clip["clip_id"], ""))):
         return None
     for path in sorted((ctx.work / "clips" / clip["clip_id"]).glob("attempt_*/asr.json")):
         try:

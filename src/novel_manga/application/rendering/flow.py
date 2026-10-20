@@ -17,7 +17,7 @@ from novel_manga.media.common import log
 from novel_manga.media.asset_records import record_privacy_ok
 from novel_manga.media import assets as media_assets
 from novel_manga.media.results import ClipResult, AssemblyResult
-from novel_manga.media import cache, postprocess
+from novel_manga.media import cache, postprocess, generation
 from novel_manga.media.quality import inspect_media
 from novel_manga.util import atomic_write_json
 import novel_manga.application.rendering.moderation as moderation_repair
@@ -296,7 +296,7 @@ class ThinMediaRunner:
             # a finished episode from one whose plan changed since.
             "clip_plan_fingerprint": plan_fingerprint(self.context.clip_plan),
             # ...and, on a local-H3 lane, of the English prompts it rendered from (thin_batch.render_status)
-            "prompt_h3_fingerprint": h3_prompt_fingerprint(self.context.clip_plan) if self.context.settings.local_h3_base_url else None,
+            "prompt_h3_fingerprint": h3_prompt_fingerprint(self.context.clip_plan) if generation.h3_lane(self.context) else None,
             "review_feedback": self.context.feedback,
             "clips": results, "failed_clips": errored, "gate_failed_clips": failed,
             "blocked_clips": self.context.state.blocked_clips,

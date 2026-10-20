@@ -44,7 +44,7 @@ def made_progress(ctx, before, before_status, status):
     prior = before_status.get('job') or {}
     outcome = job.get('result') or {}
     if job.get('id') != prior.get('id') and job.get('status') in {'completed', 'failed'}:
-        if (outcome.get('changed') or outcome.get('assets_added')
+        if (outcome.get('changed') or outcome.get('media_changed') or outcome.get('assets_added')
                 or set(outcome.get('input_repaired') or []) - set(outcome.get('input_reused') or [])):
             return True
         if set(outcome.get('keep_checks') or []) & set(outcome.get('accepted') or []):

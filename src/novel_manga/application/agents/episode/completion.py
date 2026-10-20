@@ -48,6 +48,7 @@ class EpisodeCompletion:
         blocked = {}
         for row in rounds:
             for cid in (row.get('changed', []) + row.get('accepted', [])
+                        + row.get('media_changed', [])
                         + row.get('input_repaired', []) + row.get('risk_accepted', [])):
                 blocked.pop(cid, None)
             # Older batches required a proposal for every failed clip. An
@@ -105,9 +106,11 @@ class EpisodeCompletion:
                   for path in (self.ctx.episode_dir / 'work/inner_voice').glob('*/voice.json')}
         quality = report.get('quality_review') or {}
         author_session = read_json(self.ctx.work_dir / 'episode-session.json', {})
+        from novel_manga.application.production.runs import episode_status
         manifest = {'method': ('one persistent sandbox agent owns authoring and host tool calls' if author_session
                               else 'existing requests executed by host with independent acceptance'),
             'passed': quality.get('passed') is True, 'quality_review': quality,
+            'episode_status': episode_status(self.ctx.episode_dir, True),
             'technical_passed': (report.get('assembly') or {}).get('thin_passed') is True,
             'actual_video_counts': history.generation_counts(self.ctx.episode_dir),
             'voice_recording_counts': voices, 'voice_recording_blocked': self.evidence.voice_recording_blocks(plan),

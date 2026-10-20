@@ -47,7 +47,10 @@ class MediaOperations:
         from novel_manga.application.rendering.reviewed import _load_current
         from novel_manga.application.review.execution import media_matches
         plan = read_json(self.ctx.episode_dir/'clip_plan.json')
-        if not (any(row.get('selected') and not has_analysis(row['selected']) for row in report.get('clips', []))
+        def needs_analysis(selected):
+            video = selected.get('postmix_video') or selected.get('video')
+            return bool(video and (not has_analysis(selected) or not (Path(video).parent/'native.wav').is_file()))
+        if not (any(needs_analysis(row.get('selected') or {}) for row in report.get('clips', []))
                 and media_matches(plan, report, notes=read_json(self.ctx.episode_dir/'review_feedback.json', {}))):
             return report
         if runner is None:
@@ -57,7 +60,7 @@ class MediaOperations:
         hydrated = False
         for row in report['clips']:
             selected = row.get('selected')
-            if not selected or has_analysis(selected):
+            if not selected or not needs_analysis(selected):
                 continue
             # First-pass reports can retain only video/passed. The ordinary
             # analyser reads ASR beside this selected take and refreshes it for
@@ -128,6 +131,13 @@ class MediaOperations:
             review = final_cut.apply_feedback(self.ctx.episode_dir,
                 read_json(self.ctx.episode_dir/'episode_review.json', {}), None)
             atomic_write_json(self.ctx.episode_dir/'episode_review.json', review)
+            prior = report.get('quality_review') or {}
+            return save_result(self.ctx.episode_dir, report, review,
+                rounds=prior.get('repair_rounds', []), corrections=prior.get('automatic_corrections', []),
+                blocked=prior.get('blocked', {}))
+        if not final_cut.required(self.ctx.episode_dir):
+            review = final_cut.apply_feedback(self.ctx.episode_dir,
+                read_json(self.ctx.episode_dir/'episode_review.json', {}), None)
             prior = report.get('quality_review') or {}
             return save_result(self.ctx.episode_dir, report, review,
                 rounds=prior.get('repair_rounds', []), corrections=prior.get('automatic_corrections', []),
@@ -317,4 +327,8 @@ class MediaOperations:
         report = save_result(self.ctx.episode_dir, report, review,
             rounds=prior.get('repair_rounds', []), corrections=prior.get('automatic_corrections', []),
             blocked=prior.get('blocked', {}))
-        return self.evidence.review_evidence(review, report)
+        if report.get('status') == 'clips_ready' and report['quality_review']['native_content_passed']:
+            report = self.assemble(report)
+            review = read_json(self.ctx.episode_dir/'episode_review.json', review)
+        return {'ok': True, **self.evidence.review_evidence(review, report),
+                **self.evidence.media_summary(report)}

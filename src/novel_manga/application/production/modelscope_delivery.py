@@ -28,7 +28,8 @@ def source(path):
 
 def accepted_bundle(run_dir):
     manifest = read_json(Path(run_dir)/'final-candidate/manifest.json', {})
-    if manifest.get('passed') is not True or (manifest.get('quality_review') or {}).get('passed') is not True:
+    if (manifest.get('passed') is not True or (manifest.get('quality_review') or {}).get('passed') is not True
+            or manifest.get('episode_status') != 'done'):
         raise ValueError('finish must accept the current movie before delivery')
     if not manifest.get('movie') or not manifest.get('cover'):
         raise ValueError('finish bundle must contain both movie and corresponding cover')

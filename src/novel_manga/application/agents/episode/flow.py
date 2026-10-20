@@ -115,7 +115,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     result.update(status='paused', phase='paused', reason='production dispatch paused', exit_code=0)
                     break
                 job = status.get('job') or {}
-                if (not production_only and job.get('action') == 'render' and job.get('status') == 'completed'
+                if (not production_only and job.get('action') in {'render','review'} and job.get('status') == 'completed'
                         and (job.get('result') or {}).get('quality_passed') is True):
                     # The normal host operation already completed independent acceptance.
                     # Reserve an Agent conversation for an actual unresolved decision.
@@ -130,6 +130,11 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                         result['method'] = 'existing requests executed and accepted by host'
                         break
                 outcome=job.get('result')or{}
+                if (job.get('action') == 'apply' and job.get('status') == 'completed'
+                        and outcome.get('media_operation') == 'crop' and outcome.get('review_required')):
+                    bridge.handle('review', {})
+                    bridge.update_state(phase='checking_existing_media')
+                    continue
                 if outcome.get('upstream_action')=='repair_assets' and outcome.get('input_decision') and outcome.get('ok'):
                     path='output/upstream-input-'+job['id']+'.json'
                     atomic_write_json(ctx.work_dir/path,{'decisions':[outcome['input_decision']]})

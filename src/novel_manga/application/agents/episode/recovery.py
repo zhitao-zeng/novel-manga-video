@@ -126,7 +126,7 @@ def remember(ctx, diagnosis, result, decisions=()):
     attempts = previous.get('attempts') or []
     attempt = {'action': result.get('action'), 'ok': result.get('ok'),
                'issues': copy.deepcopy(diagnosis.get('issues') or []),
-               'changed': result.get('changed') or result.get('input_repaired') or [],
+               'changed': result.get('changed') or result.get('media_changed') or result.get('input_repaired') or [],
                'accepted_clips': result.get('accepted') or [],
                'blocked': result.get('blocked') or result.get('error'),
                'remedies': [{'action': row.get('action'), 'clip': row.get('clip_id'),

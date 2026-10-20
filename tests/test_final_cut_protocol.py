@@ -15,6 +15,8 @@ def episode(tmp_path):
     atomic_write_json(directory/'clip_plan.json',plan)
     atomic_write_json(directory/'chapter_script.json',{'shots':[]})
     atomic_write_json(directory/'episode_review.json',{'clips':{'a':{'severity':'pass'}},'feedback':{}})
+    atomic_write_json(directory/'work/review/final_movie_policy.json',
+                      {'required':True,'authorization':'explicit full-movie protocol test'})
     media={'clips':[{'clip_id':'a','selected':{'video':str(movie),'chunks':[]}}],
            'assembly':{'final_video':str(movie),'thin_passed':True,
                        'timeline':[{'unit_id':'a','start':0,'end':9}]}}

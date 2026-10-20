@@ -16,6 +16,16 @@ from novel_manga.util import atomic_write_json, read_json
 from .movie_context import POLICY, context, same_evidence, assembly_current, approved_source, actual_speech
 
 
+def required(directory, *, receipt=None):
+    """Continue requested movie audits; ordinary clips use native review and final QC."""
+    directory = Path(directory)
+    decision = read_json(directory/'work/review/final_movie_policy.json', {})
+    if type(decision.get('required')) is bool and decision.get('authorization'):
+        return decision['required']
+    from . import independent
+    return bool(receipt or independent.required(directory) or (directory/'final_cut_review.json').is_file())
+
+
 def current(directory, media, final):
     from . import independent
     return bool(assembly_current(directory, media)
@@ -36,7 +46,7 @@ def apply_feedback(directory, review, final):
     for row in review.get('clips',{}).values():row.pop('final_cut',None)
     review['native_feedback_before_final']=copy.deepcopy(review.get('feedback',{}))
     review['final_cut_feedback']={}
-    if not final:return review
+    if not final or not required(directory):return review
     review['final_cut_review']={k:final.get(k) for k in ('movie','context','complete','passed','errors')}
     if final.get('complete') is not True:return review
     grouped={}
@@ -136,6 +146,7 @@ def ambience_speech_issues(media, receipt, frames):
 def review_assembly(runner, media, *, receipt=None):
     """Review the actual assembly, or the delivered movie supplied by its exporter."""
     ctx=runner.context;directory=ctx.episode_dir
+    if not required(directory, receipt=receipt):return None
     source=(receipt or {}).get('final_video') or (media.get('assembly') or {}).get('final_video')
     if not source:return None  # first-pass production has not assembled a movie
     if not assembly_current(directory, media):

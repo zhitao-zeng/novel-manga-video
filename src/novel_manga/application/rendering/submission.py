@@ -51,13 +51,13 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / "clip.mp4"
     episode_dir = ctx.work.parent
-    if ctx.settings.local_h3_base_url and not ctx.options.cache_only:
+    if generation.h3_lane(ctx) and not ctx.options.cache_only:
         from novel_manga.providers.local_h3 import guard_pending_tasks
         guard_pending_tasks(directory.parent, output)
     request, references, digests, retry = generation.build_request(ctx, clip, attempt)
     task_path = output.with_suffix(output.suffix + '.task.json')
     saved_request = read_json(directory/'request.json', {})
-    if (ctx.settings.local_h3_base_url and read_json(task_path, {}).get('task_id') and saved_request
+    if (generation.h3_lane(ctx) and read_json(task_path, {}).get('task_id') and saved_request
             and not (output.is_file() and output.stat().st_size > 0)
             and (not cache.request_matches(ctx, clip, saved_request, references, digests)
                  or saved_request.get('seed_variant', request.get('seed_variant')) != request.get('seed_variant'))):
@@ -93,7 +93,7 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
         raise CacheMiss(f"{clip['clip_id']} attempt {attempt}: not in the cache")
     if requests.english_correction_for_new_take(ctx, clip):
         return generate_clip(ctx, clip, attempt)
-    if ctx.settings.local_h3_base_url and not ctx.options.cache_only:
+    if generation.h3_lane(ctx) and not ctx.options.cache_only:
         # About to submit a NEW request on an H3 lane: the caches above did not hold.  Two ways
         # to submit the wrong words - clip_base falls back to the Chinese prompt when there is
         # no current English one (H3 then recites stage directions as dialogue), or uses an

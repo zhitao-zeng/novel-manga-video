@@ -21,6 +21,9 @@ def fixture(tmp_path,monkeypatch):
                       ('review_feedback.json',{}),('thin_media_report.json',report),('episode_review.json',native)]:
         (tmp_path/name).write_text(json.dumps(data))
     ctx=RenderContext(episode_dir=tmp_path,clip_plan=plan,options=RenderOptions(cache_only=False))
+    (tmp_path/'work/review').mkdir(parents=True,exist_ok=True)
+    (tmp_path/'work/review/final_movie_policy.json').write_text(json.dumps(
+        {'required':True,'authorization':'explicit full-movie repair loop test'}))
     monkeypatch.setattr(reviewed,'_review',lambda *a,**k:json.loads(json.dumps(native)))
     monkeypatch.setattr(reviewed.history,'adopt_reviewed_run',lambda *a:None)
     monkeypatch.setattr(reviewed.history,'load',lambda *a:{})

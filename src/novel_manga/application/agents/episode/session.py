@@ -26,7 +26,7 @@ FILE_TOOLS = "Read,Write,Edit,Glob,Grep"
 
 
 CURRENT_TASK_POLICY = 2
-SKILL_REVISION = '2026-10-14'
+SKILL_REVISION = '2026-10-20'
 
 
 def current_context(work_dir, config):

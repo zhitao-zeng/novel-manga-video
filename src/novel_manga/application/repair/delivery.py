@@ -43,8 +43,14 @@ def publish_if_ready(directory: Path, review: dict, takes: dict) -> bool:
     from novel_manga.review.contracts import current_review
     media = read(directory / "thin_media_report.json", {})
     assembly = media.get("assembly") or {}
+    from novel_manga.application.review import final_cut
+    final_required = final_cut.required(directory)
+    if not final_required and not final_cut.assembly_current(directory, media):
+        return False
     final_review=media.get('final_cut_review') or read(directory/'final_cut_review.json',None)
-    if final_review is not None:
+    if final_required and final_review is None:
+        return False
+    if final_review is not None and final_required:
         from novel_manga.application.review.final_cut import current
         if (not current(directory,media,final_review) or final_review.get('complete') is not True
                 or final_review.get('passed') is not True or final_review.get('issues') or final_review.get('errors')):
@@ -82,7 +88,7 @@ def publish_if_ready(directory: Path, review: dict, takes: dict) -> bool:
     # without overwriting the previous movie's backup with the new movie.
     copy_complete(candidate, final)
     assembly.update(final_video=str(final), pending_publish=False, published_at=time.strftime("%F %T"))
-    if final_review is not None:
+    if final_review is not None and final_required:
         from novel_manga.application.review import final_cut
         relocated = copy.deepcopy(final_review)
         relocated['movie'] = str(final)

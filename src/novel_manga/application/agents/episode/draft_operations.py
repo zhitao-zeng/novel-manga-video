@@ -105,6 +105,12 @@ class DraftOperations:
                     if not row.get('reason'):
                         raise RepairArgumentError('repair decision needs a reason')
                     action = row.get('action')
+                    if action == 'crop':
+                        if len(draft['decisions']) != 1:
+                            raise RepairArgumentError('submit one media crop separately')
+                        from .media_repair import validate
+                        validate(self.ctx,row)
+                        continue
                     if action in {'repair_assets','repack'}:
                         if len(draft['decisions'])!=1:raise RepairArgumentError('submit one upstream operation separately')
                         if action=='repair_assets':

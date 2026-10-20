@@ -45,10 +45,14 @@ def renumber_audio(prompt: str, sent: list[int]) -> str:
         kept.append(AUDIO_TAG_H3.sub(lambda m: f"<Audio {position[int(m.group(1))]}>", line))
     return "\n".join(kept)
 
+def h3_lane(ctx) -> bool:
+        return bool(ctx.settings.local_h3_base_url or getattr(ctx.settings, 'video_model', '') == 'MiniMax-H3')
+
+
 def uses_h3_prompt(ctx, clip: dict) -> bool:
         # prompt_h3_skip keeps a clip already rendered from the Chinese prompt whose dialogue checked
         # out: it points the request back at the one that produced the clip, so the cache holds it.
-        return bool(ctx.settings.local_h3_base_url and clip.get("prompt_h3") and not clip.get("prompt_h3_skip"))
+        return bool(h3_lane(ctx) and clip.get("prompt_h3") and not clip.get("prompt_h3_skip"))
 
 def clip_base(ctx, clip: dict) -> str:
         """The clip's prompt before any softening: what clip_prompt sends, and what the cache compares."""
@@ -64,7 +68,7 @@ def clip_base(ctx, clip: dict) -> str:
 
 def retry_suffix(ctx, clip: dict, attempt: int) -> str:
         """Local retries vary the seed; legacy retry text remains readable by the cache matcher."""
-        if attempt <= 1 or ctx.settings.local_h3_base_url:
+        if attempt <= 1 or h3_lane(ctx):
             return ""
         return RETRY_SUFFIX
 

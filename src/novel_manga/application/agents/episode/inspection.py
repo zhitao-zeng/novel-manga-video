@@ -65,6 +65,8 @@ class EpisodeInspection:
                 if float(clip.get('request_seconds')or 0)>self.ctx.clip_seconds_max:
                     allowed.append('repack')
             if cid in eligible:
+                if cid in videos:
+                    allowed.append('crop')
                 choices=render_risk_choices(self.ctx.episode_dir,clip)
                 if take_left[cid] and any(choices.values()):
                     risk_choices[cid]=choices

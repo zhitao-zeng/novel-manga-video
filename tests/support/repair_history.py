@@ -14,6 +14,7 @@ import novel_manga.review.storage as review_storage
 import novel_manga.application.review.evidence as review_evidence
 from novel_manga.application.review.store import current_takes
 from novel_manga.application.profiles import plan_fingerprint
+from novel_manga.application.review.movie_context import assembly_inputs
 from novel_manga.application.production.runs import REVIEW_POLICY, episode_status
 
 
@@ -40,6 +41,7 @@ def episode(tmp_path):
     media = {"clip_plan_fingerprint": plan_fingerprint(plan), "review_feedback": {}, "failed_clips": [], "gate_failed_clips": [],
              "clips": [{"clip_id": "clip_01", "selected": {"video": str(video), "passed": True}}],
              "assembly": {"final_video": str(directory / "nov_1.mp4"), "thin_passed": True}}
+    media['assembly']['source_inputs'] = assembly_inputs(plan,media)
     for name, value in (("clip_plan.json", plan), ("episode_review.json", review), ("thin_media_report.json", media)):
         write(directory / name, value)
     (directory / "nov_1.mp4").write_bytes(b"incumbent movie")

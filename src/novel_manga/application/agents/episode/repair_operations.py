@@ -30,6 +30,16 @@ class RepairOperations:
             raise ValueError('each repair decision requires an object and clip_id')
         if len({row['clip_id'] for row in answer['decisions']}) != len(answer['decisions']):
             raise ValueError('repair decision must name each eligible clip at most once')
+        if any(row.get('action') == 'crop' for row in answer['decisions']):
+            if len(answer['decisions']) != 1:
+                raise ValueError('submit one media crop separately')
+            from .media_repair import apply
+            result = apply(self.ctx,answer['decisions'][0])
+            result.update(submission_id=payload.get('submission_id'),submitted_decisions=answer['decisions'])
+            path=self.ctx.run_dir/'tool-repair-decisions.json'
+            rounds=read_json(path,[]);rounds.append(result);atomic_write_json(path,rounds)
+            record_state(self.ctx,'media_repaired',media_changed=result['media_changed'])
+            return {**result,'generation_counts':history.generation_counts(self.ctx.episode_dir)}
         if any(row.get('action') in {'repair_assets','repack'} for row in answer['decisions']):
             if len(answer['decisions'])!=1:raise ValueError('submit one upstream operation separately')
             row=answer['decisions'][0]
