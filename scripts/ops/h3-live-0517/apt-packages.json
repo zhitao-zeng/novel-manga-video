@@ -1,0 +1,242 @@
+[
+  {
+    "file": "libc-bin_2.36-9+deb12u14_amd64.deb",
+    "bytes": 609144,
+    "identity": "Package: libc-bin\nVersion: 2.36-9+deb12u14\nArchitecture: amd64"
+  },
+  {
+    "file": "binutils-common_2.40-2_amd64.deb",
+    "bytes": 2486664,
+    "identity": "Package: binutils-common\nVersion: 2.40-2\nArchitecture: amd64"
+  },
+  {
+    "file": "libctf0_2.40-2_amd64.deb",
+    "bytes": 89796,
+    "identity": "Package: libctf0\nVersion: 2.40-2\nArchitecture: amd64"
+  },
+  {
+    "file": "libc6_2.36-9+deb12u14_amd64.deb",
+    "bytes": 2759320,
+    "identity": "Package: libc6\nVersion: 2.36-9+deb12u14\nArchitecture: amd64"
+  },
+  {
+    "file": "libctf-nobfd0_2.40-2_amd64.deb",
+    "bytes": 153384,
+    "identity": "Package: libctf-nobfd0\nVersion: 2.40-2\nArchitecture: amd64"
+  },
+  {
+    "file": "libgprofng0_2.40-2_amd64.deb",
+    "bytes": 812120,
+    "identity": "Package: libgprofng0\nVersion: 2.40-2\nArchitecture: amd64"
+  },
+  {
+    "file": "libjansson4_2.14-2_amd64.deb",
+    "bytes": 40788,
+    "identity": "Package: libjansson4\nVersion: 2.14-2\nArchitecture: amd64"
+  },
+  {
+    "file": "ca-certificates_20250419~deb12u2_all.deb",
+    "bytes": 160948,
+    "identity": "Package: ca-certificates\nVersion: 20250419~deb12u2\nArchitecture: all"
+  },
+  {
+    "file": "libbinutils_2.40-2_amd64.deb",
+    "bytes": 572104,
+    "identity": "Package: libbinutils\nVersion: 2.40-2\nArchitecture: amd64"
+  },
+  {
+    "file": "binutils-x86-64-linux-gnu_2.40-2_amd64.deb",
+    "bytes": 2245848,
+    "identity": "Package: binutils-x86-64-linux-gnu\nVersion: 2.40-2\nArchitecture: amd64"
+  },
+  {
+    "file": "binutils_2.40-2_amd64.deb",
+    "bytes": 64980,
+    "identity": "Package: binutils\nVersion: 2.40-2\nArchitecture: amd64"
+  },
+  {
+    "file": "cpp-12_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 9767788,
+    "identity": "Package: cpp-12\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "cpp_4%3a12.2.0-3_amd64.deb",
+    "bytes": 6836,
+    "identity": "Package: cpp\nVersion: 4:12.2.0-3\nArchitecture: amd64"
+  },
+  {
+    "file": "g++-12_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 10694076,
+    "identity": "Package: g++-12\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "g++_4%3a12.2.0-3_amd64.deb",
+    "bytes": 1356,
+    "identity": "Package: g++\nVersion: 4:12.2.0-3\nArchitecture: amd64"
+  },
+  {
+    "file": "gcc-12_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 19268852,
+    "identity": "Package: gcc-12\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "gcc_4%3a12.2.0-3_amd64.deb",
+    "bytes": 5216,
+    "identity": "Package: gcc\nVersion: 4:12.2.0-3\nArchitecture: amd64"
+  },
+  {
+    "file": "libasan8_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 2192652,
+    "identity": "Package: libasan8\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libatomic1_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 9376,
+    "identity": "Package: libatomic1\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libc-dev-bin_2.36-9+deb12u14_amd64.deb",
+    "bytes": 48056,
+    "identity": "Package: libc-dev-bin\nVersion: 2.36-9+deb12u14\nArchitecture: amd64"
+  },
+  {
+    "file": "libc6-dev_2.36-9+deb12u14_amd64.deb",
+    "bytes": 1903668,
+    "identity": "Package: libc6-dev\nVersion: 2.36-9+deb12u14\nArchitecture: amd64"
+  },
+  {
+    "file": "libcc1-0_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 41736,
+    "identity": "Package: libcc1-0\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libcrypt-dev_1%3a4.4.33-2_amd64.deb",
+    "bytes": 118144,
+    "identity": "Package: libcrypt-dev\nVersion: 1:4.4.33-2\nArchitecture: amd64"
+  },
+  {
+    "file": "libflac12_1.4.2+ds-2_amd64.deb",
+    "bytes": 198124,
+    "identity": "Package: libflac12\nVersion: 1.4.2+ds-2\nArchitecture: amd64"
+  },
+  {
+    "file": "libgcc-12-dev_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 2437204,
+    "identity": "Package: libgcc-12-dev\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libglib2.0-0_2.74.6-2+deb12u9_amd64.deb",
+    "bytes": 1403216,
+    "identity": "Package: libglib2.0-0\nVersion: 2.74.6-2+deb12u9\nArchitecture: amd64"
+  },
+  {
+    "file": "libgomp1_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 115772,
+    "identity": "Package: libgomp1\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libisl23_0.25-1.1_amd64.deb",
+    "bytes": 683060,
+    "identity": "Package: libisl23\nVersion: 0.25-1.1\nArchitecture: amd64"
+  },
+  {
+    "file": "libitm1_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 26140,
+    "identity": "Package: libitm1\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "liblsan0_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 969300,
+    "identity": "Package: liblsan0\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libmp3lame0_3.100-6_amd64.deb",
+    "bytes": 364932,
+    "identity": "Package: libmp3lame0\nVersion: 3.100-6\nArchitecture: amd64"
+  },
+  {
+    "file": "libmpc3_1.3.1-1_amd64.deb",
+    "bytes": 51480,
+    "identity": "Package: libmpc3\nVersion: 1.3.1-1\nArchitecture: amd64"
+  },
+  {
+    "file": "libmpfr6_4.2.0-1_amd64.deb",
+    "bytes": 700900,
+    "identity": "Package: libmpfr6\nVersion: 4.2.0-1\nArchitecture: amd64"
+  },
+  {
+    "file": "libmpg123-0_1.31.2-1+deb12u1_amd64.deb",
+    "bytes": 146980,
+    "identity": "Package: libmpg123-0\nVersion: 1.31.2-1+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libnsl-dev_1.3.0-2_amd64.deb",
+    "bytes": 66436,
+    "identity": "Package: libnsl-dev\nVersion: 1.3.0-2\nArchitecture: amd64"
+  },
+  {
+    "file": "libogg0_1.3.5-3_amd64.deb",
+    "bytes": 23412,
+    "identity": "Package: libogg0\nVersion: 1.3.5-3\nArchitecture: amd64"
+  },
+  {
+    "file": "libopus0_1.3.1-3_amd64.deb",
+    "bytes": 195192,
+    "identity": "Package: libopus0\nVersion: 1.3.1-3\nArchitecture: amd64"
+  },
+  {
+    "file": "libquadmath0_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 144616,
+    "identity": "Package: libquadmath0\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libsndfile1_1.2.0-1+deb12u1_amd64.deb",
+    "bytes": 196540,
+    "identity": "Package: libsndfile1\nVersion: 1.2.0-1+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 2047292,
+    "identity": "Package: libstdc++-12-dev\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libtirpc-dev_1.3.3+ds-1_amd64.deb",
+    "bytes": 191428,
+    "identity": "Package: libtirpc-dev\nVersion: 1.3.3+ds-1\nArchitecture: amd64"
+  },
+  {
+    "file": "libtsan2_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 2196972,
+    "identity": "Package: libtsan2\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libubsan1_12.2.0-14+deb12u1_amd64.deb",
+    "bytes": 883056,
+    "identity": "Package: libubsan1\nVersion: 12.2.0-14+deb12u1\nArchitecture: amd64"
+  },
+  {
+    "file": "libvorbis0a_1.3.7-1_amd64.deb",
+    "bytes": 93028,
+    "identity": "Package: libvorbis0a\nVersion: 1.3.7-1\nArchitecture: amd64"
+  },
+  {
+    "file": "libvorbisenc2_1.3.7-1_amd64.deb",
+    "bytes": 80568,
+    "identity": "Package: libvorbisenc2\nVersion: 1.3.7-1\nArchitecture: amd64"
+  },
+  {
+    "file": "linux-libc-dev_6.1.190-1_amd64.deb",
+    "bytes": 2408528,
+    "identity": "Package: linux-libc-dev\nVersion: 6.1.190-1\nArchitecture: amd64"
+  },
+  {
+    "file": "make_4.3-4.1_amd64.deb",
+    "bytes": 395632,
+    "identity": "Package: make\nVersion: 4.3-4.1\nArchitecture: amd64"
+  },
+  {
+    "file": "rpcsvc-proto_1.4.3-1_amd64.deb",
+    "bytes": 63268,
+    "identity": "Package: rpcsvc-proto\nVersion: 1.4.3-1\nArchitecture: amd64"
+  }
+]

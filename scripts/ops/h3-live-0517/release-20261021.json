@@ -1,0 +1,32 @@
+{
+  "image": "harbor-contest.4pd.io/zengzhitao/minimax-h3-sglang:0.5.17-ref2va-cu130-live-20261021",
+  "digest": "sha256:1b79447b50a3fe067bf585a771c6ac3331647a8b37be21cf635bee433f9cd29b",
+  "image_manifest_digest": "sha256:df0baeef4c6bd80e62cb7eecba2a4559678fb2375e77f4b71bbe90d79446cd19",
+  "push_digest_matches": true,
+  "layer_count": 10,
+  "compressed_layer_bytes": 9631401771,
+  "architecture": "linux/amd64",
+  "source_kind": "live_local_source_overlay",
+  "python": "3.11.15",
+  "torch": "2.11.0+cu130",
+  "cuda_runtime": "13.0",
+  "cuda_compiler": "13.2",
+  "defaults": {
+    "short_edge": 544,
+    "num_inference_steps": 9,
+    "flow_shift": 12.0,
+    "audio_flow_shift": 3.0,
+    "seconds": 5
+  },
+  "lora": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
+  "model_weights_included": false,
+  "verified": {
+    "container_imports": true,
+    "python_headers_and_toolchain": true,
+    "ffmpeg_ffprobe": true,
+    "h100_cuda_matmul": true,
+    "h100_flash_attention_v3": true,
+    "launcher_help_with_readonly_weights": true,
+    "full_four_gpu_generation": false
+  }
+}

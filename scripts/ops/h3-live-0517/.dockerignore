@@ -1,0 +1,8 @@
+*
+!Dockerfile
+!rootfs/
+!rootfs/**
+!start-h3.sh
+!verify_runtime.py
+!apt-debs/
+!apt-debs/**

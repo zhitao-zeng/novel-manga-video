@@ -1,0 +1,242 @@
+[
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/glibc/libc-bin_2.36-9+deb12u14_amd64.deb",
+    "name": "libc-bin_2.36-9+deb12u14_amd64.deb",
+    "size": 609144
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/b/binutils/binutils-common_2.40-2_amd64.deb",
+    "name": "binutils-common_2.40-2_amd64.deb",
+    "size": 2486664
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/b/binutils/libctf0_2.40-2_amd64.deb",
+    "name": "libctf0_2.40-2_amd64.deb",
+    "size": 89796
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/glibc/libc6_2.36-9+deb12u14_amd64.deb",
+    "name": "libc6_2.36-9+deb12u14_amd64.deb",
+    "size": 2759320
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/b/binutils/libctf-nobfd0_2.40-2_amd64.deb",
+    "name": "libctf-nobfd0_2.40-2_amd64.deb",
+    "size": 153384
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/b/binutils/libgprofng0_2.40-2_amd64.deb",
+    "name": "libgprofng0_2.40-2_amd64.deb",
+    "size": 812120
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/j/jansson/libjansson4_2.14-2_amd64.deb",
+    "name": "libjansson4_2.14-2_amd64.deb",
+    "size": 40788
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian-security/pool/updates/main/c/ca-certificates/ca-certificates_20250419~deb12u2_all.deb",
+    "name": "ca-certificates_20250419~deb12u2_all.deb",
+    "size": 160948
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/b/binutils/libbinutils_2.40-2_amd64.deb",
+    "name": "libbinutils_2.40-2_amd64.deb",
+    "size": 572104
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/b/binutils/binutils-x86-64-linux-gnu_2.40-2_amd64.deb",
+    "name": "binutils-x86-64-linux-gnu_2.40-2_amd64.deb",
+    "size": 2245848
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/b/binutils/binutils_2.40-2_amd64.deb",
+    "name": "binutils_2.40-2_amd64.deb",
+    "size": 64980
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/cpp-12_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "cpp-12_12.2.0-14+deb12u1_amd64.deb",
+    "size": 9767788
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-defaults/cpp_12.2.0-3_amd64.deb",
+    "name": "cpp_4%3a12.2.0-3_amd64.deb",
+    "size": 6836
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/g%2b%2b-12_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "g++-12_12.2.0-14+deb12u1_amd64.deb",
+    "size": 10694076
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-defaults/g%2b%2b_12.2.0-3_amd64.deb",
+    "name": "g++_4%3a12.2.0-3_amd64.deb",
+    "size": 1356
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/gcc-12_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "gcc-12_12.2.0-14+deb12u1_amd64.deb",
+    "size": 19268852
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-defaults/gcc_12.2.0-3_amd64.deb",
+    "name": "gcc_4%3a12.2.0-3_amd64.deb",
+    "size": 5216
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libasan8_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libasan8_12.2.0-14+deb12u1_amd64.deb",
+    "size": 2192652
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libatomic1_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libatomic1_12.2.0-14+deb12u1_amd64.deb",
+    "size": 9376
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/glibc/libc-dev-bin_2.36-9%2bdeb12u14_amd64.deb",
+    "name": "libc-dev-bin_2.36-9+deb12u14_amd64.deb",
+    "size": 48056
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/glibc/libc6-dev_2.36-9%2bdeb12u14_amd64.deb",
+    "name": "libc6-dev_2.36-9+deb12u14_amd64.deb",
+    "size": 1903668
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libcc1-0_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libcc1-0_12.2.0-14+deb12u1_amd64.deb",
+    "size": 41736
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/libx/libxcrypt/libcrypt-dev_4.4.33-2_amd64.deb",
+    "name": "libcrypt-dev_1%3a4.4.33-2_amd64.deb",
+    "size": 118144
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/f/flac/libflac12_1.4.2%2bds-2_amd64.deb",
+    "name": "libflac12_1.4.2+ds-2_amd64.deb",
+    "size": 198124
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libgcc-12-dev_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libgcc-12-dev_12.2.0-14+deb12u1_amd64.deb",
+    "size": 2437204
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/glib2.0/libglib2.0-0_2.74.6-2%2bdeb12u9_amd64.deb",
+    "name": "libglib2.0-0_2.74.6-2+deb12u9_amd64.deb",
+    "size": 1403216
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libgomp1_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libgomp1_12.2.0-14+deb12u1_amd64.deb",
+    "size": 115772
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/i/isl/libisl23_0.25-1.1_amd64.deb",
+    "name": "libisl23_0.25-1.1_amd64.deb",
+    "size": 683060
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libitm1_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libitm1_12.2.0-14+deb12u1_amd64.deb",
+    "size": 26140
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/liblsan0_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "liblsan0_12.2.0-14+deb12u1_amd64.deb",
+    "size": 969300
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/l/lame/libmp3lame0_3.100-6_amd64.deb",
+    "name": "libmp3lame0_3.100-6_amd64.deb",
+    "size": 364932
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/m/mpclib3/libmpc3_1.3.1-1_amd64.deb",
+    "name": "libmpc3_1.3.1-1_amd64.deb",
+    "size": 51480
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/m/mpfr4/libmpfr6_4.2.0-1_amd64.deb",
+    "name": "libmpfr6_4.2.0-1_amd64.deb",
+    "size": 700900
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/m/mpg123/libmpg123-0_1.31.2-1%2bdeb12u1_amd64.deb",
+    "name": "libmpg123-0_1.31.2-1+deb12u1_amd64.deb",
+    "size": 146980
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/libn/libnsl/libnsl-dev_1.3.0-2_amd64.deb",
+    "name": "libnsl-dev_1.3.0-2_amd64.deb",
+    "size": 66436
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/libo/libogg/libogg0_1.3.5-3_amd64.deb",
+    "name": "libogg0_1.3.5-3_amd64.deb",
+    "size": 23412
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/o/opus/libopus0_1.3.1-3_amd64.deb",
+    "name": "libopus0_1.3.1-3_amd64.deb",
+    "size": 195192
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libquadmath0_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libquadmath0_12.2.0-14+deb12u1_amd64.deb",
+    "size": 144616
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/libs/libsndfile/libsndfile1_1.2.0-1%2bdeb12u1_amd64.deb",
+    "name": "libsndfile1_1.2.0-1+deb12u1_amd64.deb",
+    "size": 196540
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libstdc%2b%2b-12-dev_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libstdc++-12-dev_12.2.0-14+deb12u1_amd64.deb",
+    "size": 2047292
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/libt/libtirpc/libtirpc-dev_1.3.3%2bds-1_amd64.deb",
+    "name": "libtirpc-dev_1.3.3+ds-1_amd64.deb",
+    "size": 191428
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libtsan2_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libtsan2_12.2.0-14+deb12u1_amd64.deb",
+    "size": 2196972
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/g/gcc-12/libubsan1_12.2.0-14%2bdeb12u1_amd64.deb",
+    "name": "libubsan1_12.2.0-14+deb12u1_amd64.deb",
+    "size": 883056
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/libv/libvorbis/libvorbis0a_1.3.7-1_amd64.deb",
+    "name": "libvorbis0a_1.3.7-1_amd64.deb",
+    "size": 93028
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/libv/libvorbis/libvorbisenc2_1.3.7-1_amd64.deb",
+    "name": "libvorbisenc2_1.3.7-1_amd64.deb",
+    "size": 80568
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian-security/pool/updates/main/l/linux/linux-libc-dev_6.1.190-1_amd64.deb",
+    "name": "linux-libc-dev_6.1.190-1_amd64.deb",
+    "size": 2408528
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/m/make-dfsg/make_4.3-4.1_amd64.deb",
+    "name": "make_4.3-4.1_amd64.deb",
+    "size": 395632
+  },
+  {
+    "url": "https://mirrors.tuna.tsinghua.edu.cn/debian/pool/main/r/rpcsvc-proto/rpcsvc-proto_1.4.3-1_amd64.deb",
+    "name": "rpcsvc-proto_1.4.3-1_amd64.deb",
+    "size": 63268
+  }
+]

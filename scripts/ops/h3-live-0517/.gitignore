@@ -1,0 +1,5 @@
+rootfs/
+apt-debs/
+snapshot.json
+__pycache__/
+*.log
