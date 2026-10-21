@@ -137,6 +137,8 @@ class SecondPass(Batch):
     """The batch with planning replaced by a script of outcomes, one list per chapter."""
 
     def __init__(self, outcomes, dry_run=False):
+        from threading import Event
+        self.planning_stop = Event()
         self.args = argparse.Namespace(dry_run=dry_run)
         self.rows = {chapter: {} for chapter in outcomes}
         self.outcomes, self.planned = {c: list(o) for c, o in outcomes.items()}, []

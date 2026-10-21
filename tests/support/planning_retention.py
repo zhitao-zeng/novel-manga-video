@@ -35,7 +35,10 @@ def run(tmp_path, monkeypatch, max_redo, review, *, validation_issues=()):
     monkeypatch.setattr(identity, 'resolve_chapter', lambda *a, **kw: {})
     monkeypatch.setattr(presence, 'grade_presence', lambda *a, **kw: {})
     monkeypatch.setattr(retention, 'section_of', lambda outline: '6. 席勒：好吧，这次免费')
-    monkeypatch.setattr(retention, 'review', review)
+    monkeypatch.setattr(presence, 'review_visibility', lambda shots, everyone, **kw: {
+        'grades': {str(i): {name: 'on_camera' for p,name,_ in presence.candidates_for(shots,everyone,ctx=kw.get('ctx')) if p==i}
+                   for i in {p for p,_,_ in presence.candidates_for(shots,everyone,ctx=kw.get('ctx'))}}, 'marks': []})
+    monkeypatch.setattr(retention, 'review', lambda section, shots, source, **kw: review(section,shots,source))
     monkeypatch.setattr(posture, 'ask_json', unspecified_reply)
     monkeypatch.setattr(httpx.HTTPTransport, 'handle_request', lambda *a, **kw: (_ for _ in ()).throw(AssertionError('no HTTP')))
     monkeypatch.setattr(sys, 'argv', ['plan_chapter_thin.py', str(source), '--novel-id', 'book',

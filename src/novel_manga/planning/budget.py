@@ -8,34 +8,40 @@ import novel_manga.planning.constants as pc_constants
 from novel_manga.story.compilation import line_parts
 
 def configure_budget(text_count: int, *, shape: str, min_seconds: float = 0.0, ctx: PlannerContext) -> dict:
-    """Use one episode budget for the model brief, request and validation.
+    """Fixed episodes retain their target; flex episodes follow the screenplay.
 
-    A long 15-second episode needs more than eight clips. Keep the usual range
-    for short chapters, and expand it only when the target cannot fit.
-
-    shape='flex' (the legacy fast tier) aims the episode at 75-150 s by chapter
-    length and lets the packer cut to the clip cap; 'fixed' aims at 90 s and
-    sends an over-ceiling draft back to the writer.
+    Explicit minimum/maximum seconds remain caller constraints. No default
+    episode duration or word count is inferred from chapter character count.
     """
-    flex = shape == "flex"
+    ctx.episode_shape = shape
     ctx.max_clip_seconds = ctx.clip_seconds_max
-    target = min(150, max(75, round(text_count / 3000 * 85 / 10) * 10)) if flex else 90
+    if shape == 'flex':
+        # Zero means no episode target/ceiling, as it already does for the floor.
+        # Clip duration remains an execution limit; source length is not a clock.
+        ctx.episode_seconds_target = ctx.episode_seconds_max = 0.0
+        ctx.episode_seconds_min = min_seconds
+        ctx.clip_range = ctx.spoken_range = (0, 0)
+        ctx.stage_range = (1, 6)
+        return {'clip_seconds_max': ctx.max_clip_seconds,
+                'episode_min_seconds': min_seconds,
+                'episode_floor_tolerance_seconds': pc_constants.EPISODE_FLOOR_TOLERANCE}
+    target = 90
     ctx.episode_seconds_target = max(float(target), min_seconds)
-    base_range = (6, 8) if ctx.short_clips else ((3, 5) if flex else (3, 4))
+    base_range = (6, 8) if ctx.short_clips else (3, 4)
     needed = math.ceil(ctx.episode_seconds_target / ctx.max_clip_seconds)
     if needed > 10:
         raise ValueError(f"目标 {ctx.episode_seconds_target:g} 秒超出最多 10 段 × {ctx.max_clip_seconds:g} 秒的规划容量")
     ctx.clip_range = (base_range[0], max(base_range[1], needed))
-    ctx.stage_range = (2, 3) if ctx.short_clips else ((3, 5) if flex else (4, 6))
-    ctx.spoken_range = ((180, 300) if ctx.episode_seconds_target <= 90 else (240, 400)) if flex else (220, 300)
-    ctx.episode_seconds_min = max(min_seconds, ctx.episode_seconds_target - 25 if flex else 0)
+    ctx.stage_range = (2, 3) if ctx.short_clips else (4, 6)
+    ctx.spoken_range = (220, 300)
+    ctx.episode_seconds_min = min_seconds
     # The target is what the planner aims at; the ceiling is what it may not cross.  They were 15
     # seconds apart, so a dense chapter hit the wall on its first draft and was sent back to cut
     # something - 24 of this book's 100 episodes came out between 95 and 105 seconds, squeezed,
     # while 38 finished under 80 because their chapters are short and the ceiling never mattered.
     # 120 is not a loosening so much as the number the structure already allows: both lanes reach
     # it (4 clips x 30 s and 8 x 15 s), and the 105 was written over the top of that.
-    ctx.episode_seconds_max = min(210.0 if flex else 120.0, ctx.clip_range[1] * ctx.max_clip_seconds)
+    ctx.episode_seconds_max = min(120.0, ctx.clip_range[1] * ctx.max_clip_seconds)
     if ctx.episode_seconds_target > ctx.episode_seconds_max:
         raise ValueError(f"目标 {ctx.episode_seconds_target:g} 秒超过本档规划上限 {ctx.episode_seconds_max:g} 秒")
     return {
@@ -50,13 +56,18 @@ def configure_budget(text_count: int, *, shape: str, min_seconds: float = 0.0, c
 
 
 def budget_requirements(*, ctx: PlannerContext) -> dict:
+    if ctx.episode_shape == 'flex':
+        return {'clip_seconds': f'最多{ctx.max_clip_seconds:g}秒',
+                'episode_target': '整集时长按剧情需要；保留关键因果、决定与必要对白，删重复表达，不凑时长。',
+                **({'episode_min_seconds': ctx.episode_seconds_min} if ctx.episode_seconds_min else {}),
+                **({'episode_max_seconds': ctx.episode_seconds_max} if ctx.episode_seconds_max else {})}
     return {
         "clip_count": f"{ctx.clip_range[0]}-{ctx.clip_range[1]}",
         "stages_per_clip": f"{ctx.stage_range[0]}-{ctx.stage_range[1]}",
         "clip_seconds": f"{10 if ctx.short_clips else 20}-{ctx.max_clip_seconds:g}",
         "episode_seconds": f"about {ctx.episode_seconds_target:g}, max {ctx.episode_seconds_max:g}",
         "episode_target": f"约{ctx.episode_seconds_target:g}秒；尽量不低于{ctx.episode_seconds_min:g}秒；"
-                          f"{pc_constants.SEGMENT_COUNT}个原文区段都必须引用，skipped_segments 必须为空；不为凑时长新增或重复剧情",
+                          "允许合理改编取舍，不为凑时长新增或重复剧情",
         "spoken_chars_total": f"{ctx.spoken_range[0]}-{ctx.spoken_range[1]}",
         "episode_seconds_min": ctx.episode_seconds_min,
         "episode_floor_tolerance_seconds": pc_constants.EPISODE_FLOOR_TOLERANCE,
@@ -113,14 +124,15 @@ def validate_duration(normalized, ctx, errors, warnings):
         problem = directed_duration_problem(total_seconds, ctx.story_blueprint.get('episode_seconds_max'))
         if problem:
             errors.append(PlanningIssue(PlanningCode.DURATION_ABOVE_MAXIMUM, problem))
-        elif total_seconds > ctx.episode_seconds_target:
+        elif ctx.episode_seconds_target and total_seconds > ctx.episode_seconds_target:
             warnings.append(f'导演计划{total_seconds:g}秒，高于参考目标{ctx.episode_seconds_target:g}秒；未擅自删剧情或压缩台词。')
-    elif total_seconds > ctx.episode_seconds_max and ctx.authored_storyboard:
+    elif ctx.episode_seconds_max and total_seconds > ctx.episode_seconds_max and ctx.authored_storyboard:
         warnings.append(f"report only: 全集估算 {total_seconds} 秒，高于上限 {ctx.episode_seconds_max:g} 秒；"
                         "分镜是人写的，时长按作者的镜头表走，不压缩")
-    elif total_seconds > ctx.episode_seconds_max and ctx.episode_shape == 'flex':
-        warnings.append(f"report only: 全集估算 {total_seconds} 秒，弹性时长不返修，打包时按 {ctx.max_clip_seconds:g} 秒拆段")
-    elif total_seconds > ctx.episode_seconds_max:
+    elif ctx.episode_seconds_max and total_seconds > ctx.episode_seconds_max and ctx.episode_shape == 'flex':
+        errors.append(PlanningIssue(PlanningCode.DURATION_ABOVE_MAXIMUM,
+            directed_duration_problem(total_seconds, ctx.episode_seconds_max)))
+    elif ctx.episode_seconds_max and total_seconds > ctx.episode_seconds_max:
         stage_total = len(normalized)
         spoken_total = sum(pc_text.spoken_chars(t["text"]) for s in normalized for t in s["turns"] if t["delivery_mode"] in {"visible_dialogue", "offscreen_dialogue"})
         scale = ctx.episode_seconds_target / total_seconds
@@ -128,4 +140,4 @@ def validate_duration(normalized, ctx, errors, warnings):
         errors.append(PlanningIssue(PlanningCode.DURATION_ABOVE_MAXIMUM, f"全集估算 {total_seconds} 秒，超过上限 {ctx.episode_seconds_max:g} 秒（目标约{ctx.episode_seconds_target:g}秒）。"
             f"上一稿是 {stage_total} 个阶段、发声 {spoken_total} 字；本次压到 {stage_target} 个阶段左右、"
             f"发声 {max(150, round(spoken_total * scale))} 字左右。做法是缩短台词：合并同一人的连续短句，删掉不带新信息的群众议论和感叹，"
-            "去掉只有反应没有事件的无声阶段；每个阶段最多两句短台词。不得为了缩短而删掉整个区段：每个区段仍须至少被一个阶段引用，一个都不能少。不得原样重发上一稿。"))
+            "去掉只有反应没有事件的无声阶段；每个阶段最多两句短台词。可以合理合并和省略，但不能删掉理解当前行动所必需的事实。不得原样重发上一稿。"))

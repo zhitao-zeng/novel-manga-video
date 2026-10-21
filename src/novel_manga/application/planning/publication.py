@@ -5,7 +5,7 @@ from novel_manga.planning.context import PlannerContext
 
 
 
-from novel_manga.util import atomic_write_json
+from novel_manga.util import atomic_write_json, read_json
 import fcntl
 import json
 import time
@@ -78,26 +78,17 @@ def publish_result(args, ctx: PlannerContext, inputs: PlanningInputs, outcome: P
         "episode_index": episode.index,
         "source_text_sha256": pc_text.sha256_text(episode.source_text),
         "style_fingerprint": bible.style_fingerprint,
-        "hard_gates": {"source_coverage": "passed", "cast_and_speakers": "passed"},
-        **({'story_method_checks': {'source_ownership': 'passed', 'beat_coverage': 'passed',
+        "hard_gates": {"source_provenance": "passed", "cast_and_speakers": "passed"},
+        "adaptation_review": ((read_json(episode_dir/"planning_attempt.json", {}).get("chapter_review") or {}).get("verdict", "not_run")),
+        **({'story_method_checks': {'source_ownership': 'passed', 'beat_source_links': 'passed',
                                     'semantic_quality_review': 'passed' if ctx.story_blueprint.get('review', {}).get('completed') else 'not_run'}} if method else {}),
         "metrics": report_metrics,
         "warnings": [*warnings, *pc_validation.soft_warnings(report_metrics, ctx=ctx)],
         "attempts": attempts,
         "elapsed_seconds": round(time.monotonic() - started, 1),
     }
-    if prop_names and not args.replay:
-        # 道具标注走判官后置 pass：试点里规划器（flashnext）对每个镜头都答空，
-        # 判官（27B）一次标对获得镜头。union，不否决规划器自己的标注。
-        # 键是镜头在 shots 里的位置：origin_index 在 framing 拆镜后会重复。
-        from novel_manga.application.planning.prop_marks import mark_props
-        marked = mark_props(shots, [p for p in prop_all if p.name in prop_names])
-        for position, shot in enumerate(shots, start=1):
-            if position in marked:
-                shot["props"] = marked[position]
-        if marked:
-            from novel_manga.llm import client as model_client
-            model_client.log(f"prop marks: {marked}")
+    # Prop appearances were read with presence in the same
+    # current-candidate review; publication must not buy a fourth interpretation.
     source_menu.adopt_selected(novel_dir, source_places, shots)
     plan = pc_outputs.to_episode_plan(raw, shots, location_map, episode.source_text, episode.source_title, ctx=ctx)
     atomic_write_json(episode_dir / "chapter_script.json", {"video_title": raw.get("video_title"), "source_title": episode.source_title, "episode_index": episode.index, "profile": profile, "hook": raw.get("hook"), "summary": raw.get("summary"), "clip_count": len(raw.get("clips") or []), "shots": shots, "skipped_segments": skipped,

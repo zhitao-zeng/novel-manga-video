@@ -35,6 +35,8 @@ class PlanningCode(Enum):
     INVALID_WEARABLE = ('invalid_wearable', 'stage')
     HANDOFF_LINE_LOST = ('handoff_line_lost', 'chapter')
     RETAINED_LINE_LOST = ('retained_line_lost', 'chapter')
+    SOURCE_CONTRADICTION = ('source_contradiction', 'stage')
+    REVIEW_INCOMPLETE = ('review_incomplete', 'chapter')
     STRICT_SPEECH_BELOW_MINIMUM = ('strict_speech_below_minimum', 'chapter')
     STRICT_SPEECH_ABOVE_MAXIMUM = ('strict_speech_above_maximum', 'chapter')
 

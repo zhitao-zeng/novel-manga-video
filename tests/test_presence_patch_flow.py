@@ -2,7 +2,7 @@ import json
 import sys
 import httpx
 
-from novel_manga.application.planning import cli, requests, presence
+from novel_manga.application.planning import cli, requests, presence, retention
 from novel_manga.application.identity import flow as identity
 from novel_manga.planning import validation
 from novel_manga.planning.context import PlannerContext
@@ -32,11 +32,13 @@ def test_final_attempt_still_reviews_presence_and_keeps_the_writer_on_disagreeme
         [PlanningIssue(PlanningCode.DURATION_BELOW_MINIMUM, '未达本集时长下限')], [], [shot]))
     monkeypatch.setattr(identity, 'resolve_chapter', lambda *a, **kw: {})
     calls = []
-    def grade(*args, **kwargs):
-        calls.append(kwargs['source'])
-        return {1: {'乙先生': 'on_camera'}}
-    monkeypatch.setattr(presence, 'grade_presence', grade)
+    def grade(shots, everyone, **kwargs):
+        calls.append(shots)
+        return {'grades':{'1':{'甲先生':'on_camera','乙先生':'on_camera'}},'marks':[]}
+    monkeypatch.setattr(presence, 'review_visibility', grade)
     monkeypatch.setattr(posture, 'ask_json', unspecified_reply)
+    from novel_manga.application.planning import retention
+    monkeypatch.setattr(retention, 'review', lambda *a, **k: ({'verdict':'pass','errors':[]}, []))
     monkeypatch.setattr(httpx.HTTPTransport, 'handle_request', lambda *a, **kw: (_ for _ in ()).throw(AssertionError('no HTTP')))
     monkeypatch.setattr(sys, 'argv', ['plan_chapter_thin.py', str(source), '--novel-id', 'book',
         '--bible', str(bible), '--output-root', str(tmp_path / 'out'), '--max-redo', '0',

@@ -13,7 +13,7 @@ REAL_BINDINGS = semantic_review.bindings
 
 
 @pytest.mark.parametrize('chapter', [1, 48])
-def test_review_receives_numbered_segments_and_separate_background(tmp_path, monkeypatch, chapter):
+def test_review_receives_numbered_segments_without_whole_neighbor_scenes(tmp_path, monkeypatch, chapter):
     episode = tmp_path / f'book/book_{chapter}'
     segments = [{'segment_id': 's1', 'text': '甲来了。\n他坐下。'},
                 {'segment_id': 's2', 'text': '甲笑了。\n他离开。'}]
@@ -38,7 +38,7 @@ def test_review_receives_numbered_segments_and_separate_background(tmp_path, mon
     prompt, payload = captured[0]
     assert payload['evidence']['current_segments'] == [
         {'paragraph': i, **s} for i, s in enumerate(segments, 1)]
-    assert payload['evidence']['source'] == {str(chapter + 1): sources[str(chapter + 1)]}
+    assert 'source' not in payload['evidence'] and sources[str(chapter + 1)] not in prompt
     assert '不能把章节号或自然行号当成本章paragraphs' in prompt
     assert result == {'actors': [], 'bindings': []} and review['approved']
     assert len(captured) == 1 and (segments, answer) == before

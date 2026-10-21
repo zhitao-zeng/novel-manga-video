@@ -54,7 +54,7 @@ def test_person_reentry_cannot_reuse_the_seat_left_behind(tmp_path):
 
 
 @pytest.mark.parametrize('boundary,entry', [('unknown', 'continue'), ('continuous', 'unknown')])
-def test_ambiguity_returns_to_existing_patch_loop_without_rewriting_or_publishing(tmp_path, boundary, entry):
+def test_ambiguity_is_reported_without_inventing_inherited_pose_or_publishing(tmp_path, boundary, entry):
     shots = [shot(1, '席勒坐在椅子上'), shot(2, '席勒点头')]
     original = copy.deepcopy(shots)
     states, issues = check_draft(tmp_path, shots, [], ask=lambda p, s: {'stages': [
@@ -62,8 +62,9 @@ def test_ambiguity_returns_to_existing_patch_loop_without_rewriting_or_publishin
     missing, faulty = patch_targets(issues)
     assert not missing and set(faulty) == {'clip_01 stage 2'}
     assert shots == original and not (tmp_path / posture.FILE).exists()
-    with pytest.raises(ValueError, match='姿态交接需修正'):
-        posture.attach(shots, {'shots': shots}, states)
+    parsed = posture.attach(shots, {'shots': shots}, states)
+    assert states['issues'] and issues
+    assert phrase(parsed[1]) == ''
 
 
 def test_another_person_moving_cannot_excuse_a_posture_jump(tmp_path):
@@ -107,7 +108,33 @@ def test_cached_reading_tracks_time_source_and_upstream_state_across_batches(tmp
     calls.clear()
     segments[1]['text'] = '次日他点头。'
     posture.fill(tmp_path, script={'shots': shots}, segments=segments, ask=ask, write=False)
-    assert len(calls) == 1 and calls[0]['shots'][0]['source'][0]['text'] == '次日他点头。'
+    assert len(calls) == 1 and calls[0]['source_segments'][calls[0]['shots'][0]['source'][0]] == '次日他点头。'
+
+
+def test_opening_reset_is_constrained_before_call_but_later_continuity_is_judged(tmp_path, monkeypatch):
+    monkeypatch.setattr(posture, 'BATCH', 1)
+    shots = [shot(1, '席勒坐在椅子上'), shot(2, '席勒点头')]
+    calls = []
+    def ask(prompt, schema):
+        inputs = json.loads(prompt.split('\n')[-1])
+        index = inputs['shots'][0]['index']
+        row = answer(index, '坐' if index == 1 else '未写明',
+                     boundary='reset' if index == 1 else 'continuous',
+                     entry='reset' if index == 1 else 'continue')
+        wired = {k: v for k, v in row.items() if k != 'index'}
+        wired['people'] = {p['name']: {k: v for k, v in p.items() if k != 'name'} for p in row['people']}
+        payload = {'stages': {str(index): wired}}
+        allowed = schema['properties']['stages']['properties'][str(index)]['properties']['boundary']['enum']
+        assert row['boundary'] in allowed
+        if index == 1:
+            assert allowed == ['reset']
+        else:
+            assert 'unknown' in allowed and 'continuous' in allowed
+        calls.append(index)
+        return payload
+    states = posture.fill(tmp_path, script={'shots': shots}, ask=ask, write=False)
+    assert calls == [1, 2] and states['issues'] == []
+    assert states['stages']['2']['start']['席勒']['inherited_from'] == 1
 
 
 def test_changing_upstream_shot_invalidates_inherited_state_even_if_consumer_is_unchanged(tmp_path):
@@ -275,3 +302,33 @@ def test_rebatched_cache_does_not_hide_changed_source(tmp_path, monkeypatch):
     after=posture.fill(tmp_path,script={'shots':changed},segments=[],previous=before,ask=ask,write=False)
     assert len(calls)==1
     assert after['stages']['2']['start']['席勒']['posture'] is None
+
+
+def test_compact_wire_fields_restore_exact_authored_evidence_and_keep_old_readings(tmp_path):
+    shots=[shot(1,'席勒坐在桌后',motion_prompt='席勒站起，走向窗边')]
+    def ask(prompt,contract):
+        state=contract['properties']['stages']['properties']['1']['properties']['people']['properties']['席勒']['properties']['start']
+        assert 'quote_field' in state['properties']
+        assert 'visual_prompt' in state['properties']['quote_field']['enum']
+        assert '席勒坐在桌后' not in json.dumps(contract,ensure_ascii=False)
+        return {'stages':{'1':{'boundary':'reset','reason':'新场景','people':{'席勒':{
+            'entry':'reset','start':{'quote_field':'visual_prompt','posture':'坐','where':'桌后'},
+            'end':{'quote_field':'motion_prompt','posture':'站','where':'窗边'},
+            'transition_field':'motion_prompt'}}}}}
+    states=posture.fill(tmp_path,script={'shots':shots},previous={},ask=ask,write=False)
+    reading=states['stages']['1']['reading']['people'][0]
+    assert reading['start']['quote']=='席勒坐在桌后'
+    assert reading['transition']=='席勒站起，走向窗边'
+    reused=posture.fill(tmp_path,script={'shots':shots},previous=states,
+                        ask=lambda *a:pytest.fail('verified evidence must be reused'),write=False)
+    assert reused['stages']==states['stages']
+
+
+def test_compact_wire_cannot_reference_a_nonexistent_evidence_field(tmp_path):
+    shots=[shot(1,'席勒点头')]
+    def invalid(*a):
+        return {'stages':{'1':{'boundary':'reset','reason':'新场景','people':{'席勒':{
+            'entry':'reset','start':{'quote_field':'source','posture':'坐','where':''},
+            'end':{'quote_field':'','posture':'未写明','where':''},'transition_field':''}}}}}
+    with pytest.raises(ValueError,match='不存在的字段'):
+        posture.fill(tmp_path,script={'shots':shots},previous={},ask=invalid,write=False)

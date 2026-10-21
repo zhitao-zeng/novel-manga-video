@@ -28,10 +28,40 @@ temporary objects. Actions may target these, the actor themselves or an empty
 target when no recipient is established. Preserve these meanings rather than
 turning an animal, armor or environment object into an available human actor.
 
+For authored scene/shot design, read [camera language](camera-language.md) before
+choosing coverage. Ground each shot's camera in its story purpose, visible
+information and actual scene geometry. Carry that decision into the shot itself;
+a technique label or a general promise in author notes is not its implementation.
+
 ## Actual pictures, wearing and framing
 
 Inspect the actual selected images. Ordinary character cards supply identity and
 stable design; the authored shot supplies pose, camera, crop and current state.
+
+Choose a fixed or moving camera for the shot's story needs. In `camera`, state
+the position, height, viewing direction and framing. For a move, describe why it
+moves, the triggering action or discovery, its starting position and framing,
+path, ending position and framing, and the action, reveal or time when it stops.
+If it continues until the cut, state its endpoint at that cut. For a fixed shot,
+state what it observes and the action or cut through which it holds. Carry the
+same design into the English direction, fitting the action and shot duration.
+Script mode preserves the supplied camera design.
+For technique selection and concrete Chinese/English examples, use
+[camera language](camera-language.md). Distinguish foreground framing, physical
+camera movement and focus changes; preserve their triggers and endpoints in the
+English direction. A style name alone does not define a camera path.
+For a director name or stylized camera request, use
+[director camera styles](director-camera-styles.md) to choose a motivated design
+and write its visible path or focus relationship, ending composition and stop.
+A named style is optional and does not authorize changing protected script decisions.
+
+Begin the English shot body with its actual crop and viewing relationship. For
+foreground framing, name the visible shoulder, hip, hand or legs and the person
+beyond them; a body fragment and that person's complete body are not two actors.
+Use the selected references for identity and design without restating a broad
+full-body tableau inside a close-up. Describe camera travel separately from the
+actor's movement, and give the final composition time to hold when a stop matters.
+
 Multiple views of the same person define one Subject: explain which picture
 supplies face/hair and which supplies body proportions, clothing or another view.
 Picture count and Subject count are not body counts.

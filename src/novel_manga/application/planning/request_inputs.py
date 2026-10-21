@@ -135,16 +135,12 @@ def prepare_request(args, ctx: PlannerContext, source: ChapterSource, cast: Chap
         **({"previous_chapters_recap": previous_recap} if previous_recap else {}),
         **({"previous_episode_ending": previous_ending, "previous_episode_ending_usage": "这是上一集最后一个画面的状态（地点、在场的人、结束时的动作）。本集开场如果是同一场景可以直接接上，不必重新交代；换了场景就忽略。"} if previous_ending else {}),
         "segments": [{"segment_id": s["segment_id"], "text": s["text"]} for s in segments],
-        # 换场问答对：问题是下一场的铺垫，无论提纲怎么压缩都必须可听（validator 会查）
-        **({"handoff_pairs_that_must_be_heard": [{"question": q, "answer": a} for q, a in ctx.handoff_pairs]} if ctx.handoff_pairs else {}),
         **({"authored_storyboard": authored, "authored_storyboard_usage": pc_constants.AUTHORED_STORYBOARD_USAGE} if authored else {}),
         **({"ledger_snapshot": ledger_snapshot} if ledger_snapshot else {}),
-        "quoted_lines_that_must_be_kept": pc_text.chapter_quotes(episode.source_text),
         "requirements": {
             **pc_budget.budget_requirements(ctx=ctx),
             "turn_text_max_chars": pc_constants.TURN_MAX_CHARS,
             "source_quote_chars": f"{pc_constants.QUOTE_MIN_CHARS}-{pc_constants.QUOTE_MAX_CHARS}",
-            "max_skipped_segments": ctx.max_skipped,
             "one_visible_speaker_per_shot": True,
             # 全知旁白禁止；内心独白放开（由编剧按叙事需要选择，规则见系统提示词第3条）。
             # 两者不再共用一个开关：一个管"谁能说话"，一个管"心之所想能否被听见"。

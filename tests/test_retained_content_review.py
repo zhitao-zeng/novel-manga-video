@@ -14,10 +14,8 @@ def test_review_gets_whole_section_and_speaker_scene_evidence(monkeypatch):
 
     def judge(parts, schema, **kwargs):
         seen['input'] = parts[0]['text']
-        return {'verdicts': [
-            {'promise': '免费同行', 'status': 'changed', 'reason': '当面对托尼说了不免费，意思反转'},
-            {'promise': '巴士笑点', 'status': 'missing', 'reason': '巴士一段没有可听的收尾'},
-        ]}
+        return {'verdict':'fail','errors':[{'shot':1,'field':'speech','source_quote':'席勒答应免费同行',
+            'draft_quote':'免费是不可能的','viewer_error':'当面对托尼拒绝免费，意思反转'}],'note':''}
 
     monkeypatch.setattr(retention, 'ask_json', judge)
     shots = [{'label': '诊室1', 'location': '诊室', 'event': '席勒面对托尼',
@@ -26,15 +24,15 @@ def test_review_gets_whole_section_and_speaker_scene_evidence(monkeypatch):
              {'label': '公交1', 'location': '公交站', 'event': '巴士离地', 'turns': []}]
     verdict, issues = retention.review(section, shots, '原文里席勒答应免费同行，后来开玩笑说巴士会飞。')
     assert section in seen['input'] and '公交站' in seen['input']
-    assert 'visible_dialogue' in seen['input'] and 'speaker_name' in seen['input']
-    assert len(verdict['verdicts']) == len(issues) == 2
-    assert all(issue.code == PlanningCode.RETAINED_LINE_LOST for issue in issues)
+    assert '画内人物发言' in seen['input'] and 'speaker_name' in seen['input']
+    assert len(verdict['errors']) == len(issues) == 1
+    assert all(issue.code == PlanningCode.SOURCE_CONTRADICTION for issue in issues)
     assert '反转' in issues[0].message
 
 
 def test_review_requires_an_explicit_verdict_for_a_nonempty_promise(monkeypatch):
     monkeypatch.setattr(retention, 'ask_json', lambda *a, **k: {'verdicts': []})
-    with pytest.raises(ValueError, match='没有逐项结论'):
+    with pytest.raises(ValueError, match='没有有效结论'):
         retention.review('席勒要让托尼知道自己答应免费同行。', [], '')
 
 

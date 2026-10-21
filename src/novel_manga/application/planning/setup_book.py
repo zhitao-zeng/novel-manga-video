@@ -27,7 +27,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -38,6 +37,7 @@ from pathlib import Path
 from novel_manga.application.configuration import project_root
 
 ROOT = project_root()
+SCRIPTS = Path(__file__).resolve().parents[4]/'scripts'
 
 SANDBOX = ROOT / "configs" / "agent_sandbox.json"
 
@@ -97,43 +97,107 @@ def preflight(config: dict, *, reading: bool) -> tuple[dict, list[str]]:
     if os.environ.get('CODEX_LUNA_ADAPTER') == '1':
         from luna_transport import check_available
         return {}, check_available()
+    from novel_manga.llm.config import endpoint_settings, planner_endpoint_name
+    settings = endpoint_settings(planner_endpoint_name())
     problems: list[str] = []
-    overrides: dict[str, str] = {}
-
-    if reading:
-        extractors = [e.strip() for e in env_value("QWEN38_LOCAL_BASE_URL").split(",") if e.strip()]
-        extractor_key = env_value(env_value("QWEN38_LOCAL_API_KEY_VAR") or "QWEN38_LOCAL_API_KEY")
-        live = [e for e in extractors if alive(e, extractor_key)]
-        if not live:
-            problems.append("逐章提取没有可用端点：QWEN38_LOCAL_BASE_URL 里的实例都连不上")
-        else:
-            overrides["QWEN38_LOCAL_BASE_URL"] = ",".join(live)
-            if len(live) < len(extractors):
-                log(f"提取端点 {len(live)}/{len(extractors)} 可用，跳过死的：{set(extractors) - set(live)}")
-
-    key = env_value(config["key_var"])
-    agent_url = config["base_url"].rstrip("/") + "/v1"
+    live = [url for url in settings.endpoints if alive(url, settings.key)]
+    if not live:
+        problems.append(f'当前规划/读书端点不可用：{settings.model}')
+    key = env_value(config['key_var'])
     if not key:
-        problems.append(f"归并要的密钥不在 .env：{config['key_var']}")
-    elif reading and not alive(agent_url, key):
-        problems.append(f"归并端点连不上：{config['base_url']}")
-
-    bible_url = env_value("NOVEL_LLM_BASE_URL")
-    bible_key = env_value("NOVEL_LLM_API_KEY")
-    if bible_url and alive(bible_url, bible_key):
-        log(f"建圣经用 {bible_url}")
-    elif key and alive(agent_url, key):
-        # Falling back silently would hide a dead endpoint; say which one and why.
-        log(f"建圣经：.env 的 {bible_url or '(未设)'} 连不上，改用归并那台 {config['base_url']}")
-        overrides.update({"NOVEL_LLM_BASE_URL": agent_url,
-                          "NOVEL_LLM_MODEL": config["model"],
-                          "NOVEL_LLM_API_KEY": key})
-    else:
-        problems.append("建圣经没有可用的 LLM 端点")
+        problems.append(f"Agent 密钥未设置：{config['key_var']}")
+    overrides = {'QWEN38_LOCAL_BASE_URL': ','.join(live), 'QWEN38_LOCAL_MODEL': settings.model,
+        'QWEN38_LOCAL_API_KEY': settings.key, 'QWEN38_LOCAL_API_KEY_VAR': 'QWEN38_LOCAL_API_KEY',
+        'QWEN38_LOCAL_STREAM': '1' if settings.stream else '0',
+        'QWEN38_LOCAL_MIN_MAX_TOKENS': str(settings.min_max_tokens),
+        'NOVEL_LLM_BASE_URL': live[0] if live else '', 'NOVEL_LLM_MODEL': settings.model,
+        'NOVEL_LLM_API_KEY': settings.key}
     return overrides, problems
 
 
-def main() -> int:
+def register_source(novel_dir, source, novel_id, title):
+    """An index needs no Bible or paid model call; preserve registered numbering."""
+    from novel_manga.source.ingest import read_novel
+    from novel_manga.util import atomic_write_json, read_json
+    novel_dir, source = Path(novel_dir), Path(source).resolve()
+    saved = read_json(novel_dir/'novel.json', {})
+    if saved:
+        if Path(saved['source']).resolve() != source:
+            raise ValueError('Existing book uses a different source; retain its registration')
+        return saved
+    novel = read_novel(source, novel_id=novel_id, title=title)
+    saved = {'novel_id': novel_id, 'title': title, 'source': str(source),
+        'chapters': [{'index': ep.index, 'title': ep.source_title, 'text_count': ep.text_count,
+                      'start': ep.source_start, 'end': ep.source_end} for ep in novel.episodes]}
+    atomic_write_json(novel_dir/'novel.json', saved)
+    return saved
+
+
+def handoff_reading(novel_dir, chapters):
+    """Use saved lean summaries as initial recaps; never replace richer later work."""
+    from novel_manga.application.planning.reading import write_recap_row, recap_rows
+    from novel_manga.util import read_json
+    novel_dir = Path(novel_dir)
+    have = recap_rows(novel_dir)
+    titles = {r['index']: r['title'] for r in read_json(novel_dir/'novel.json', {}).get('chapters', [])}
+    added = []
+    for chapter in chapters:
+        if chapter in have:
+            continue
+        extract = read_json(novel_dir/f'lean/extract/ch-{chapter:03d}.json', {})
+        summary = str((extract.get('answer') or {}).get('summary') or '').strip()
+        if summary:
+            write_recap_row(novel_dir, {'chapter': chapter, 'title': titles.get(chapter, ''),
+                                       'summary': summary, 'hook': ''})
+            added.append(chapter)
+    return added
+
+
+def reading_ready(novel_dir, chapters):
+    from novel_manga.util import read_json
+    novel_dir = Path(novel_dir)
+    roster = read_json(novel_dir/'reading_cast.json', {})
+    return (isinstance(roster.get('characters'), list) and set(chapters) <= set(roster.get('chapters') or [])
+            and all((novel_dir/f'lean/extract/ch-{n:03d}.json').is_file() for n in chapters))
+
+
+def read_and_merge(novel_dir, chapters, *, settings, workers):
+    from novel_manga.llm import usage
+    from novel_manga.story import lean_reading as lean
+    from novel_manga.util import atomic_write_json, read_json
+    from .lean_bible import chapter_texts, read_chapters
+    from .reading_merge import merge_reading
+    metadata = read_json(novel_dir/'novel.json')
+    texts = chapter_texts(metadata, chapters)
+    with usage.scope(novel=novel_dir.name, stage='reading'):
+        extracts = read_chapters(metadata['title'], texts, novel_dir/'lean/extract',
+                                list(settings.endpoints), workers=workers, settings=settings)
+    if set(extracts) != set(chapters):
+        raise ValueError('Initial reading incomplete; successful chapter caches retained')
+    candidates = lean.aggregate(extracts, texts)
+    atomic_write_json(novel_dir/'lean/candidates.json', candidates)
+    merge_reading(novel_dir, candidates, texts, settings=settings, workers=workers)
+    return novel_dir/'lean/export.json'
+
+
+def adopt_reading(novel_dir, export_path, chapters):
+    """Update the source-backed roster without rebuilding existing visual designs."""
+    from novel_manga.util import atomic_write_json, read_json
+    from novel_manga.story.reading_facts import FACTS_FIELD, merge_character_facts
+    from .initialize import read_cast, read_cast_facts, reading_verdicts
+    cast, aliases = read_cast(export_path)
+    old = read_json(novel_dir/'reading_cast.json', {})
+    all_cast = list(dict.fromkeys([*(old.get('characters') or []), *cast]))
+    aliases = {**aliases, **read_json(novel_dir/'bible_aliases.json', {}), **(old.get('aliases') or {})}
+    row = {**old, 'characters': all_cast, 'aliases': aliases,
+           **reading_verdicts(novel_dir, all_cast, aliases)}
+    row['chapters'] = sorted(set(old.get('chapters') or []) | set(chapters))
+    row[FACTS_FIELD] = merge_character_facts(old.get(FACTS_FIELD) or {}, read_cast_facts(export_path))
+    atomic_write_json(novel_dir/'reading_cast.json', row)
+    atomic_write_json(novel_dir/'bible_aliases.json', aliases)
+
+
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("source", help="小说原文（一个 .md/.txt，章节标题各占一行）")
     parser.add_argument("--novel-id", required=True)
@@ -149,86 +213,76 @@ def main() -> int:
                         help="逐章提取并发；0 沿用每端点的默认并发")
     parser.add_argument("--force", action="store_true", help="工作区已存在时重建")
     parser.add_argument("--skip-read", action="store_true", help="已经读过，直接用现成的归并结果")
-    args = parser.parse_args()
+    parser.add_argument('--stage', choices=('setup', 'plan'), default='setup')
+    parser.add_argument('--plan-parallel', type=int, default=8)
+    args = parser.parse_args(argv)
+
+    from novel_manga.util import load_dotenv, read_json
+    from novel_manga.llm.config import endpoint_settings, planner_endpoint_name
+    from .lean_bible import chapters_of
+    load_dotenv(ROOT/'.env')
+    novel_dir = ROOT/args.output_root/args.novel_id
+    register_source(novel_dir, args.source, args.novel_id, args.title)
+    chapters = chapters_of(args.chapters)
+    reusable = reading_ready(novel_dir, chapters)
+    has_bible = (novel_dir/'story_bible.json').is_file()
 
     config = json.loads(args.agent_config.read_text(encoding="utf-8"))
-    overrides, problems = preflight(config, reading=not args.skip_read)
+    overrides, problems = preflight(config, reading=not reusable and not args.skip_read) if (
+        not reusable or not has_bible or args.stage == 'plan') else ({}, [])
     for problem in problems:
         log("✗ " + problem)
     if problems:
         log("开跑前的检查没过，先修这些再来——跑到一半才发现，前面的时间就白花了")
         return 2
 
-    novel_dir = ROOT / args.output_root / args.novel_id
     run_name = f"{args.novel_id}-merge"
-    export = Path(config["runs_root"]) / run_name / "output" / "export" / "story_bible.json"
+    export = novel_dir/'lean/export.json'
     python = str(ROOT / ".venv" / "bin" / "python")
 
-    # 1. 工作区：读书要按章切原文，得先有 novel.json 的章节表
-    if not (novel_dir / "novel.json").is_file() or args.force:
-        code = run([python, "scripts/build_bible_thin.py", args.source,
-                    "--novel-id", args.novel_id, "--title", args.title, "--style", args.style,
-                    "--frame", args.frame, "--output-root", args.output_root,
-                    *(["--force"] if args.force else [])], overrides, "建工作区")
-        if code:
-            return code
-    else:
-        log(f"工作区已有：{novel_dir}")
-
-    if not args.skip_read:
-        # 2+3. 逐章读，再把归并交给沙箱里的 agent
-        run_dir = Path(config["runs_root"]) / run_name
-        if run_dir.exists():
-            if container_running(f"agent-{run_name}"):
-                log(f"✗ 归并容器还在跑：agent-{run_name}。先等它跑完或停掉，别删它正在写的目录")
+    if not reusable:
+        if args.skip_read:
+            if not export.is_file():
+                export = Path(config['runs_root'])/run_name/'output/export/story_bible.json'
+            if not export.is_file():
+                log('已有归并未找到；保留工作区，不重新读书')
                 return 2
-            # The inputs and the outputs are regenerated, so they go; attempts/ is the record of what
-            # actually ran and with which skills, and deleting that is how a rerun erases the only
-            # evidence of why the last one came out the way it did.
-            log(f"清掉上一次的输入和产出（规则可能改过，输入必须重新生成），保留 attempts/：{run_dir}")
-            for name in ("input", "output", "prompt.txt", ".claude"):
-                target = run_dir / name
-                if target.is_dir():
-                    shutil.rmtree(target)
-                elif target.exists():
-                    target.unlink()
-        code = run([python, "scripts/lean_bible_thin.py", "--novel-dir", str(novel_dir),
-                    "--chapters", args.chapters, "--agent-input", str(run_dir),
-                    "--workers", str(args.read_workers)],
-                   overrides, "逐章读 + 写归并输入")
-        if code:
-            return code
-        code = run([python, "scripts/run_agent_thin.py", "--run", run_name,
-                    "--skills", "merge", "--timeout", "7200", "--config", str(args.agent_config)],
-                   overrides, "归并（沙箱 agent）")
-        if code:
-            return code
-
-    if not export.is_file():
-        log(f"✗ 归并没有产出 {export}")
-        return 2
+        else:
+            export = read_and_merge(novel_dir, chapters, settings=endpoint_settings(planner_endpoint_name()),
+                                    workers=args.read_workers or 8)
 
     # 4. 圣经：演员表由读书定，种子只设计前几章出场的人，其余进 reading_cast.json 交给 growth
-    code = run([python, "scripts/build_bible_thin.py", args.source,
+    if not has_bible or args.force:
+        code = run([python, str(SCRIPTS/'build_bible_thin.py'), args.source,
                 "--novel-id", args.novel_id, "--title", args.title, "--style", args.style,
-                "--frame", args.frame, "--output-root", args.output_root, "--force",
+                "--frame", args.frame, "--output-root", args.output_root,
+                *(['--force'] if args.force else []),
                 "--bible-chapters", str(args.bible_chapters), "--cast", str(export)],
                overrides, "按读书的演员表建圣经")
-    if code:
-        return code
+        if code:
+            return code
+    if not reusable:
+        adopt_reading(novel_dir, export, chapters)
+    added_recaps = handoff_reading(novel_dir, chapters)
+    log(f'初读摘要交接：补齐 {len(added_recaps)} 章前情；已有摘要保留')
 
     bible = json.loads((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
-    roster = json.loads((novel_dir / "reading_cast.json").read_text(encoding="utf-8"))
-    aliases = json.loads((novel_dir / "bible_aliases.json").read_text(encoding="utf-8"))
+    roster = read_json(novel_dir/'reading_cast.json', {})
+    aliases = read_json(novel_dir/'bible_aliases.json', {})
     log(f"完成：圣经 {len(bible['characters'])} 人 {len(bible['locations'])} 地点｜"
         f"读书名单 {len(roster['characters'])} 人｜别名 {len(aliases)} 条")
 
     # 5. Reuse source-backed adoption; a roster label alone cannot establish a person.
     from novel_manga.application.identity.ledger_flow import adopt_roster
-    adoption = adopt_roster(novel_dir, roster, aliases)
+    adoption = adopt_roster(novel_dir, roster, aliases) if not reusable else {'seeded': [], 'unresolved': []}
     seeded = adoption['seeded']
     unresolved = adoption['unresolved']
     log(f"台账对账：在册 {len(roster['characters'])} 项，按原文补录 {len(seeded)} 项，待核对 {len(unresolved)} 项"
         + (f"：{'、'.join(unresolved[:8])}{'…' if len(unresolved) > 8 else ''}" if unresolved else ""))
     log(f"下一步：{python} scripts/thin_batch.py --novel-dir {novel_dir} --chapters {args.chapters} --stage plan")
+    if args.stage == 'plan':
+        return run([python, str(SCRIPTS/'thin_batch.py'), '--novel-dir', str(novel_dir), '--chapters', args.chapters,
+            '--stage', 'plan', '--plan-parallel', str(args.plan_parallel), '--no-grow-bible', '--no-eager-cards',
+            '--repair-planning', '--agent-config', str(args.agent_config)],
+            {**overrides, 'NOVEL_CLIP_SECONDS_MAX': '15'}, '逐章规划与既有Agent修复')
     return 0

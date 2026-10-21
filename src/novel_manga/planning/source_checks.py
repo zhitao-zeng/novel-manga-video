@@ -55,16 +55,6 @@ def chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors
         if segment_id in cited:
             warnings.append(f"{segment_id} listed as skipped but also cited; skip ignored")
             skipped.pop(segment_id)
-    reviewed_scene = (ctx.story_blueprint.get('version') == 'scene-screenplay-v2'
-                      and ctx.story_blueprint.get('review', {}).get('completed')
-                      and not ctx.story_blueprint['review'].get('issues'))
-    if len(skipped) > ctx.max_skipped and not reviewed_scene and not ctx.authored_storyboard:
-        errors.append(PlanningIssue(PlanningCode.SKIPPED_SEGMENTS, f"不允许跳过区段，skipped_segments 必须为空，但收到 {sorted(skipped)}：把这些区段各写进至少一个阶段（可以拉长集数）", field='skipped_segments'))
-    elif skipped and ctx.authored_storyboard:
-        # What an authored sheet leaves out was decided by whoever cut it, the same way a reviewed
-        # scene screenplay's omissions are.  Demanding coverage here does not put the passage back -
-        # it makes the pipeline write a shot nobody asked for.  So it is allowed, and said out loud.
-        warnings.append(f"作者的分镜没有取用这些区段：{sorted(skipped)}（改编取舍，不是技术丢失）")
     colon_lines = re.findall(r"^([^\n：:]{2,8})[：:]([^\n]*)", chapter_text, re.M)
     # A named character's explicit quoted speech is prose, even when it has its own line.  The tell is
     # a speech verb and an opening quote, not a name from a list: this used to match only '<名字>说',
@@ -85,20 +75,6 @@ def chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors
         errors.append(PlanningIssue(PlanningCode.MISSING_CHAT, f"本章原文有 {chat_source_lines} 行聊天消息（形如「昵称：内容」），但没有任何 chat_message："
             "群聊和私聊必须用 chat_message 呈现（一个阶段最多八条），不得改写成画外音或角色自述", field='turns'))
     uncited = [s["segment_id"] for s in segments if s["segment_id"] not in cited and s["segment_id"] not in skipped]
-    if uncited and ctx.authored_storyboard:
-        # The same rule as above, applied where it can be true.  It used to run before validation, on
-        # the citations the model claimed - and validation then moves a citation to the segment its
-        # quote is really in.  第 11 集 of 在美漫当心灵导师的日子: shot 13 was bound to seg_8, its quote
-        # belonged to seg_7 and was reassigned, seg_8 was left cited by nobody, the rule had already
-        # looked and seen it cited, and the patch round wrote a fourteenth shot in the author's voice.
-        # `cited` here is after every reassignment, so this is the first moment the question has an
-        # answer.  The omission is recorded on the plan as well as warned about, so the script and the
-        # metrics downstream see the same thing the gate did.
-        raw["skipped_segments"] = [*skipped_raw, *({"segment_id": segment_id, "reason": "作者的分镜没有取用这一段"}
-                                                   for segment_id in uncited)]
-        warnings.append(f"作者的分镜没有取用这些区段：{sorted(uncited)}（改编取舍，不是技术丢失）")
-        uncited = []
-    for segment_id in uncited:
-        segment = next(s for s in segments if s["segment_id"] == segment_id)
-        errors.append(PlanningIssue(PlanningCode.UNCITED_SEGMENT, f"{segment_id} is neither cited by any shot nor listed in skipped_segments; "
-            f"it begins with: {segment['text'][:40]!r}", segment_id=segment_id))
+    if uncited:
+        raw['skipped_segments'] = [*skipped_raw, *({'segment_id':sid,'reason':('作者的分镜没有取用这一段' if ctx.authored_storyboard else '本次改编未取用，由剧情复核判断是否影响理解')}
+                                                  for sid in uncited)]

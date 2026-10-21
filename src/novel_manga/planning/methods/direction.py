@@ -5,7 +5,7 @@ from collections import Counter
 import copy
 import math
 from .scenes import obj, text, array, VERSION
-from novel_manga.story.fields import actions_field, extras_field, cast_field
+from novel_manga.story.fields import actions_field, extras_field, cast_field, CAMERA_INSTRUCTIONS
 from novel_manga.planning.constants import SHOT_SCALES, TIMING_GUIDANCE
 from novel_manga.planning.text import spoken_turn_seconds
 
@@ -63,7 +63,8 @@ def direction_prompt(method):
         "pure环境或手部镜不强行把主角的脸放进in_frame；人物身份与入镜是两回事。"
         "actions的actor/target可以是人、extras中的动物、物件、空目标或合法自我动作，不能换成演员名单里另一个人。"
         "action只写谓语，event是完整自然语言事件，不机械重复主体宾语。\n"
-        "camera明确拍摄位置、高度、取景范围和必要运动，不能要求同一时刻特写又看清完整盆地。"
+        + CAMERA_INSTRUCTIONS +
+        "camera不能要求同一时刻特写又看清完整盆地。"
         "sfx把原场声音意图落实到这个镜头的起止和具体声源，不用不存在的'烟雾声/泪水声'。"
         "duration_seconds给出本镜动作、台词、停顿和反应需要的时长；不是所有静默镜都4秒。"
         "单镜可短至1秒、不超single_shot_max_seconds，不能把素材片长下限当成剪辑镜长。"

@@ -56,7 +56,7 @@ def recorded_plan_settings(plan: dict) -> RecordedPlanSettings:
     limits = {'max_clip_seconds':cap,
               'max_stages':int(saved.get('max_stages') or (3 if cap <= 15 else 6)),
               'soft_cut_seconds':float(saved.get('soft_cut_seconds') or cap * .6),
-              'camera_policy':saved.get('camera_policy', 'fixed')}
+              'camera_policy':saved.get('camera_policy', 'authored')}
     return RecordedPlanSettings({key:profile.get(key) for key in ('style','frame','tier')},
                                 limits, profile.get('two_views'))
 

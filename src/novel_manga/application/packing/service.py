@@ -234,9 +234,7 @@ def compile_plan(script: dict, context: dict) -> tuple[dict, dict]:
              for number, clip in enumerate(packed, start=1)]
     options = compiler.options
     limits = {'max_clip_seconds': options.max_clip_seconds, 'soft_cut_seconds': options.soft_cut_seconds,
-              'max_stages': options.max_stages}
-    if options.camera_policy != 'fixed':
-        limits['camera_policy'] = options.camera_policy
+              'max_stages': options.max_stages, 'camera_policy': options.camera_policy}
     plan = {'policy': POLICY, 'phases': phase_labels(clips), 'limits': limits,
             'totals': plan_totals(clips, shots, context), 'clips': clips}
     decisions = {'packer_version': PACKER_VERSION, 'pack_mode': options.pack_mode,

@@ -33,6 +33,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 from novel_manga.application.configuration import project_root
 
@@ -71,27 +72,37 @@ def chapter_texts(novel: dict, wanted: list[int]) -> dict[int, str]:
     return {chapter: texts[chapter] for chapter in wanted}
 
 
-def read_chapters(title: str, texts: dict[int, str], out_dir: Path, endpoints: list[str], *, workers: int = 0) -> dict:
+def read_chapters(title: str, texts: dict[int, str], out_dir: Path, endpoints: list[str], *, workers: int = 0, settings=None) -> dict:
     """One call per chapter, fanned out; a chapter already on disk is not read again."""
     out_dir.mkdir(parents=True, exist_ok=True)
     from novel_manga.llm.config import JsonEndpoint
+    from novel_manga.llm import usage
+    reading_scope = usage.scoped()
+    selected_settings = settings
+    payment_stop = Event()
 
     def one(job: tuple[int, str]) -> str:
         chapter, endpoint = job
         path = out_dir / f"ch-{chapter:03d}.json"
         if path.exists():
             return f"第{chapter}章：已有"
-        settings = JsonEndpoint.from_env({
+        if payment_stop.is_set():
+            return f'第{chapter}章：余额不足，未提交'
+        settings = selected_settings or JsonEndpoint.from_env({
             "QWEN38_LOCAL_BASE_URL": endpoint,
             "QWEN38_LOCAL_MODEL": os.environ.get("QWEN38_LOCAL_MODEL", "Qwen3.8-27B-Project"),
             "QWEN38_LOCAL_API_KEY_VAR": os.environ.get("QWEN38_LOCAL_API_KEY_VAR", "LEAN_NO_KEY"),
-            "QWEN38_LOCAL_STREAM": "0"})
+            "QWEN38_LOCAL_STREAM": os.environ.get("QWEN38_LOCAL_STREAM", "0")})
         prompt = lean.EXTRACT_PROMPT.format(title=title, n=chapter, text=texts[chapter])
         started = time.time()
         try:
-            answer = ask_json([{"type": "text", "text": prompt}], lean.EXTRACT_SCHEMA,
-                              name="lean_extract", max_tokens=8000, settings=settings)
-        except Exception as error:  # noqa: BLE001 - one chapter failing must not stop the book
+            with usage.scope(**{**reading_scope, 'episode': chapter, 'stage': 'reading'}):
+                answer = ask_json([{"type": "text", "text": prompt}], lean.EXTRACT_SCHEMA,
+                                  name="lean_extract", max_tokens=8000, settings=settings)
+        except Exception as error:  # noqa: BLE001 - ordinary chapter failures retain other work
+            if getattr(getattr(error, 'response', None), 'status_code', None) == 402:
+                payment_stop.set()
+                raise
             return f"第{chapter}章：失败 {type(error).__name__}: {str(error)[:160]}"
         path.write_text(json.dumps({"chapter": chapter, "answer": answer,
                                     "model": settings.model, "endpoint": endpoint,
@@ -258,7 +269,9 @@ def main() -> int:
     print(f"《{title}》第 {wanted[0]}–{wanted[-1]} 章，{len(endpoints)} 个端点")
     texts = chapter_texts(novel, wanted)
     started = time.time()
-    extracts = read_chapters(title, texts, out_dir / "extract", endpoints, workers=args.workers)
+    from novel_manga.llm import usage
+    with usage.scope(novel=novel_dir.name, stage='reading'):
+        extracts = read_chapters(title, texts, out_dir / "extract", endpoints, workers=args.workers)
     print(f"逐章读完 {len(extracts)}/{len(wanted)} 章，{time.time() - started:.0f}s")
     if len(extracts) < len(wanted):
         print(f"缺章：{sorted(set(wanted) - set(extracts))}——先补齐再归并", file=sys.stderr)

@@ -91,7 +91,7 @@ def build_schema(character_names: list[str], location_names: list[str], segment_
             "video_title": {"type": "string"},
             "hook": {"type": "string"},
             "summary": {"type": "string"},
-            "clips": {"type": "array", "minItems": 1, "maxItems": 10, "items": clip},
+            "clips": {"type": "array", "minItems": 1, **({"maxItems": 10} if ctx.episode_shape != "flex" else {}), "items": clip},
             "skipped_segments": {
                 "type": "array",
                 "maxItems": 8,
@@ -130,16 +130,19 @@ def validate_outline(content: str, mode: str, segment_ids: list[str]) -> list[st
         return ["outline must be an object"]
     sections = data.get("sections")
     errors = []
-    for name in pc_constants.OUTLINE_SECTIONS[mode]:
-        text = sections.get(name) if isinstance(sections, dict) else None
-        if not isinstance(text, str) or not text.strip():
-            errors.append(f"missing outline section: {name}")
+    if not isinstance(sections, dict):
+        errors.append("outline.sections must contain the named section texts")
+    else:
+        for name in pc_constants.OUTLINE_SECTIONS[mode]:
+            text = sections.get(name)
+            if not isinstance(text, str) or not text.strip():
+                errors.append(f"outline.sections.{name} must be non-empty text")
     coverage = data.get("coverage")
     if not isinstance(coverage, list):
-        return [*errors, "missing source coverage"]
+        return [*errors, "outline.coverage must be [{segment_id, placement}, ...]"]
     ids = [item.get("segment_id") for item in coverage if isinstance(item, dict)]
     if len(ids) != len(segment_ids) or set(ids) != set(segment_ids):
-        errors.append("source coverage must contain every segment exactly once")
+        errors.append("outline.coverage must contain every source segment exactly once")
     if any(not isinstance(item, dict) or not isinstance(item.get("placement"), str) or not item["placement"].strip() for item in coverage):
-        errors.append("source coverage placement is empty")
+        errors.append("outline.coverage[].placement must be non-empty text")
     return errors

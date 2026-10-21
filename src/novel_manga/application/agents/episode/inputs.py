@@ -24,6 +24,8 @@ SCRIPT_FILES = ('chapter_script.json', 'clip_plan.json', 'episode_plan.json', 's
 SKILL_REFERENCES = {
     'output_contract': 'references/output-contract.md',
     'authoring': 'references/authoring.md',
+    'camera_language': 'references/camera-language.md',
+    'director_camera_styles': 'references/director-camera-styles.md',
     'h3_format': 'references/h3-format.md',
     'official_h3_guide': 'references/official/VIDEO_PROMPT_WRITING_GUIDE_ref_en.md',
     'review_and_repair': 'references/review-and-repair.md',

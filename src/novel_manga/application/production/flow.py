@@ -84,6 +84,7 @@ class Batch:
         self._novel = None
         self.report_lock = threading.Lock()
         self.cards_lock = threading.Lock()  # card creation is serialized across parallel episode renders
+        self.planning_stop = threading.Event()
 
     # ---- helpers ----
     def novel(self):
@@ -106,7 +107,7 @@ class Batch:
 
     def grow(self, chapter: int) -> None:
         """Chapter-by-chapter bible growth (new characters and locations), before planning."""
-        if not self.args.grow_bible or self.args.dry_run:
+        if self.planning_stop.is_set() or not self.args.grow_bible or self.args.dry_run:
             return
         if self.plan_status(chapter) == "planned" and not self.args.replan:
             return
@@ -125,6 +126,8 @@ class Batch:
             if new_ids and not self.args.dry_run and getattr(self.args, "eager_cards", True):
                 self.cards.want(new_ids)
         except Exception as error:  # noqa: BLE001 - growth is best effort; planning still works with the bible as is
+            if getattr(getattr(error, 'response', None), 'status_code', None) == 402:
+                self.planning_stop.set()
             production_common.log(f"ch{chapter}: bible growth failed ({type(error).__name__}: {str(error)[:120]}); planning with the current bible")
             self.rows[chapter]["note"] = f"bible growth failed: {type(error).__name__}"
 
@@ -138,13 +141,36 @@ class Batch:
         with open(log_path, "a", encoding="utf-8") as handle:
             handle.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(command)}\n")
             handle.flush()
+            start = handle.tell()
             completed = subprocess.run(command, cwd=production_common.ROOT, env=self.env, stdout=handle, stderr=subprocess.STDOUT, text=True)
-        tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
-        return completed.returncode, failure_line(tail)
+        with log_path.open(encoding='utf-8', errors='replace') as handle:
+            handle.seek(start)
+            lines = handle.read().splitlines()
+        # The writer can wrap HTTPStatusError as "outline incomplete". Keep
+        # the concrete payment error from this invocation, not an older log.
+        quota = next((line.strip() for line in lines if '402 Payment Required' in line), '')
+        return completed.returncode, quota[:200] or failure_line(lines[-40:])
 
     def plan_stage(self, chapters: list[int]) -> None:
         """--stage plan: up to --plan-parallel chapters at once, as --stage all does - it used to be a plain loop
         whatever --plan-parallel said.  The volume checkpoints still come in chapter order."""
+        managed = getattr(self.args, 'repair_planning', False)
+        config = None
+        if managed:
+            from novel_manga.application.agents.sandbox import load_config
+            config = load_config(self.args.agent_config)
+        def resume(target, chapter):
+            if not managed:
+                return False
+            from novel_manga.application.planning.repair import resume_failure
+            return resume_failure(target, chapter)
+        def plan_and_repair(target, chapter):
+            if not resume(target, chapter):
+                target.grow(chapter)
+                target.plan(chapter)
+            if managed and not self.planning_stop.is_set() and self.rows[chapter].get('plan') in {'failed', 'pack failed'}:
+                from novel_manga.application.planning.repair import repair_chapter
+                self.rows[chapter]['planning_repair'] = repair_chapter(target, chapter, config=config)
         def plan_one(chapter: int) -> int:
             if getattr(self,'workspaces',None):
                 from .workspaces import bootstrap, lease, local_batch
@@ -152,16 +178,15 @@ class Batch:
                     if owned:
                         bootstrap(self.workspaces[str(chapter)])
                         local = local_batch(self, chapter)
-                        local.grow(chapter)
-                        local.plan(chapter)
+                        local.planning_stop = self.planning_stop
+                        plan_and_repair(local, chapter)
             else:
-                self.grow(chapter)
-                self.plan(chapter)
+                plan_and_repair(self, chapter)
             return chapter
         with ThreadPoolExecutor(max_workers=max(1, self.args.plan_parallel)) as planners:
             for future in [planners.submit(plan_one, chapter) for chapter in chapters]:
                 production_reports.volume_checkpoint(self, future.result(), chapters)
-            if not getattr(self,'workspaces',None):
+            if not managed and not getattr(self,'workspaces',None):
                 self.second_pass(chapters, planners)
 
     def second_pass(self, chapters: list[int], planners: ThreadPoolExecutor) -> None:
@@ -176,7 +201,7 @@ class Batch:
         Once, not until it works: a chapter that fails again has a reason of its own.
         """
         failed = [chapter for chapter in chapters if self.rows[chapter].get("plan") == "failed"]
-        if not failed or self.args.dry_run:
+        if not failed or self.args.dry_run or self.planning_stop.is_set():
             return
         production_common.log(f"second pass: {len(failed)} chapter(s) failed the first time round, planning them again: {failed}")
         list(planners.map(self.plan, failed))
@@ -238,12 +263,16 @@ class Batch:
             production_common.log(f"endpoint not reachable: {base}")
             return False
 
-    def plan(self, chapter: int, *, replan: bool | None = None, notes: str | None = None) -> None:
+    def plan(self, chapter: int, *, replan: bool | None = None, notes: str | None = None, candidate=None) -> None:
         force_replan = self.args.replan if replan is None else replan
         row = self.rows[chapter]
         directory = self.episode_dir(chapter)
-        if self.plan_status(chapter) == "planned" and not force_replan:
+        if self.plan_status(chapter) == "planned" and not force_replan and candidate is None:
             row["plan"] = "kept"
+            return
+        if self.planning_stop.is_set():
+            row.update(plan='blocked', blocked_reason='insufficient_credits',
+                       note='Model credits exhausted; no new planning submitted')
             return
         if self.chapter(chapter).text_count < self.args.min_chapter_chars:
             row["plan"] = "skipped (too short)"
@@ -262,20 +291,28 @@ class Batch:
         production_common.log(f"ch{chapter}: planning")
         (directory / "planning_failed.json").unlink(missing_ok=True) if directory.is_dir() else None
         command = [sys.executable, str(production_common.SCRIPTS / "plan_chapter_thin.py"), str(self.source), "--novel-id", self.novel_id, "--title", self.title,
-                   "--episode-index", str(chapter), "--bible", str(self.bible), "--output-root", str(self.novel_dir.parent), "--max-redo", str(self.args.max_redo),
+                   "--episode-index", str(chapter), "--bible", str(self.bible), "--output-root", str(self.novel_dir.parent),
+                   "--max-redo", '0' if getattr(self.args, 'repair_planning', False) else str(self.args.max_redo),
                    "--merge", str(max(1, self.args.merge))] + (["--tier", self.args.tier] if self.args.tier else [])
         if self.args.min_seconds:
             command += ["--min-seconds", str(self.args.min_seconds)]
         notes = (self.notes.get(str(chapter)) or self.notes.get("*")) if notes is None else notes
         if notes:
             command += ["--notes", notes]
+        if candidate is not None:
+            command += ['--candidate', str(candidate), '--planning-backend', 'local']
         code, problem = self.run(command, directory / "plan.log")
         if code != 0:
             failure = directory / "planning_failed.json"
             errors = json.loads(failure.read_text(encoding="utf-8")).get("errors", []) if failure.is_file() else [problem]
             row["plan"] = "failed"
             row["note"] = " | ".join(errors)[:240]
-            production_common.log(f"ch{chapter}: planning FAILED: {row['note'][:160]}")
+            if '402 Payment Required' in problem:
+                self.planning_stop.set()
+                row.update(plan='blocked', blocked_reason='insufficient_credits', note=problem)
+                production_common.log(f'ch{chapter}: model credits exhausted; stopping queued planning')
+            else:
+                production_common.log(f"ch{chapter}: planning FAILED: {row['note'][:160]}")
             if force_replan:
                 # A superseded plan must not be rendered in place of the one that failed.
                 for stale in ("clip_plan.json", "clip_plan.md", "thin_media_report.json", "media_qc_report.json"):

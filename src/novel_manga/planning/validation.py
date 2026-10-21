@@ -13,54 +13,6 @@ import novel_manga.planning.constants as pc_constants
 import novel_manga.planning.metrics as pc_metrics
 import novel_manga.planning.text as pc_text
 
-def beat_lines_survive(blueprint: dict, shots: list[dict], errors: list) -> None:
-    """Every beat's spoken line must still be spoken after packing - or the beat's hand-off died.
-
-    The blueprint asks each beat for its source_quote, and the review's case is the exit question
-    of a scene: 席勒 asks whether he must ride the armour, 托尼's answer is the cut point - and a
-    plan that cites the segment while dropping the line plays the question without the answer.
-    A beat's quote is not verbatim law (adaptation may compress), so a turn counts as carrying it
-    when it shares at least the quote's first content run, or enough of its characters; what the
-    stage merely DESCRIBES (its picture text) does not count - an audience hears lines, not
-    event fields.
-    """
-    spoken = [pc_text.quote_key(turn.get("text") or "") for shot in shots
-              for turn in shot.get("turns") or []
-              if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}]
-    if not spoken:
-        return
-    for beat in blueprint.get("beats") or []:
-        quote = str(beat.get("source_quote") or "")
-        key = pc_text.quote_key(quote)
-        if len(key) < 8:                     # too short to identify, or the beat's beat is visual
-            continue
-        if any(_line_carries(spoken_line, key) for spoken_line in spoken):
-            continue
-        errors.append(PlanningIssue(PlanningCode.BEAT_LINE_LOST,
-            f"{beat.get('beat_id')}: 拍点的台词「{quote[:40]}」在打包后没有任何台词承载（可能被改成事件描述或被删）；"
-            "这一拍的对白或其等义表达必须由某个阶段说出，不能只写在画面描述里", field='turns'))
-
-
-def _line_carries(spoken_key: str, quote_key_text: str, *, share=0.6) -> bool:
-    """Whether a spoken turn carries this beat's quote: contains its opening run, or enough of it.
-
-    Turns may be compressed or re-cut between stages; exact containment failed those.  The opening
-    run is what a paraphrase keeps (its subject and verb), and the character share catches the
-    compressed rest.  Both sides arrive as quote keys (punctuation-stripped); the quote's is taken
-    again here so callers may pass the raw quote.
-    """
-    quote_key_text = pc_text.quote_key(quote_key_text)
-    if not quote_key_text:
-        return True
-    head = quote_key_text[: max(4, len(quote_key_text) // 3)]
-    if head and head in spoken_key:
-        return True
-    if len(spoken_key) < len(quote_key_text) * share:
-        return False
-    common = sum(1 for character in quote_key_text if character in spoken_key)
-    return common >= len(quote_key_text) * 0.8
-
-
 def _copied_from_previous_scene(new_opening_key: str, previous_shot: dict, *, min_chars: int = 16) -> tuple[str, str] | None:
     """(field, copied text) when a new scene's opening repeats a previous-scene shot's text.
 
@@ -79,97 +31,6 @@ def _copied_from_previous_scene(new_opening_key: str, previous_shot: dict, *, mi
         if head and head in new_opening_key:
             return field, str(previous_shot.get(field))
     return None
-
-
-def handoff_lines_survive(shots: list[dict], pairs, errors: list) -> None:
-    """A scene-exit question must be heard - its answer may be the next scene's first frame.
-
-    The pair's question is the set-up of the cut; losing it (both ch12 routes did) leaves the next
-    scene arriving from nowhere.  The answer may be spoken OR given by the next scene's picture
-    (the bus stop IS the answer), so only the question is a hard error; the answer unspoken and
-    un-pictured is a warning the reviewer reads.
-    """
-    if not pairs:
-        return
-    spoken = [pc_text.quote_key(turn.get("text") or "") for shot in shots
-              for turn in shot.get("turns") or []
-              if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}]
-    pictures = pc_text.quote_key("".join(str(shot.get("visual_prompt") or "") + str(shot.get("motion_prompt") or "")
-                                         for shot in shots))
-    for question, answer in pairs:
-        if not any(_line_carries(line, question) for line in spoken):
-            errors.append(PlanningIssue(PlanningCode.HANDOFF_LINE_LOST,
-                f"换场问答「{question[:36]}」没有出现在任何台词里；这一问是下一场的铺垫，必须可听（其回答"
-                f"「{answer[:36]}」可以由下一场第一镜的画面回答，也可以入台词）", field='turns'))
-        elif not any(_line_carries(line, answer) for line in spoken) \
-                and pc_text.quote_key(answer)[:8] not in pictures:
-            pass    # the answer rides the next scene's picture; said out loud is only one option
-
-
-def retained_dialogue_issues(section_text: str, shots: list[dict]) -> list[str]:
-    """Every quoted line the outline's retained_dialogue section promised must be spoken somewhere.
-
-    ch12 round five: the outline kept 席勒's 因为钢铁侠扛着地狱巴士飞行的画面一定很美 - the punchline
-    the bus scene exists for - and the second pass dropped it, cutting to the lab with the joke
-    unspoken.  The section is free prose, so what is checked is its quoted lines (8+ spoken
-    chars, the chapter_quotes test of a real line): each must be carried by some turn, under a
-    looser match than a beat's own line gets - the promise names the line's substance
-    (钢铁侠扛着巴士飞), and a turn carrying that substance anywhere in it has kept the promise.
-    """
-    text = str(section_text or "")
-    if not text.strip():
-        return []
-    promised = [quote.strip() for quote in re.findall(r"[“\"]([^”\"]{2,120})[”\"]", text)
-                if 8 <= pc_text.spoken_chars(quote) <= 50]
-    # An outline that promises the chapter whole (57 quotes, 1200+ chars, for a 105-second
-    # episode) is promising nothing: the second pass MUST compress, and compressing is not
-    # losing.  The first eight promises are held hard - the instruction caps the section at
-    # eight, so the head of the list is what the outline chose as the important ones.
-    promised = promised[:8]
-    if not promised:
-        return []
-    spoken_per_turn = [pc_text.quote_key(turn.get("text") or "") for shot in shots
-                       for turn in shot.get("turns") or []
-                       if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}]
-    # Turns are capped at 26 chars, so a promised 40-char line arrives SPLIT across consecutive
-    # turns of one speaker: the promise is checked against the joined speech (split is legal -
-    # the packer's own rule 5 does it), never against a single turn.
-    joined_by_speaker: dict[str, str] = {}
-    for shot in shots:
-        for turn in shot.get("turns") or []:
-            if turn.get("delivery_mode") in {"visible_dialogue", "offscreen_dialogue", "singing"}:
-                who = str(turn.get("speaker_name") or "")
-                joined_by_speaker[who] = joined_by_speaker.get(who, "") + pc_text.quote_key(turn.get("text") or "")
-    joined = list(joined_by_speaker.values())
-    missing = []
-    for quote in promised:
-        key = pc_text.quote_key(quote)
-        carried = any(_line_carries(line, quote) for line in spoken_per_turn) \
-            or any(_substance_carried(line, key) for line in spoken_per_turn + joined)
-        if not carried:
-            missing.append(f"提纲承诺保留的台词「{quote[:40]}」没有出现在任何镜头的 turns 里；第二遍必须逐条落实提纲的关键台词")
-    return missing
-
-
-def _substance_carried(spoken_key: str, quote_key: str) -> bool:
-    """A condensation keeps the promise when the turn still holds most of the line's characters
-    AND its longest distinctive run.  扛着地狱巴士飞 → 扛着巴士飞 drops 地狱 yet keeps the
-    punchline's words; an unrelated line shares characters only by noise, and the distinctive
-    run (钢铁侠扛着) is what noise cannot fake.
-    """
-    if len(spoken_key) < max(6, len(quote_key) * 0.5):
-        return False
-    common = sum(1 for character in quote_key if character in spoken_key)
-    if common < len(quote_key) * 0.7:
-        return False
-    for window in (8, 6):
-        if len(quote_key) < window:
-            continue
-        for start in range(0, len(quote_key) - window + 1):
-            run = quote_key[start: start + window]
-            if run in spoken_key:
-                return True
-    return False
 
 
 def flatten_clips(raw: dict) -> list[dict]:
@@ -270,7 +131,7 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
     for clip in raw.get("clips") or []:
         if isinstance(clip, dict) and len(clip.get("stages") or []) > ctx.stage_range[1]:
             warnings.append(f"{clip.get('clip_id')}: {len(clip['stages'])} stages; packer will split")
-    if not ctx.clip_range[0] <= clip_count <= ctx.clip_range[1]:
+    if ctx.episode_shape != "flex" and not ctx.clip_range[0] <= clip_count <= ctx.clip_range[1]:
         warnings.append(f"clip_count {clip_count} outside {ctx.clip_range[0]}-{ctx.clip_range[1]} (report only)")
     cited: dict[str, list[int]] = {}
     normalized: list[dict] = []
@@ -393,10 +254,6 @@ def validate_and_normalize(raw: dict, segments: list[dict], bible: StoryBible, l
             if bid in owners and owners[bid] != shot['segment_id']:
                 errors.append(PlanningIssue(PlanningCode.METHOD_CONTRACT,
                     f"{bid} source ownership changed during quote normalization; correct its source_quote"))
-        beat_lines_survive(ctx.story_blueprint, normalized, errors)
-    # The hand-off pair survives on every route: a question whose answer is the next scene is the
-    # cut itself (ch12: both the sandbox sheet and the local two-pass dropped it).
-    handoff_lines_survive(normalized, getattr(ctx, "handoff_pairs", ()) or [], errors)
     # The outline's promises are reviewed after structural validation. This
     # pure validator cannot decide whether a paraphrase reversed the meaning.
     chapter_coverage(raw, normalized, segments, cited, chapter_text, ctx, errors, warnings,
@@ -409,6 +266,8 @@ def strict_plan_issues(shots: list[dict], chapter_text: str, segments: list[dict
     length a lot: a plan far below or far above the spoken budget is redone
     once or twice.  Wording fidelity, the closing line and the share of quoted
     lines stay report-only (the user chose throughput over verbatim lines)."""
+    if ctx.episode_shape == "flex":
+        return []
     skipped = {str(item.get("segment_id")): str(item.get("reason", "")) for item in (raw.get("skipped_segments") or []) if isinstance(item, dict)}
     found = pc_metrics.metrics(shots, chapter_text, segments, skipped)
     missing = list(found.get("missing_quoted_lines", []))
@@ -428,11 +287,9 @@ def strict_plan_issues(shots: list[dict], chapter_text: str, segments: list[dict
 
 def soft_warnings(report_metrics: dict, *, ctx: PlannerContext) -> list[str]:
     notes = []
-    for quote in report_metrics.get("missing_quoted_lines", []):
-        notes.append(f"原文引号台词未出现或被删改（report only）：{quote[:40]}")
     low, high = pc_constants.SHOT_RANGE
-    if not low <= report_metrics["shot_count"] <= high:
+    if ctx.episode_shape != "flex" and not low <= report_metrics["shot_count"] <= high:
         notes.append(f"shot_count {report_metrics['shot_count']} outside {low}-{high} (report only)")
-    if not ctx.spoken_range[0] <= report_metrics["spoken_chars"] <= ctx.spoken_range[1]:
+    if ctx.episode_shape != "flex" and not ctx.spoken_range[0] <= report_metrics["spoken_chars"] <= ctx.spoken_range[1]:
         notes.append(f"spoken_chars {report_metrics['spoken_chars']} outside {ctx.spoken_range[0]}-{ctx.spoken_range[1]} (report only)")
     return notes

@@ -13,9 +13,8 @@ REAL_BINDINGS = semantic_review.bindings
 SOURCE_RULE = ('actors.paragraphs记录有原文依据的指称与参与范围，包含已确定成员的群体指称、连续同行及离场段；'
                'forms.paragraphs只记录该名字或称谓逐字出现处，不为补参与范围扩大姓名引用。'
                '原文明示成员才承接群体范围，不凭背景名单补姓名，不把仅提及或已离场者扩成全章在场。')
-REVIEW_RULE = ('分别核对actors和bindings的paragraphs指称与参与范围与forms的paragraphs字面位置。'
-               '原文已能确定的群体成员、连续同行范围若遗漏，应在correction中补齐参与段落，不能只在reason叙述。'
-               '原文群体称谓可作为成员的局部contextual指称，不能因此合并成员编号；姓名未出现的段落不得补进姓名forms。')
+REVIEW_RULE = ('actors和bindings的paragraphs是主体指称与参与范围，forms.paragraphs是称呼逐字出现的位置，三者不必逐项相同。'
+               '不要求为群体补出匿名成员，或把连续同行者逐段登记；只有原文支持的身份或发声归属错误才修这些范围。')
 
 
 def actor(sid, name, paragraphs, name_paragraphs, *, presence='on_stage', group_forms=False):

@@ -36,6 +36,9 @@ def test_packing_inputs_and_cut_explanations_are_isolated_across_parallel_contex
     assert script == script_before
     assert expected[0][0]['limits']['max_clip_seconds'] == 15
     assert expected[1][0]['limits']['max_clip_seconds'] == 30
+    assert all(plan['limits']['camera_policy']=='authored' for plan,_ in expected)
+    restored=context_for_plan(directory,directory.parent/'story_bible.json',expected[0][0])
+    assert restored['compiler_options'].camera_policy=='authored'
     assert not any(r['role'] == 'voice' for c in expected[0][0]['clips'] for r in c.get('references', []))
     assert any(r['role'] == 'voice' for c in expected[1][0]['clips'] for r in c.get('references', []))
     assert len(expected[0][0]['clips']) > len(expected[1][0]['clips'])

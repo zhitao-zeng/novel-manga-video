@@ -30,7 +30,7 @@ class CompilerOptions:
     voices: dict = field(default_factory=dict)
     two_view_cast_limit: int = 2
     two_views: str = "off"
-    camera_policy: str = "fixed"
+    camera_policy: str = "authored"
     allow_blood: bool = False
 
 
@@ -110,7 +110,7 @@ def line_parts(turns: list[dict], *, max_seconds: float, seconds_of) -> list[lis
     return parts
 
 
-def lint_stage(shot: dict, *, camera_policy: str = "fixed") -> list[str]:
+def lint_stage(shot: dict, *, camera_policy: str = "authored") -> list[str]:
     """Restraint test: the stage must still stand once adjectives are removed."""
     issues = []
     start, event, end = shot.get("visual_prompt", ""), shot.get("motion_prompt", ""), shot.get("end_state", "")
@@ -119,9 +119,9 @@ def lint_stage(shot: dict, *, camera_policy: str = "fixed") -> list[str]:
         issues.append("no_light_source")
     if not camera:
         issues.append("no_camera_position")
-    if len(compact(camera)) > 60 or len(compact(light)) > 60:
+    if (camera_policy == "fixed" and len(compact(camera)) > 60) or len(compact(light)) > 60:
         issues.append("camera_or_light_over_60_chars")
-    if camera_policy != "authored" and CAMERA_MOVE.search(camera + event + start):
+    if camera_policy == "fixed" and CAMERA_MOVE.search(camera + event + start):
         issues.append("camera_move_words")
     if ABSTRACT.search(start + event + end):
         issues.append("abstract_wording")
@@ -559,7 +559,7 @@ class ClipCompiler:
         ambience_text = "、".join(ambience) if ambience else "现场环境声"
         lines.append(f"画面呈现{(grammar or {}).get('style_line') or bible.visual_style}。")
         if self.options.camera_policy == 'authored':
-            lines.append(f"镜头采用{frame['text']}；每个阶段按该镜已写明的机位与运动执行，未写运动则固定。"
+            lines.append(f"镜头采用{frame['text']}；每个阶段按该镜已写明的机位与运动执行，保留移动的触发、起止位置与停住时机；未写运动则固定。"
                          f"只按阶段边界或该镜原分镜明确写出的切镜执行，不为交替景别添加切镜；{frame['composition']}；人物、双手与道具的变化按动作过程连续发生。")
         else:
             lines.append(f"镜头采用{frame['text']}，按阶段切换景别（{scales}），每个阶段开始时切一次画面，阶段内机位固定不运镜；{frame['composition']}；同一场景内保持人物左右位置和视线方向不变。")

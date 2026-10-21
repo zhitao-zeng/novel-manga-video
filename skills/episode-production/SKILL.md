@@ -34,6 +34,13 @@ are optional evidence for a remedy, not a prerequisite for the general rules.
 
 ## Current task and workflow
 
+When `input/current-task.json` has `mode=planning_repair`, repair only the native
+planning candidate in `input/planning-failure.json` and return `output/repair.json`
+in that packet's requested identity or draft format. Use the source ownership
+principles below; the host performs current-source validation and adoption.
+This phase has file tools only and does not author H3 requests or produce media.
+The source/script media instructions below apply to the later production phases.
+
 When present, begin with `input/current-task.json`: it identifies the current
 phase, targets, exact operation choices and evidence files. Full live state is
 in `input/current-status.json`; older failures are history and do not expand
@@ -48,6 +55,13 @@ Use [authoring](references/authoring.md) when creating shots or resolving identi
 wearing, visibility, action, sound or continuity. Use [review and repair](references/review-and-repair.md)
 when executing tools or assessing a take. Read [case lessons](references/case-lessons.md)
 only when a matching failure needs explanation.
+For choosing framing, camera movement, focus or a motivated reveal, consult
+[camera language](references/camera-language.md). Use its examples as choices for
+the current story, preserving approved script-mode camera decisions.
+For director-associated styles or named camera requests, read
+[director camera styles](references/director-camera-styles.md). Translate the label
+into the actual crop, trigger, actor/camera paths, endpoint and stop; distinguish
+existing H3 observations from untested combinations.
 
 For semantic input repair or post-render review, use the
 [repair playbook](references/repair-playbook.md) to choose a remedy from current

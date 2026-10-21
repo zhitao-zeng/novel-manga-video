@@ -20,8 +20,10 @@ def source_schema(paragraphs):
             'forms': {'type': 'array', 'maxItems': 8, 'items': obj({
                 'form': {'type': 'string'}, 'kind': {'type': 'string', 'enum': ['proper','contextual']}, 'paragraphs': refs})},
             'kind': {'type': 'string', 'enum': ['individual','group','object']},
-            'count': {'type': 'integer', 'minimum': 0},
-            'presence': {'type': 'string', 'enum': ['on_stage','voice','mentioned']},
+            'count': {'type': 'integer', 'minimum': 0,
+                      'description': '原文明示的该指称群体总数，0表示未说明。群体可包含另外单列的具名成员；主体条目是指称记录，不是不重叠的演员分配，不能把它们的count直接相加或因单列成员而擅减群体总数。具体镜头的人数由该镜具名人物与未具名extras共同确定。'},
+            'presence': {'type': 'string', 'enum': ['on_stage','voice','mentioned'],
+                         'description': '主体在本章故事时空中的存在方式，不是逐镜入镜表。on_stage实际处于当前场景，含旁观者或休息者，不要求主动行动；voice为可归属的画外发声（含呻吟等无台词声音），不强制补对白；mentioned仅被提及、回忆或转述。'},
             'appearance': {'type': 'string', 'maxLength': 180}, 'source_id': sid})},
     })
 
@@ -100,18 +102,19 @@ def clean_reading(answer, segments):
         if not actor['forms']:
             unresolved.append(source)
         else:
+            # Citation repair must update its parent range too. This includes
+            # mentions, not a claim that the body is visible in every segment.
+            if 'paragraphs' in actor:
+                actor['paragraphs'] = sorted(set(actor['paragraphs']) |
+                                            {p for form in actor['forms'] for p in form['paragraphs']})
             actors.append(actor)
     return {'actors': actors}, rejected, unresolved
 
 
-def map_source_reading(answer, catalog, segments, verified_aliases=None, *, approved_bindings=None):
-    # The raw source is read before any catalogue is offered to the model.
-    # Catalogue matching cannot change the source's actor count or relations.
+def source_actor_bindings(answer, catalog, verified_aliases=None, *, approved_bindings=None):
+    """Resolve catalogue candidates independently of source-paragraph validation."""
     actors = answer['actors']
     verified = verified_aliases or {}
-    by_source = {r['source_id']: r for r in actors}
-    if len(by_source) != len(actors):
-        raise ValueError('source reading repeated an actor id')
     mapping = {}
     for actor in actors:
         if approved_bindings is not None:
@@ -165,6 +168,17 @@ def map_source_reading(answer, catalog, segments, verified_aliases=None, *, appr
         for actor in owners:
             if actor['source_id'] != keep:
                 mapping[actor['source_id']] = 'UNKNOWN'
+    return mapping
+
+
+def map_source_reading(answer, catalog, segments, verified_aliases=None, *, approved_bindings=None):
+    # The raw source is read before any catalogue is offered to the model.
+    # Catalogue matching cannot change the source's actor count or relations.
+    actors = answer['actors']
+    by_source = {r['source_id']: r for r in actors}
+    if len(by_source) != len(actors):
+        raise ValueError('source reading repeated an actor id')
+    mapping = source_actor_bindings(answer, catalog, verified_aliases, approved_bindings=approved_bindings)
     mentions, appearances = [], []
     for actor in actors:
         eid = mapping[actor['source_id']]

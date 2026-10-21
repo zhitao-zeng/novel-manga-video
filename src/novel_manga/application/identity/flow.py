@@ -5,7 +5,7 @@ import novel_manga.episodes as ep_names
 from pathlib import Path
 import json
 import time
-from novel_manga.util import atomic_write_json
+from novel_manga.util import atomic_write_json, read_json
 from novel_manga.story.identity import canonical_entity
 from novel_manga.story.source_identity import (POLICY, usable_reading, source_schema, UnreadableSource, clean_reading, map_source_reading)
 from novel_manga.application.identity.store import ChapterIdentityData, load_chapter
@@ -89,13 +89,13 @@ def reconcile_repeated_actors(directory, answer, segments, *, force=False):
     return {**answer, 'actors': result}
 
 
-def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData | None = None):
+def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData | None = None, proposal=None, source_proposal=None):
     # Read source first; legacy dictionaries never enter this semantic call.
     from novel_manga.llm.client import ask_json
     directory = Path(directory).resolve()
     data = data if data is not None else load_chapter(directory)
     expected, saved = data.expected, data.saved
-    if not force and saved.get('policy') == POLICY and saved.get('inputs') == expected and usable_reading(saved) and saved.get('semantic_review', {}).get('approved'):
+    if proposal is None and source_proposal is None and not force and saved.get('policy') == POLICY and saved.get('inputs') == expected and usable_reading(saved) and saved.get('semantic_review', {}).get('approved'):
         return saved
     segments = expected['segments']
     if not segments:
@@ -116,20 +116,42 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
         'kind区分独立个体individual、群体group、具体道具object；对事件有作用的命名道具也列出，但绝不能当人物。'
         '同名或同类物件不等于同一件；当前事件与回忆、转述中的具体物件，只有原文明确支持同一性才共用主体，否则分别登记各自指称和段落，过去仅被提及的物件标mentioned；泛指类名不强行建成具体物件。'
         '动物、坐骑和被召唤的生物仍是individual；不能因为被召唤、被乘坐或沉默就当作object。只有原文明确为器物才填object，含混时保留individual。'
-        '群体称号即使像姓名也不能拆成单一人物；count填原文明示的群体数量，不明填0，不根据旧人物库猜。'
-        'presence区分在场、画外发言和仅被提及。'
+        '群体称号即使像姓名也不能拆成单一人物；count按Schema记录原文明示的群体总数，不明填0，不根据旧人物库猜；群体包含已单列成员时不扣减或重复相加。'
+        'presence按Schema区分本章在场、可归属的画外发声和仅被提及，不把发声限定为有台词。'
         'appearance只写原文明示的当时身体/物种/外貌，没写就留空；不得自行补成人形或兽形。'
         '所有paragraphs均引用下列原文编号，由程序摘取证据；不要输出推理过程。\n'
         + json.dumps([{'paragraph': i, **r} for i, r in enumerate(segments, 1)], ensure_ascii=False))
-    # Binding reviews changed; unchanged source extraction remains reusable.
-    if (not force and saved.get('policy') in {POLICY, 'story-identity-v6-catalogue-bindings', 'story-identity-v5-grounded-types'} and saved.get('inputs', {}).get('segments') == segments
+    raw_path = directory / 'identity_source_reading.json'
+    extracted = read_json(raw_path, {}) if not force else {}
+    source_answer = extracted.get('answer') or {}
+    # Source extraction is independent of the catalogue and its later review.
+    # A failed binding must not discard a completed reading of unchanged text.
+    if source_proposal is not None:
+        from copy import deepcopy
+        if source_proposal.get('inputs') != extracted or extracted.get('inputs', {}).get('segments') != segments:
+            raise ValueError('planning source proposal is stale for the current source')
+        correction = source_proposal['correction']
+        answer = semantic_review.merge_binding_changes({'actors': source_answer.get('actors') or [],
+            'bindings': []}, {'actors': correction.get('actors') or []})
+        answer = {**deepcopy(source_answer), 'actors': answer['actors']}
+        cleaned_proposal, _, unresolved_proposal = clean_reading(answer, segments)
+        if unresolved_proposal or not cleaned_proposal['actors']:
+            raise ValueError('planning source proposal lacks grounded source actors')
+        if answer == source_answer:
+            raise ValueError('planning source proposal has no changed grounded candidate')
+    elif (not force and saved.get('policy') in {POLICY, 'story-identity-v6-catalogue-bindings', 'story-identity-v5-grounded-types'} and saved.get('inputs', {}).get('segments') == segments
             and 'source_actors' in saved and usable_reading(saved)
             and not clean_reading({'actors':saved['source_actors']},segments)[2]):
         answer = {'actors': saved['source_actors'], 'actorless_confirmed': saved.get('actorless_confirmed', False)}
+    elif (not force and extracted.get('policy') == POLICY
+            and extracted.get('inputs', {}).get('segments') == segments
+            and source_answer.get('source_readable') is not False
+            and (source_answer.get('actors') or source_answer.get('actorless_confirmed'))
+            and not clean_reading(source_answer, segments)[2]):
+        answer = source_answer
     else:
         answer = ask_json([{'type': 'text', 'text': prompt}], source_schema(len(segments)),
                           name='chapter_identity_source', max_tokens=4096, timeout=240)
-    raw_path = directory / 'identity_source_reading.json'
     atomic_write_json(raw_path, {'policy': POLICY, 'inputs': expected, 'answer': answer})
     if answer.get('source_readable') is False:
         from novel_manga.llm.client import obj
@@ -186,7 +208,9 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
     aliases = reading_aliases(directory.parent, chapter)
     mapped = map_source_reading(cleaned, catalog, segments, aliases)
     corrected, review = semantic_review.bindings(directory, cleaned, catalog, segments, mapped,
-                                                cached=None if force else saved.get('semantic_review'), aliases=aliases)
+                                                cached=None if force else saved.get('semantic_review'), aliases=aliases,
+                                                pending=None if force else read_json(directory/'identity_binding_review.json', {}),
+                                                **({'proposal': proposal} if proposal is not None else {}))
     cleaned = {**cleaned, 'actors': corrected['actors']}
     decisions = corrected['bindings']
     mapped = map_source_reading(cleaned, catalog, segments, aliases,

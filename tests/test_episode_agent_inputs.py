@@ -310,6 +310,8 @@ def test_manifest_resources_are_readable_in_the_episode_mount_and_use_current_co
     assert installed.read_bytes() == (SKILL_SOURCE / 'SKILL.md').read_bytes()
     assert result['format_reference'] == result['skill_references']['h3_format']
     assert result['runtime_rules'] == result['skill_references']['review_and_repair']
+    camera = ctx.work_dir / result['skill_references']['camera_language']
+    assert camera.read_bytes() == (SKILL_SOURCE / 'references/camera-language.md').read_bytes()
     for name in result['skill_references'].values():
         path = ctx.work_dir / name
         assert path.is_file() and path.stat().st_size > 0
@@ -331,9 +333,12 @@ def test_refreshing_skill_resources_preserves_frozen_inputs_output_and_budget(bo
     write(ctx.episode_dir / 'repair_history/history.json', {'trials': [{'id': 1, 'managed': True}]})
     core = ctx.work_dir / first['skill']
     core.write_text('earlier installed rules', encoding='utf-8')
+    camera = ctx.work_dir / first['skill_references']['camera_language']
+    camera.write_text('earlier camera reference', encoding='utf-8')
     second = prepare_inputs(ctx)
     assert second['skill_references'] == first['skill_references']
     assert core.read_bytes() == (SKILL_SOURCE / 'SKILL.md').read_bytes()
+    assert camera.read_bytes() == (SKILL_SOURCE / 'references/camera-language.md').read_bytes()
     assert all(path.read_bytes() == value for path, value in protected.items())
     assert read(ctx.work_dir / 'output/requests.json') == {'prompts': {'clip_01': 'agent work'}}
     assert read(ctx.episode_dir / 'repair_history/history.json') == {'trials': [{'id': 1, 'managed': True}]}

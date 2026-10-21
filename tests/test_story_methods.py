@@ -15,7 +15,7 @@ from novel_manga.planning.contracts import build_schema
 from novel_manga.planning.validation import validate_and_normalize
 from novel_manga.planning.issues import PlanningCode
 from novel_manga.models.bible import StoryBible
-from novel_manga.story.compilation import ClipCompiler
+from novel_manga.story.compilation import ClipCompiler, lint_stage
 from novel_manga.application.packing.context import compiler_options, load_context, context_for_plan
 from novel_manga.application.planning import requests, cli
 
@@ -119,7 +119,7 @@ def test_missing_or_forged_source_and_broken_continuity_never_reach_second_pass(
     errors = validate_blueprint(json.dumps(bad), method, SEGMENTS)
     assert any('source_quote' in e for e in errors) and any('preceding' in e for e in errors)
     bad['beats'].pop()
-    assert any('missing source segments' in e for e in validate_blueprint(json.dumps(bad), method, SEGMENTS))
+    assert not any('missing source segments' in e for e in validate_blueprint(json.dumps(bad), method, SEGMENTS))
     calls = []
     def incomplete(client, urls, headers, body):
         calls.append(body)
@@ -135,7 +135,7 @@ def test_missing_or_forged_source_and_broken_continuity_never_reach_second_pass(
     assert all(c['response_format']['json_schema']['name'] == 'chapter_outline_leos' for c in calls)
 
 
-def test_final_script_cannot_drop_a_beat_even_when_segment_coverage_passes():
+def test_structural_check_does_not_treat_every_outline_beat_as_mandatory_delivery():
     method = METHODS['drama'];bp = blueprint(method)
     extra = copy.deepcopy(bp['beats'][-1]);extra.update(beat_id='beat_3', continuity_from='beat_2')
     bp['beats'].append(extra)
@@ -143,7 +143,7 @@ def test_final_script_cannot_drop_a_beat_even_when_segment_coverage_passes():
     b = StoryBible.model_validate(bible_data())
     result = validate_and_normalize(raw_script(), SEGMENTS, b, {'溪岸': b.locations[0]},
                                    ''.join(s['text'] for s in SEGMENTS), ctx=ctx)
-    assert any(i.code == PlanningCode.METHOD_CONTRACT and 'beat_3' in i.detail for i in result.issues)
+    assert not any(i.code == PlanningCode.METHOD_CONTRACT and 'beat_3' in i.detail for i in result.issues)
     assert [s['beat_id'] for s in result.shots] == ['beat_1', 'beat_2']
     assert result.shots[1]['actions'][0]['actor'] == '灰色山羊'
     assert result.shots[0]['actions'][0]['target'] == '背包'
@@ -187,17 +187,26 @@ def test_patch_contract_and_replacement_keep_the_method_beat(monkeypatch):
     assert raw==before and result['clips'][0]['stages'][1]['beat_id']=='beat_2'
 
 
-def test_compilation_obeys_authored_camera_and_default_requests_stay_fixed():
+def test_compilation_preserves_story_camera_by_default_and_explicit_fixed_mode():
     b=StoryBible.model_validate(bible_data());ctx=PlannerContext(story_method='leos',story_blueprint=blueprint(METHODS['leos']))
     validated=validate_and_normalize(raw_script(),SEGMENTS,b,{'溪岸':b.locations[0]},''.join(s['text'] for s in SEGMENTS),ctx=ctx)
     clip={'request_seconds':10,'shots':validated.shots}
-    fixed=compiler_options(environ={})
-    authored=replace(fixed,camera_policy='authored')
-    normal=ClipCompiler(fixed).compile_prompt(clip,b,['梁舟'],[],'溪岸')
-    creative=ClipCompiler(authored).compile_prompt(clip,b,['梁舟'],[],'溪岸')
-    assert '阶段内机位固定不运镜' in normal and '固定道具位置' in normal
-    assert '阶段内机位固定不运镜' not in creative and '固定道具位置' not in creative
-    assert '随梁舟后退缓慢后移' in creative
+    movement=('为看清山羊冲撞后梁舟能否站稳，从溪岸侧前方平视中景开始，'
+              '受撞时随梁舟后退缓慢后移跟拍，退至石头旁的全景，保持行动轴同侧；'
+              '梁舟双脚站稳、木棍挡住山羊时停住，保持到切镜。')
+    clip['shots'][1]['camera']=movement
+    clip['shots'][0]['camera']='溪岸侧面平视中景，固定观察梁舟拖包上岸，背包落地后切镜。'
+    options=compiler_options(environ={})
+    normal=ClipCompiler(options).compile_prompt(clip,b,['梁舟'],[],'溪岸')
+    fixed=replace(options,camera_policy='fixed')
+    legacy=ClipCompiler(fixed).compile_prompt(clip,b,['梁舟'],[],'溪岸')
+    assert options.camera_policy=='authored'
+    assert movement in normal and clip['shots'][0]['camera'] in normal
+    assert '阶段内机位固定不运镜' not in normal and '固定道具位置' not in normal
+    assert 'camera_move_words' not in lint_stage(clip['shots'][1])
+    assert 'camera_or_light_over_60_chars' not in lint_stage(clip['shots'][1])
+    assert '阶段内机位固定不运镜' in legacy
+    assert 'camera_move_words' in lint_stage(clip['shots'][1],camera_policy='fixed')
 
 
 def test_profile_selection_cli_override_context_reset_and_frozen_packing(tmp_path,monkeypatch):
@@ -226,7 +235,11 @@ def test_profile_selection_cli_override_context_reset_and_frozen_packing(tmp_pat
     plan={'limits':{'max_clip_seconds':15,'camera_policy':'authored'},'totals':{'profile':{'frame':'16:9','style':'3d'}}}
     (episode/'chapter_script.json').write_text('{"shots":[]}')
     assert context_for_plan(episode,bible,plan)['compiler_options'].camera_policy=='authored'
-    assert load_context(episode,bible)['compiler_options'].camera_policy=='fixed'
+    assert load_context(episode,bible)['compiler_options'].camera_policy=='authored'
+    plan['limits'].pop('camera_policy')
+    assert context_for_plan(episode,bible,plan)['compiler_options'].camera_policy=='authored'
+    plan['limits']['camera_policy']='fixed'
+    assert context_for_plan(episode,bible,plan)['compiler_options'].camera_policy=='fixed'
 
 
 def test_list_methods_needs_no_source_or_models(monkeypatch,capsys):

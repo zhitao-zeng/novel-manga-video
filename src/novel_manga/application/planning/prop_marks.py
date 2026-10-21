@@ -53,6 +53,12 @@ def mark_props(shots: list[dict], props: list, *, settings=None) -> dict[int, li
                        max_tokens=400, settings=settings or judge_settings())
     except Exception:  # noqa: BLE001 - no marks is not a planning failure
         out = {}
+    return interpret(shots, props, out)
+
+
+def interpret(shots, props, out):
+    """Share the existing union/filter semantics with the joint chapter reading."""
+    catalogue = {p.name: p for p in props}
     judged: dict[int, list[str]] = {}
     for row in out.get("marks") or []:
         try:

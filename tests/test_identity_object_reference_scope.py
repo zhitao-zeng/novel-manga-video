@@ -63,16 +63,15 @@ def test_existing_entrypoint_preserves_distinct_or_explicitly_same_object_scope(
         assert REVIEW_RULE in prompt
         payload = json.loads(prompt.split('\n', 1)[1])
         assert payload['candidate']['actors'] == actors
-        if calls.count(name) == 1:
-            return {'approved': False, 'reason': '确认现场物件为临时主体', 'correction': {
-                'bindings': [{'source_id': 2, 'entity_id': 'UNKNOWN', 'entity_kind': None,
-                              'decision': 'extra', 'paragraphs': [1, 2], 'reason': '现场物件'}]}}
+        # Object extras already have this binding before review. A fabricated
+        # rejection of an identical correction must not buy a second judgment.
+        assert payload['candidate']['bindings'][1]['decision'] == 'extra'
         return {'approved': True, 'reason': '本地接口测试回复', 'correction': None}
 
     monkeypatch.setattr(client, 'ask_json', ask)
     monkeypatch.setattr(semantic_review, 'bindings', REAL_BINDINGS)
     result = flow.resolve_chapter(episode)
-    assert calls == ['chapter_identity_source', 'chapter_binding_review', 'chapter_binding_review']
+    assert calls == ['chapter_identity_source', 'chapter_binding_review']
     assert result['source_actors'] == actors == original
     assert {m['entity_id'] for m in result['mentions'] if m['source_actor'] == 1} == {'e071'}
     current_mentions = [m for m in result['mentions'] if m['source_actor'] == 2]

@@ -48,7 +48,7 @@ def test_six_patches_preserve_data_and_review_the_repaired_candidate(tmp_path, m
         payload = json.loads(prompt.split('\n', 1)[1])
         assert payload['evidence']['current_segments'] == [
             {'paragraph': i, **row} for i, row in enumerate(segments, 1)]
-        assert '1' not in payload['evidence']['source']
+        assert 'source' not in payload['evidence']
         assert [a['count'] for a in payload['candidate']['actors']] == [1, 2]
         assert {b['source_id']: b['entity_id'] for b in payload['candidate']['bindings']} == {1: 'e034', 2: 'UNKNOWN'}
         return deepcopy(replies[len(prompts) - 1])

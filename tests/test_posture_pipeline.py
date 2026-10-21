@@ -111,8 +111,11 @@ def test_ambiguous_repair_candidate_never_overwrites_plan_or_ledger(episode, mon
     responses[0]['people'][0]['start'] = {'posture': '未写明', 'where': '', 'quote': ''}
     responses[1]['boundary'] = 'unknown'
     monkeypatch.setattr(posture, 'ask_json', lambda *a, **k: {'stages': responses})
-    with pytest.raises(ValueError, match='姿态交接需修正'):
-        flow.rebuild_clips(directory, directory.parent / 'story_bible.json', script, plan, {'clip_01'})
+    report = {}
+    proposal, _ = flow.rebuild_clips(directory, directory.parent / 'story_bible.json', script, plan,
+                                    {'clip_01'}, repack_report=report)
+    assert report['_posture_states']['issues']
+    assert '人物姿态：林凡坐' not in proposal['clips'][1]['prompt']
     assert {p.name: p.read_bytes() for p in directory.glob('*.json')} == before
 
 

@@ -13,6 +13,7 @@ import novel_manga.application.production.render as render
 
 def batch_for(tmp_path, *, replan=False):
     batch = object.__new__(production.Batch)
+    batch.planning_stop = Event()
     batch.args = SimpleNamespace(replan=replan, min_chapter_chars=0, dry_run=False, max_redo=1, merge=1, tier='fast', min_seconds=None)
     batch.novel_dir = tmp_path / 'book'; batch.novel_dir.mkdir()
     batch.novel_id, batch.title = 'book', '测试'

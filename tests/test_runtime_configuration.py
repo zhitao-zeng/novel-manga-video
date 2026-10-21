@@ -55,7 +55,7 @@ def test_h3_endpoint_defaults_and_overrides_are_per_call(monkeypatch):
     for name in ['QWEN38_LOCAL_BASE_URL', 'QWEN38_LOCAL_MODEL', 'QWEN38_LOCAL_API_KEY_VAR']:
         monkeypatch.delenv(name, raising=False)
     first = h3_translation_endpoint()
-    assert first.endpoints == ('http://127.0.0.1:8789/v1',) and first.model == 'deepseek-v4.1-flash'
+    assert first.endpoints == ('http://127.0.0.1:8789/v1',) and first.model == 'deepseek-v4.1-flash-1017'
     monkeypatch.setenv('QWEN38_LOCAL_BASE_URL', 'http://different.invalid/v1')
     monkeypatch.setenv('QWEN38_LOCAL_MODEL', 'alternate')
     second = h3_translation_endpoint()

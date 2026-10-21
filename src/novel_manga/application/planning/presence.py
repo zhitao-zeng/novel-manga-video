@@ -69,6 +69,26 @@ def issues_for_grades(shots, grades, names):
     return issues
 
 
+def candidates_for(shots, everyone, *, ctx=None):
+    """Only ambiguous names need a model reading; visible speakers are structural facts."""
+    ctx = ctx or PlannerContext()
+    everyone = list(everyone)
+    rows = []
+    for position, shot in enumerate(shots, start=1):
+        cast = set(shot.get('characters') or []) | set(shot.get('in_frame') or []) | set(shot.get('listeners') or [])
+        structural = structural_on_camera(shot)
+        candidates = pc_cast.presence_candidates(sorted(cast), shot, everyone, ctx=ctx)
+        candidates.update({name: [{'field': 'cast', 'grade': 'on_camera'}] for name in cast - structural})
+        for action in shot.get('actions') or []:
+            for name in (action.get('actor'), action.get('target')):
+                if name in everyone and name not in structural:
+                    candidates.setdefault(name, [{'field': 'actions', 'grade': 'candidate'}])
+        for name in sorted(candidates):
+            if name not in structural:
+                rows.append((position, name, sorted({str(e.get('field')) for e in candidates[name]})))
+    return rows
+
+
 def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContext = None,
                    settings=None, log=None, roster=None, source='') -> dict[int, dict[str, str]]:
     """{shot position: {name: grade}} - the judged grade of every candidate the scan found.
@@ -83,21 +103,7 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
     """
     ctx = ctx or PlannerContext()
     everyone = list(everyone)
-    rows = []          # (position, name, where it was found) - the judge sees why it is a candidate
-    for position, shot in enumerate(shots, start=1):
-        cast = set(shot.get("characters") or []) | set(shot.get('in_frame') or []) | set(shot.get('listeners') or [])
-        structural = structural_on_camera(shot)
-        candidates = pc_cast.presence_candidates(sorted(cast), shot, everyone, ctx=ctx)
-        candidates.update({name: [{"field": "cast", "grade": "on_camera"}] for name in cast - structural})
-        for action in shot.get('actions') or []:
-            for name in (action.get('actor'), action.get('target')):
-                if name in everyone and name not in structural:
-                    candidates.setdefault(name, [{'field': 'actions', 'grade': 'candidate'}])
-        for name in sorted(candidates):
-            if name in structural:
-                continue                       # a fact; not the judge's to grade
-            where = sorted({str(e.get("field")) for e in candidates[name]})
-            rows.append((position, name, where))
+    rows = candidates_for(shots, everyone, ctx=ctx)
     if not rows:
         return {}
     roster_text = ""
@@ -145,3 +151,58 @@ def grade_presence(shots: list[dict], everyone: list[str], *, ctx: PlannerContex
         if 1 <= position <= len(shots) and name in everyone and grade in {"on_camera", "talked_about", "absent"}:
             grades.setdefault(position, {})[name] = grade
     return grades
+
+
+def grades_of(verdict, candidates):
+    expected = {}
+    for position,name,_ in candidates:
+        expected.setdefault(str(position),set()).add(name)
+    grades = verdict.get('grades')
+    if not isinstance(grades,dict) or set(grades)!=set(expected):
+        raise ValueError('在场复核缺少本镜判断')
+    for position,names in expected.items():
+        if not isinstance(grades[position],dict) or set(grades[position])!=names or any(
+                grade not in {'on_camera','talked_about','absent'}for grade in grades[position].values()):
+            raise ValueError('在场复核人物判断不完整')
+    if not isinstance(verdict.get('marks'),list):
+        raise ValueError('道具标注不完整')
+    return {int(position):dict(values)for position,values in grades.items()}
+
+
+def review_visibility(shots, everyone, *, ctx=None, roster=None, props=(), previous=None, settings=None):
+    """Read only the current frame's bodies and objects; never infer casting from plot promises."""
+    import json
+    from novel_manga.llm.client import obj
+    from .prop_marks import _SCHEMA as prop_schema
+    candidates = candidates_for(shots,everyone,ctx=ctx)
+    relevant = {position for position,_,_ in candidates}
+    names = {name for _,name,_ in candidates}
+    inputs = {'shots':[{'shot':i,'in_frame':s.get('in_frame'),'candidate_characters':s.get('characters'),
+                'camera':s.get('camera'),'picture':{k:s.get(k)for k in ('visual_prompt','motion_prompt','end_state')},
+                'actions':s.get('actions'),'authored_props':s.get('props')}
+              for i,s in enumerate(shots,1)if props or i in relevant],
+              'candidates':candidates,'roster':{k:v for k,v in (roster or {}).items()if k in names},
+              'props':[{'name':p.name,'appearance':p.appearance or p.category}for p in props]}
+    inputs=json.loads(json.dumps(inputs,ensure_ascii=False))
+    if previous and previous.get('inputs')==inputs:
+        grades_of(previous,candidates)
+        return previous
+    if not candidates and not props:
+        return {'inputs':inputs,'grades':{},'marks':[]}
+    fields={}
+    for position,name,_ in candidates:
+        fields.setdefault(str(position),{})[name]={'type':'string','enum':['on_camera','talked_about','absent']}
+    schema=obj({'grades':obj({position:obj(names)for position,names in fields.items()}),
+                'marks':prop_schema['properties']['marks']})
+    prompt=('只核对当前镜头里人物本体和道具本体能否被看见，不判断剧情应选哪些人物，不重写镜头。'
+        'candidate_characters与candidates只是候选；in_frame是编剧声明的入画名单，结合picture和camera核对。'
+        'grades逐个判断：on_camera=本体确实在本镜画面；talked_about=仅被提及；absent=不在本镜或依据不足。'
+        '同处一个房间不等于本镜看得见；动作的受事或视线所向可以在画外，不能仅凭动作指向就判目标入画。'
+        '画外声和心声不强制人物入画；roster中的无实体/全息人物，只有本镜明确显形才算on_camera。'
+        '明确的可见发言者已由结构校验确定，不再列为候选。只用本镜证据，不从全章剧情推测应出镜者。'
+        'marks标注被持有、展示、使用或特写的道具本体，名字仅限props，不确定或仅提及则不标。'
+        '镜号使用shot，不能把共享origin_index的兄弟镜混合。只输出JSON。\n'+json.dumps(inputs,ensure_ascii=False))
+    answer=ask_json([{'type':'text','text':prompt}],schema,name='visibility_review',
+                    max_tokens=3000,settings=settings or judge_settings())
+    grades_of(answer,candidates)
+    return {'inputs':inputs,**answer}

@@ -170,6 +170,8 @@ def test_planning_flow_checkpoints_completed_batches_and_retries_only_remaining(
     monkeypatch.setattr(identity, 'resolve_chapter', lambda *a, **kw: {})
     monkeypatch.setattr(posture, 'check_draft', lambda *a, **kw: (None, []))
     monkeypatch.setattr(presence, 'grade_presence', lambda *a, **kw: {})
+    from novel_manga.application.planning import retention
+    monkeypatch.setattr(retention, 'review', lambda *a, **k: ({'verdict':'pass','errors':[]}, []))
     monkeypatch.setattr(httpx.HTTPTransport, 'handle_request', lambda *a, **kw: (_ for _ in ()).throw(AssertionError('no HTTP')))
     monkeypatch.setattr(sys, 'argv', ['plan_chapter_thin.py', str(source), '--novel-id', 'book',
         '--bible', str(bible), '--output-root', str(tmp_path / 'out'), '--max-redo', '0',

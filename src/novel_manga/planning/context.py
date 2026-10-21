@@ -21,7 +21,7 @@ class PlannerContext:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     separate_pairs: list[tuple[str,str]] = field(default_factory=list)
     aliases: dict[str,str] = field(default_factory=dict)
-    episode_shape: str = "fixed"  # 'flex' (legacy fast tier): aim by chapter length, never rework for the ceiling
+    episode_shape: str = "fixed"  # 'flex': story determines episode length; only explicit episode limits apply
     chat_self: str = ""
     chat_card_mode: bool = True
     text_on_props_gate: bool = True
@@ -36,9 +36,6 @@ class PlannerContext:
     # promise the second pass is held to (a promised line that never reaches a turn is the
     # bus-joke defect - lost in the second pass, not by the outline).
     outline: dict = field(default_factory=dict)
-    # Scene-exit question/answer pairs from the source (text.handoff_pairs): the question must be
-    # heard whatever the outline did with it - the pair is the cut itself.
-    handoff_pairs: list = field(default_factory=list)
     # Set when --bind-storyboard binds a sheet a person wrote: its cuts and its length are
     # the author's, and compressing them is the one thing binding exists to avoid.
     authored_storyboard: bool = False

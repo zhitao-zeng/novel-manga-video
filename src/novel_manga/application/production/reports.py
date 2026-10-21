@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import sys
 import time
+from pathlib import Path
 import novel_manga.application.production.common as production_common
 
 def volume_checkpoint(batch, chapter: int, chapters: list[int]) -> None:
     size = max(1, batch.args.volume_size)
-    if chapter % size and chapter != chapters[-1]:
+    # A small recovery batch ending is not the end of this volume.
+    if chapter % size and chapter != len(batch.novel().episodes):
         return
     volume = (chapter - 1) // size + 1
     first = (volume - 1) * size + 1
@@ -29,7 +31,9 @@ def volume_checkpoint(batch, chapter: int, chapters: list[int]) -> None:
     # scrolled past it.
     try:
         from novel_manga.application.identity.volume_context import summarize_volume
-        arc = summarize_volume(batch.novel_dir, first, chapter)
+        from novel_manga.llm import usage
+        with usage.scope(novel=batch.novel_id, episode=f'volume_{volume:03d}', stage='volume_summary'):
+            arc = summarize_volume(batch.novel_dir, first, chapter)
         if arc:
             lines += ["", f"## 主线（第 {first}–{chapter} 章）", "", arc.get("summary", ""), "",
                       "未了结的线索：" + ("；".join(arc.get("open_threads", [])) or "无"), "",
@@ -47,7 +51,8 @@ def report(batch, chapters: list[int]) -> int:
         lines.append(f"| {chapter} | {row.get('plan', batch.plan_status(chapter))} | {row.get('clips', '')} | {row.get('duration', '')} | {row.get('thin_passed', '')} | {row.get('render', batch.render_status(chapter))} | {row.get('note', '')} |")
     table = "\n".join(lines)
     print(table, flush=True)
-    payload = {"novel_id": batch.novel_id, "chapters": chapters, "rows": batch.rows, "finished": time.strftime("%Y-%m-%d %H:%M:%S"), "args": vars(batch.args)}
+    arguments = {key: str(value) if isinstance(value, Path) else value for key, value in vars(batch.args).items()}
+    payload = {"novel_id": batch.novel_id, "chapters": chapters, "rows": batch.rows, "finished": time.strftime("%Y-%m-%d %H:%M:%S"), "args": arguments}
     (batch.novel_dir / "batch_report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
     with open(batch.novel_dir / "batch_report.md", "a", encoding="utf-8") as handle:
         handle.write(f"\n## {payload['finished']} · chapters {batch.args.chapters} · stage {batch.args.stage}\n\n{table}\n")

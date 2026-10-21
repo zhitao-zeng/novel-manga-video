@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .places import offered_locations, recently_used
 from .constants import CAST_RECENT_CHAPTERS
+from novel_manga.story.fields import CAMERA_INSTRUCTIONS
 
 # profile.json carries the bare token the renderer keys on; the agent needs words.  A style package
 # carries its own name (美漫, 唯美, 真人), so this table is only the fallback for the legacy tokens.
@@ -68,7 +69,11 @@ TASK_SPEC_TEMPLATE = """## 忠于原著
 
 - 同一地点、同一人物状态下连续发生的动作，尽量放进同一个镜头里拍完。一个镜头可以有几个动作节拍，也可以有运镜。
 - 每镜 **{shot_low:g}–{shot_high:g} 秒**，不要 1–3 秒的碎镜头。全集大约 {shots_low}–{shots_high} 个镜头。
-- 只在这几种情况下切镜：换地点、换时间、人物状态变了，或者要给观众新的信息。只是换景别、换角度，就用运镜完成，不切。
+- 切镜或运镜由剧情需要决定：换地点、换时间或省略过程要切镜；连续行动中的信息揭示、视线转移与反应，可以选择切镜或运镜。景别或角度变化不自动要求切镜，也不自动要求运镜。
+
+## 运镜设计
+
+{camera_instructions}
 
 ## 画面怎么写
 
@@ -80,7 +85,7 @@ TASK_SPEC_TEMPLATE = """## 忠于原著
 
 - 每镜写清这一镜里听得到的声音：台词、内心独白、环境声和动作声。
 - 跨镜头的声音衔接（J-cut、L-cut、声音桥）和贯穿全片的配乐都做不到，不要靠它们讲故事。
-- 瞳孔里的倒影、拉焦、1–2 秒的插入镜头，视频模型都做不准，不要用。
+- 拉焦按共用运镜要求写清起止清晰对象与触发。瞳孔里的倒影、1–2 秒的插入镜头仍不用于这条逐镜生成流程。
 
 ## 分镜表的格式（必须照这个写）
 
@@ -98,7 +103,7 @@ TASK_SPEC_TEMPLATE = """## 忠于原著
 - **画面内容 / 动作**：这一镜看得见的内容和发生的动作。先写动作发生前的那一刻，再写这一镜里发生了什么。**不能为空。**
 - **场景**：这一镜发生的地点，**必须从下面「这一集的地点」里原样抄一个名字**。**不能为空。**
 - **台词 / 声音**：这一镜里听得见的一切写在同一格：台词、内心独白、环境声、动作声，写法见下。
-- **机位 / 运镜 / 连续性**：相机在哪、怎么动，以及和前后镜的接续关系。
+- **机位 / 运镜 / 连续性**：相机在哪；移动的原因、触发、起点、路径、终点与停住时机，或固定观察到哪个动作/切点；以及和前后镜的接续关系。
 - **叙事目的**：这一镜为什么存在，一句话。
 - **预算秒**：这一镜的时长，**写纯数字**（例如 7 或 7.5），必须大于 0。
 - **全集预算秒加起来必须不超过 {ceiling:g} 秒**（目标约 {target:g} 秒）。这不是建议：超了整集会被退回重写。
@@ -188,7 +193,14 @@ def episode_budget(text: str, profile: dict) -> dict:
 
 
 def task_spec(budget: dict) -> str:
-    return TASK_SPEC_TEMPLATE.format(COLUMNS=COLUMNS, **budget)
+    template = TASK_SPEC_TEMPLATE
+    if not budget['ceiling']:
+        template = template.replace('全集大约 {shots_low}–{shots_high} 个镜头。', '镜头数量按剧情需要。')
+        template = template.replace('- **全集预算秒加起来必须不超过 {ceiling:g} 秒**（目标约 {target:g} 秒）。这不是建议：超了整集会被退回重写。',
+                                    '- 整集时长按剧情需要；讲完即止，不补话或延长停顿凑秒数。')
+        template = template.replace('- **全集说出口的字数控制在 {spoken_low}–{spoken_high} 字**。台词太长，镜头给的秒数念不完。',
+                                    '- 每镜要容纳实际对白和动作；删重复解释，保留关键条件、决定和人物关系，必要时拆镜。')
+    return template.format(COLUMNS=COLUMNS, camera_instructions=CAMERA_INSTRUCTIONS, **budget)
 
 
 def _head(title: str, chapter: int, chapter_title: str, episode: int, recap: list[dict],
@@ -199,7 +211,8 @@ def _head(title: str, chapter: int, chapter_title: str, episode: int, recap: lis
              f"把 `input/source.txt`（{what}）改编成**长篇系列短剧的第 {episode} 集**，"
              "并做成可以交给 AI 视频模型逐镜生成的分镜表。\n",
              "## 目标\n",
-             f"- 一集约 **{budget['target']:g} 秒**（**上限 {budget['ceiling']:g} 秒，超了会被退回**），"
+             (f"- 一集约 **{budget['target']:g} 秒**（**上限 {budget['ceiling']:g} 秒，超了会被退回**），"
+              if budget['ceiling'] else "- 整集时长按剧情需要，") +
              f"**{frame} 横屏**，**{style}**。"
              "画风、人物和地点见 `input/人物地点与画风.md`。"]
     if episode <= 1:

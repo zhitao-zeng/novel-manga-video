@@ -7,6 +7,7 @@ from novel_manga.application.identity import bible_growth, ledger_store
 from novel_manga.llm import client
 from novel_manga.models.bible import Character, StoryBible
 from novel_manga.util import atomic_write_json
+from novel_manga.planning.places import offered_locations
 
 
 def prepare_book(book):
@@ -17,6 +18,24 @@ def prepare_book(book):
     atomic_write_json(book / 'bible_growth.json', {
         '1': {'characters': [], 'locations': [], 'suggestions': {},
               'needs_human': {'旧称呼': '历史待定判断'}}})
+
+
+def test_repeated_growth_preserves_introduction_and_does_not_offer_future_scene(tmp_path):
+    prepare_book(tmp_path)
+    bible_path = tmp_path/'story_bible.json'
+    bible = json.loads(bible_path.read_text())
+    bible['locations'] = ['开篇庭院', '后期宫殿']
+    atomic_write_json(bible_path, bible)
+    atomic_write_json(tmp_path/'bible_growth.json', {'100': {'locations': ['后期宫殿']}})
+    before = bible_path.read_bytes()
+    result = bible_growth.grow_bible(tmp_path, '后期宫殿依然如故。', 100,
+                                    scan={'names': [], 'locations': []})
+    assert result['locations'] == []
+    history = json.loads((tmp_path/'bible_growth.json').read_text())
+    introduced = {name: int(ch) for ch, row in history.items() for name in row['locations']}
+    assert offered_locations(bible['locations'], chapter=3, named_here=lambda n: False,
+                             recent=set(), added_at=introduced, window=3) == ['开篇庭院']
+    assert bible_path.read_bytes() == before
 
 
 def freeze_design(monkeypatch):

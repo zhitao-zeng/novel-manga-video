@@ -49,10 +49,10 @@
         {
           "endpoint": "phanthy-ds41",
           "base": "http://127.0.0.1:8789/v1",
-          "model": "deepseek-v4.1-flash",
+          "model": "deepseek-v4.1-flash-1017",
           "key_var": "PHANTHY_API_KEY",
           "slots": 1,
-          "note": "2026-10-10 主力：规划/审核/翻译切 Phanthy API（6并发实测全绿、长输出无天花板）；本地 DS/Flash-Next 保留记录不再默认使用"
+          "note": "2026-10-19切换1017版；以下为旧版评测记录：主力：身份审核5/5、修复诊断fix_layer最准、提纲/压缩3家最优。reasoning失控仅影响长输出任务(导演稿)，轮换链兜底"
         }
       ]
     },
@@ -104,10 +104,10 @@
         {
           "endpoint": "phanthy-ds41",
           "base": "http://127.0.0.1:8789/v1",
-          "model": "deepseek-v4.1-flash",
+          "model": "deepseek-v4.1-flash-1017",
           "key_var": "PHANTHY_API_KEY",
           "slots": 2,
-          "note": "2026-10-10 主力：规划/审核/翻译切 Phanthy API（6并发实测全绿、长输出无天花板）；本地 DS/Flash-Next 保留记录不再默认使用"
+          "note": "2026-10-19切换1017版；以下为旧版评测记录：主力：身份审核5/5、修复诊断fix_layer最准、提纲/压缩3家最优。reasoning失控仅影响长输出任务(导演稿)，轮换链兜底"
         }
       ]
     },
@@ -251,10 +251,10 @@
         {
           "endpoint": "phanthy-ds41",
           "base": "http://127.0.0.1:8789/v1",
-          "model": "deepseek-v4.1-flash",
+          "model": "deepseek-v4.1-flash-1017",
           "key_var": "PHANTHY_API_KEY",
           "slots": 3,
-          "note": "2026-10-10 主力：规划/审核/翻译切 Phanthy API（6并发实测全绿、长输出无天花板）；本地 DS/Flash-Next 保留记录不再默认使用"
+          "note": "2026-10-19切换1017版；以下为旧版评测记录：主力：身份审核5/5、修复诊断fix_layer最准、提纲/压缩3家最优。reasoning失控仅影响长输出任务(导演稿)，轮换链兜底"
         }
       ]
     },

@@ -5,6 +5,7 @@ import argparse
 import os
 import sys
 import json
+import httpx
 from pathlib import Path
 from novel_manga.application.configuration import project_root
 from novel_manga.application.profiles import style_names
@@ -65,6 +66,8 @@ def _plan(context: PlannerContext | None = None) -> int:
     parser.add_argument("--frame", choices=("9:16", "16:9"), help="override profile.json frame")
     parser.add_argument("--dry-run", action="store_true", help="build segments and request only")
     parser.add_argument("--replay", type=Path, help="validate an existing raw response instead of calling the model")
+    parser.add_argument('--candidate', type=Path,
+                        help='Validate a new {draft, outline} candidate with current checks and fresh reviews')
     parser.add_argument("--compress-existing", type=Path,
                         help="压缩已有分镜草稿及其相邻提纲，不重新生成提纲或整章初稿")
     parser.add_argument("--merge", type=int, default=1, help="chapters per episode: episode k covers chapters (k-1)*N+1..k*N")
@@ -81,6 +84,8 @@ def _plan(context: PlannerContext | None = None) -> int:
     parser.add_argument("--bind-storyboard", help="plan this chapter against an authored XLSX: the model fills the bindings import_script leaves empty and keeps the authored cuts")
     parser.add_argument("--bind-sheet", help="which sheet of --bind-storyboard to bind; only needed when the workbook has more than one")
     args = parser.parse_args()
+    if args.candidate and (args.replay or args.compress_existing):
+        parser.error('--candidate is a new draft; choose it without offline replay or compression input')
     if args.list_methods:
         print(json.dumps([m.describe() for m in METHODS.values()], ensure_ascii=False, indent=2))
         return 0
@@ -110,4 +115,9 @@ def _plan(context: PlannerContext | None = None) -> int:
         with llm_usage.scope(novel=args.novel_id, episode=args.episode_index, stage='plan'):
             return run(args, ctx)
     except PlanningInputError as error:
-        parser.error(str(error))
+        parser.error('FAILED: ' + str(error))
+    except httpx.ReadTimeout:
+        # The batch reads the failure line. An empty note would incorrectly send
+        # this unfinished request to the content-repair Agent.
+        print('FAILED: ReadTimeout: model request timed out; candidate retained', file=sys.stderr)
+        return 2

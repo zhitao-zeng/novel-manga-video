@@ -219,7 +219,7 @@ def test_frame_review_uses_selected_judge_not_agent_environment(monkeypatch):
     monkeypatch.setattr(model_client, 'post_any', post)
     judges.judge_clip_verify({}, Path('unused'), None, {}, '', Path('unused'))
     assert calls[0][0] == ['http://127.0.0.1:8789/v1']
-    assert calls[0][1]['model'] == 'deepseek-v4.1-flash'
+    assert calls[0][1]['model'] == 'deepseek-v4.1-flash-1017'
 
 
 @pytest.mark.parametrize('changed_take',[False,True])

@@ -131,7 +131,6 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
     load_entity_index(episode_dir.parent, chapter_of(episode_dir), ctx=planner_ctx, identity_data=identity_data)
     script_path = episode_dir / 'chapter_script.json'
     script = json.loads(script_path.read_text()) if script_path.is_file() else {}
-    method = script.get('story_method') or {}
     resolved = resolve_book_settings(episode_dir.parent,
         overrides={'style':style,'frame':frame,'tier':tier},script=script)
     profile, genre = resolved.profile, resolved.genre
@@ -145,7 +144,6 @@ def load_context(episode_dir: Path, bible_path: Path, grammar_path: Path | None 
         anon_voice={**DEFAULT_ANON_VOICE, **(genre.get("anon_voice") or {})},
         two_view_cast_limit=0 if two_views == 'off' else 2,
         two_views=two_views,
-        camera_policy='authored' if method else 'fixed',
         allow_blood=bool(profile.get('allow_blood')))
     if limits is not None:
         options = replace(options, **limits)

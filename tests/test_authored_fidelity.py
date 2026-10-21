@@ -226,12 +226,12 @@ def test_a_segment_left_uncited_by_a_reassignment_is_the_authors_omission_not_a_
     raw, errors, warnings = coverage({"seg_7"}, authored=True)
     assert errors == []
     assert raw["skipped_segments"] == [{"segment_id": "seg_8", "reason": "作者的分镜没有取用这一段"}]
-    assert any("seg_8" in w and "改编取舍" in w for w in warnings)
+    assert warnings == []  # provenance is recorded without calling adaptation a defect
 
 
-def test_the_ordinary_planner_is_still_held_to_covering_every_segment():
-    _, errors, _ = coverage({"seg_7"}, authored=False)
-    assert [issue.segment_id for issue in errors] == ["seg_8"]
+def test_native_adaptation_can_also_omit_a_segment_without_a_literal_veto():
+    raw, errors, _ = coverage({"seg_7"}, authored=False)
+    assert errors == [] and raw["skipped_segments"][0]["segment_id"] == "seg_8"
 
 
 def test_an_omission_already_on_record_is_not_recorded_twice():

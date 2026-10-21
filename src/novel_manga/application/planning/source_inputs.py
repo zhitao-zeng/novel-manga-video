@@ -97,7 +97,6 @@ def prepare_source(args, ctx: PlannerContext) -> ChapterSource:
     ctx.method_artifacts = {}
     # Scene-exit pairs from the source: the validator makes the question heard whatever the
     # outline did with it, and the payload tells the model they are coming.
-    ctx.handoff_pairs = pc_text.handoff_pairs(episode.source_text)
     genre = load_genre(profile)
     # The book's own roles win over the genre's eight, and the file is read on every run so that a
     # role added while reviewing cards is in the next plan without rebuilding anything.
@@ -119,13 +118,20 @@ def prepare_source(args, ctx: PlannerContext) -> ChapterSource:
     if method:
         # A method may tell the chapter through action and silence. The existing
         # duration/source checks remain; a speech quota must not invent dialogue.
-        ctx.spoken_range = (0, ctx.spoken_range[1])
-        planning_budget['spoken_chars'] = list(ctx.spoken_range)
+        if ctx.episode_shape != 'flex':
+            ctx.spoken_range = (0, ctx.spoken_range[1])
+            planning_budget['spoken_chars'] = list(ctx.spoken_range)
         planning_budget['episode_max_seconds'] = getattr(args, 'max_seconds', None)
     elif getattr(args, 'max_seconds', None) is not None:
         ctx.episode_seconds_max = args.max_seconds
         planning_budget['episode_max_seconds'] = args.max_seconds
-    if getattr(args, 'max_seconds', None) is not None:
+    if getattr(args, 'max_seconds', None) is not None and ctx.episode_shape == 'flex':
+        ctx.episode_seconds_max = args.max_seconds
+        ctx.episode_seconds_target = args.max_seconds  # existing compressor needs the explicit target
+        planning_budget['episode_max_seconds'] = args.max_seconds
+        if args.max_seconds < ctx.episode_seconds_min:
+            raise PlanningInputError('明确指定的全片上限低于下限')
+    elif getattr(args, 'max_seconds', None) is not None:
         if not method and args.max_seconds > usual_ceiling:
             # A longer explicit ceiling must also give the writer enough room
             # to tell the story. Keeping the 90s target and 300 spoken chars

@@ -1,6 +1,7 @@
 """thin_batch responsibilities; existing batch execution and retry policy."""
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from novel_manga.util import load_dotenv
 import argparse
 import sys
@@ -54,6 +55,8 @@ def main() -> int:
     parser.add_argument("--merge", type=int, default=1, help="chapters per episode (episode k = chapters (k-1)*N+1..k*N); --chapters then counts episodes")
     parser.add_argument("--tier", choices=("quality", "fast"), help="legacy alias: expand this tier preset into profile.json's resolution/expressions/episode_shape; prefer setting those keys in the book's profile")
     parser.add_argument("--plan-parallel", type=int, default=1, help="chapters planned at the same time (needs a Qwen service with --max-num-seqs > 1)")
+    parser.add_argument('--repair-planning', action='store_true', help='Return failed planning through the existing Agent and native validation; no media')
+    parser.add_argument('--agent-config', type=Path, help='Existing sandbox configuration for planning repair')
     parser.add_argument("--card-parallel", type=int, default=6, help="asset cards built at the same time (one process per asset)")
     parser.add_argument("--inflight", type=int, default=20, help="global cap on clips in flight across all rendering episodes (0 = none)")
     parser.add_argument("--no-prescreen", dest="prescreen", action="store_false", default=True, help="skip the local content-filter prescreen of prompts")
@@ -85,7 +88,8 @@ def main() -> int:
             return 1
     if args.stage == "all":
         batch.stream(chapters)  # plan one chapter, render it while the next is planned
-        return production_reports.report(batch, chapters)
+        result = production_reports.report(batch, chapters)
+        return 1 if batch.planning_stop.is_set() else result
     if args.stage == "plan":
         if not args.dry_run and any(batch.plan_status(ch) != "planned" or args.replan for ch in chapters):
             batch.check_qwen()
@@ -150,4 +154,10 @@ def main() -> int:
                     production_common.log(f"ch{chapter}: render thread failed ({type(error).__name__}: {str(error)[:120]})")
     if args.first_pass:
         return 0  # Per-episode production receipts distinguish ready/blocked from film acceptance.
-    return production_reports.report(batch, chapters)
+    result = production_reports.report(batch, chapters)
+    if args.stage == 'plan' and args.repair_planning and not args.dry_run:
+        incomplete = [n for n in chapters if batch.rows[n].get('plan') not in {'planned', 'kept'}
+                      and not str(batch.rows[n].get('plan', '')).startswith('skipped')]
+        if incomplete:
+            return 1 if batch.planning_stop.is_set() else 2
+    return 1 if args.stage == 'plan' and batch.planning_stop.is_set() else result

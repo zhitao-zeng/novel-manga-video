@@ -26,26 +26,29 @@ def test_every_prompt_budget_matches_lane_and_episode(monkeypatch, cap, fast, ch
     requirements = pc_budget.budget_requirements(ctx=planner_ctx)
     brief = pc_prompts.render_brief(planner_ctx.system_prompt, ctx=planner_ctx)
 
-    assert budget["episode_target_seconds"] == target
-    assert budget["clip_count"][1] * cap >= target
-    assert target <= budget["episode_max_seconds"] <= budget["clip_count"][1] * cap
     assert planner_ctx.max_clip_seconds == cap
-    assert requirements["clip_seconds"] == f"{10 if cap == 15 else 20}-{cap}"
-    assert f"约{target}秒" in brief
-    assert f"规划上限{budget['episode_max_seconds']:g}秒" in brief
-    assert f"{budget['spoken_chars'][0]}到{budget['spoken_chars'][1]}字" in brief
-    assert "全集不得超过100秒" not in brief
-    assert "{episode_" not in brief
-    if target == 150 and cap == 15:
-        assert budget["clip_count"][1] == 10  # eight clips cannot carry this episode
+    if fast == 'flex':
+        assert planner_ctx.episode_seconds_min == 0
+        assert 'episode_target_seconds' not in budget
+        assert requirements['clip_seconds'] == f'最多{cap}秒'
+        assert '按剧情需要' in brief and '规划上限' not in brief
+    else:
+        assert budget['episode_target_seconds'] == target
+        assert target <= budget['episode_max_seconds'] <= budget['clip_count'][1] * cap
+        assert requirements['clip_seconds'] == f'{10 if cap == 15 else 20}-{cap}'
+        assert f'约{target}秒' in brief
+        assert f"规划上限{budget['episode_max_seconds']:g}秒" in brief
+        assert f"{budget['spoken_chars'][0]}到{budget['spoken_chars'][1]}字" in brief
+    assert '{episode_' not in brief
 
 
-def test_floor_is_not_promised_beyond_schema_capacity(monkeypatch):
+def test_explicit_flex_floor_is_not_limited_by_an_invented_container_cap(monkeypatch):
     planner_ctx = PlannerContext.from_env()
     monkeypatch.setattr(planner_ctx, 'clip_seconds_max', 15.0)
     monkeypatch.setattr(planner_ctx, 'short_clips', True)
-    with pytest.raises(ValueError, match="规划容量"):
-        pc_budget.configure_budget(3000, shape="flex", min_seconds=160, ctx=planner_ctx)
+    result = pc_budget.configure_budget(3000, shape="flex", min_seconds=160, ctx=planner_ctx)
+    assert result["episode_min_seconds"] == 160
+    assert "clip_count" not in result
 
 
 def test_subsecond_floor_shortfall_does_not_trigger_a_full_rewrite(monkeypatch):
@@ -128,8 +131,8 @@ def test_cli_dry_run_carries_the_actual_long_episode_budget(monkeypatch, tmp_pat
                                               "--output-root", str(tmp_path / "out"), "--tier", "fast", "--dry-run"])
     assert plan_chapter.main(context=planner_ctx) == 0
     request = json.loads((tmp_path / "out/demo/demo_1/request_dry_run.json").read_text())
-    assert request["planning_budget"]["episode_target_seconds"] == 150
-    assert request["requirements"]["clip_count"] == "6-10"
-    assert request["requirements"]["clip_seconds"] == "10-15"
-    assert request["requirements"]["episode_seconds"] == "about 150, max 150"
-    assert request["requirements"]["spoken_chars_total"] == "240-400"
+    assert 'episode_target_seconds' not in request['planning_budget']
+    assert request['planning_budget']['episode_min_seconds'] == 0
+    assert request['requirements']['clip_seconds'] == '最多15秒'
+    assert 'clip_count' not in request['requirements']
+    assert 'spoken_chars_total' not in request['requirements']

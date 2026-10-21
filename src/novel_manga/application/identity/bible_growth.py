@@ -170,6 +170,9 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     aliases = service_reading_roster.load_aliases(novel_dir)
     growth_path = novel_dir / "bible_growth.json"
     growth = json.loads(growth_path.read_text(encoding="utf-8")) if growth_path.is_file() else {}
+    previous = growth.get(str(chapter_index), {})
+    if scan is None and previous.get('source_text') == chapter_text:
+        scan = previous.get('scan')
     held = {name for entry in growth.values() for name in [*entry.get("suggestions", {}), *entry.get("needs_human", {})]}
     counts: dict[str, dict] = {}
     name_rows = scan["names"] if scan else service_entity_extraction.extract_names(chapter_text)
@@ -260,8 +263,9 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
     props_on = _props_enabled(novel_dir)
     if props_on:
         known_prop_names = [p.name for p in bible.props]
-        prop_rows = (scan or {}).get("props") or service_entity_extraction.extract_props(chapter_text, known_prop_names,
-                                                                {c.name for c in bible.characters})
+        prop_rows = (scan['props'] if scan is not None and 'props' in scan else
+                     service_entity_extraction.extract_props(chapter_text, known_prop_names,
+                                                              {c.name for c in bible.characters}))
         new_props = []
         for row in prop_rows:
             name = re.sub(r"\s+", "", str(row.get("name", "")))
@@ -278,9 +282,15 @@ def _grow_bible_unlocked(novel_dir: Path, chapter_text: str, chapter_index: int,
         if new_props:
             bible = bible.model_copy(update={"props": [*bible.props, *new_props]})
             atomic_write_json(bible_path, bible.model_dump(mode="json"))
-    growth[str(chapter_index)] = {"characters": filled, "locations": [x.split("：", 1)[0] for x in added_locations],
+    introduced_locations = list(dict.fromkeys([
+        *(growth.get(str(chapter_index), {}).get('locations') or []),
+        *(x.split('：', 1)[0] for x in added_locations)]))
+    growth[str(chapter_index)] = {"characters": filled, "locations": introduced_locations,
                                   **({"props": added_props} if props_on else {}),
-                                  "suggestions": suggestions, "needs_human": needs_human}
+                                  "suggestions": suggestions, "needs_human": needs_human,
+                                  'source_text': chapter_text,
+                                  'scan': {'names': name_rows, 'locations': location_rows,
+                                           **({'props': prop_rows} if props_on else {})}}
     atomic_write_json(growth_path, growth)
     model_client.log(f"bible ch{chapter_index}: +{len(filled)} characters {filled or ''} +{len(added_locations)} locations {[x.split('：', 1)[0] for x in added_locations] or ''}; suggestions {list(suggestions) or 'none'}; bible now {len(bible.characters)}/{len(bible.locations)}")
     return {"characters": filled, "locations": added_locations, "suggestions": suggestions,

@@ -68,6 +68,28 @@ def actor(name='云柔'):
             'kind':'individual','count':1,'presence':'on_stage','appearance':'','paragraphs':[1]}
 
 
+def test_binding_review_uses_current_chapter_and_registered_origins_without_reading_neighbors(tmp_path, monkeypatch):
+    ledger = book(tmp_path/'book')
+    ep = ledger.novel_dir/'book_1'
+    store.write_json(ep/'segments.json', [{'segment_id': 's1', 'text': '云站在桥上。'}])
+    monkeypatch.setattr(review, 'context_sources', lambda *a, **k: pytest.fail('chapter gate loaded full neighboring chapters'))
+    calls = []
+    def ask(parts, schema, **kwargs):
+        calls.append(kwargs['name'])
+        if kwargs['name'] == 'chapter_identity_source':
+            return {'source_readable': True, 'source_problem': '', 'actors': [actor('云')]}
+        context = json.loads(parts[0]['text'].split('\n')[-1])['evidence']
+        assert context['current_segments'][0]['text'] == '云站在桥上。'
+        assert 'source' not in context
+        assert {'云'} <= {r['name'] for r in context['catalogue']}
+        assert {'云'} <= {r['name'] for r in context['record_origins']}
+        return {'approved': True, 'reason': '按本章原文通过，历史档案仅供身份查证', 'correction': None}
+    monkeypatch.setattr(client, 'ask_json', ask)
+    result = flow.resolve_chapter(ep)
+    assert result['mentions'][0]['entity_id'] == 'e001'
+    assert result['semantic_review']['approved'] and calls == ['chapter_identity_source', 'chapter_binding_review']
+
+
 def test_prepare_identity_repairs_binding_and_caches_review(tmp_path,monkeypatch):
     ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
     store.write_json(ledger.novel_dir/'bible_aliases.json',{'云柔':'云苍冥'})
@@ -220,7 +242,7 @@ def test_binding_failure_retains_actual_reviewer_candidate_for_next_repair(tmp_p
     assert receipt['steps'][0]['candidate']['actors'][0]['name']=='云柔'
     assert receipt['inputs']['context']['current_segments']==[
         {'paragraph':1,'text':'云柔站在父亲身旁。'}]
-    assert '1' not in receipt['inputs']['context']['source']
+    assert 'source' not in receipt['inputs']['context']
     assert not(ep/'identity_context.json').exists()
 
 
@@ -249,9 +271,9 @@ def test_body_collision_feedback_identifies_the_actual_conflicting_source_actor(
 
 def test_sparse_binding_change_preserves_unaffected_source_actors(tmp_path,monkeypatch):
     ledger=book(tmp_path/'book');ep=ledger.novel_dir/'book_1'
-    actors=[actor('云'),{**actor('云苍冥'),'source_id':2}]
-    store.write_json(ep/'segments.json',[{'text':'云和云苍冥在桥上。'}])
-    store.write_json(ledger.novel_dir/'bible_aliases.json',{'云':'云苍冥'})
+    actors=[actor('云柔'),{**actor('云苍冥'),'source_id':2}]
+    store.write_json(ep/'segments.json',[{'text':'云柔和云苍冥在桥上。'}])
+    store.write_json(ledger.novel_dir/'bible_aliases.json',{'云柔':'云苍冥'})
     calls=[];before=[]
     def ask(parts,schema,**kwargs):
         calls.append(kwargs['name'])
@@ -259,6 +281,7 @@ def test_sparse_binding_change_preserves_unaffected_source_actors(tmp_path,monke
         payload=json.loads(parts[0]['text'].split('\n')[-1])
         before.append(payload['candidate'])
         if calls.count('chapter_binding_review')==1:
+            assert payload['candidate']['bindings'][0]['entity_id'] != 'e001'
             assert 'removed_source_ids'in schema['properties']['correction']['anyOf'][0]['properties']
             return {'approved':False,'reason':'只修一个归属','correction':{'actors':[],
                 'bindings':[{'source_id':1,'entity_id':'e001','entity_kind':None,'decision':'catalogue',
@@ -299,7 +322,7 @@ def test_sparse_delta_cannot_hide_duplicate_ids_or_remove_unknown_actors():
     assert len(current['actors'])==1
 
 
-def test_binding_review_retains_lookup_menu_but_omits_unrelated_long_origin_records(tmp_path,monkeypatch):
+def test_binding_review_retains_related_lookup_menu_and_omits_unrelated_records(tmp_path,monkeypatch):
     ledger=book(tmp_path/'book');ledger._add_entity('柳丹青','person',True,'',99,'柳丹青在远方。'+'很长的无关来源'*200);ledger.save()
     bible=store.read_json(ledger.novel_dir/'story_bible.json',{})
     bible['characters'].append({'name':'柳丹青','role':'人物'})
@@ -308,7 +331,8 @@ def test_binding_review_retains_lookup_menu_but_omits_unrelated_long_origin_reco
     def ask(parts,schema,**kwargs):
         if kwargs['name']=='chapter_identity_source':return {'source_readable':True,'source_problem':'','actors':[actor('云')]}
         context=json.loads(parts[0]['text'].split('\n')[-1])['evidence']
-        assert '柳丹青'in{r['name']for r in context['catalogue']}
+        assert '柳丹青'not in{r['name']for r in context['catalogue']}
+        assert '云'in{r['name']for r in context['catalogue']}
         assert '柳丹青'not in{r['name']for r in context['record_origins']}
         assert '云'in{r['name']for r in context['record_origins']}
         return {'approved':True,'reason':'当前演员有原文支持','correction':None}
@@ -481,6 +505,82 @@ def test_repeated_complaint_without_correction_still_fails(monkeypatch):
     monkeypatch.setattr(client,'ask_json',ask)
     with pytest.raises(ValueError,match='identity semantic review unresolved'):
         review.close({}, {}, {},name='review')
+
+
+@pytest.mark.parametrize('individual_count', [0, 1])
+def test_unchanged_grounded_correction_does_not_buy_another_judgment(tmp_path, monkeypatch, individual_count):
+    from copy import deepcopy
+    candidate = {'actors': [{**actor(), 'count': individual_count}], 'bindings': [
+        {'source_id': 1, 'entity_id': 'e001', 'decision': 'catalogue', 'paragraphs': [1], 'reason': ''}]}
+    correction = deepcopy(candidate)
+    correction['actors'][0]['count'] = 1
+    correction['bindings'][0]['reason'] = '只是解释，没有改变归属'
+    calls = []
+    def ask(*args, **kwargs):
+        calls.append(kwargs['name'])
+        return ({'approved': False, 'reason': '需要修订', 'correction': correction} if len(calls) == 1
+                else {'approved': True, 'reason': '随机改判', 'correction': None})
+    monkeypatch.setattr(client, 'ask_json', ask)
+    path = tmp_path/'identity_binding_review.json'
+    before = deepcopy(candidate)
+    for pending in (None, 'saved'):
+        with pytest.raises(ValueError, match='identity semantic review unresolved'):
+            review.close(candidate, {}, {}, name='review', record=path,
+                         pending=None if pending is None else store.read_json(path, {}),
+                         merge_correction=review.merge_binding_changes)
+    assert calls == ['review']
+    assert not store.read_json(path, {})['approved']
+    assert candidate == before
+
+
+def test_group_count_change_still_requires_a_new_independent_review(monkeypatch):
+    from copy import deepcopy
+    candidate = {'actors': [{**actor('守卫们'), 'kind': 'group', 'count': 0}], 'bindings': []}
+    correction = deepcopy(candidate)
+    correction['actors'][0]['count'] = 1
+    calls = []
+    def ask(*args, **kwargs):
+        calls.append(kwargs['name'])
+        return ({'approved': False, 'reason': '原文明示一人', 'correction': correction} if len(calls) == 1
+                else {'approved': True, 'reason': '数量已核', 'correction': None})
+    monkeypatch.setattr(client, 'ask_json', ask)
+    result, receipt = review.close(candidate, {}, {}, name='review', merge_correction=review.merge_binding_changes)
+    assert calls == ['review', 'review'] and receipt['approved']
+    assert result['actors'][0]['count'] == 1
+
+
+def test_agent_binding_revision_returns_first_failure_without_host_rewriting(tmp_path, monkeypatch):
+    ledger = book(tmp_path/'book')
+    ep = ledger.novel_dir/'book_1'
+    store.write_json(ledger.novel_dir/'bible_aliases.json', {'云柔': '云苍冥'})
+    store.write_json(ep/'segments.json', [{'text': '云柔站在父亲身旁。她就是云，云苍冥是她叔父。'}])
+    agent_check = False
+    calls = []
+    def ask(*args, **kwargs):
+        calls.append(kwargs['name'])
+        if kwargs['name'] == 'chapter_identity_source':
+            return {'source_readable': True, 'source_problem': '', 'actors': [actor()]}
+        if not agent_check:
+            return {'approved': False, 'reason': '归属须修订', 'correction': None}
+        return {'approved': False, 'reason': '判官建议另一个归属，交原Agent核对', 'correction': {
+            'actors': [], 'bindings': [{'source_id': 1, 'entity_id': 'e002', 'entity_kind': None,
+                'decision': 'catalogue', 'paragraphs': [1], 'reason': '未采用的判官建议'}], 'removed_source_ids': []}}
+    monkeypatch.setattr(client, 'ask_json', ask)
+    with pytest.raises(ValueError, match='semantic review unresolved'):
+        flow.resolve_chapter(ep)
+    original = store.read_json(ep/'identity_binding_review.json', {})['inputs']
+    agent_check = True
+    calls.clear()
+    proposed = {'actors': [], 'bindings': [{'source_id': 1, 'entity_id': 'e001', 'entity_kind': None,
+        'decision': 'catalogue', 'paragraphs': [1], 'reason': '原文是云本人'}], 'removed_source_ids': []}
+    with pytest.raises(ValueError, match='交原Agent核对'):
+        flow.resolve_chapter(ep, proposal={'inputs': original, 'correction': proposed})
+    assert calls == ['chapter_binding_review']
+    receipt = store.read_json(ep/'identity_binding_review.json', {})
+    assert receipt['approved'] is False
+    assert receipt['steps'][0]['candidate']['bindings'][0]['entity_id'] == 'e001'
+    assert receipt['steps'][0]['answer']['correction']['bindings'][0]['entity_id'] == 'e002'
+    assert not (ep/'identity_context.json').exists()
 
 
 

@@ -11,7 +11,7 @@ import time
 from novel_manga.llm.client import ask_json, image_part, obj
 from novel_manga.util import atomic_write_json, read_json
 from novel_manga.story.h3 import CJK
-from novel_manga.story.fields import ACTION_KEYS
+from novel_manga.story.fields import ACTION_KEYS, CAMERA_INSTRUCTIONS
 
 
 def primary_assets(catalog):
@@ -279,6 +279,7 @@ def propose(ctx, *, settings=None, timeout=300):
         'story and camera, never turn intended visible speech into offscreen speech just to hide a missing card. '
         'If a needed asset is unavailable, explain the concrete problem in adaptation_notes; '
         'never invent a reference_id. Return only the complete JSON object.\n\n'
+        + '\n运镜要求（落实到camera与English direction）：' + CAMERA_INSTRUCTIONS + '\n'
         + 'Actual chapter and inputs:\n' + json.dumps(context, ensure_ascii=False)
     )
     parts = [{'type': 'text', 'text': prompt}]

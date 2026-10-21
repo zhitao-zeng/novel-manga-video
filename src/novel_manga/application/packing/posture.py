@@ -32,46 +32,56 @@ def material(script, segments=()):
             for i, shot in enumerate(script.get('shots') or [], 1)]
 
 
-def schema(rows):
+def schema(rows, *, opening=False):
     stages = {}
-    for shot in rows:
-        quotes = list(dict.fromkeys(['', *[str(shot.get(k) or '') for k in
-                                          POSE_TEXT_FIELDS]]))
+    for position, shot in enumerate(rows):
+        quotes = ['', *[k for k in POSE_TEXT_FIELDS if shot.get(k)]]
         quote = {'type': 'string', 'enum': quotes}
-        state = obj({'quote': quote, 'posture': {'type': 'string', 'enum': list(POSTURES)},
+        state = obj({'quote_field': quote, 'posture': {'type': 'string', 'enum': list(POSTURES)},
                      'where': _TEXT})
         persons = {name: obj({'entry': {'type': 'string', 'enum': ['continue', 'reset', 'unknown']},
-                        'start': state, 'end': state, 'transition': quote})
+                     'start': state, 'end': state, 'transition_field': quote})
                    for name in shot['in_frame']}
-        stages[str(shot['index'])] = obj({'boundary': {'type': 'string', 'enum': ['continuous', 'reset', 'unknown']},
+        stages[str(shot['index'])] = obj({'boundary': {'type': 'string',
+                           'enum': ['reset'] if opening and position == 0 else ['continuous', 'reset', 'unknown']},
                            'reason': _TEXT,
                            'people': obj(persons)})
     return obj({'stages': obj(stages)})
 
 
 def question(inputs):
+    # The cache keeps actual dependencies per shot; the wire sends each source
+    # segment once, even when many consecutive shots cite that same paragraph.
+    wire = copy.deepcopy(inputs)
+    source = {}
+    for shot in [wire.get('previous_shot'), *wire['shots']]:
+        if shot is not None:
+            for row in shot.get('source', []):
+                source[row['segment_id']] = row['text']
+            shot['source'] = [row['segment_id'] for row in shot.get('source', [])]
+    wire['source_segments'] = source
     return ('核对分镜的姿态台账，不重写剧本，不设计新姿势。'
             'stages是以镜号字符串为键的对象，people是以本镜in_frame人名为键的对象；'
             '镜号和人名由Schema固定，不再另外输出index或name，也不补入或替换人名。'
             '每个镜号和入镜人名都必须列齐；in_frame为空时people={}。\n'
             'boundary：continuous=与前镜属于同一段连续时间；reset=开场、跳时、回忆切入/切出或新的场次；'
             'unknown=依据不足。相同地点或scene_id不能证明时间连续；不同机位、反打、空镜不等于跳时。'
-            '必须结合source原文、scene_time、光线与起点/事件/末态判断。\n'
+            '必须结合source原文、scene_time、光线与起点/事件/末态判断。source的编号对应source_segments里的完整原文。\n'
             'people只列本镜in_frame的具名角色，不能补入画外人物。entry按每个人分别判断：'
             'continue=本镜确实承接他先前的末态；reset=首次入场或重新入场，不能沿用离场前状态；'
             'unknown=无法确定。镜头暂时不拍这个人不等于离场，已经离开后再出现也不等于原地不动。\n'
             'start/end只摘取本镜文字明确写的姿势、位置；未写姿势填未写明，位置留空，程序再按已确认的连续关系继承。'
             'where仅记桌后椅子上、窗边等场景位置，不继承画面左侧、前景等随机位改变的构图坐标。'
-            'quote和transition只选择Schema枚举里的本镜原字段完整文字或空字符串，不截取、不改写。'
-            '先写quote，再按quote填写posture/where。quote必须逐字引用本镜start_state/event/end_state或旧格式visual_prompt/motion_prompt中的依据，'
-            '不得引用前镜或原文来冒充本镜明写；没有坐站位置的本镜依据就quote留空、posture填未写明、where留空。'
-            '例如前镜坐着，本镜只写“抬起一根手指”，本镜start.posture必须是未写明、quote为空，entry可填continue。'
-            '例如本镜写“站在窗边看报告”，start应摘录站，quote填该原字段完整文字；end未单独交代则填未写明。'
+            'quote_field和transition_field只选择Schema枚举里的本镜字段名或空字符串，不重抄字段正文。程序按字段名取回完整原文再校验。'
+            '先选quote_field，再按该字段填写posture/where。依据只能来自本镜start_state/event/end_state或旧格式visual_prompt/motion_prompt，'
+            '不得引用前镜或小说原文来冒充本镜明写；没有坐站位置的本镜依据就quote_field留空、posture填未写明、where留空。'
+            '例如前镜坐着，本镜只写“抬起一根手指”，本镜start.posture必须是未写明、quote_field为空，entry可填continue。'
+            '例如visual_prompt写“站在窗边看报告”，start应摘录站，quote_field填visual_prompt；end未单独交代则填未写明。'
             '身体前倾、抬手或人物气质不代表坐或站，source只帮助理解连续性，不能替剧本新编动作。'
-            'transition只逐字摘录本镜明确属于这个人的姿态改变动作，没写就空字符串；不能拿另一个人的起身为他作证。'
+            'transition_field选择本镜明确属于这个人的姿态改变动作所在字段，没写就空字符串；不能拿另一个人的起身为他作证。'
             '不要把说话或点头当成坐站改变。结束时没写姿势表示本镜姿态未明确改变。'
             'reason简短说明连续/重置/不确定的依据，不得默认同地点就连续。只输出JSON。\n'
-            + json.dumps(inputs, ensure_ascii=False))
+            + json.dumps(wire, ensure_ascii=False))
 
 
 def answer_rows(rows, answer):
@@ -89,6 +99,18 @@ def answer_rows(rows, answer):
                 raise ValueError(f'姿态台账镜{shot["index"]}的入镜名单不符：'
                                  f'期望{shot["in_frame"]}；实际{list(persons)}')
             row['people'] = [{**copy.deepcopy(persons[name]), 'name': name} for name in shot['in_frame']]
+        for person in row.get('people', []):
+            for state in (person.get('start', {}), person.get('end', {})):
+                if 'quote_field' in state:
+                    field = state.pop('quote_field')
+                    if field and (field not in POSE_TEXT_FIELDS or not shot.get(field)):
+                        raise ValueError('姿态台账引用了本镜不存在的字段')
+                    state['quote'] = str(shot.get(field) or '') if field else ''
+            if 'transition_field' in person:
+                field = person.pop('transition_field')
+                if field and (field not in POSE_TEXT_FIELDS or not shot.get(field)):
+                    raise ValueError('姿态台账引用了本镜不存在的动作字段')
+                person['transition'] = str(shot.get(field) or '') if field else ''
     return result
 
 
@@ -120,7 +142,7 @@ def checked_answers(rows, answer):
     return result
 
 
-def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=None, write=True):
+def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=None, write=True, on_progress=None):
     episode_dir = Path(episode_dir)
     script = script if script is not None else json.loads((episode_dir / 'chapter_script.json').read_text(encoding='utf-8'))
     segments = segments if segments is not None else read_json(episode_dir / 'segments.json', [])
@@ -157,7 +179,7 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
         feedback = ''
         for attempt in range(2):
             answer = (copy.deepcopy(cached['answer']) if cached and attempt == 0
-                      else ask(question(inputs) + feedback, schema(batch)))
+                      else ask(question(inputs) + feedback, schema(batch, opening=offset == 0)))
             answer = copy.deepcopy(answer)
             try:
                 answer = {'stages': answer_rows(batch, answer)}
@@ -193,6 +215,8 @@ def fill(episode_dir: Path, *, script=None, segments=None, previous=None, ask=No
         result['stages'].update(stages)
         result['issues'].extend(issues)
         result['batches'].append({'inputs': inputs, 'answer': answer})
+        if on_progress is not None:
+            on_progress(result)
     if write:
         atomic_write_json(episode_dir / FILE, result)
     return result
@@ -205,8 +229,9 @@ def attach(shots, script, states, segments=()):
         return result
     if states.get('policy') != POLICY or states.get('inputs') != material(script, segments):
         raise ValueError('姿态台账已过期，请先重新解析本集连续性')
-    if states.get('issues'):
-        raise ValueError('姿态交接需修正：' + '；'.join(f'镜{x["index"]} {x["detail"]}' for x in states['issues']))
+    invalid = [x for x in states.get('issues', []) if x.get('kind') == 'reading']
+    if invalid:
+        raise ValueError('姿态台账证据需修正：' + '；'.join(f'镜{x["index"]} {x["detail"]}' for x in invalid))
     for shot in result:
         shot['_posture'] = copy.deepcopy(states['stages'].get(str(shot['index']), {}))
     return result

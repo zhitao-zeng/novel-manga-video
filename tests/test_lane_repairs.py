@@ -137,7 +137,9 @@ def test_a_planning_block_is_done_once_its_chapters_are_planned_or_skipped(tmp_p
 
 
 def test_a_chapter_too_short_to_plan_is_marked_skipped(tmp_path):
+    from threading import Event
     batch = object.__new__(production_flow.Batch)
+    batch.planning_stop = Event()
     batch.args = types.SimpleNamespace(replan=False, min_chapter_chars=300, dry_run=False)
     batch.novel_dir, batch.novel_id, batch.rows = tmp_path / NOVEL, NOVEL, {7: {}}
     batch.chapter = lambda index: types.SimpleNamespace(text_count=42)

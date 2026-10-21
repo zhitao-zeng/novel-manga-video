@@ -12,6 +12,7 @@ import httpx
 import novel_manga.application.planning.cli as command
 import novel_manga.application.planning.requests as requests
 import novel_manga.application.planning.compression as compression
+import novel_manga.application.planning.retention as retention
 import novel_manga.application.identity.flow as identity
 import novel_manga.application.packing.posture as posture
 from novel_manga.planning.context import PlannerContext
@@ -59,7 +60,7 @@ def planner_traces(modes=None):
             'end': {'posture': '未写明', 'where': '', 'quote': ''}, 'transition': ''}]}]}
       ctx=PlannerContext.from_env();ctx.strict_plan=mode=='strict'
       args=['plan_chapter_thin.py',str(source),'--novel-id','book','--bible',str(bible),'--output-root',str(base/'out'),'--max-redo','2','--max-tokens','9000','--model','frozen-model','--base-url','http://model.invalid/v1']
-      with patch.object(sys,'argv',args),patch.object(time,'monotonic',lambda:clock[0]),patch.object(requests,'call_model',call_model),patch.object(compression,'compress_plan',compress_plan),patch.object(requests,'patch_plan',patch_plan),patch.object(validation,'validate_and_normalize',checked),patch.object(validation,'strict_plan_issues',strict),patch.object(identity,'resolve_chapter',lambda *a,**k:{}),patch.object(posture,'ask_json',posture_reply),patch.object(httpx.HTTPTransport,'handle_request',side_effect=AssertionError('no real HTTP')),redirect_stdout(io.StringIO()):
+      with patch.object(retention,'review',lambda *a,**k:({'verdict':'pass','errors':[]},[])),patch.object(sys,'argv',args),patch.object(time,'monotonic',lambda:clock[0]),patch.object(requests,'call_model',call_model),patch.object(compression,'compress_plan',compress_plan),patch.object(requests,'patch_plan',patch_plan),patch.object(validation,'validate_and_normalize',checked),patch.object(validation,'strict_plan_issues',strict),patch.object(identity,'resolve_chapter',lambda *a,**k:{}),patch.object(posture,'ask_json',posture_reply),patch.object(httpx.HTTPTransport,'handle_request',side_effect=AssertionError('no real HTTP')),redirect_stdout(io.StringIO()):
        code=command.main(context=ctx)
       directory=base/'out/book/book_1'
       reports={p.name:json.loads(p.read_text()) for p in directory.glob('*.json') if p.name in ['planning_failed.json','chapter_script_report.json','chapter_script.json','episode_plan.json']}

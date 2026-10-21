@@ -56,6 +56,16 @@ def test_existing_shortfall_does_not_prevent_local_source_quote_repair():
     assert decide([short, quote], final=True, waive=False).targets is None
 
 
+def test_pose_notices_do_not_require_new_actions_or_hide_source_errors():
+    pose = Issue(Code.POSTURE_CONTINUITY, '坐站承接未写明', stage='clip_2 stage 1')
+    assert decide([pose]).action == 'accept'
+    assert any(pose.message in warning for warning in decide([pose]).warnings)
+    source = Issue(Code.QUOTE_NOT_SOURCE, '引用拼接', stage='clip_2 stage 1')
+    mixed = decide([pose, source])
+    assert mixed.action == 'patch' and mixed.issues == [source]
+    assert mixed.targets == ([], {'clip_2 stage 1': ['引用拼接']})
+
+
 @pytest.mark.parametrize('rounds,seconds', [(3,180),(0,0)])
 def test_exhausted_patch_budget_cannot_create_another_patch(rounds, seconds):
     issue = Issue(Code.VISIBLE_SPEAKER, 'fix speaker', stage='clip_1 stage 1')

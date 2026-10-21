@@ -1,88 +1,121 @@
-"""Review what the outline promised against what the viewer will actually learn."""
+"""Review adaptation meaning once; literal differences are not content failures."""
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 
-from novel_manga.llm.client import ask_json
+from novel_manga.llm.client import ask_json, obj
 from novel_manga.review.endpoints import judge_settings
 from novel_manga.planning.issues import PlanningCode, PlanningIssue
+from novel_manga.planning.text import quote_key
+from novel_manga.story.dialogue import merged_turns
+
+POLICY = 'adaptation-meaning-v2'
+FIELDS = ('speech', 'picture', 'characters', 'location', 'omissions')
+SCHEMA = obj({'verdict': {'type':'string','enum':['pass','fail','incomplete']},
+    'errors': {'type':'array','items':obj({
+        'shot': {'type':'integer','minimum':0},
+        'field': {'type':'string','enum':list(FIELDS)},
+        'source_quote': {'type':'string'}, 'draft_quote': {'type':'string'},
+        'viewer_error': {'type':'string'}})},
+    'note': {'type':'string'}})
 
 
-SCHEMA = {"type": "object", "additionalProperties": False, "required": ["verdicts"],
-          "properties": {"verdicts": {"type": "array", "items": {
-              "type": "object", "additionalProperties": False,
-              "required": ["promise", "status", "reason"],
-              "properties": {"promise": {"type": "string"},
-                             "status": {"type": "string", "enum": ["delivered", "missing", "changed", "unclear"]},
-                             "reason": {"type": "string", "maxLength": 180}}}}}}
+def section_of(outline):
+    sections = outline.get('sections') or {}
+    return str(sections.get('retained_dialogue') or sections.get('causal_chain') or
+               sections.get('expression_plan') or '')
 
 
-def section_of(outline: dict) -> str:
-    return str(((outline.get("sections") or {}).get("retained_dialogue") or "")).strip()
+def speech_view(shot):
+    rows=[]
+    for t in merged_turns(deepcopy({**shot,'turns':shot.get('turns') or []})):
+        mode=t.get('delivery_mode')
+        voice=('角色心声，场内其他人听不见' if t.get('inner_monologue') and mode=='offscreen_dialogue'
+               else '画外人物发言' if mode=='offscreen_dialogue' else '画内人物发言' if mode=='visible_dialogue'
+               else {'silent_action':'无声动作','chat_message':'屏幕消息','singing':'哼唱','title_card':'字幕卡'}.get(mode,mode))
+        rows.append({'speaker_name':t.get('speaker_name'),'text':t.get('text'),'delivery':voice})
+    return rows
 
 
-def interpret(verdict: dict, section: str) -> list[PlanningIssue]:
-    if verdict.get("section") != section:
-        raise ValueError("保留内容审查不属于当前提纲")
-    rows = verdict.get("verdicts")
-    if not isinstance(rows, list) or (section and not rows):
-        raise ValueError("保留内容审查没有逐项结论")
-    issues = []
+def material(section, shots, source, *, skipped=()):
+    return {'source':source,'adaptation_intent':section,'omissions':list(skipped),
+            'shots':[{'shot':i,'label':s.get('label'),'origin_index':s.get('origin_index',i),
+                      'segment_id':s.get('segment_id'),'scene':s.get('scene_id'),
+                      'location':s.get('location'),'characters':s.get('characters'),
+                      'picture':{k:s.get(k) for k in ('visual_prompt','motion_prompt','end_state','camera','in_frame')},
+                      'speech':speech_view(s)} for i,s in enumerate(shots,1)]}
+
+
+def interpret(verdict, section):
+    if verdict.get('section') != section:
+        raise ValueError('剧情判断不属于当前提纲')
+    if verdict.get('policy') != POLICY:
+        # Historical reports remain readable; they cannot be reused by live review.
+        rows=verdict.get('verdicts')
+        if not isinstance(rows,list):raise ValueError('旧剧情复核缺少结论')
+        issues=[]
+        for row in rows:
+            if row.get('status') not in {'delivered','missing','changed','unclear'}:
+                raise ValueError('旧剧情复核返回未知状态')
+            if row['status']!='delivered':
+                issues.append(PlanningIssue(PlanningCode.RETAINED_LINE_LOST,
+                    f"历史改编差异（未证明影响理解）：{row.get('reason','')}",field='turns'))
+        return issues
+    outcome,rows=verdict.get('verdict'),verdict.get('errors')
+    if outcome not in {'pass','fail','incomplete'} or not isinstance(rows,list):
+        raise ValueError('剧情复核没有有效结论')
+    if (outcome=='pass' and rows) or (outcome=='fail' and not rows):
+        raise ValueError('剧情复核结论与错误证据冲突')
+    inputs=verdict.get('inputs') or {};source=quote_key(inputs.get('source',''))
+    shots={s['shot']:s for s in inputs.get('shots',[])};issues=[];invalid=[]
     for row in rows:
-        if row.get("status") == "delivered":
+        index,field=row.get('shot'),row.get('field')
+        original,actual=row.get('source_quote'),row.get('draft_quote')
+        target=inputs.get('omissions') if index==0 and field=='omissions' else shots.get(index,{}).get(field)
+        if (type(index)is not int or field not in FIELDS or target is None
+                or not isinstance(original,str) or not quote_key(original) or quote_key(original)not in source
+                or not isinstance(actual,str) or not quote_key(actual)
+                or quote_key(actual)not in quote_key(json.dumps(target,ensure_ascii=False))
+                or not isinstance(row.get('viewer_error'),str) or not row['viewer_error'].strip()):
+            invalid.append(f'镜{index}/{field}的证据未对应实际材料')
             continue
-        if row.get("status") not in {"missing", "changed", "unclear"}:
-            raise ValueError("保留内容审查返回未知状态")
-        issues.append(PlanningIssue(
-            PlanningCode.RETAINED_LINE_LOST,
-            f"提纲承诺「{str(row.get('promise') or '')[:50]}」未落实：{str(row.get('reason') or '')[:800]}；"
-            "按原文和提纲补进观众能听见或看见的表达", field="turns"))
+        issues.append(PlanningIssue(PlanningCode.SOURCE_CONTRADICTION,
+            f"{row['viewer_error']}；原文「{original}」，稿件「{actual}」",
+            stage=shots.get(index,{}).get('label'),field='turns' if field=='speech' else field))
+    if invalid:
+        if not issues:raise ValueError('剧情复核没有对应原文与实际镜头的错误证据')
+        issues.append(PlanningIssue(PlanningCode.REVIEW_INCOMPLETE,'；'.join(invalid)))
+    if outcome=='incomplete':
+        issues.append(PlanningIssue(PlanningCode.REVIEW_INCOMPLETE,verdict.get('note') or '没有形成有效判断'))
     return issues
 
 
-def review(section: str, shots: list[dict], source: str) -> tuple[dict, list[PlanningIssue]]:
-    """One text review; structural gates already ran before this is called."""
-    if not section:
-        return {"section": "", "verdicts": []}, []
-    evidence = [{"shot": shot.get("label") or shot.get("shot_id") or index,
-                 "scene": shot.get("scene_id") or shot.get("location"),
-                 "location": shot.get("location"),
-                 "source_quote": shot.get("source_quote"),
-                 "characters": shot.get("characters"),
-                 "extras": shot.get("extras"),
-                 "props": shot.get("props"),
-                 "scene_objects": shot.get("scene_objects"),
-                 "wears": shot.get("wears"),
-                 "actions": shot.get("actions"),
-                 "light": shot.get("light"),
-                 "picture": "；".join(str(shot.get(k) or "") for k in ("visual_prompt", "motion_prompt", "end_state")),
-                 "turns": [{k: turn.get(k) for k in ("speaker_name", "delivery_mode", "inner_monologue", "text")}
-                           for turn in shot.get("turns") or []]}
-                for index, shot in enumerate(shots, 1)]
-    prompt = (
-        "你核对一集短剧的第一遍提纲与第二遍实际分镜。逐条判断提纲 retained_dialogue 承诺的关键问答、"
-        "动机、决定、笑点或叙事信息是否真正让观众知道。完整阅读该段文字，不能只挑引号中的句子、"
-        "不能忽略短句、长句或第八条之后的承诺。允许等义改写和删去赘词；不要求逐字重复原文。"
-        "必须核对谁说、在哪场、是否当面对需要知道的人表达、肯定或否定是否反转，以及镜头动作能否承担"
-        "该信息。画面描述里写了'说/决定/解释'，但 turns 没有实际台词，不能算观众听见；"
-        "人物心声不等于把消息告诉现场的另一人。不要因为共享几个字就判保留，也不要因为换词就判遗漏。"
-        "小说的第三人称心理叙述改成角色本人的心声时，必须保持指代正确：角色想的是自己，不能念成对方的状态；"
-        "例如原文主语是当前说话人的‘他心情好’，心声仍说‘他心情好’会改变所指，应报告 changed。"
-        "即使提纲没有选中，也从原文找出直接支撑后续决定的条件、拒绝或威胁；若删掉它会让决定失去原因，"
-        "将它作为额外一项写入 verdicts，核对是否通过对白或可见动作让观众知道。不要把每句原文都列入，"
-        "只检查真正改变下一步行动的因果信息。还要核对相邻镜头是否把同一次进入、离开、召唤或击打拍了两次，"
-        "穿戴物是否同时写入 extras 与 props、wears 是否与原文中的穿戴状态矛盾，以及场景地点是否与镜头内容冲突。"
-        "extras 是无卡人物或动物，props 是物件，wears 是人物穿戴状态；相邻场景若只过了几分钟，"
-        "light 不能从夜晚变成白天。发现这些问题也单独列为 changed。"
-        "道具是否区分应结合scene_objects、动作和画面文本一起判断；明确写出第二台无人空机甲就已区分，"
-        "不要仅因props只列同款资产就要求新增型号或另一张卡，更不得猜测原文没有的型号。"
-        "输出 verdicts，对每项明确承诺和上述遗漏的因果信息给出 delivered/missing/changed/unclear 和具体依据；"
-        "reason 每项只写100字以内的具体结论与镜号，不反复讨论、不抄整段原文。"
-        "没有可核对的承诺时只输出一项 delivered，说明该段只有选材说明。不能用空列表代替审查。\n"
-        + json.dumps({"retained_dialogue": section, "source": source, "shots": evidence}, ensure_ascii=False)
-    )
-    answer = ask_json([{"type": "text", "text": prompt}], SCHEMA,
-                      name="retained_content_review", max_tokens=3000, timeout=180,
-                      retry_truncated=False, settings=judge_settings())
-    verdict = {"section": section, "verdicts": answer.get("verdicts")}
-    return verdict, interpret(verdict, section)
+def review(section, shots, source, *, previous=None, skipped=()):
+    inputs=material(section,shots,source,skipped=skipped)
+    if previous and previous.get('policy')==POLICY and previous.get('inputs')==inputs:
+        issues=interpret(previous,section)
+        if previous.get('verdict') in {'pass','fail'} or any(i.code==PlanningCode.SOURCE_CONTRADICTION for i in issues):
+            return previous,issues
+    prompt=(
+        '核对小说改编稿是否让观众误解重要事实。原文是事实依据，提纲只是可修改的取舍意图，不是逐句交付清单。'
+        '允许删作者说明、重复解释和非必要细节，允许换词、合句、改用动作或有依据的角色心声。'
+        '省略与原文不同不等于错误；只有省略使当前行动无法理解或造成错误理解才需要返修。'
+        '按观众看到、听到的完整场面判断：人物身份/行为归属是否错换，拒绝与同意等重要意思是否反转，'
+        '关键因果是否断裂或秘密错误地变成其他人物已知。人物的谎言、猜测、回忆不是作者宣布的事实。'
+        'speech.delivery已经按实际执行字段解释，心声只有观众听见；画外发言不要求入镜。'
+        '对白归属以speech.speaker_name为准，不能用原文或picture把实际标错的说话人脑补纠正。'
+        '读完相邻镜头的完整对白和反应，再判断意义是否缺失；同一动作的拆镜不等于重复发生。'
+        '错误须是实际发生的含义或归属变化，指出原文谁做什么、稿件变成谁做什么。'
+        '不能仅因省略称呼、使用代词或代表人物表达而推测观众可能误会，就认定实际错人或因果断裂。'
+        '只报确有依据、影响理解的错误，不报文采、细腻程度、普通镜头风格、可接受的删减。'
+        '错误必须给镜号shot、实际字段field、原文连续引文source_quote、该镜该字段中的连续引文draft_quote，'
+        '以及一两句话viewer_error，明确观众会误解什么。引用只作定位，不能因为引用字面不同就判错。'
+        '对错误省略可引用相邻实际镜头定位，或shot=0、field=omissions引用省略记录。'
+        '没有实质错误就verdict=pass、errors=[]；有证据的实质错误才fail；无法形成判断则incomplete。'
+        'note可简短解释接受的改编选择，不列逐句差异。不声称稿中不存在的台词已经表达，不输出推理过程。\n'
+        +json.dumps(inputs,ensure_ascii=False))
+    answer=ask_json([{'type':'text','text':prompt}],SCHEMA,name='retained_content_review',
+                    max_tokens=3000,timeout=180,retry_truncated=False,settings=judge_settings())
+    verdict={**answer,'policy':POLICY,'section':section,'inputs':inputs}
+    return verdict,interpret(verdict,section)

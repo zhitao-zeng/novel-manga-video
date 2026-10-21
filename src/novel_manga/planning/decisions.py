@@ -35,6 +35,11 @@ class RevisionDecision:
 def decide_validation(result: ValidationResult, *, final_attempt: bool, patch_rounds: int,
                       patch_seconds_left: float, allow_floor_waiver: bool = False) -> RevisionDecision:
     issues, warnings = list(result.issues), list(result.warnings)
+    # The pose ledger detects unshown transitions, not a source/plot contradiction.
+    # Preserve its notices without demanding extra actions merely to complete the ledger.
+    warnings.extend('report only (姿态承接提示): ' + i.message for i in issues
+                    if i.code == PlanningCode.POSTURE_CONTINUITY)
+    issues = [i for i in issues if i.code != PlanningCode.POSTURE_CONTINUITY]
     # A presence disagreement is the judge's reading of the source set against the writer's.  It goes
     # back to the writer as a patch; once no patch is left the writer's draft stands and the
     # disagreement is reported.  It never sends a whole draft to be re-planned and never fails a
