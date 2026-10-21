@@ -257,6 +257,11 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         # Waiting behind other episodes consumes no active operation allowance.
         # Media, retry counters and the persisted Agent UUID are unchanged.
         saved['deadline'] = time.time() + max(0, float(saved['remaining_seconds']))
+    elif (saved.get('phase_budget') and saved.get('status') in {'blocked', 'finished_with_issues'}
+          and 'remaining_seconds' in saved):
+        # A settled activity has stopped its clock. Preserve only its recorded
+        # unused time while an operator reviews the result or authorizes a take.
+        saved['deadline'] = time.time() + max(0, float(saved['remaining_seconds']))
     elif saved.get('status') == 'paused' and saved.get('updated_at') and saved.get('deadline'):
         # An operator pause is idle time, just like a scheduler deferral. Older
         # paused rows may still carry remaining_seconds from a previous slice.

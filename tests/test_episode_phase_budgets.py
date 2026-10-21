@@ -137,3 +137,18 @@ def test_existing_evidenced_recovery_preserves_inflight_overtime(ctx, config, mo
     assert resumed.deadline-clock.now == 60
     assert resumed.result['phase_budget']['production'] == {
         'limit_seconds': 165, 'used_seconds': 105, 'started_at': 10100}
+
+
+@pytest.mark.parametrize('status,retry', [('blocked', False), ('finished_with_issues', True)])
+def test_stopped_phase_retains_only_unused_time_while_waiting_for_the_user(ctx, config, monkeypatch, clock, status, retry):
+    state = bootstrap(ctx, config, monkeypatch)
+    state.begin_generation(lambda **fields: None)
+    clock.now += 30
+    state.account_resources()
+    atomic_write_json(ctx.run_dir/'agent-run.json', {**state.result,
+        'status': status, 'remaining_seconds': 70})
+    clock.now += 1000
+    resumed = bootstrap(ctx, config, monkeypatch, retry_issues=retry)
+    assert resumed.deadline-clock.now == 70
+    assert resumed.result['phase_budget']['production']['used_seconds'] == 30
+    assert resumed.result['phase_budget']['production']['limit_seconds'] == 100
