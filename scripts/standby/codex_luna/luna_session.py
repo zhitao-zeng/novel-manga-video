@@ -17,6 +17,8 @@ def run_session(work_dir,prompt_text,*,resume=False,timeout=1200,config=None,exp
     config=config or {};work=Path(work_dir).resolve();output=work/'output';output.mkdir(exist_ok=True)
     attempt=unique_attempt(work/'attempts',time.strftime('%Y%m%d-%H%M%S')+'-codex-luna')
     state_path=work/session.SESSION_FILE;old=read_json(state_path,{})
+    planning=read_json(work/'input/current-task.json',{}).get('mode')=='planning_repair'
+    continuing=bool(planning and resume and old.get('backend')=='codex-chatgpt-cli' and old.get('session_id'))
     write(attempt/'previous-session.json',old)
     skills=work/'.claude/skills/episode-production'
     shutil.copytree(session.SKILL_SOURCE,skills,dirs_exist_ok=True)
@@ -47,13 +49,21 @@ def run_session(work_dir,prompt_text,*,resume=False,timeout=1200,config=None,exp
           'Never poll or sleep waiting for that job inside this turn. An accepted job is not completed. '
           'The current Skill and host decide acceptance and budgets. '
           'Do not mark passed yourself. '
-          'This is a fresh compact context. Prior file evidence and host results remain available; do not try to resume a Claude session.\n\n')
+          + ('Continue this same saved Codex planning session with the host feedback.\n\n' if continuing else
+             'Prior file evidence and host results remain available; do not try to resume a Claude session.\n\n'))
     if not enable_tools:
         role += 'Host workflow tools are disabled for this call; only write the requested candidate file. '
     prompt=role+prompt_text.replace('/work/',str(alias)+'/').replace('/tools/episode.py','/tools/codex_episode.py')
-    command=[CODEX,'exec','--ignore-user-config','--ephemeral','--skip-git-repo-check','--sandbox','workspace-write',
-             '-c','sandbox_workspace_write.network_access=true','-m',MODEL,'-c','model_reasoning_effort=medium',
-             '--json','--output-last-message',str(attempt/'answer.txt'),'-']
+    command=[CODEX,'exec','--sandbox','workspace-write']
+    if continuing:
+        command+=['resume']
+        state['session_id']=old['session_id']
+    command+=['--ignore-user-config','--skip-git-repo-check',
+              '-c','sandbox_workspace_write.network_access=true','-m',MODEL,'-c','model_reasoning_effort=medium',
+              '--json','--output-last-message',str(attempt/'answer.txt')]
+    if not planning:command+=['--ephemeral']
+    if continuing:command+=[old['session_id']]
+    command+=['-']
     try:
         result=run(command,attempt,prompt=prompt,timeout=timeout,cwd=work,event_callback=event_callback)
     finally:
@@ -63,19 +73,37 @@ def run_session(work_dir,prompt_text,*,resume=False,timeout=1200,config=None,exp
         result['exit_code'] = 1
     if result.get('thread_id') and state.get('session_id')!=result['thread_id']:
         state['session_id']=result['thread_id']
-    usage.record(name='episode-agent',model=MODEL,usage={**result['usage'],'cache_read_input_tokens':result['usage'].get('cached_input_tokens',0)},url='codex://chatgpt-cli')
+    previous_usage={}
+    previous=old if continuing and result.get('thread_id')==old.get('session_id') else {}
+    while previous.get('last_attempt'):
+        prior_attempt=work/'attempts'/previous['last_attempt']
+        previous_usage=read_json(prior_attempt/'execution.json',{}).get('usage',{})
+        if previous_usage:
+            break
+        previous=read_json(prior_attempt/'previous-session.json',{})
+        if previous.get('session_id')!=old.get('session_id'):
+            break
+    turn_usage={key:value-previous_usage.get(key,0) for key,value in result['usage'].items()}
+    with usage.scope(usage_known=bool(result['usage']),backend='codex-chatgpt-cli',
+                     usage_source='codex_cli_turn_delta',attempt=str(attempt),
+                     response_id=f"{state.get('session_id')}/{attempt.name}"):
+        metered=usage.record(name='episode-agent',model=MODEL,usage={**turn_usage,
+            'cache_read_input_tokens':turn_usage.get('cached_input_tokens',0)},url='codex://chatgpt-cli')
+    write(attempt/'execution.json',{**result,'backend':'codex-chatgpt-cli','usage_recorded':metered,'metered_usage':turn_usage})
     produced=[str(p.relative_to(output))for p in output.rglob('*') if p.is_file() and before.get(str(p.relative_to(output)))!=(p.stat().st_mtime_ns,p.stat().st_size)]
     final=(attempt/'answer.txt').read_text() if (attempt/'answer.txt').exists() else ''
     expected_output=expected_output or 'repair.json'
     error_text=json.dumps(result['errors']).lower()
     failure_kind='transient_api' if any(x in error_text for x in ['429','502','503','504','connection reset','timed out']) else None
-    record={'run':work.name,'attempt':attempt.name,'session_id':state.get('session_id'),'resume':False,
+    record={'run':work.name,'attempt':attempt.name,'session_id':state.get('session_id'),
+            'resume':bool(continuing and state.get('session_id')==old.get('session_id')),
             'enable_tools':enable_tools,'skills':'episode-production','model':MODEL,'backend':'codex-chatgpt-cli',
             'timeout_seconds':timeout,'seconds':result['seconds'],'exit':result['exit_code'],'produced':produced,
             'expected_output':expected_output,'expected_output_produced':expected_output in produced,
             'refusal':recovery.refusal_reason(final),'summary_only':recovery.summary_ending(final),
-            'turn_limit_reached':False,'failure_kind':failure_kind,'usage':result['usage'],
-            'context_rotation':{'previous_session_id':old.get('session_id'),'reason':'Native Codex Luna with current task and preserved evidence'}}
+            'turn_limit_reached':False,'failure_kind':failure_kind,'usage':turn_usage,
+            **({} if continuing else {'context_rotation':{'previous_session_id':old.get('session_id'),
+                'reason':'Native Codex Luna with current task and preserved evidence'}})}
     state['last_attempt']=attempt.name;write(state_path,state);write(attempt/'attempt.json',record)
     # Native events are retained without pretending to be Claude SDK events.
     shutil.copy2(attempt/'events.jsonl',attempt/'session.jsonl')

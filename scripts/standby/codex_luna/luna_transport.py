@@ -7,6 +7,16 @@ OUT=Path(os.environ.get('NOVEL_CODEX_STANDBY_DIR', str(ROOT/'.runtime/codex-luna
 MODEL='gpt-6-luna'
 CODEX=shutil.which('codex') or 'codex'
 
+def check_available():
+    from novel_manga.llm import transport
+    if transport.post_any is not post_any:
+        return ['Explicit Codex standby transport was not installed']
+    try:
+        result=subprocess.run([CODEX,'login','status'],env=environment(),capture_output=True,text=True,timeout=15)
+    except (OSError,subprocess.SubprocessError):
+        return ['Codex CLI login status could not be checked']
+    return [] if result.returncode==0 else ['Codex CLI is not logged in']
+
 def prepare_output():
     (OUT/'requests').mkdir(parents=True, exist_ok=True)
     owner=OUT/'owner.md'
@@ -92,6 +102,7 @@ def post_any(client,base_urls,headers,request,*,settings=None,deadline=None,time
     deadline=deadline or RequestDeadline(600)
     if not isinstance(deadline,RequestDeadline):deadline=RequestDeadline(max(0,deadline-time.monotonic()))
     rf=request.get('response_format')or{};spec=rf.get('json_schema')or{}
+    schema_part=None
     if rf.get('type') == 'json_object':
         # ask_json appends its real schema for services that cannot enforce it.
         # The native standby can enforce that same schema when it is strict.
@@ -102,6 +113,7 @@ def post_any(client,base_urls,headers,request,*,settings=None,deadline=None,time
         text = last.get('text', '') if isinstance(last, dict) else ''
         if text.startswith(prefix):
             spec = {'schema': json.loads(text[len(prefix):])}
+            schema_part = last
     name=spec.get('name')or rf.get('type')or 'chat'
     prepare_output()
     folder=Path(tempfile.mkdtemp(prefix=f'{name}-',dir=OUT/'requests'))
@@ -112,6 +124,9 @@ def post_any(client,base_urls,headers,request,*,settings=None,deadline=None,time
         content=message.get('content')or''
         if isinstance(content,str):lines.append(content);continue
         for part in content:
+            # The recognized ask_json contract is emitted once below, with the
+            # same native constraint. Keep the original request for accounting.
+            if part is schema_part:continue
             if part.get('type')=='text':lines.append(part.get('text',''))
             elif part.get('type')=='image_url':
                 url=part['image_url']['url']
@@ -156,8 +171,15 @@ def post_any(client,base_urls,headers,request,*,settings=None,deadline=None,time
         if not isinstance(value,dict):raise ValueError(f'Expected JSON object; evidence={folder}')
         write(folder/'parsed-answer.json',value)
     if not answer:raise ValueError(f'Codex Luna returned empty content: {folder}')
+    normalized=dict(metered)
+    if 'input_tokens' in metered:
+        normalized.update(prompt_tokens=metered['input_tokens'],
+            prompt_tokens_details={'cached_tokens':metered.get('cached_input_tokens',0)})
+    if 'output_tokens' in metered:normalized['completion_tokens']=metered['output_tokens']
+    if 'input_tokens' in metered and 'output_tokens' in metered:
+        normalized['total_tokens']=metered['input_tokens']+metered['output_tokens']
     return {'model':MODEL,'choices':[{'message':{'content':answer},'finish_reason':'stop'}],
-            'usage':metered,'codex_evidence':str(folder)}
+            'usage':normalized,'codex_evidence':str(folder)}
 
 def install():
     import novel_manga.llm.transport as transport

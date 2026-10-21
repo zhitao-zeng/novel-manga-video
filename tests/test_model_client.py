@@ -117,6 +117,10 @@ def test_explicit_judges_keep_endpoints_and_models_when_interleaved(monkeypatch)
 
 
 @pytest.mark.parametrize('model,template,explicit,expected', [
+    ('deepseek-v4.1-flash-1017', {'enable_thinking': False}, None, {'type': 'disabled'}),
+    ('deepseek-v4.1-flash-1017', {'enable_thinking': True}, None, None),
+    ('deepseek-v4.1-flash-1017', None, None, None),
+    ('deepseek-v4.1-flash-1017', {'enable_thinking': False}, {'type': 'enabled'}, {'type': 'enabled'}),
     ('deepseek-v4.1-flash', {'enable_thinking': False}, None, {'type': 'disabled'}),
     ('deepseek-v4.1-flash', {'enable_thinking': True}, None, None),
     ('deepseek-v4.1-flash', None, None, None),

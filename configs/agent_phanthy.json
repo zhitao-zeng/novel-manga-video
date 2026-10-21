@@ -3,12 +3,19 @@
   "image": "agent-sandbox:0918",
   "runs_root": "/mnt/disk1/zengzhitao/novel-manga-video/.runtime/model-providers/phanthy/agent-runs",
   "base_url": "http://127.0.0.1:8789",
-  "model": "glm-5.3-flash",
+  "model": "deepseek-v4.1-flash-1017",
   "key_var": "PHANTHY_API_KEY",
   "docker_network": "host",
   "effort": "low",
-  "extra_body": {"reasoning_effort": "low"},
-  "parallel": {"day": 1, "night": 1, "night_from": 20, "night_until": 10},
+  "extra_body": {
+    "reasoning_effort": "low"
+  },
+  "parallel": {
+    "day": 1,
+    "night": 1,
+    "night_from": 20,
+    "night_until": 10
+  },
   "timeout_seconds": 5400,
   "agent_invocations_per_slice": 1,
   "model_slots_reserved_for_tools": 0,
@@ -16,8 +23,8 @@
   "source_agent_slice_seconds": 1200,
   "resume_session_on_retry": true,
   "complete_started_repairs": true,
-  "h3_translation_endpoint": "phanthy",
-  "h3_request_check_endpoint": "phanthy",
+  "h3_translation_endpoint": "phanthy-ds41",
+  "h3_request_check_endpoint": "phanthy-ds41",
   "h3_preparation_parallel": 1,
   "production_mode": "batch_review"
 }

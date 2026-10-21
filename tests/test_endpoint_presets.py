@@ -147,7 +147,7 @@ def test_the_bibles_questions_go_to_the_judge_whatever_endpoint_plans(monkeypatc
     with using_endpoint("flashnext"):
         cast_entity_extraction.extract_names("席勒站在讲台后。")
     assert asked["settings"] is not None
-    assert asked["settings"].model == "deepseek-v4.1-flash"  # 判官默认 phanthy-ds41(2026-10-10 起,本地池已停)
+    assert asked["settings"].model == "deepseek-v4.1-flash-1017"  # 判官默认 phanthy-ds41(2026-10-10 起,本地池已停)
 
 
 def test_the_preflight_probes_the_endpoint_planning_will_use_and_the_judges(monkeypatch):

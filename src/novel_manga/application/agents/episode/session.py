@@ -129,7 +129,8 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
     _write_json(state_path, state)
 
     attempt = unique_attempt(work_dir / "attempts", f"{time.strftime('%Y%m%d-%H%M%S')}-episode")
-    if enable_tools:
+    planning_repair = read_json(work_dir/'input/current-task.json', {}).get('mode') == 'planning_repair'
+    if enable_tools or planning_repair:
         shutil.copytree(skill_dir, attempt / "skill-before")
         shutil.copytree(skill_source, skill_dir, dirs_exist_ok=True)
         shutil.copytree(skill_dir, attempt / "skill-current")
@@ -167,6 +168,11 @@ def run_session(work_dir: Path | str, prompt_text: str, *, resume: bool = False,
                 'Reuse completed production stages. '
                 'Consult only relevant episode-production skill sections and shared repair cases; '
                 'do not create a replacement screenplay or repeat the production pipeline.')
+    if planning_repair:
+        role = ('Repair only the failed native planning candidate in input/planning-failure.json. '
+                'Use the episode-production source ownership principles; return output/repair.json. '
+                'This is a planning task without host media tools. The host validates and adopts the candidate. '
+                'Do not author H3 requests, images or video, or claim film acceptance.')
     command.extend([
         "-e", "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1",
         "-e", f"CLAUDE_CODE_EFFORT_LEVEL={config.get('effort', 'medium')}",

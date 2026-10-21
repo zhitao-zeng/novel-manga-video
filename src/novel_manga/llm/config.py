@@ -17,6 +17,10 @@ import hashlib
 # fill-in-the-blanks binding that then came back finish_reason=length with its JSON cut off.  Asked the
 # same question directly it answers in 0.4 s with the switch and starts reasoning without it.
 ENDPOINTS = {
+    "gpu16-next": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8230/v1",
+                   "QWEN38_LOCAL_MODEL": "Qwen3.8-Flash-Next-FP8",
+                   "QWEN38_LOCAL_API_KEY_VAR": "LOCAL_QWEN_NO_KEY", "QWEN38_LOCAL_STREAM": "0",
+                   "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
     "local": {"QWEN38_LOCAL_BASE_URL": ",".join(f"http://127.0.0.1:{p}/v1" for p in range(18120, 18125)),
               "QWEN38_LOCAL_MODEL": "Qwen3.8-27B-Project",
               "QWEN38_LOCAL_API_KEY_VAR": "SECOND_REVIEW_NO_KEY", "QWEN38_LOCAL_STREAM": "0"},
@@ -46,8 +50,9 @@ ENDPOINTS = {
     # 2026-10-10 主力切换：Phanthy API 的 deepseek-v4.1-flash 接替本地 DS 成为规划/审核主力
     # （6 并发实测全绿；输出无 8000 天花板；缓存读取 6/M 是本表最低）。本地 deepseek/flashnext
     # 预设保留作记录与回退，生产不再默认使用。
+    # 2026-10-19: use the1017 API release behind the existing DS41 alias.
     "phanthy-ds41": {"QWEN38_LOCAL_BASE_URL": "http://127.0.0.1:8789/v1",
-                     "QWEN38_LOCAL_MODEL": "deepseek-v4.1-flash",
+                     "QWEN38_LOCAL_MODEL": "deepseek-v4.1-flash-1017",
                      "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
                      "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
     # 规划轮换备选（导演稿级实测 2/3 成功、75-287s）；短输出同样胜任

@@ -131,6 +131,25 @@ def test_initial_session_uses_configured_model_only_workspace_and_file_tools(tmp
     assert (result.directory / "output-after/episode.json").read_text() == '{"title":"draft"}'
 
 
+def test_planning_repair_uses_repository_skill_without_a_template_or_media_tools(tmp_path, monkeypatch, config):
+    from novel_manga.util import atomic_write_json
+    work = tmp_path/'planning'
+    atomic_write_json(work/'input/current-task.json', {'mode': 'planning_repair'})
+    calls = fake_cli(monkeypatch, work, outputs={'repair.json': '{"kind":"identity"}'})
+    first = session.run_session(work, 'Repair the native candidate', config=config,
+                                enable_tools=False, expected_output='repair.json')
+    command, environment = calls[0]
+    assert command[command.index('--tools')+1] == 'Read,Write,Edit,Glob,Grep'
+    assert 'native planning candidate' in command[command.index('--append-system-prompt')+1]
+    local = work/'.claude/skills/episode-production/SKILL.md'
+    local.write_text('old planning instructions')
+    fake_cli(monkeypatch, work)
+    second = session.run_session(work, 'Continue with current task', config=config,
+        resume=True, enable_tools=False, expected_output='repair.json')
+    assert second.record['session_id'] == first.record['session_id']
+    assert local.read_text() == (session.SKILL_SOURCE/'SKILL.md').read_text()
+
+
 def test_repair_resumes_same_session_and_keeps_prior_output_versions(tmp_path, monkeypatch, config):
     work = tmp_path / "episode"
     fake_cli(monkeypatch, work, outputs={"episode.json": "draft-v1"})

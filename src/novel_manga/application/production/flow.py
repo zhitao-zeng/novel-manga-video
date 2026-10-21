@@ -64,7 +64,7 @@ class Batch:
         self.notes = json.loads(Path(args.notes_json).read_text(encoding="utf-8")) if args.notes_json else {}
         self.env = {
             **os.environ,
-            "PYTHONPATH": str(production_common.CODE / 'src'),
+            "PYTHONPATH": os.pathsep.join(filter(None, [os.environ.get('PYTHONPATH'), str(production_common.CODE / 'src')])),
             "NOVEL_PLANNER_BACKEND": "deterministic",
             "NOVEL_CREATIVE_PROFILE": os.environ.get("NOVEL_CREATIVE_PROFILE", "short-drama-adaptive-v1"),
             **thin_profile.reference_image_env(os.environ),
@@ -206,6 +206,13 @@ class Batch:
         two minutes.  The judge's pool is probed as well: bible growth asks it from this process and
         the planner asks it for every unknown name.
         """
+        if os.environ.get('CODEX_LUNA_ADAPTER') == '1':
+            from luna_transport import check_available
+            problems = check_available()
+            if problems:
+                raise SystemExit('; '.join(problems))
+            production_common.log('Codex CLI Luna login available for this explicit standby run')
+            return
         from novel_manga.llm.config import endpoint_settings, planner_endpoint_name
         from novel_manga.review.endpoints import judge_settings
         try:

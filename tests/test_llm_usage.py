@@ -64,3 +64,32 @@ def test_scaled_timeout_grows_with_input_and_respects_floor_and_cap():
     assert 600 <= scaled_timeout(240, big) <= 900     # 大料放大
     assert scaled_timeout(240, huge) == 1800          # 封顶
     assert scaled_timeout(900, small) == 900          # 调用方更松时不缩
+
+
+def test_openai_cached_input_and_reasoning_usage_are_retained(tmp_path, monkeypatch):
+    monkeypatch.setenv('NOVEL_PROJECT_ROOT', str(tmp_path))
+    llm_usage.record(name='review', model='deepseek-v4.1-flash', usage={
+        'prompt_tokens': 1000, 'completion_tokens': 50, 'total_tokens': 1050,
+        'prompt_tokens_details': {'cached_tokens': 800},
+        'completion_tokens_details': {'reasoning_tokens': 20}})
+    row = json.loads((tmp_path/'.runtime'/llm_usage.FILE).read_text())
+    assert row['cache_read_input_tokens'] == 800
+    assert row['reasoning_tokens'] == 20
+    assert row['prompt_tokens'] == 1000 and row['total_tokens'] == 1050
+
+
+def test_json_object_call_keeps_its_actual_operation_name(tmp_path, monkeypatch):
+    from novel_manga.llm import client
+    monkeypatch.setenv('NOVEL_PROJECT_ROOT', str(tmp_path))
+    def post(http, bases, headers, payload, **kwargs):
+        body = {'usage': {'prompt_tokens': 10, 'completion_tokens': 2, 'total_tokens': 12},
+                'choices': [{'message': {'content': '{"ok":true}'}, 'finish_reason': 'stop'}]}
+        _meter('http://local/v1/chat/completions', payload, body)
+        return body
+    monkeypatch.setattr(client, 'post_any', post)
+    with llm_usage.scope(novel='book', episode=2, stage='plan'):
+        assert client.ask_json([], {}, name='chapter_binding_review', json_object=True) == {'ok': True}
+    row = json.loads((tmp_path/'.runtime'/llm_usage.FILE).read_text())
+    assert row['name'] == 'chapter_binding_review'
+    assert row['novel'] == 'book' and row['episode'] == 2
+    assert llm_usage.scoped() == {}

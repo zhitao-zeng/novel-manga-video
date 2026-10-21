@@ -38,15 +38,23 @@ def scoped(**fields) -> dict:
 
 
 def record(*, name: str, model: str, usage: dict | None, url: str = '') -> bool:
-    if not usage:
+    if not usage and _SCOPE.get().get('usage_known') is not False:
         return False
+    usage = usage or {}
     try:
         from novel_manga.application.configuration import project_root
         path = project_root() / '.runtime' / FILE
         path.parent.mkdir(parents=True, exist_ok=True)
+        counts = {k: usage[k] for k in USAGE_KEYS if usage.get(k) is not None}
+        for field, details, key in [
+                ('cache_read_input_tokens', 'prompt_tokens_details', 'cached_tokens'),
+                ('reasoning_tokens', 'completion_tokens_details', 'reasoning_tokens')]:
+            value = (usage.get(details) or {}).get(key)
+            if value is not None:
+                counts.setdefault(field, value)
         row = {'ts': time.time(), 'name': name, 'model': model or '',
                'endpoint': url.removesuffix('/chat/completions') if url else '',
-               **{k: usage[k] for k in USAGE_KEYS if usage.get(k) is not None},
+               **counts,
                **_SCOPE.get()}
         with _LOCK:
             with path.open('a', encoding='utf-8') as stream:

@@ -94,6 +94,9 @@ def preflight(config: dict, *, reading: bool) -> tuple[dict, list[str]]:
     because the per-chapter extraction endpoints are down blocks a recovery on a service it will not
     call.  A check that fails for something the run never touches is noise standing in a doorway.
     """
+    if os.environ.get('CODEX_LUNA_ADAPTER') == '1':
+        from luna_transport import check_available
+        return {}, check_available()
     problems: list[str] = []
     overrides: dict[str, str] = {}
 

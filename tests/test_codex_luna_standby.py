@@ -146,6 +146,9 @@ def test_json_object_uses_existing_client_schema_without_forcing_sparse_fields(t
     def run(command, folder, **kwargs):
         assert ('--output-schema' in command) is (not optional)
         assert json.loads((folder/'response.schema.json').read_text())==schema
+        assert kwargs['prompt'].count(json.dumps(schema, ensure_ascii=False)) == 1
+        assert 'Count the visible people' in kwargs['prompt']
+        assert request['messages'][0]['content'][-1]['text'].startswith('Return a JSON object matching this schema: ')
         (folder/'answer.txt').write_text('{"observed":30}')
         return {'exit_code':0,'completed':True,'usage':{}}
     monkeypatch.setattr(m,'run',run)
@@ -216,3 +219,83 @@ assert sandbox.run_agent is agent.run_agent is independent.run_agent
 assert sandbox.load_config is agent.load_config is independent.load_config
 """+f"assert sandbox.load_config({str(config)!r})['model']=='gpt-6-luna'\n"
     subprocess.run([sys.executable,'-c',code],env=env,check=True,capture_output=True,text=True)
+
+
+@pytest.mark.parametrize('interrupted', [False, True])
+def test_planning_standby_resumes_the_saved_codex_thread(tmp_path,monkeypatch,interrupted):
+    import luna_session as adapter
+    from novel_manga.application.agents.episode import session
+    from novel_manga.util import atomic_write_json,read_json
+    work=tmp_path/'work';(work/'input').mkdir(parents=True)
+    atomic_write_json(work/'input/current-task.json',{'mode':'planning_repair'})
+    seen=[]
+    def execute(command,attempt,**kwargs):
+        seen.append(command)
+        assert '--ephemeral' not in command
+        if len(seen)>=2:
+            assert 'resume' in command and 'native-planning-thread' in command
+        else:assert 'resume' not in command
+        atomic_write_json(work/'output/repair.json',{'kind':'draft','revision':len(seen)})
+        (attempt/'answer.txt').write_text('候选已交付')
+        (attempt/'events.jsonl').write_text('')
+        if interrupted and len(seen)==2:
+            return {'exit_code':124,'completed':False,'seconds':1,'thread_id':'native-planning-thread',
+                    'usage':{},'errors':[]}
+        return {'exit_code':0,'completed':True,'seconds':1,'thread_id':'native-planning-thread',
+            'usage':{'input_tokens':100 if len(seen)==1 else 180,
+                     'output_tokens':10 if len(seen)==1 else 16},'errors':[]}
+    monkeypatch.setattr(adapter,'run',execute)
+    adapter.run_session(work,'修第一版',timeout=10,expected_output='repair.json')
+    if interrupted:
+        stopped=adapter.run_session(work,'中断的续接',resume=True,timeout=8,expected_output='repair.json')
+        assert stopped.record['usage']=={}
+    result=adapter.run_session(work,'根据宿主反馈修第二版',resume=True,timeout=8,expected_output='repair.json')
+    assert result.record['resume'] is True
+    assert result.record['usage']['input_tokens']==80 and result.record['usage']['output_tokens']==6
+    assert read_json(result.directory/'execution.json')['usage']['input_tokens']==180
+    assert read_json(work/session.SESSION_FILE)['session_id']=='native-planning-thread'
+
+
+def test_batch_model_children_keep_the_explicit_standby(tmp_path,monkeypatch):
+    from novel_manga.application.production.flow import Batch
+    from novel_manga.application.production.batch_cli import main
+    from novel_manga.util import atomic_write_json
+    import os
+    book=tmp_path/'book';source=tmp_path/'source.md';source.write_text('第一章 开始\n甲走来。')
+    atomic_write_json(book/'novel.json',{'source':str(source),'title':'书'})
+    atomic_write_json(book/'story_bible.json',{'characters':[],'locations':[]})
+    adapter=ROOT/'scripts/standby/codex_luna'
+    monkeypatch.setenv('PYTHONPATH',str(adapter))
+    import argparse
+    args=argparse.Namespace(novel_dir=book,source=None,title=None,notes_json=None,
+        unattended=False,review_only=False,tier=None,card_parallel=1,resubmit_unconfirmed=False)
+    batch=Batch(args)
+    assert str(adapter) in batch.env['PYTHONPATH'].split(os.pathsep)
+    assert str(ROOT/'src') in batch.env['PYTHONPATH'].split(os.pathsep)
+
+
+def test_explicit_cli_preflight_checks_cli_login_instead_of_the_unused_api(tmp_path,monkeypatch):
+    from novel_manga.application.planning import setup_book
+    from novel_manga.application.production.flow import Batch
+    monkeypatch.setenv('CODEX_LUNA_ADAPTER','1')
+    seen=[]
+    monkeypatch.setattr(m,'check_available',lambda:seen.append('codex login') or [],raising=False)
+    monkeypatch.setattr(setup_book,'alive',lambda *a:pytest.fail('CLI standby must not depend on Phanthy availability'))
+    monkeypatch.setattr(Batch,'endpoint_answers',lambda *a:pytest.fail('CLI standby must not probe an unused API'))
+    overrides,problems=setup_book.preflight({'key_var':'NO_KEY_FOR_UNUSED_API'},reading=False)
+    assert overrides=={} and problems==[]
+    Batch.check_qwen(object())
+    assert seen==['codex login','codex login']
+
+
+def test_cli_response_exposes_standard_token_fields_without_losing_native_counts(tmp_path,monkeypatch):
+    monkeypatch.setattr(m,'OUT',tmp_path)
+    def execute(command,folder,**kwargs):
+        (folder/'answer.txt').write_text('{}')
+        return {'exit_code':0,'completed':True,'usage':{'input_tokens':100,'cached_input_tokens':80,'output_tokens':7}}
+    monkeypatch.setattr(m,'run',execute)
+    result=m.post_any(None,[],{}, {'messages':[]})
+    assert result['usage']['prompt_tokens']==100
+    assert result['usage']['completion_tokens']==7
+    assert result['usage']['prompt_tokens_details']['cached_tokens']==80
+    assert result['usage']['input_tokens']==100
