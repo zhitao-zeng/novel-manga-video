@@ -215,17 +215,18 @@ def _catalog(ctx, references, *, fresh=False):
         else:
             relative = Path('series_assets/episode_refs') / f'{ctx.source_episode_dir.name}-{ctx.input_mode}' / f'asset_{len(assets)+1:03d}{source.suffix}'
         local_target = ctx.novel_dir / relative
-        target = local_target if local_target.is_file() else ctx.asset_snapshot_dir / relative
+        target = local_target
         if not source.is_file() and not original.is_absolute():
             local = ctx.novel_dir/original
             if local.is_file():
                 source = local
-        copied = _snapshot_file(ctx, source, relative) if fresh else _copy(source, target)
+        existed = target.is_file()
+        copied = _snapshot_file(ctx, source, relative) if fresh or not existed else _copy(source, target)
         if not copied:
             missing.append({'role': ref['role'], 'name': ref.get('name'), 'path': str(original),
                             'asset_id': ref.get('asset_id')})
             continue
-        if fresh:
+        if fresh or not existed:
             target = local_target
             for suffix in ('.request.json', '.task.json'):
                 sidecar = source.with_name(source.name + suffix)

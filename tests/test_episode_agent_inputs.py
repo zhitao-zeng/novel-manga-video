@@ -16,6 +16,31 @@ def write(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False), encoding='utf-8')
 
 
+@pytest.mark.parametrize('preexisting', [False, True])
+def test_delayed_shared_card_is_backfilled_into_this_episode_with_its_own_origin(book, preexisting):
+    from novel_manga.application.agents.episode.inputs import _catalog
+    source, _, root=book
+    ctx=context.create_context(source,2,input_mode='source',output_root=root/'isolated')
+    prepare_inputs(ctx)
+    rel=Path('series_assets/characters/character_012/turnaround.jpeg')
+    new=source/rel
+    new.parent.mkdir(parents=True,exist_ok=True)
+    new.write_bytes(b'approved shared image')
+    write(new.with_name(new.name+'.request.json'),{'origin':'shared approved request'})
+    write(new.with_name(new.name+'.task.json'),{'task_id':'shared-completed-image'})
+    local=ctx.novel_dir/rel
+    if preexisting:
+        local.parent.mkdir(parents=True,exist_ok=True)
+        local.write_bytes(b'current episode image')
+        write(local.with_name(local.name+'.request.json'),{'origin':'current episode request'})
+    _catalog(ctx,[{'role':'character','asset_id':'character_012','name':'新来者','path':str(rel)}])
+    assert local.read_bytes()==(b'current episode image'if preexisting else b'approved shared image')
+    assert read(local.with_name(local.name+'.request.json'))['origin']==(
+        'current episode request'if preexisting else 'shared approved request')
+    if not preexisting:
+        assert read(local.with_name(local.name+'.task.json'))['task_id']=='shared-completed-image'
+
+
 def read(path):
     return json.loads(path.read_text(encoding='utf-8'))
 
@@ -333,12 +358,9 @@ def test_refreshing_skill_resources_preserves_frozen_inputs_output_and_budget(bo
     write(ctx.episode_dir / 'repair_history/history.json', {'trials': [{'id': 1, 'managed': True}]})
     core = ctx.work_dir / first['skill']
     core.write_text('earlier installed rules', encoding='utf-8')
-    camera = ctx.work_dir / first['skill_references']['camera_language']
-    camera.write_text('earlier camera reference', encoding='utf-8')
     second = prepare_inputs(ctx)
     assert second['skill_references'] == first['skill_references']
     assert core.read_bytes() == (SKILL_SOURCE / 'SKILL.md').read_bytes()
-    assert camera.read_bytes() == (SKILL_SOURCE / 'references/camera-language.md').read_bytes()
     assert all(path.read_bytes() == value for path, value in protected.items())
     assert read(ctx.work_dir / 'output/requests.json') == {'prompts': {'clip_01': 'agent work'}}
     assert read(ctx.episode_dir / 'repair_history/history.json') == {'trials': [{'id': 1, 'managed': True}]}

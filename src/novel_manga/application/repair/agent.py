@@ -165,7 +165,7 @@ def provided_frames(directory: Path, clip_id: str, video: Path, target: Path):
         atomic_write_json(target/'frame-evidence.json', {
             **evidence, 'frames': [{**row, 'path': str(frame)} for row, frame in zip(rows, frames)]})
         return frames, 'same_take_review_report_supported'
-    return clip_frames(video, target, 4), 'host_uniform_10_to_90_percent'
+    return clip_frames(video, target, 4), 'host_uniform_4_to_98_percent'
 
 
 def unique_takes(videos):

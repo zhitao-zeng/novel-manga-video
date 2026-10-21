@@ -35,16 +35,19 @@ def test_positive_problem_text_is_confirmed_before_rejecting(monkeypatch, consis
 
 
 def test_supported_input_does_not_add_another_model_call(monkeypatch):
+    from novel_manga.review.contracts import WATCHABLE_CRITERIA
     calls = invoke(monkeypatch, [{'consistent': True, 'problems': []}])
     assert input_repair.source_check(SOURCE, '甲说', PATCHES, {})['consistent'] is True
     assert len(calls) == 1
+    assert WATCHABLE_CRITERIA in calls[0][0][0]['text']
 
 
 def test_real_source_conflict_remains_blocked_with_evidence(monkeypatch):
-    conflict = {'field': 'shots[1].wears', 'source_quote': '甲穿黑披风', 'problem': '候选将黑披风明确改成白披风'}
-    calls = invoke(monkeypatch, [{'consistent': False, 'problems': ['披风错误']}, {'conflicts': [conflict]}])
-    with pytest.raises(input_repair.UnsupportedInput, match='白披风') as caught:
-        input_repair.source_check(SOURCE, '甲说', [{'index': 1, 'wears': {'甲': '白披风'}}], {})
+    conflict = {'field': 'shots[1].turns', 'source_quote': '我们已进入防御区域', 'problem': '候选改成尚未进入防御区域，意思反转'}
+    calls = invoke(monkeypatch, [{'consistent': False, 'problems': ['意思反转']}, {'conflicts': [conflict]}])
+    with pytest.raises(input_repair.UnsupportedInput, match='意思反转') as caught:
+        input_repair.source_check(SOURCE, '甲说', [{'index': 1, 'turns': [
+            {'speaker_name': '甲', 'text': '我们尚未进入防御区域！'}]}], {})
     assert caught.value.review['confirmation']['conflicts'] == [conflict]
     assert len(calls) == 2
 

@@ -189,6 +189,7 @@ def prepare(ctx, drafts, repairs):
 
 
 def semantic_prompt():
+    from novel_manga.review.contracts import WATCHABLE_CRITERIA
     return ('The fixed production pipeline has an existing screenplay with a confirmed semantic '
         'or reference-content problem. You are its targeted repair Agent, not its initial writer. '
         'Read input/latest-preparation.json, current source and only the affected shots/references. '
@@ -202,7 +203,7 @@ def semantic_prompt():
         'Do not write a replacement episode.json. After input repair, render resumes native preparation '
         'and video generation. Missing files and ordinary translation stay with the fixed pipeline. '
         'Commands: python3 /work/tools/episode.py check output/repair.json; apply; render; finish. '
-        'End this turn when yield=true.\n')
+        'End this turn when yield=true.\n' + WATCHABLE_CRITERIA + '\n')
 
 
 def begin_semantic_repair(ctx):
@@ -266,6 +267,7 @@ def editorial_request(ctx, row):
 
 
 def review_prompt():
+    from novel_manga.review.contracts import WATCHABLE_CRITERIA
     return ('Normal production has already run through the fixed pipeline. Your job is to review '
         'and repair the existing video. Do not author a new episode.json or repeat book reading/planning. '
         'Use current status, input/latest-render.json and input/latest-review.json, the relevant source '
@@ -276,7 +278,8 @@ def review_prompt():
         'outcome. Tool commands: python3 /work/tools/episode.py check output/repair.json; apply; '
         'review; render; finish. End the turn when yield=true. Preserve existing cuts and dialogue '
         'unless a source-backed supported repair explicitly permits correction. Use input shots[].turns '
-        'to correct actual dialogue/inner-voice meaning errors against the original source.\n')
+        'to correct actual dialogue/inner-voice meaning errors against the original source.\n'
+        + WATCHABLE_CRITERIA + '\n')
 
 
 def begin_review(ctx):

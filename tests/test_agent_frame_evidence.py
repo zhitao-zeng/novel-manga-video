@@ -106,7 +106,7 @@ def test_legacy_review_without_frame_list_extracts_tail_instead_of_guessing(tmp_
     (directory/'work/review/clip_09/frame-evidence.json').unlink()
     calls = mock_host_frames(agent, monkeypatch)
     frames, provenance = agent.provided_frames(directory, 'clip_09', current, tmp_path/'input/frames')
-    assert provenance == 'host_uniform_10_to_90_percent'
+    assert provenance == 'host_uniform_4_to_98_percent'
     assert len(frames) == 4 and len(calls) == 1
 
 
@@ -133,7 +133,7 @@ def test_unconfirmed_review_frames_are_extracted_only_inside_run_copy(tmp_path, 
     calls = mock_host_frames(agent, monkeypatch)
     target = tmp_path/'sandbox-runs/run/input/take-1/frames'
     frames, provenance = agent.provided_frames(directory, 'clip_09', current, target)
-    assert provenance == 'host_uniform_10_to_90_percent'
+    assert provenance == 'host_uniform_4_to_98_percent'
     assert calls == [(current, target, 4)] and len(frames) == 4
     assert {p: p.read_bytes() for p in cache.iterdir()} == cached_before
 
@@ -174,9 +174,9 @@ def test_actual_video_fallback_has_readable_images_and_timestamps(tmp_path,agent
                     '-c:v','libx264','-pix_fmt','yuv420p',str(video)],check=True)
     target=tmp_path/'run/frames'
     frames,origin=agent.provided_frames(tmp_path,'x',video,target)
-    assert len(frames)==4 and origin=='host_uniform_10_to_90_percent'
+    assert len(frames)==4 and origin=='host_uniform_4_to_98_percent'
     record=json.loads((target/'frame-evidence.json').read_text())
-    assert record['frames'][0]['seconds']==pytest.approx(.2)
-    assert record['frames'][-1]['seconds']==pytest.approx(1.8)
+    assert record['frames'][0]['seconds']==pytest.approx(.08)
+    assert record['frames'][-1]['seconds']==pytest.approx(1.96)
     for f in frames:
         with Image.open(f) as image:assert image.height>image.width

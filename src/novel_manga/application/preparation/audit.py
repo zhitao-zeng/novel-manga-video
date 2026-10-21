@@ -7,6 +7,7 @@ from novel_manga.util import atomic_write_json
 from novel_manga.planning.context import PlannerContext
 from novel_manga.planning.preparation import audit_schema, grounded_issues
 from novel_manga.application.preparation.store import read
+from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
 def audit(directory, *, concerns=None):
     planner_ctx = PlannerContext.from_env()
@@ -33,8 +34,7 @@ def audit(directory, *, concerns=None):
               '允许改编压缩、合理分镜和有原文事实支撑的对白外化，不要求每句原文都出现，不要求额外解释一切。'
               '重点查台词/动作安错人、人物当前身份或成长阶段错误、核心因果事件遗漏、明确地点错误。'
               '同时核对props与wears的实际归属：不得把别人的物件或后期才出现的道具安给本镜人物。'
-              '原文明写的穿戴、颜色与剧本字段明确相反时也须报告identity问题；'
-              '例如原文写褐色披风，wears却绑定黑色披风，是确定矛盾。'
+              '服饰、颜色和局部动作差异按同一可看口径判断，须说明它怎样改变关键身份、功能或因果，不能仅因原文不同就报错。'
               '普通衣物若没有单独登记，不要为使用wears而套用同类但属于别人的道具；'
               '清除错误的wears绑定即可按角色原有服装出镜，不表示角色脱衣。'
               '泛称服饰、原文省略颜色或单纯明暗差异不能证明明确冲突，不据此追加修复。'
@@ -49,7 +49,7 @@ def audit(directory, *, concerns=None):
               '说话者错误归speaker，已有镜头动作错误归action，地点错误归location；不能统统标missing_event。'
               '核心事件完全没拍、现有镜头无法承载时才用stage=0。不要因省略修饰或一般支线标missing_event。'
               '原文如果大段字序打乱而无法理解，source_readable=false，说明原因，禁止编造还原。'
-              '没有确定错误就issues=[]。\n' + (('最终请求生成发现的待核实矛盾（不是已确认错误）：'
+              '没有确定错误就issues=[]。' + WATCHABLE_CRITERIA + '\n' + (('最终请求生成发现的待核实矛盾（不是已确认错误）：'
               + json.dumps(concerns, ensure_ascii=False) + '\n') if concerns else '')
               + json.dumps({'chapter': directory.name, 'source': source_view,
               'identity_context': identity_context, 'script': script}, ensure_ascii=False))
@@ -69,13 +69,13 @@ def audit(directory, *, concerns=None):
         confirmation = ask_json([{'type': 'text', 'text':
             '请复核下面的剧本问题单，剔除误报。必须阅读全章剧本再判断是否已用对白、动作或聊天卡表达。'
             '只保留让本章核心事实相反、核心动作/说话人错误或造成关键因果缺口的问题。'
-            '明确的物件持有人、穿戴归属或原文写明的服色矛盾也保留；'
-            '不得把这些明确矛盾当成一般支线或风格意见剔除。'
+            '物件持有、穿戴和动作差异只有改变关键身份、功能、动作归属或事件因果才保留；'
             '明确剔除冷笑与冷淡等微表情差异、一般支线省略、为了完整复述原文而追加的镜头、'
             '纯粹要求美化或增强性格张力的意见。源文本说明含混时不要据角色卡猜测事实。'
             '临时人物没有角色卡、称呼泛化或同场人物采用画外对白本身不是错人；必须有实际归属矛盾。'
             'silent_action的speaker_name为空是合法格式；不能要求给无声动作补说话人。'
-            '返回成立的问题下标（从0开始）以及逐项简短理由；可以全部不成立。\n'
+            '返回成立的问题下标（从0开始）以及逐项简短理由；可以全部不成立。'
+            + WATCHABLE_CRITERIA + '\n'
             + json.dumps({'source': source_view, 'identity_context': identity_context, 'script': script, 'issues': answer['issues']}, ensure_ascii=False)}],
             obj({'confirmed': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0, 'maximum': len(answer['issues'])-1}},
                  'reason': {'type': 'string'}}), name='pre_render_audit_confirmation', max_tokens=2000, timeout=240,

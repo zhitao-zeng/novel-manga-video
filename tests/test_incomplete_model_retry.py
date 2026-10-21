@@ -24,6 +24,7 @@ def _http(monkeypatch, handler):
 @pytest.mark.parametrize('first', [
     'data: [DONE]\n',
     'data: {"error":{"type":"api_error","code":"upstream_failure","message":"Model service request failed."}}\n',
+    'data: {"error":{"type":"overloaded_error","code":"upstream_unavailable","message":"Model service is unavailable."}}\n',
     'data: {"error":{"type":"upstream_stream_error","code":"upstream_stream_error","message":"Upstream stream was interrupted."}}\n',
     _sse('{"consistent":true}', finish=None),
     _sse('', finish='stop'),

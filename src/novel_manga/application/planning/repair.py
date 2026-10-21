@@ -15,7 +15,7 @@ from novel_manga.util import atomic_write_json, read_json
 
 def service_failure(note):
     return any(word in note for word in (
-        'HTTPStatusError', 'ReadTimeout', 'ConnectError', 'IncompleteResponse', 'JSON truncated', 'ReviewIncomplete', 'NOVEL_MODEL_', 'model resource '))
+        'HTTPStatusError', 'ReadTimeout', 'ConnectError', 'IncompleteResponse', 'JSON truncated', 'ReviewIncomplete', 'NOVEL_MODEL_', 'model resource ', 'streamed error from '))
 
 
 def same_proposal(left, right):
@@ -154,14 +154,14 @@ def failure_inputs(batch, chapter):
         'planning_input': current.get('planning_input') if not identity and not source_failure else None}
 
 
-def repair_chapter(batch, chapter, *, config, existing=False):
+def repair_chapter(batch, chapter, *, config, existing=False, record_path=None):
     directory = batch.episode_dir(chapter)
     if (directory/'clip_plan.json').is_file() and not existing:
         return {'status': 'kept'}
     note = batch.rows[chapter].get('note', '')
     if batch.planning_stop.is_set() or service_failure(note):
         return {'status': 'service_blocked', 'reason': note}
-    record_path = directory/'planning-repair.json'
+    record_path = Path(record_path) if record_path is not None else directory/'planning-repair.json'
     saved = read_json(record_path, {})
     context = current_context(batch, chapter)
     inputs = failure_inputs(batch, chapter)

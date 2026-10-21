@@ -1,6 +1,7 @@
 """Shared scoped source checks; retains novel field/protocol contracts."""
 import json
 from novel_manga.application.agents.episode.arguments import UnsupportedInput, SourceCheckIncomplete
+from novel_manga.review.contracts import WATCHABLE_CRITERIA
 
 def source_check(source, quote, shots, phases, locations=None, scoped_shots=None, *, characters=None):
     from novel_manga.llm.client import ask_json, obj
@@ -22,7 +23,7 @@ def source_check(source, quote, shots, phases, locations=None, scoped_shots=None
     prompt = ('核对原文与一份局部输入修复候选。判断修改后的入镜人物、群演、听者、地点、光线、外貌、穿戴和姿态衔接是否有原文依据，'
               'shots是稀疏补丁；affected_shots是结果上下文，其中出现turns不表示本次修改了对白。'
               '冲突须归属scope_fields中的实际候选字段，不能把上下文未改字段冒充修订。'
-              '只允许原文已有事件及归属的纠正，不得新增动作事件、机位或时长。speaker_map只能纠正原文能明确核实的旧说话人错误；无证据不能换说话人。'
+              '保留既定镜头和时长，关键事件及归属须与原文一致；普通表演衔接按共享可看口径判断，不因未逐字写出就视为新增剧情。speaker_map只能纠正原文能明确核实的旧说话人错误；无证据不能换说话人。'
               '只有shots显式包含turn_texts时，允许对超出发声时长的改编对白缩写；必须保留关键问答、决定、否定、条件、因果、数字含义及说话人，不能只因非逐字引用而拒绝。其他对白不得更改。'
               '若shots显式包含turns，则本次申请是语义修复：可按原文纠正、删除错误改编对白，补回必要问答，纠正说话者及内心/公开发声方式。'
               '必须保留原文关键事实、人物知识边界、立场和因果；不能把猜测变成事实，不能让旁人听见原文中的内心想法。'
@@ -38,7 +39,8 @@ def source_check(source, quote, shots, phases, locations=None, scoped_shots=None
               '原文未逐字描述的正常衣料声、呼吸声、站位、长袍长度、发型等美术实现不是新增剧情；'
               '只拦截明确事实矛盾，不因“未明确说到”推定矛盾。称谓或同义地点标签也不等于换了地点。'
               '不支持或与原文相反的修改给出具体problems；所有修改有依据才consistent=true。'
-              'problems仅填写确定的事实矛盾，不能填写“有依据”“符合要求”等肯定说明；没有矛盾必须problems=[]。\n'
+              'problems仅填写确定的事实矛盾，不能填写“有依据”“符合要求”等肯定说明；没有矛盾必须problems=[]。'
+              + WATCHABLE_CRITERIA + '\n'
               + json.dumps({'source': source, 'source_quote': quote, 'shots': shots, 'scope_fields': fields,
                             'phases': phases, 'locations': locations or {}, 'characters': characters or {},
                             'affected_shots': scoped_shots or [], 'turn_encoding': turn_encoding}, ensure_ascii=False))

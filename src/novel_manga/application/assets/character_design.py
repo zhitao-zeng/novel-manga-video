@@ -82,7 +82,7 @@ def fill_characters(bible: review_models_StoryBible, bible_path: Path, missing: 
                 for name in batch)
             rows.extend(model_client.ask_json([{"type": "text", "text": question}],
                 review_contracts.fill_schema(batch), name="fill", max_tokens=3000,
-                settings=service_cast_endpoint.bible_settings()).get("characters", []))
+                settings=service_cast_endpoint.bible_settings(), json_object=True).get("characters", []))
         added: list[Character] = []
         for row in rows:
             name = re.sub(r"\s+", "", str(row.get("name", "")))

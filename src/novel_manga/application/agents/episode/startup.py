@@ -86,6 +86,14 @@ def prepare_operations(ctx, bridge, state):
         lifecycle.wait_for_idle(bridge)
         bridge.update_state(phase='pipeline_preparation',waiting_for='native_pipeline')
         ready=native_episode.prepare(ctx,bridge.tools.drafts,bridge.tools.repairs)
+        failure=ready.get('error') or ''
+        if failure.startswith('ValueError: identity semantic review unresolved:'):
+            from .identity_repair import repair
+            repaired=repair(ctx,config,failure)
+            if repaired.get('status')=='planned':
+                ready=native_episode.prepare(ctx,bridge.tools.drafts,bridge.tools.repairs)
+            else:
+                ready.update(stage='identity',identity_repair=repaired)
         state.account_resources()
         if ready.get('status')=='waiting_assets':
             native_wait=ready

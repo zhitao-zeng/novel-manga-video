@@ -108,14 +108,14 @@ def clip_frames(video: Path, output_dir: Path, count: int) -> list[Path]:
     seconds = media_duration(video)
     frames = []
     for index in range(count):
-        position = seconds * (0.1 + 0.8 * index / max(1, count - 1))
+        position = seconds * (0.04 + 0.94 * index / max(1, count - 1))
         target = output_dir / f"frame_{index + 1}.jpg"
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{position:.3f}", "-i", str(video), "-frames:v", "1", "-vf", f"scale={review_contracts.FRAME_WIDTH}:-2", "-q:v", "4", str(target)], check=True)
         frames.append(target)
     from novel_manga.review.storage import take_identity
     atomic_write_json(output_dir/'frame-evidence.json', {
         'video': str(video), 'take': take_identity(video),
-        'frames': [{'path': str(frame), 'seconds': seconds * (0.1 + 0.8 * index / max(1, count - 1))}
+        'frames': [{'path': str(frame), 'seconds': seconds * (0.04 + 0.94 * index / max(1, count - 1))}
                    for index, frame in enumerate(frames)]})
     return frames
 

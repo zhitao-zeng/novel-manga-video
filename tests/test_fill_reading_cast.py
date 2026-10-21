@@ -35,6 +35,7 @@ def test_unconfirmed_appellation_still_needs_an_identity_decision(tmp_path, monk
 def test_many_missing_designs_are_batched_and_cannot_repeat_the_existing_cast(tmp_path, monkeypatch):
     calls = []
     def reply(parts, schema, **kwargs):
+        assert kwargs.get('json_object') is True  # tuple schemas are not accepted by the API
         requested = schema['properties']['characters']
         names = [row['properties']['name']['enum'][0] for row in requested['prefixItems']]
         calls.append(names)

@@ -66,7 +66,7 @@ def stream_completion(client: httpx.Client, url: str, headers: dict, payload: di
                     error = event['error']
                     _meter(url, request, metering_body('incomplete'))
                     retryable = isinstance(error, dict) and error.get('code') in {
-                        'upstream_failure', 'upstream_stream_error'}
+                        'upstream_failure', 'upstream_stream_error', 'upstream_unavailable'}
                     failure = IncompleteResponse if retryable else RuntimeError
                     raise failure(f"streamed error from {url}: {json.dumps(error, ensure_ascii=False)[:300]}")
                 for choice in event.get("choices") or []:
