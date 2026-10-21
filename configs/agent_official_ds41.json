@@ -1,0 +1,21 @@
+{
+  "_": "官方 (official-ds41), an opt-in PhanRouter DS41 route. The credential is read from PHANROUTER_IMAGE_API_KEY in the runtime project's ignored .env. This name is a local route label.",
+  "image": "agent-sandbox:0918",
+  "runs_root": "/mnt/disk1/zengzhitao/novel-manga-video/.runtime/model-providers/official-ds41/agent-runs",
+  "base_url": "https://cloud.phanthy.com/phanrouter",
+  "model": "deepseek-v4.1-flash-1017",
+  "key_var": "PHANROUTER_IMAGE_API_KEY",
+  "effort": "low",
+  "parallel": {"day": 1, "night": 1, "night_from": 20, "night_until": 10},
+  "timeout_seconds": 5400,
+  "agent_invocations_per_slice": 1,
+  "model_slots_reserved_for_tools": 0,
+  "agent_slice_seconds": 600,
+  "source_agent_slice_seconds": 1200,
+  "resume_session_on_retry": true,
+  "complete_started_repairs": true,
+  "h3_translation_endpoint": "phanthy-ds41",
+  "h3_request_check_endpoint": "phanthy-ds41",
+  "h3_preparation_parallel": 1,
+  "production_mode": "batch_review"
+}

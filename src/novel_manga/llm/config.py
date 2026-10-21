@@ -60,6 +60,11 @@ ENDPOINTS = {
                      "QWEN38_LOCAL_MODEL": "gpt-5.6-luna",
                      "QWEN38_LOCAL_API_KEY_VAR": "PHANTHY_API_KEY", "QWEN38_LOCAL_STREAM": "1",
                      "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
+    # 用户命名“官方 DS41”；独立可选路由，复用现有 PhanRouter key。
+    "official-ds41": {"QWEN38_LOCAL_BASE_URL": "https://cloud.phanthy.com/phanrouter/v1",
+                      "QWEN38_LOCAL_MODEL": "deepseek-v4.1-flash-1017",
+                      "QWEN38_LOCAL_API_KEY_VAR": "PHANROUTER_IMAGE_API_KEY", "QWEN38_LOCAL_STREAM": "1",
+                      "QWEN38_LOCAL_MIN_MAX_TOKENS": "0"},
 }
 
 TRANSPORT_ENV = ('QWEN38_LOCAL_STREAM', 'QWEN38_LOCAL_REASONING', 'QWEN38_LOCAL_MIN_MAX_TOKENS')
