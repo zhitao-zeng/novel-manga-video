@@ -19,6 +19,7 @@ class MediaOperations:
         self.ctx = ctx
         self.drafts = drafts
         self.evidence = evidence
+        self.begin_generation = None
 
     def runner(self):
         from novel_manga.application.rendering.flow import ThinMediaRunner
@@ -39,6 +40,12 @@ class MediaOperations:
         runner.context.asr_helper = self.ctx.project_root / 'scripts/thin_asr_segments.py'
         runner.context.source_novel_dir = getattr(self.ctx, 'source_novel_dir', None) or self.ctx.novel_dir
         runner.context.options.first_pass_only = os.environ.get('NOVEL_FIRST_PASS_ONLY') == '1'
+        if self.begin_generation is not None:
+            probe = runner.context.provider.before_video_submit
+            def before_submit():
+                probe()
+                self.begin_generation()
+            runner.context.provider.before_video_submit = before_submit
         return runner
 
 

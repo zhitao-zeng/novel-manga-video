@@ -1,6 +1,8 @@
 """Run one episode agent while its existing host tools execute media operations."""
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import threading
+from . import phase_budget
 from .context import EpisodeContext
 from . import runtime as runtime_rules
 from novel_manga.application.resolved_settings import resolve_agent_environment
@@ -150,6 +152,7 @@ class EpisodeRunState:
     native_mode: bool
     production_only: bool
     first_pass_only: bool
+    budget_lock: object = field(default_factory=threading.Lock, repr=False)
 
     def account_resources(self):
         from novel_manga.resource_waits import wait_seconds
@@ -159,6 +162,22 @@ class EpisodeRunState:
         self.deadline+=extra
         self.result['deadline']+=extra
         self.result['resource_wait_seconds']=round(self.saved.get('resource_wait_seconds',0)+waited,3)
+        phase_budget.account(self.result.get('phase_budget'), self.deadline-time.monotonic())
+
+    def begin_generation(self, persist):
+        """Called by the existing provider hook, after all assets and probes are ready."""
+        with self.budget_lock:
+            budget = self.result.get('phase_budget')
+            if budget is None or budget['phase'] == 'production':
+                return
+            self.account_resources()
+            remaining = phase_budget.begin_generation(budget, self.deadline-time.monotonic())
+            switched_at = time.time()
+            budget['preparation']['finished_at'] = switched_at
+            budget['production']['started_at'] = switched_at
+            self.deadline = time.monotonic()+remaining
+            self.result.update(deadline=switched_at+remaining, remaining_seconds=remaining)
+            persist(deadline=self.result['deadline'], remaining_seconds=remaining, phase_budget=budget)
 
     def defer(self, reason):
         self.account_resources()
@@ -179,7 +198,8 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         (('base_url', 'NOVEL_AGENT_BASE_URL'), ('model', 'NOVEL_AGENT_MODEL'),
          ('key_var', 'NOVEL_AGENT_KEY_VAR')) if os.environ.get(var)}}
     seconds = int(timeout if timeout is not None else config.get('timeout_seconds', DEFAULT_OPERATION_SECONDS))
-    if seconds <= 0:
+    preparation_seconds = int(config.get('preparation_timeout_seconds', seconds))
+    if seconds <= 0 or preparation_seconds <= 0:
         raise ValueError('timeout must be positive')
     runtime = resolve_agent_environment(ctx, config)
     runtime['NOVEL_RESOURCE_WAIT_FILE']=str(ctx.run_dir/'resource-waits.jsonl')
@@ -225,7 +245,12 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
             config, saved = recovered
     from .bounded_recovery import resume_window
     recovered_window=resume_window(ctx,saved)
-    if recovered_window is not None:saved=recovered_window
+    if recovered_window is not None:
+        saved=recovered_window
+        if saved.get('phase_budget'):
+            budget=saved['phase_budget']
+            row=budget[budget['phase']]
+            row['limit_seconds']=max(row['limit_seconds'], row['used_seconds'])+saved['upstream_recovery']['seconds']
     if saved.get('upstream_recovery') and saved.get('status') in {'blocked','finished_with_issues'}:
         return BootstrapResult(completed=saved)
     if saved.get('status') == 'deferred':
@@ -252,7 +277,8 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
             else:
                 session.rename(archive/'episode-session.json')
         pending = saved.get('job') or {}
-        saved = {**saved, 'agent_activity': archive.name, 'status': 'retrying', 'deadline': time.time()+seconds,
+        saved = {**saved, 'agent_activity': archive.name, 'status': 'retrying',
+                 'deadline': saved['deadline'] if saved.get('phase_budget') else time.time()+seconds,
                  'fallback_invocations': 0, 'no_progress': 0,
                  'stop_detail': None,
                  'job': pending if pending.get('status') in {'running', 'accepted'} else None}
@@ -276,17 +302,24 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
             atomic_write_json(ctx.run_dir / 'agent-run.json', saved)
             return BootstrapResult(completed=saved)
     finish_stamp = progress_rules.file_stamp(ctx.work_dir / 'input/latest-finish.json')
+    from novel_manga.application.production.artifacts import media_started
+    budget = phase_budget.load(saved, preparation_seconds=preparation_seconds,
+                               production_seconds=seconds, media_exists=media_started(ctx.episode_dir))
     result = {'episode': ctx.source_episode_dir.name, 'input_mode': ctx.input_mode,
               'agent_activity': agent_activity,
               'run_dir': str(ctx.run_dir), 'status': 'blocked', 'passed': False,
               'exit_code': 2, 'attempts': list(saved.get('attempts', [])), 'pid': os.getpid(),
-              'deadline': saved.get('deadline') or time.time() + seconds,
+              'deadline': saved.get('deadline') or time.time() + (budget[budget['phase']]['limit_seconds'] if budget else seconds),
               'fallback_invocations': saved.get('fallback_invocations', 0),
               'no_progress': saved.get('no_progress', 0), 'reason': None,
               'summary_only_turns': saved.get('summary_only_turns', 0),
               'idle_turns': saved.get('idle_turns',0),
               'agent_seconds': saved.get('agent_seconds', 0),
               'model_wait_seconds': saved.get('model_wait_seconds', 0)}
+    if budget is not None:
+        budget[budget['phase']].setdefault('started_at', result['deadline']-max(
+            0, budget[budget['phase']]['limit_seconds']-budget[budget['phase']]['used_seconds']))
+        result['phase_budget'] = budget
     if saved.get('upstream_recovery'):
         result['upstream_recovery']=saved['upstream_recovery']
     if saved.get('model_switch'):

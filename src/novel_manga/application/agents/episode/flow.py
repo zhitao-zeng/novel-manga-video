@@ -52,6 +52,7 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
     # the mounted workspace; a directory fd keeps deep episode paths usable.
     directory_fd = os.open(ctx.work_dir, os.O_RDONLY | os.O_DIRECTORY)
     bridge = EpisodeBridge(EpisodeTools(ctx), Path(f'/proc/self/fd/{directory_fd}/episode-tools.sock'))
+    bridge.tools.begin_generation = lambda: state.begin_generation(bridge.update_state)
     bridge.bind_state(ctx.run_dir / 'agent-run.json')
     bridge.update_state(**{**result, 'status': 'running'}, phase='ready_agent')
     socket_path = ctx.work_dir / 'episode-tools.sock'
@@ -77,6 +78,9 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     raise errors[0]
                 if not thread.is_alive() or time.monotonic() >= startup_deadline:
                     raise RuntimeError('episode tool bridge did not start')
+            from novel_manga.application.production.artifacts import media_started
+            if media_started(ctx.episode_dir):
+                state.begin_generation(bridge.update_state)
             native_block, native_wait = prepare_operations(ctx, bridge, state)
             no_progress = result['no_progress']
             fallbacks = result['fallback_invocations']

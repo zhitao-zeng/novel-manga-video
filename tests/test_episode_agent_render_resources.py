@@ -62,3 +62,29 @@ def test_managed_missing_or_zero_inflight_refuses_before_runner(runner_arguments
     with pytest.raises(ValueError, match='NOVEL_RENDER_INFLIGHT'):
         tools.media.runner()
     assert not calls
+
+
+@pytest.mark.parametrize('probe_fails', [False, True])
+def test_generation_clock_starts_after_the_existing_submission_probe(runner_arguments, monkeypatch, probe_fails):
+    tools, calls = runner_arguments
+    events = []
+    def probe():
+        events.append('probe')
+        if probe_fails:
+            raise ValueError('reference input is still invalid')
+    def runner(**kwargs):
+        context = RenderContext(options=RenderOptions(workers=2))
+        context.provider = SimpleNamespace(before_video_submit=probe)
+        return SimpleNamespace(context=context)
+    monkeypatch.setattr(flow, 'ThinMediaRunner', runner)
+    tools.begin_generation = lambda: events.append('production_budget')
+    prepared = tools.media.runner()
+    events.append('complete_expression_cards')
+    assert events == ['complete_expression_cards']
+    if probe_fails:
+        with pytest.raises(ValueError, match='reference input'):
+            prepared.context.provider.before_video_submit()
+        assert events == ['complete_expression_cards', 'probe']
+    else:
+        prepared.context.provider.before_video_submit()
+        assert events == ['complete_expression_cards', 'probe', 'production_budget']

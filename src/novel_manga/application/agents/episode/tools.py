@@ -27,6 +27,14 @@ class EpisodeTools:
         self.completion = EpisodeCompletion(ctx, self.media, self.evidence)
         self.inspection = EpisodeInspection(ctx, self.drafts, self.evidence)
 
+    @property
+    def begin_generation(self):
+        return self.media.begin_generation
+
+    @begin_generation.setter
+    def begin_generation(self, callback):
+        self.media.begin_generation = callback
+
     def dispatch(self, action, payload=None):
         try:
             if not isinstance(payload, dict) and payload is not None:

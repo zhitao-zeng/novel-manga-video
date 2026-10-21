@@ -41,7 +41,7 @@ def parser():
             command.add_argument('--retry-issues', action='store_true',
                                  help='Retry a stopped episode, retaining media and video budgets; session policy follows config.')
             command.add_argument('--timeout', type=int,
-                                 help='Total operation continuation time; defaults to sandbox configuration.')
+                                 help='Activity seconds per stage; preparation_timeout_seconds can override preparation.')
     return result
 
 
