@@ -158,7 +158,8 @@ def test_count_projection_still_rejects_approved_unreviewed_changes(monkeypatch)
         return {'approved': True, 'reason': '已修改', 'correction': seen}
     monkeypatch.setattr(client, 'ask_json', ask)
 
-    with pytest.raises(ValueError, match='approved a different, unreviewed correction'):
+    from novel_manga.llm.transport import IncompleteResponse
+    with pytest.raises(IncompleteResponse, match='approved a different, unreviewed correction'):
         review.close(original, {}, {}, name='test_review')
 
     assert original == before

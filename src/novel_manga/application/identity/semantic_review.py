@@ -6,6 +6,7 @@ import json
 import novel_manga.episodes as episodes
 from novel_manga.util import atomic_write_json
 from novel_manga.llm import client
+from novel_manga.llm.transport import IncompleteResponse
 from novel_manga.entities import contracts, evidence
 from novel_manga.application.identity import ledger_store
 
@@ -96,9 +97,11 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
                 note('resume_candidate', candidate=current)
         if reviews:
             latest = reviews[-1]
-            proposal = latest.get('answer', {}).get('correction')
+            last_answer = latest.get('answer')
+            last_answer = last_answer if isinstance(last_answer, dict) else {}
+            proposal = last_answer.get('correction')
             if (merge_correction is not None and isinstance(proposal, dict)
-                    and latest.get('answer', {}).get('approved') is False):
+                    and last_answer.get('approved') is False):
                 try:
                     previous = latest['candidate']
                     resumed = validate(merge_correction(deepcopy(previous), proposal))
@@ -108,14 +111,14 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
                     if not same_candidate(resumed, previous):
                         current = resumed
                         note('resume_candidate', candidate=current)
-            if (latest.get('answer', {}).get('approved') is False
-                    and isinstance(latest['answer'].get('reason'), str)
-                    and 'correction' in latest['answer']
+            if (last_answer.get('approved') is False
+                    and isinstance(last_answer.get('reason'), str)
+                    and 'correction' in last_answer
                     and same_candidate(current, candidate)):
                 # No changed, valid repair: a second batch pass must not buy
                 # a different judgment of the same evidence and candidate.
                 raise ValueError('identity semantic review unresolved: '
-                                 + str(latest['answer'].get('reason', 'no source-backed correction')))
+                                 + str(last_answer.get('reason', 'no source-backed correction')))
     demand = ''
     demanded = False
     attempt = 0
@@ -142,12 +145,12 @@ def close(candidate, context, schema, *, name, cached=None, settings=None, valid
         answer = client.ask_json([{'type': 'text', 'text': prompt}], reply_schema,
                                  name=name, max_tokens=16000, timeout=240, json_object=True, **options)
         note('review',candidate=current,reviewed_view=review_candidate,answer=answer)
-        if (type(answer.get('approved')) is not bool or 'correction' not in answer
+        if (not isinstance(answer, dict) or type(answer.get('approved')) is not bool or 'correction' not in answer
                 or not isinstance(answer.get('reason'), str)):
-            raise ValueError('identity review has no complete typed judgment')
+            raise IncompleteResponse('identity review has no complete typed judgment')
         if answer.get('approved'):
             if answer.get('correction') is not None:
-                raise ValueError('identity reviewer approved a different, unreviewed correction')
+                raise IncompleteResponse('identity reviewer approved a different, unreviewed correction')
             current = validate(current)
             trace.update(approved=True,result=current)
             if record is not None:atomic_write_json(record,trace)
@@ -297,8 +300,12 @@ def book(ledger, chapter, text, raw, *, texts=None, original_records=None):
               + json.dumps({'context':review_context,'candidate':candidate}, ensure_ascii=False))
     answer = client.ask_json([{'type':'text','text':prompt}], schema, name='ledger_identity_review',
                              max_tokens=16000, timeout=240, settings=judge_settings())
+    if (not isinstance(answer, dict) or type(answer.get('approved')) is not bool
+            or 'correction' not in answer or not isinstance(answer.get('reason'), str)):
+        raise IncompleteResponse('identity review has no complete typed judgment')
     if answer.get('approved'):
-        if answer.get('correction') is not None: raise ValueError('approved unreviewed identity correction')
+        if answer.get('correction') is not None:
+            raise IncompleteResponse('approved unreviewed identity correction')
         return raw, {'approved': True, 'reason': answer.get('reason',''), 'inputs': inputs}
     correction = answer.get('correction')
     if correction is None: raise ValueError('identity semantic review unresolved: '+str(answer.get('reason','')))

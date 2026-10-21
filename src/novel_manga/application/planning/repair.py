@@ -10,6 +10,7 @@ from novel_manga.application.agents.sandbox import SandboxRefused
 from novel_manga.application.agents.episode.session import run_session, SESSION_FILE
 from novel_manga.llm.resources import model_slot
 from novel_manga.llm import usage
+from novel_manga.llm.transport import IncompleteResponse
 from novel_manga.util import atomic_write_json, read_json
 
 
@@ -165,8 +166,11 @@ def repair_chapter(batch, chapter, *, config, existing=False, record_path=None):
     saved = read_json(record_path, {})
     context = current_context(batch, chapter)
     inputs = failure_inputs(batch, chapter)
+    pending_source = (saved.get('status') == 'service_blocked'
+                      and (saved.get('proposal') or {}).get('kind') == 'identity_source'
+                      and not saved.get('identity_adopted'))
     same = (saved.get('context') == context
-            and saved.get('inputs', {}).get('kind') == inputs['kind']
+            and (saved.get('inputs', {}).get('kind') == inputs['kind'] or pending_source)
             and (not existing or saved.get('inputs', {}).get('failure') == note))
     if same:
         inputs = saved['inputs']
@@ -332,7 +336,7 @@ def repair_chapter(batch, chapter, *, config, existing=False, record_path=None):
         except Exception as error:
             if getattr(getattr(error, 'response', None), 'status_code', None) == 402:
                 batch.planning_stop.set()
-            if isinstance(error, (httpx.HTTPError, TimeoutError, SandboxRefused, InterruptedError)) or service_failure(str(error)):
+            if isinstance(error, (IncompleteResponse, httpx.HTTPError, TimeoutError, SandboxRefused, InterruptedError)) or service_failure(str(error)):
                 return finish('service_blocked', f'{type(error).__name__}: {error}')
             reason = f'{type(error).__name__}: {error}'
             batch.rows[chapter]['note'] = reason

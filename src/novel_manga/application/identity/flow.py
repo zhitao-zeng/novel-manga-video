@@ -128,16 +128,23 @@ def resolve_chapter(directory: Path, *, force=False, data: ChapterIdentityData |
     # A failed binding must not discard a completed reading of unchanged text.
     if source_proposal is not None:
         from copy import deepcopy
-        if source_proposal.get('inputs') != extracted or extracted.get('inputs', {}).get('segments') != segments:
+        original = source_proposal.get('inputs') or {}
+        if (original.get('inputs', {}).get('segments') != segments
+                or extracted.get('inputs', {}).get('segments') != segments):
             raise ValueError('planning source proposal is stale for the current source')
+        original_answer = original.get('answer') or {}
         correction = source_proposal['correction']
-        answer = semantic_review.merge_binding_changes({'actors': source_answer.get('actors') or [],
+        answer = semantic_review.merge_binding_changes({'actors': original_answer.get('actors') or [],
             'bindings': []}, {'actors': correction.get('actors') or []})
-        answer = {**deepcopy(source_answer), 'actors': answer['actors']}
+        answer = {**deepcopy(original_answer), 'actors': answer['actors']}
+        # Source facts are saved before binding review. A service interruption
+        # may therefore leave this exact correction on disk but not yet adopted.
+        if extracted != original and source_answer != answer:
+            raise ValueError('planning source proposal is stale for the current source')
         cleaned_proposal, _, unresolved_proposal = clean_reading(answer, segments)
         if unresolved_proposal or not cleaned_proposal['actors']:
             raise ValueError('planning source proposal lacks grounded source actors')
-        if answer == source_answer:
+        if answer == original_answer:
             raise ValueError('planning source proposal has no changed grounded candidate')
     elif (not force and saved.get('policy') in {POLICY, 'story-identity-v6-catalogue-bindings', 'story-identity-v5-grounded-types'} and saved.get('inputs', {}).get('segments') == segments
             and 'source_actors' in saved and usable_reading(saved)

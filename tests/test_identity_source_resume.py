@@ -114,7 +114,8 @@ def test_review_keeps_lookup_names_and_aliases_without_unrelated_forms(tmp_path,
 def test_review_rejects_a_non_boolean_judgment(monkeypatch, approved):
     monkeypatch.setattr(client, 'ask_json', lambda *a, **k:
                         {'approved': approved, 'reason': '看似支持', 'correction': None})
-    with pytest.raises(ValueError, match='no complete typed judgment'):
+    from novel_manga.llm.transport import IncompleteResponse
+    with pytest.raises(IncompleteResponse, match='no complete typed judgment'):
         semantic_review.close({}, {}, {}, name='review')
 
 
