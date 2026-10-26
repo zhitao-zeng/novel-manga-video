@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from novel_manga.application.profiles import reference_image_env
 import os
+import re
 import signal
 import subprocess
 import novel_manga.application.production.conductor_common as conductor_common
@@ -18,21 +19,24 @@ def external_running(conductor, pattern: str, mode: int | None = None) -> bool:
 
     With `mode`, only a lane rendering that clip length counts; a lane that predates the
     --plan-mode flag carries none and counts for either, so restarts never duplicate it."""
-    # "--" ends pgrep's own options: the patterns start with "--chapters".
-    result = subprocess.run(["pgrep", "-f", "--", pattern], capture_output=True, text=True)
-    if result.returncode != 0:
-        return False
-    own = {str(proc.pid) for proc in conductor.procs.values() if proc.poll() is None}
-    for pid in (p.strip() for p in result.stdout.split()):
-        if not pid or pid in own:
+    from . import control
+    rows = getattr(conductor, '_external_processes', None)
+    if rows is None:
+        rows = conductor._external_processes = control.processes()
+    own = {proc.pid for proc in conductor.procs.values() if proc.poll() is None}
+    novel = conductor.novel_dir.resolve()
+    for row in rows:
+        if row['pid'] in own:
             continue
-        if mode is None:
-            return True
-        try:
-            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").replace("\0", " ")
-        except OSError:
+        args = row['args']
+        directory = control.argument(args, '--novel-dir') or next(
+            (arg.split('=', 1)[1] for arg in args if arg.startswith('--novel-dir=')), None)
+        if not directory or (Path(row['cwd'])/directory).resolve() != novel:
             continue
-        if "--plan-mode" not in cmdline or f"--plan-mode {mode}" in cmdline:
+        cmdline = ' '.join(args)
+        if not re.search(pattern, cmdline):
+            continue
+        if mode is None or "--plan-mode" not in cmdline or f"--plan-mode {mode}" in cmdline:
             return True
     return False
 

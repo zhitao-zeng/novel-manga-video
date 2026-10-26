@@ -228,7 +228,7 @@
         "base": "https://cloud.phanthy.com/phanrouter/v1",
         "model": "deepseek-v4.1-flash-1017",
         "key_var": "PHANROUTER_IMAGE_API_KEY",
-        "slots": 3,
+        "slots": 6,
         "note": "十日1–300本次文字续接；Phanthy日额度耗尽后沿原剩余时间切用户已有official-ds41路由，不重置拍摄计数或活动预算。"
       }
     }
@@ -397,7 +397,7 @@
         "h3cloud"
       ],
       "planning": {
-        "official-ds41": 3
+        "official-ds41": 6
       },
       "blocks_max": 3,
       "blocks_min": 1,

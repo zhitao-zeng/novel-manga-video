@@ -86,6 +86,8 @@ class Conductor:
 
     # ------------------------------------------------------------------- loop
     def tick(self) -> bool:
+        # Reuse the process view within this tick; leases arbitrate submissions.
+        self._external_processes = None
         if self.executor == 'episode_agent':
             from . import episode_agents
             return episode_agents.tick(self)
