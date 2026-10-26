@@ -125,7 +125,7 @@ def main() -> int:
                 production_common.log(f"skipping {len(wrong)} episodes planned for the other clip length: {wrong[:8]}"
                     f"{' ...' if len(wrong) > 8 else ''}")
                 chapters = [ch for ch in chapters if ch not in set(wrong)]
-        if os.environ.get("NOVEL_LOCAL_H3_URL") and not args.no_render:
+        if (os.environ.get("NOVEL_LOCAL_H3_URL") or os.environ.get('NOVEL_VIDEO_MODEL') == 'MiniMax-H3') and not args.no_render:
             # One still holding thin_media_report.h3zh.json is waiting for the keep-check that decides which
             # of its old clips stay.  (One without its English prompts is converted when its turn comes,
             # in Batch.h3_ready: deciding that here, once per lane start, left 1597 waiting for good.)

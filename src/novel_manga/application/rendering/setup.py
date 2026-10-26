@@ -60,6 +60,10 @@ def lexicon_aliases() -> dict[str, str]:
 
 
 def create_context(*, novel_dir: Path, episode_dir: Path, settings: Settings, bible: StoryBible, workers: int, max_attempts: int, profile: dict | None = None, inflight: int = 0, prescreen: bool = False, moderation_repair: bool = True, cache_only: bool = False, retake_failed: bool = False) -> RenderContext:
+    channel = os.environ.get('NOVEL_VIDEO_CHANNEL')
+    if channel and not cache_only:
+        from novel_manga.application.video_channels import channel_environment
+        channel_environment(project_root(), channel, episode_dir=episode_dir, model=settings.video_model)
     ctx = RenderContext()
     ctx.options.cache_only = cache_only  # rebuild from clips already rendered; never generate
     ctx.novel_dir = novel_dir

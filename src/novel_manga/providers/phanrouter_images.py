@@ -106,7 +106,8 @@ def create_image(
     task_id = record.get("task_id")
     cached = bool(task_id)
     if not cached:
-        task_id = submit_recorded(submit, task_path, {"kind": "image"})
+        task_id = submit_recorded(submit, task_path, {"kind": "image"}, resource_model=settings.image_model,
+                                  resource_key=image_headers.get('Authorization', '').removeprefix('Bearer '))
         if task_id:
             atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
     if not task_id:
@@ -126,7 +127,8 @@ def create_image(
         # card is not coming back: submit it again, once.
         if not cached or not purged:
             raise
-        task_id = submit_recorded(submit, task_path, {"kind": "image"})
+        task_id = submit_recorded(submit, task_path, {"kind": "image"}, resource_model=settings.image_model,
+                                  resource_key=image_headers.get('Authorization', '').removeprefix('Bearer '))
         if not task_id:
             raise ValueError("image API returned no task_id") from error
         atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})

@@ -129,7 +129,8 @@ def render(batch, chapter: int) -> None:
             row.update(render="plan_blocked", note="all clips await corrected plans; no generation run spent")
             production_common.log(f"ch{chapter}: all {len(blocked)} clips wait for corrected plans; no video requested")
             return
-    if free and not batch.args.cache_only and not batch.h3_ready(chapter):
+    h3_request = free or os.environ.get('NOVEL_VIDEO_MODEL') == 'MiniMax-H3'
+    if h3_request and not batch.args.cache_only and not batch.h3_ready(chapter):
         row["render"] = "skipped (H3 prompt not ready)"
         return
     # Three runs per clip plan and set of director corrections, then stop: a clip that fails the same

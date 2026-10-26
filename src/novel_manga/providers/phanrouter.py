@@ -41,9 +41,10 @@ class PhanRouterMediaProvider(MediaProvider):
     def public_card_url(self, path, digest):
         return self._references().public_card_url(path, digest)
 
-    def _video_payload(self, prompt, image_url, duration, additional_image_urls=(), reference_audio_urls=()):
+    def _video_payload(self, prompt, image_url, duration, additional_image_urls=(), reference_audio_urls=(), *, first_frame=False):
         return video.video_payload(self.settings, prompt, image_url, duration, additional_image_urls, reference_audio_urls,
-                                   ratio=self.video_ratio, resolution=self.video_resolution)
+                                   ratio=self.video_ratio, resolution=self.video_resolution,
+                                   **({'first_frame': True} if first_frame else {}))
 
     def create_image(self, prompt, output, reference=None, additional_references=(), *, aspect_ratio=None):
         return images.create_image(self.settings, self.client, self.image_headers, prompt, output, reference, additional_references,
@@ -57,7 +58,16 @@ class PhanRouterMediaProvider(MediaProvider):
         duration: float,
         additional_images: tuple[Path, ...] = (),
         reference_audios: tuple[Path, ...] = (),
+        *, first_frame: Path | None = None,
     ) -> Path:
+        if first_frame is not None:
+            if self.settings.video_model not in {'sd2.0-fast', 'sd2.0-mini'}:
+                raise ValueError('Hosted first-frame video requires SD Fast/Mini')
+            paths = tuple(([image.path] if image is not None else []) + list(additional_images))
+            if paths != (Path(first_frame),) or reference_audios:
+                raise ValueError('SD first-frame video requires exactly its opening image and native audio')
+            image=ImageResult(path=Path(first_frame))
+            additional_images=()
         for additional_image in additional_images:
             if not additional_image.is_file():
                 raise FileNotFoundError(additional_image)
@@ -75,6 +85,7 @@ class PhanRouterMediaProvider(MediaProvider):
             duration,
             additional_image_urls,
             tuple(video.audio_data_url(path) for path in reference_audios),
+            **({'first_frame': True} if first_frame is not None else {}),
         )
         return video.generate_video(self.settings, self.client, self.video_headers, payload, output, additional_images, reference_audios,
                                     before_submit=getattr(self, 'before_video_submit', None))

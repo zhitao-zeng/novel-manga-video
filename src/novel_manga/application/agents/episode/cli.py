@@ -37,6 +37,7 @@ def parser():
             command.add_argument('--refresh-character', action='append', metavar='ASSET_ID',
                                  help='Refresh only this character in an existing input snapshot; repeat to select more.')
         if name == 'run':
+            command.add_argument('--video-channel', help='Registered H3 channel; SD channels use render_clips_thin.py --review.')
             command.add_argument('--config', type=Path, help='Task-specific sandbox configuration.')
             command.add_argument('--retry-issues', action='store_true',
                                  help='Retry a stopped episode, retaining media and video budgets; session policy follows config.')
@@ -81,6 +82,9 @@ def main(argv=None):
                         options = {'retry_issues': True} if arguments.retry_issues else {}
                         if arguments.config:
                             options['config'] = load_config(arguments.config)
+                        if arguments.video_channel:
+                            options['config'] = {**(options.get('config') or load_config(context.project_root/'configs/agent_sandbox.json')),
+                                                 'video_channel': arguments.video_channel}
                         result = run_episode(context, timeout=arguments.timeout, **options)
                     results.append(result)
                 except (OSError, ValueError, RuntimeError) as error:

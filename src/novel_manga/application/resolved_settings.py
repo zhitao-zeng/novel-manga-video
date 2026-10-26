@@ -76,7 +76,11 @@ def resolve_agent_environment(ctx, config):
                 metadata = read_json(ctx.source_novel_dir/'novel.json', {})
             profile = metadata.get('profile', {})
         review_mode = str(profile.get('review_mode') or repair_settings(ctx.project_root)['review_mode'])
-    if not env.get('NOVEL_LOCAL_H3_URL', '').strip():
+    from .video_channels import selected_channel, channel_environment
+    channel = selected_channel(ctx.episode_dir, config)
+    if channel:
+        env.update(channel_environment(ctx.project_root, channel, episode_dir=ctx.episode_dir))
+    elif not env.get('NOVEL_LOCAL_H3_URL', '').strip():
         env, settings = repair_environment(ctx.project_root, ctx.run_dir)
         # The pool belongs to the service, not this episode's sandbox directory.
         key = next((row for row in pipeline.get('resources', {}).get('video_keys', {}).values()

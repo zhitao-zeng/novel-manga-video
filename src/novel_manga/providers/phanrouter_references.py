@@ -23,16 +23,46 @@ class ReferenceMaterials:
 
     def _restore_image_url(self, image: ImageResult) -> str:
         """The reference as the video request carries it: asset://id when the asset library is on, else the hosted URL."""
+        if (getattr(self.settings, 'video_model', '') == 'MiniMax-H3'
+                and getattr(self.settings, 'phanrouter_asset_public_base', None)
+                and not self.settings.inline_reference_images):
+            return self._published_image_url(image.path)
         if getattr(self.settings, "reference_images_via_assets", False) and not self.settings.inline_reference_images:
             return self._asset_reference(image)
         return self._hosted_image_url(image)
 
 
+    def _published_image_url(self, path: Path) -> str:
+        """Cloud H3 needs HTTP references even for local cards/crops without image tasks."""
+        from urllib.parse import quote
+        from ..media.publish import publish_file, publish_root
+        root = publish_root(getattr(self.settings, 'output_root', None))
+        published = publish_file(path, root, reference=True)
+        # publish_file already computed the existing content-keyed layout.
+        # Build from its returned path rather than reading/hashing the card again.
+        relative = '/'.join(quote(part, safe='') for part in published.relative_to(root).parts)
+        url = self.settings.phanrouter_asset_public_base.rstrip('/') + '/' + relative
+        try:
+            probe = self.client.head(url, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
+                                     headers={'ngrok-skip-browser-warning': '1'}, follow_redirects=True)
+        except httpx.HTTPError as error:
+            raise RuntimeError(f'{path.parent.name}/{path.name}: public reference probe failed '
+                               f'({type(error).__name__}); check PHANROUTER_ASSET_PUBLIC_BASE') from None
+        if probe.status_code != 200:
+            raise RuntimeError(f'{path.parent.name}/{path.name}: public reference probe HTTP {probe.status_code}; '
+                               'check PHANROUTER_ASSET_PUBLIC_BASE and its publish directory')
+        return url
+
     def public_card_url(self, path: Path, digest: str) -> str:
         """Where publish_cards.sh puts a copy of this card: <base>/<novel>/<asset>/<view>-<sha12><ext>."""
         base = getattr(self.settings, "phanrouter_asset_public_base", None) or ""
         novel = path.parents[3].name if len(path.parents) > 3 else "novel"
-        return f"{base}/{novel}/{path.parent.name}/{path.stem}-{digest[:12]}{path.suffix}"
+        from urllib.parse import quote
+        # Edition names carry non-ASCII (zhiyao episodes, 2026-10-23): the gateway
+        # downloads the URL verbatim, so every path segment must be percent-encoded
+        # or the library side answers InvalidParameter.DownloadFailed.
+        segments = "/".join(quote(part) for part in (novel, path.parent.name))
+        return f"{base}/{segments}/{quote(path.stem)}-{digest[:12]}{path.suffix}"
 
 
     def _asset_base_url(self) -> str:
@@ -42,6 +72,17 @@ class ReferenceMaterials:
 
 
     def _asset_reference(self, image: ImageResult, hosted_url: str | None = None) -> str:
+        # Clip workers regularly share one character card. Serialize the existing
+        # sidecar so parallel submissions cannot register/pay for it repeatedly.
+        import fcntl
+        if not image.path.is_file():
+            raise FileNotFoundError(image.path)
+        sidecar = image.path.with_suffix(image.path.suffix + ASSET_SIDECAR)
+        with sidecar.with_suffix(sidecar.suffix+'.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return self._asset_reference_locked(image, hosted_url)
+
+    def _asset_reference_locked(self, image: ImageResult, hosted_url: str | None = None) -> str:
         """asset://<id> for this image: created once in the asset library and remembered in a sidecar keyed
         by the file's content, so a redrawn card gets a new asset and an unchanged one never a second.
         The library fetches the image itself, so the source is the published copy under the public base
@@ -59,6 +100,8 @@ class ReferenceMaterials:
         except (OSError, ValueError):
             record = {}
         if record.get("asset_id") and record.get("sha256") == digest and record.get("group_id") == group:
+            if getattr(self.settings, 'video_model', '') in {'sd2.0-fast', 'sd2.0-mini'}:
+                self._await_active(sidecar, record)
             return f"asset://{record['asset_id']}"
         if getattr(self.settings, "phanrouter_asset_public_base", None):
             hosted_url = self.public_card_url(path, digest)
@@ -66,7 +109,7 @@ class ReferenceMaterials:
             # then probe: the probe is what tells you the tunnel actually serves the publish dir.
             try:
                 from ..media.publish import publish_file, publish_root
-                published = publish_file(path, publish_root(getattr(self.settings, "output_root", None)))
+                published = publish_file(path, publish_root(getattr(self.settings, "output_root", None)), reference=True)
             except OSError:
                 published = None
             probe = self.client.head(hosted_url, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
@@ -78,12 +121,18 @@ class ReferenceMaterials:
             hosted_url = self._hosted_image_url(image)
         # Names are unique per user: novel, card, view and a piece of the content hash; a clash gets a suffix.
         novel = path.parents[3].name if len(path.parents) > 3 else "novel"
-        stem = f"{novel}-{path.parent.name}-{path.stem}-{digest[:10]}"
+        prefix = f"{novel}-{path.parent.name}-{path.stem}"
+        new_sd = getattr(self.settings, 'video_model', '') in {'sd2.0-fast', 'sd2.0-mini'}
+        stem = f"{prefix[:49] if new_sd else prefix}-{digest[:10]}"
         asset_id = None
         for attempt in range(3):
             name = stem if attempt == 0 else f"{stem}-{attempt + 1}"
+            headers = self.image_headers if new_sd else self.video_headers
+            if new_sd:
+                from . import media_quota
+                media_quota.check(self.settings.video_model, headers.get('Authorization', '').removeprefix('Bearer '))
             response = self.client.post(
-                f"{self._asset_base_url()}/open/CreateAsset", headers=self.video_headers,
+                f"{self._asset_base_url()}/open/CreateAsset", headers=headers,
                 json={"GroupId": group, "Name": name, "URL": hosted_url, "AssetType": "Image"},
                 timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
             )
@@ -92,16 +141,49 @@ class ReferenceMaterials:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as error:
+                if new_sd:
+                    try:
+                        body = response.json()
+                    except ValueError:
+                        body = None
+                    media_quota.remember(self.settings.video_model,
+                        headers.get('Authorization', '').removeprefix('Bearer '), response.status_code, body)
                 detail = response.text.strip().replace("\n", " ")[:600]
                 raise RuntimeError(f"asset library refused {path.parent.name}/{path.name}: HTTP {response.status_code}: {detail}") from error
             asset_id = task_data(response.json()).get("Id")
             break
         if not asset_id:
             raise RuntimeError(f"asset library returned no asset id for {path.parent.name}/{path.name}")
-        atomic_write_json(sidecar, {"asset_id": asset_id, "sha256": digest, "group_id": group, "name": name,
-                                    "source_url": hosted_url, "created_at": time.time()})
+        record = {"asset_id": asset_id, "sha256": digest, "group_id": group, "name": name,
+                  "source_url": hosted_url, "created_at": time.time()}
+        atomic_write_json(sidecar, record)
+        if new_sd:
+            self._await_active(sidecar, record)
         return f"asset://{asset_id}"
 
+
+    def _await_active(self, sidecar: Path, record: dict) -> None:
+        """A registered ID cannot enter a video request before processing ends."""
+        if record.get('status') == 'Active':
+            return
+        deadline = time.monotonic() + self.settings.poll_timeout
+        while time.monotonic() < deadline:
+            response = self.client.post(f'{self._asset_base_url()}/open/GetAsset',
+                headers=self.image_headers, json={'Id': record['asset_id']},
+                timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS))
+            response.raise_for_status()
+            data = task_data(response.json())
+            status = str(data.get('Status') or '')
+            if not status:
+                raise RuntimeError(f'asset library returned no processing status for {sidecar.parent.name}')
+            record.update(status=status, status_checked_at=time.time())
+            atomic_write_json(sidecar, record)
+            if status == 'Active':
+                return
+            if status.lower() in {'failed', 'rejected', 'deleted', 'disabled', 'error'}:
+                raise RuntimeError(f'asset library processing {status} for {sidecar.parent.name}')
+            time.sleep(5)
+        raise TimeoutError(f'asset library is still processing {sidecar.parent.name}; resume its existing ID')
 
     def _hosted_image_url(self, image: ImageResult) -> str:
         if image.public_url:

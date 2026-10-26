@@ -104,6 +104,48 @@
         },
         "parallel": 2,
         "note": "GPU003 本地 H3，5、6 卡，免费，单任务串行，960x544"
+      },
+      "h3cloud": {
+        "model": "MiniMax-H3",
+        "key_var": "PHANROUTER_H3CLOUD_API_KEY",
+        "clip_cap": 15,
+        "pool": "h3cloud",
+        "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/cloud-image-video",
+        "inflight": {
+          "min": 1,
+          "max": 2,
+          "start": 1
+        },
+        "parallel": 1,
+        "note": "Opt-in cloud channel; shared image-key quota, existing novels unchanged."
+      },
+      "sd20-fast": {
+        "model": "sd2.0-fast",
+        "key_var": "PHANROUTER_IMAGE_API_KEY",
+        "clip_cap": 15,
+        "pool": "sd20-fast",
+        "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/cloud-image-video",
+        "inflight": {
+          "min": 1,
+          "max": 2,
+          "start": 1
+        },
+        "parallel": 1,
+        "note": "Opt-in cloud channel; shared image-key quota, existing novels unchanged."
+      },
+      "sd20-mini": {
+        "model": "sd2.0-mini",
+        "key_var": "PHANROUTER_IMAGE_API_KEY",
+        "clip_cap": 15,
+        "pool": "sd20-mini",
+        "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/cloud-image-video",
+        "inflight": {
+          "min": 1,
+          "max": 2,
+          "start": 1
+        },
+        "parallel": 1,
+        "note": "Opt-in cloud channel; shared image-key quota, existing novels unchanged."
       }
     },
     "planning_models": {

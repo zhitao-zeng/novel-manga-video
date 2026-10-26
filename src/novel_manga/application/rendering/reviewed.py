@@ -20,8 +20,10 @@ def _load_current(runner):
 def run(runner, *, repair_existing=False, final_review=None):
     from novel_manga.application.repair.agent import request_scope
     settings = getattr(runner.context, 'settings', None)
-    lane = ('h3' if getattr(settings, 'local_h3_base_url', '') else
-            'sd25' if getattr(settings, 'video_model', '') == 'sd2.5' else None)
+    from novel_manga.application.video_channels import SD_MODELS
+    model = getattr(settings, 'video_model', '')
+    lane = ('h3' if getattr(settings, 'local_h3_base_url', '') or model == 'MiniMax-H3' else
+            'sd25' if model in SD_MODELS else None)
     with request_scope(lane):
         return _run(runner, repair_existing=repair_existing, final_review=final_review)
 

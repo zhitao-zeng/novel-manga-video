@@ -13,7 +13,8 @@ def validate_agent_h3(keys):
     keys = list(keys)
     if not keys:
         raise ValueError('episode_agent requires an assigned H3 render resource')
-    if any(not key.get('base_url') or not str(key.get('model', '')).startswith('minimax-h3')
+    if any(not (key.get('model') == 'MiniMax-H3' and not key.get('base_url'))
+           and (not key.get('base_url') or not str(key.get('model', '')).startswith('minimax-h3'))
            for key in keys):
         raise ValueError('episode_agent supports H3 render resources only; SD cannot use this executor')
 

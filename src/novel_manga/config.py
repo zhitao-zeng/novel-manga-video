@@ -25,7 +25,7 @@ NATIVE_DIALOGUE_POLICY = "native_dialogue"
 # (probed 2026-09-09): 768P only (1344x768 for 16:9), 4-15 s clips, AAC audio,
 # so it belongs on a 15 s lane like sd2.0.  Its limits live in
 # providers.phanrouter_video.VIDEO_MODEL_LIMITS.
-PHANROUTER_VIDEO_MODELS = {"sd2.5", "sd2.0", "MiniMax-H3"}
+PHANROUTER_VIDEO_MODELS = {"sd2.5", "sd2.0", "sd2.0-fast", "sd2.0-mini", "MiniMax-H3"}
 # Video models served from inside the network instead of behind PhanRouter.  These are
 # selected by NOVEL_LOCAL_H3_URL naming an instance, cost nothing, and cap a clip at 15 s.
 LOCAL_VIDEO_MODELS = {"minimax-h3-ref2va-turbo"}

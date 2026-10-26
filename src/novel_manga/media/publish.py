@@ -9,6 +9,7 @@ earns a new name, an unchanged one never a second) and land by atomic rename.
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import shutil
 import tempfile
@@ -31,18 +32,30 @@ def published_relpath(path: Path, digest: str) -> Path:
     return Path(novel) / path.parent.name / f"{path.stem}-{digest[:12]}{path.suffix}"
 
 
-def publish_file(path: Path, root: Path) -> Path:
+def publish_file(path: Path, root: Path, *, reference: bool = False) -> Path:
     """Copy one card into the publish root, content-keyed; returns the published path."""
     path = Path(path)
     if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
         raise FileNotFoundError(f"not a publishable image: {path}")
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    data = path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    # Match the existing reference-upload preprocessing. Generated PNGs can
+    # carry a .jpeg suffix and exceed the remote library's download deadline.
+    # Only the transport copy changes; the original asset stays untouched.
+    if reference and len(data) > 2 * 1024 * 1024:
+        from PIL import Image, ImageOps
+        with Image.open(io.BytesIO(data)) as source:
+            image = ImageOps.exif_transpose(source).convert('RGB')
+            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+            encoded = io.BytesIO()
+            image.save(encoded, format='JPEG', quality=90)
+            data = encoded.getvalue()
     target = Path(root) / published_relpath(path, digest)
-    if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+    if target.is_file() and target.read_bytes() == data:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=target.parent, suffix=".tmp", delete=False) as staging:
-        staging.write(path.read_bytes())
+        staging.write(data)
         staging_path = Path(staging.name)
     os.replace(staging_path, target)
     return target

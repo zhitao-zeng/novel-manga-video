@@ -18,6 +18,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--novel-dir", type=Path, required=True)
     parser.add_argument("--episode", required=True, help="episode dir name under novel dir, e.g. fentian-thin-v4_1")
+    parser.add_argument('--video-channel', help='Registered video resource, e.g. h3cloud, sd20-fast or sd20-mini')
     parser.add_argument("--workers", type=int, default=4, help="clips submitted at once for this episode; 0 = one per clip")
     parser.add_argument("--inflight", type=int, default=0, help="global cap on clips in flight across all runners of the novel (lock-file semaphore); 0 = none")
     parser.add_argument("--prescreen", action="store_true", help="ask the local Qwen for content-filter risk and soften risky prompts before the first submission")
@@ -40,6 +41,12 @@ def main() -> int:
     selected = set(filter(None, (args.first_clips or '').split(','))) if args.first_clips is not None else None
     novel_dir = args.novel_dir.resolve()
     episode_dir = novel_dir / args.episode
+    from novel_manga.application.video_channels import selected_channel, channel_environment
+    channel = args.video_channel or selected_channel(episode_dir)
+    if channel:
+        from novel_manga.application.configuration import environment
+        os.environ.update(environment(ROOT))
+        os.environ.update(channel_environment(ROOT, channel, episode_dir=episode_dir, persist=not args.dry_run))
     settings = Settings.from_env(provider="phanrouter", output_root=novel_dir.parent, admission_mode="preview")
     bible = StoryBible.model_validate_json((novel_dir / "story_bible.json").read_text(encoding="utf-8"))
     profile = load_profile(novel_dir, style=args.style, frame=args.frame, tier=args.tier)
@@ -57,7 +64,8 @@ def main() -> int:
         record = history.load(episode_dir)
         record['trials'][-1]['managed'] = True
         history.save(episode_dir, record)
-    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=args.inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair, cache_only=args.cache_only, retake_failed=args.retake_failed)
+    inflight = args.inflight or (int(os.environ.get('NOVEL_RENDER_INFLIGHT', '0')) if channel else 0)
+    runner = ThinMediaRunner(novel_dir=novel_dir, episode_dir=episode_dir, settings=settings, bible=bible, workers=args.workers, max_attempts=args.max_attempts, profile=profile, inflight=inflight, prescreen=args.prescreen, moderation_repair=args.moderation_repair, cache_only=args.cache_only or (args.dry_run and bool(channel)), retake_failed=args.retake_failed)
     runner.context.options.first_pass_only = args.first_pass
     runner.context.options.first_pass_clips = selected
     runner.context.options.prepared_requests_only = selected is not None

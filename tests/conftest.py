@@ -4,6 +4,11 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def isolated_shared_media_quota(tmp_path, monkeypatch):
+    monkeypatch.setenv('NOVEL_SHARED_QUOTA_DIR', str(tmp_path/'shared-media-quota'))
+
+
+@pytest.fixture(autouse=True)
 def forbid_unmocked_http(monkeypatch):
     def blocked(*args, **kwargs):
         pytest.fail('Unmocked HTTP connection in test: supply MockTransport or mock the model call', pytrace=False)

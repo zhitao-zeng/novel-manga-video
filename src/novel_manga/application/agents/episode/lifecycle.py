@@ -202,6 +202,8 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
     if seconds <= 0 or preparation_seconds <= 0:
         raise ValueError('timeout must be positive')
     runtime = resolve_agent_environment(ctx, config)
+    if runtime.get('NOVEL_VIDEO_CHANNEL') and runtime.get('NOVEL_VIDEO_MODEL') in {'sd2.0-fast', 'sd2.0-mini'}:
+        raise ValueError('SD Fast/Mini use the standard render_clips_thin.py --review workflow; this executor retains its H3 request contract')
     runtime['NOVEL_RESOURCE_WAIT_FILE']=str(ctx.run_dir/'resource-waits.jsonl')
     if config.get('refusal_fallback'):
         runtime['NOVEL_REFUSAL_FALLBACK'] = config['refusal_fallback'].get('endpoint', 'flashnext')

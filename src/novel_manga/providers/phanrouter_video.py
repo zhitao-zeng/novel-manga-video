@@ -14,6 +14,9 @@ from .phanrouter_tasks import SUBMIT_TIMEOUT_SECONDS, SubmissionUncertain, uncon
 
 VIDEO_MODEL_LIMITS: dict[str, dict[str, object]] = {
     "MiniMax-H3": {"resolution": "768P", "max_duration": 15},
+    # Conservative project cap, not a measured provider maximum.
+    "sd2.0-fast": {"max_duration": 15},
+    "sd2.0-mini": {"max_duration": 15},
 }
 
 
@@ -24,16 +27,29 @@ def video_payload(
     duration: float,
     additional_image_urls: tuple[str, ...] = (),
     reference_audio_urls: tuple[str, ...] = (),
-    *, ratio: str = "9:16", resolution: str = "720p",
+    *, ratio: str = "9:16", resolution: str = "720p", first_frame: bool = False,
+    duration_cap: float | None = None,
 ) -> dict:
+    if first_frame and (settings.video_model not in {"sd2.0-fast", "sd2.0-mini"}
+                        or image_url is None or additional_image_urls or reference_audio_urls):
+        raise ValueError("SD first-frame requests require Fast/Mini, one opening image and native audio")
     limits = VIDEO_MODEL_LIMITS.get(settings.video_model, {})
+    # SD2.5 durations come from the lane's own configuration; only the
+    # conservative Fast/Mini project cap applies when the caller sets no
+    # explicit cap of its own.
+    cap = duration_cap if duration_cap is not None else (
+        limits.get("max_duration") if settings.video_model in {"sd2.0-fast", "sd2.0-mini"} else None)
+    if cap is not None and duration > cap:
+        if duration_cap is None:
+            raise ValueError("Fast/Mini currently require clips of at most 15 seconds; retain the source and prepare shorter groups")
+        raise ValueError(f"{settings.video_model} request exceeds its configured {cap:g}s clip limit")
     content = [{"type": "text", "text": prompt}]
     if image_url is not None:
         content.append(
             {
                 "type": "image_url",
                 "image_url": {"url": image_url},
-                "role": "reference_image",
+                "role": "first_frame" if first_frame else "reference_image",
             }
         )
     content.extend(
@@ -60,7 +76,7 @@ def video_payload(
         "content": content,
         "ratio": ratio,
         "resolution": limits.get("resolution", resolution),
-        "duration": max(4, min(int(limits.get("max_duration", 30)), math.ceil(duration))),
+        "duration": max(4, min(int(cap if cap is not None else limits.get("max_duration", 30)), math.ceil(duration))),
         "generate_audio": True,
         "watermark": False,
         "output_format": "mp4",
@@ -105,7 +121,9 @@ def generate_video(settings, client, video_headers, payload, output, additional_
         if before_submit is not None:
             before_submit()
         task_id = submit_recorded(submit, task_path, {"request_sha256": request_sha256, "kind": "video",
-                                                            "model": settings.video_model})
+                                                            "model": settings.video_model},
+                                  resource_model=settings.video_model,
+                                  resource_key=video_headers.get('Authorization', '').removeprefix('Bearer '))
         if task_id:
             atomic_write_json(
                 task_path,

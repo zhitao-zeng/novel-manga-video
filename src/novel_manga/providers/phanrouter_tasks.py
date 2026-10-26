@@ -120,10 +120,26 @@ def task_data(payload: dict) -> dict:
     return result if isinstance(result, dict) else payload
 
 
-def submit_recorded(submit, task_path: Path, record: dict) -> str | None:
+def submit_recorded(submit, task_path: Path, record: dict, *, resource_model=None, resource_key=None) -> str | None:
     """submit_once; an unconfirmed submission is written beside the output, so it is not sent again unasked."""
+    from . import media_quota
+    def checked_submit():
+        media_quota.check(resource_model, resource_key)
+        try:
+            return submit()
+        except (RuntimeError, httpx.HTTPStatusError) as error:
+            response = getattr(error, 'response', None)
+            if response is None:
+                response = getattr(error.__cause__, 'response', None)
+            if response is not None:
+                try:
+                    body = response.json()
+                except ValueError:
+                    body = None
+                media_quota.remember(resource_model, resource_key, response.status_code, body)
+            raise
     try:
-        return submit_once(submit).json().get("task_id")
+        return submit_once(checked_submit).json().get("task_id")
     except SubmissionUncertain:
         atomic_write_json(task_path, {**record, "submit_uncertain_at": time.time()})
         raise

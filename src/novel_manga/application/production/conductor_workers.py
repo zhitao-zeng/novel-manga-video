@@ -69,6 +69,11 @@ def stop(conductor, name: str, why: str) -> None:
 
 def key_env(conductor, key: dict) -> dict:
     env = {"NOVEL_VIDEO_MODEL": key["model"], "PHANROUTER_VIDEO_KEY_VAR": key["key_var"]}
+    from novel_manga.application.video_channels import CLOUD_MODELS
+    if key['model'] in CLOUD_MODELS:
+        env.update(NOVEL_VIDEO_CHANNEL=key['name'], NOVEL_LOCAL_H3_URL='',
+                   PHANROUTER_INLINE_REFERENCE_IMAGES='0',
+                   PHANROUTER_REFERENCE_ASSETS='0' if key['model'] == 'MiniMax-H3' else '1')
     if key.get("pool"):
         env["NOVEL_INFLIGHT_POOL"] = key["pool"]
     if key.get("inflight_dir"):
