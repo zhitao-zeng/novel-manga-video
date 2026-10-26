@@ -127,10 +127,10 @@
         "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/cloud-image-video",
         "inflight": {
           "min": 1,
-          "max": 2,
-          "start": 1
+          "max": 4,
+          "start": 4
         },
-        "parallel": 2,
+        "parallel": 4,
         "note": "Opt-in cloud channel; shared image-key quota, existing novels unchanged.",
         "asset_publish_dir": "/mnt/disk1/zengzhitao/novel/novel-manga-video/outputs/.published"
       },
@@ -911,7 +911,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1103,7 +1103,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1135,7 +1135,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1199,7 +1199,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1231,7 +1231,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1295,7 +1295,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1327,7 +1327,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1391,7 +1391,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1423,7 +1423,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1487,7 +1487,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1519,7 +1519,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1583,7 +1583,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1615,7 +1615,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1679,7 +1679,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1711,7 +1711,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1775,7 +1775,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1807,7 +1807,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1871,7 +1871,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1903,7 +1903,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1967,7 +1967,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -1999,7 +1999,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2063,7 +2063,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2095,7 +2095,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2159,7 +2159,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2191,7 +2191,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2255,7 +2255,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2287,7 +2287,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2351,7 +2351,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2383,7 +2383,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2447,7 +2447,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2479,7 +2479,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2543,7 +2543,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2575,7 +2575,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2639,7 +2639,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2671,7 +2671,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2735,7 +2735,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {
@@ -2767,7 +2767,7 @@
           "plan_mode": 15,
           "min_seconds": 100,
           "render_keys": [
-            "h3pool"
+            "h3cloud"
           ]
         },
         {

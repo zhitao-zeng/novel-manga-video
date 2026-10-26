@@ -10,6 +10,8 @@
 
 三个资源在 `configs/pipeline.json.resources.video_keys` 登记；各小说可显式选择其中的资源名。它们初始共用最多2个云视频在途名额，未给现有小说自动添加资源。单集任务可以在已准备的分镜和素材上使用：
 
+十日1–300在产后，用户要求增加云端工作量：云H3资源的请求与章节并行上限提高到4，沿现有429退让机制运行；Fast/Mini调用仍保留各自2路上限。37个从未提交生成的章节改走云H3，整批分配为92集云端、208集本地；已拍和在途任务保持原路由，原计数、拍摄上限和活动时间不变。工作区的渠道快照、章节索引及生产范围同步采用同一分配。
+
 ```bash
 .venv/bin/python scripts/render_clips_thin.py \
   --novel-dir /absolute/path/to/book --episode book_1 \
