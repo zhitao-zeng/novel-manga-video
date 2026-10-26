@@ -85,9 +85,10 @@ class Conductor:
 
 
     # ------------------------------------------------------------------- loop
-    def tick(self) -> bool:
+    def tick(self, *, workspace_views=None) -> bool:
         # Reuse the process view within this tick; leases arbitrate submissions.
         self._external_processes = None
+        self._workspace_views = {} if workspace_views is None else workspace_views
         if self.executor == 'episode_agent':
             from . import episode_agents
             return episode_agents.tick(self)
@@ -137,18 +138,29 @@ class Conductor:
             all_done = False
         state["status"] = "complete" if all_done else "running"
         if self.workspaces:
-            from .workspaces import current, busy, chapter as workspace_chapter
+            from .workspaces import busy
             waiting_assets=False;unprepared=False
             owned = sum(busy(row) for row in self.workspaces.values())
             state['batch_pipeline']['owned_chapters'] = owned
             for row in self.workspaces.values():
-                if workspace_chapter(row)['done']:
+                view=conductor_state.workspace_view(self,row)
+                if view['state']['done']:
                     continue
-                receipt=current(row)
+                receipt=view['receipt']
                 waiting_assets |= bool(receipt and receipt.get('status')=='waiting_assets')
                 unprepared |= receipt is None
             active=bool(state['workers']) or bool(owned) or getattr(self,'review_more',False)
             more=active or waiting_assets or unprepared
+            if not more:
+                # A worker may finish after this tick's snapshot. Only when
+                # stopping, confirm no completion/handoff needs the next tick.
+                from .workspaces import chapter as fresh_chapter, current as fresh_receipt
+                for row in self.workspaces.values():
+                    view=conductor_state.workspace_view(self,row)
+                    if (view['state'] != fresh_chapter(row)
+                            or view['receipt'] != fresh_receipt(row)):
+                        more=True
+                        break
             all_done=not more
             state['status']=('waiting_assets' if waiting_assets and not active and not unprepared else 'running') if more else (
                 'complete' if state['batch_pipeline']['accepted']==len(self.workspaces) else 'blocked')

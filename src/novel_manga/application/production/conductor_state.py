@@ -9,10 +9,21 @@ import urllib.request
 import novel_manga.application.production.conductor_common as conductor_common
 import novel_manga.application.production.runs as thin_runs
 
+def workspace_view(conductor, row):
+    """One read-only chapter view for this coordinator tick and its review peer."""
+    from . import workspaces
+    views = getattr(conductor, '_workspace_views', None)
+    if views is None:
+        views = conductor._workspace_views = {}
+    key = row['episode_dir']
+    if key not in views:
+        views[key] = {'state': workspaces.chapter(row), 'receipt': workspaces.current(row)}
+    return views[key]
+
+
 def chapter(conductor, n: int) -> dict:
     if getattr(conductor, 'workspaces', None):
-        from .workspaces import chapter as workspace_chapter
-        return workspace_chapter(conductor.workspaces[str(n)])
+        return workspace_view(conductor, conductor.workspaces[str(n)])['state']
     d = conductor.episode_dir(n)
     state = {"n": n, "done": False, "blocked": False, "planned": (d / "clip_plan.json").is_file(), "runs": 0, "mode": None,
              "unreviewed": False}
@@ -76,9 +87,9 @@ def settled(conductor, n: int) -> bool:
     """Planned, or left out on purpose (planning_skipped.json: too short to be an episode)."""
     d = conductor.episode_dir(n)
     if getattr(conductor, 'workspaces', None):
-        from .workspaces import chapter as workspace_chapter, current
         row = conductor.workspaces[str(n)]
-        return workspace_chapter(row)['done'] or current(row) is not None
+        view = workspace_view(conductor, row)
+        return view['state']['done'] or view['receipt'] is not None
     return (d / "clip_plan.json").is_file() or (d / "planning_skipped.json").is_file()
 
 

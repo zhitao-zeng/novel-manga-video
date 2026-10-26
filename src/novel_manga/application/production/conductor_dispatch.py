@@ -50,13 +50,12 @@ def tick_lanes(conductor, stats: dict[int, dict]) -> None:
             conductor.log(f"{name}: takes range {pick['a']}-{pick['b']} (plan mode {pick['plan_mode']} s)")
             ensure_prepass(conductor, pick)
         if getattr(conductor, 'workspaces', None):
-            from .workspaces import current as production_receipt
             compatible_ranges = [r for r in conductor.ranges if conductor_capacity.compatible(conductor, key, r)]
             active = {int(worker.rsplit('_', 1)[1]) for worker in conductor.procs
                       if worker.startswith(f'lane_{name}_') and conductor_workers.alive(conductor, worker)}
             for r in compatible_ranges:
                 for n in range(r['a'], r['b']+1):
-                    if (production_receipt(conductor.workspaces[str(n)]) or {}).get('status') == 'rendering':
+                    if (conductor_state.workspace_view(conductor,conductor.workspaces[str(n)])['receipt'] or {}).get('status') == 'rendering':
                         active.add(n)
             # Share the existing host budget across ready ranges. A chapter waiting
             # for preparation or review must not strand other executable chapters.
@@ -224,8 +223,7 @@ def tick_planning(conductor, congested: bool) -> None:
         conductor_workers.spawn(conductor, "story_pass", [conductor_common.PY, str(conductor_common.SCRIPTS / "story_pass_thin.py"), "--novel-dir", str(conductor.novel_dir), "--chapters", f"{a}-{b}"])
     stock = 0
     if getattr(conductor,'workspaces',None):
-        from .workspaces import chapter as workspace_chapter
-        stock=sum(workspace_chapter(row)['ready_clips'] for row in conductor.workspaces.values())
+        stock=sum(conductor_state.chapter(conductor,int(n))['ready_clips'] for n in conductor.workspaces)
     for block in pending:
         if len(active) >= target:
             break

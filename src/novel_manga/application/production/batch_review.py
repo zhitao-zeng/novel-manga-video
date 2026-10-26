@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 
 from novel_manga.util import atomic_write_json, read_json
-from . import workspaces
+from . import workspaces, conductor_state
 
 
 def tick(producer, stats, waiting):
@@ -30,7 +30,7 @@ def tick(producer, stats, waiting):
     # unrelated endpoint's queue) strands available text models. Actual requests
     # still share model_slot with production; H3 has its own first-pass priority.
     peer.agent_dispatch_enabled=True
-    producer.review_more=peer.tick()
+    producer.review_more=peer.tick(workspace_views=getattr(producer,'_workspace_views',None))
 
 
 def background(row):
@@ -68,11 +68,11 @@ def may_dispatch(conductor, row, candidates):
     return True
 
 
-def handoff(row):
-    state=workspaces.chapter(row)
+def handoff(row, *, view=None):
+    state=workspaces.chapter(row) if view is None else view['state']
     if state['accepted']:
         return None
-    receipt=workspaces.current(row) or {}
+    receipt=(workspaces.current(row) if view is None else view['receipt']) or {}
     if state['done']:
         producer=read_json(Path(row['episode_dir'])/'batch-production.json',{})
         return {'at':producer.get('at','existing-video'),
@@ -90,7 +90,7 @@ def observe(conductor, row):
         conductor.review_workspaces=read_json(Path(conductor.agent_settings['workspace_index']),{})
     index=conductor.review_workspaces
     source=index.get(str(row['episode']))
-    report=handoff(source) if source else None
+    report=handoff(source,view=conductor_state.workspace_view(conductor,source)) if source else None
     if report:
         row['batch_stage']=report['stage']
     if row.get('pid'):

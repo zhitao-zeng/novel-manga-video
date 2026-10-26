@@ -127,13 +127,14 @@ def test_native_lane_shares_host_budget_across_ready_ranges(tmp_path, monkeypatc
     key = {'name': 'h3', 'model': 'minimax-h3-ref2va-turbo', 'base_url': 'pool',
            'key_var': '', 'clip_cap': 15, 'parallel': 2, 'inflight': {'max': 2}}
     ranges = [{'a': n, 'b': n, 'plan_mode': 15, 'render_keys': ['h3']} for n in (1, 2, 3)]
-    c = SimpleNamespace(workspaces={str(n): {'episode': n} for n in (1, 2, 3)},
+    c = SimpleNamespace(workspaces={str(n): {'episode': n, 'episode_dir':str(tmp_path/f'book_{n}')} for n in (1, 2, 3)},
         keys={'h3': key}, ranges=ranges, procs={}, cfg={}, novel_dir=tmp_path,
         workspace_index=str(tmp_path/'index.json'),
         lanes={'h3': {'range': [1, 1, 15], 'parked_until': 0.0, 'next_round_at': 0.0}})
     monkeypatch.setattr(conductor_dispatch, 'range_finished', lambda *a: False)
     monkeypatch.setattr(conductor_workers, 'alive', lambda *a: False)
     monkeypatch.setattr(conductor_workers, 'external_running', lambda *a: False)
+    monkeypatch.setattr(workspaces, 'chapter', lambda row: {})
     monkeypatch.setattr(workspaces, 'current', lambda row:
         {'status': 'rendering'} if inherited and row['episode'] in {1, 2} else None)
     spawned = []

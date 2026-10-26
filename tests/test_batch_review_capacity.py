@@ -79,7 +79,7 @@ def test_input_exceptions_replace_idle_reviews_in_retained_pool(setup,monkeypatc
 
 
 def test_empty_video_stock_and_other_model_waiters_do_not_gate_text_repairs():
-    peer=SimpleNamespace(tick=lambda:True)
+    peer=SimpleNamespace(tick=lambda **kwargs:True)
     producer=SimpleNamespace(dry=False,cfg={'review':{'backend':'episode_agent','ready_floor':12}},
         procs={'plan_1':SimpleNamespace(poll=lambda:None)},review_conductor=peer)
     batch_review.tick(producer,{1:{'ready_clips':0}},waiting=20)
