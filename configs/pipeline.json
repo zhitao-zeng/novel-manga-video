@@ -222,6 +222,14 @@
         "model": "glm-5.3-flash",
         "key_var": "PHANTHY_API_KEY",
         "slots": 8
+      },
+      "official-ds41": {
+        "endpoint": "official-ds41",
+        "base": "https://cloud.phanthy.com/phanrouter/v1",
+        "model": "deepseek-v4.1-flash-1017",
+        "key_var": "PHANROUTER_IMAGE_API_KEY",
+        "slots": 3,
+        "note": "十日1–300本次文字续接；Phanthy日额度耗尽后沿原剩余时间切用户已有official-ds41路由，不重置拍摄计数或活动预算。"
       }
     }
   },
@@ -389,7 +397,7 @@
         "h3cloud"
       ],
       "planning": {
-        "phanthy-ds41": 3
+        "official-ds41": 3
       },
       "blocks_max": 3,
       "blocks_min": 1,
@@ -2813,7 +2821,7 @@
         "reserved_review_hosts": 2
       },
       "agent": {
-        "config": "configs/agent_phanthy.json",
+        "config": "configs/agent_shiri_h3.json",
         "input_mode": "script",
         "parallel": 3,
         "workers": 2,

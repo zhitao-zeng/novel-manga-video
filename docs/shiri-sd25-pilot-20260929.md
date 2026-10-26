@@ -23,6 +23,11 @@
 批次产物、逐集用量与归属保存在上述生产目录，接续计划见
 [实施计划](superpowers/plans/2026-10-26-shiri-h3-300.md)。
 
+本轮运行中Phanthy文字账户返回402，两个日额度池耗尽。仅十日的文字准备和审修
+改用已配置的`official-ds41`（用户命名的PhanRouter路由），配置为
+`configs/agent_shiri_h3.json`；真实Messages探测已返回200。
+技术性额度失败沿原活动和剩余时间续接，拍摄计数不变，真实参考图/源文冲突继续保留。
+
 ## 新书唯一入口是 setup_book_thin.py
 
 `build_bible_thin.py` 单独初始化不会产出 `reading_cast.json`。新书 profile 带 `props: true`，

@@ -2632,12 +2632,12 @@
       "blocks_min": 1,
       "models": [
         {
-          "endpoint": "phanthy-ds41",
-          "base": "http://127.0.0.1:8789/v1",
+          "endpoint": "official-ds41",
+          "base": "https://cloud.phanthy.com/phanrouter/v1",
           "model": "deepseek-v4.1-flash-1017",
-          "key_var": "PHANTHY_API_KEY",
+          "key_var": "PHANROUTER_IMAGE_API_KEY",
           "slots": 3,
-          "note": "2026-10-19切换1017版；以下为旧版评测记录：主力：身份审核5/5、修复诊断fix_layer最准、提纲/压缩3家最优。reasoning失控仅影响长输出任务(导演稿)，轮换链兜底"
+          "note": "十日1–300本次文字续接；Phanthy日额度耗尽后沿原剩余时间切用户已有official-ds41路由，不重置拍摄计数或活动预算。"
         }
       ]
     },
