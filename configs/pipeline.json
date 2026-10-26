@@ -130,7 +130,7 @@
           "max": 2,
           "start": 1
         },
-        "parallel": 1,
+        "parallel": 2,
         "note": "Opt-in cloud channel; shared image-key quota, existing novels unchanged.",
         "asset_publish_dir": "/mnt/disk1/zengzhitao/novel/novel-manga-video/outputs/.published"
       },

@@ -50,7 +50,19 @@ def tick_lanes(conductor, stats: dict[int, dict]) -> None:
             conductor.log(f"{name}: takes range {pick['a']}-{pick['b']} (plan mode {pick['plan_mode']} s)")
             ensure_prepass(conductor, pick)
         if getattr(conductor, 'workspaces', None):
-            refill_first_pass(conductor, name, key, current, stats[id(current)])
+            from .workspaces import current as production_receipt
+            compatible_ranges = [r for r in conductor.ranges if conductor_capacity.compatible(conductor, key, r)]
+            active = {int(worker.rsplit('_', 1)[1]) for worker in conductor.procs
+                      if worker.startswith(f'lane_{name}_') and conductor_workers.alive(conductor, worker)}
+            for r in compatible_ranges:
+                for n in range(r['a'], r['b']+1):
+                    if (production_receipt(conductor.workspaces[str(n)]) or {}).get('status') == 'rendering':
+                        active.add(n)
+            # Share the existing host budget across ready ranges. A chapter waiting
+            # for preparation or review must not strand other executable chapters.
+            for r in compatible_ranges:
+                if stats[id(r)]['renderable']:
+                    refill_first_pass(conductor, name, key, r, stats[id(r)], active=active)
             continue
         if not conductor_workers.alive(conductor, f"lane_{name}") and now >= lane["next_round_at"]:
             r = current
@@ -72,19 +84,20 @@ def tick_lanes(conductor, stats: dict[int, dict]) -> None:
             pass  # between rounds
 
 
-def refill_first_pass(conductor, name, key, r, stats):
+def refill_first_pass(conductor, name, key, r, stats, *, active=None):
     """Each completed chapter frees its worker immediately; other chapters keep running."""
     from .workspaces import current
     # A range-sized worker from the previous release owns its remaining chapters until drained.
     if conductor_workers.alive(conductor, f'lane_{name}') or conductor_workers.external_running(
             conductor, f"--chapters {r['a']}-{r['b']} --stage render", r['plan_mode']):
         return
-    active = {int(worker.rsplit('_', 1)[1]) for worker in conductor.procs
-              if worker.startswith(f'lane_{name}_') and conductor_workers.alive(conductor, worker)}
-    for n in range(r['a'], r['b']+1):
-        receipt = current(conductor.workspaces[str(n)]) or {}
-        if receipt.get('status') == 'rendering':
-            active.add(n)  # preserve workers inherited from a previous conductor
+    if active is None:
+        active = {int(worker.rsplit('_', 1)[1]) for worker in conductor.procs
+                  if worker.startswith(f'lane_{name}_') and conductor_workers.alive(conductor, worker)}
+        for n in range(r['a'], r['b']+1):
+            receipt = current(conductor.workspaces[str(n)]) or {}
+            if receipt.get('status') == 'rendering':
+                active.add(n)  # preserve workers inherited from a previous conductor
     for n in stats['renderable']:
         if len(active) >= int(key['parallel']):
             break

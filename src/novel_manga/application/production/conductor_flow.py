@@ -98,7 +98,9 @@ class Conductor:
         if not self.plan_only and not quota_stopped:
             for name, key in self.keys.items():
                 lane = self.lanes[name]
-                chapters = list(range(lane["range"][0], lane["range"][1] + 1)) if lane["range"] else []
+                chapters = ([n for r in self.ranges if conductor_capacity.compatible(self, key, r)
+                             for n in range(r['a'], r['b']+1)] if self.workspaces else
+                            list(range(lane["range"][0], lane["range"][1] + 1)) if lane["range"] else [])
                 conductor_capacity.tick_aimd(self, name, key, chapters)
             conductor_dispatch.tick_lanes(self, stats)
         if not quota_stopped:

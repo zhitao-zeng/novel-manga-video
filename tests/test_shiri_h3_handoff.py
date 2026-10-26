@@ -119,3 +119,25 @@ def test_legacy_chinese_cache_is_available_to_normal_h3_review(tmp_path, monkeyp
     monkeypatch.setattr(clip_analysis, 'check_clip_black', lambda ctx, clip, record, video: record)
     assert approved_cached_take(ctx, clip)['video'] == str(video)
     assert video.read_bytes() == b'existing approved legacy footage'
+
+
+@pytest.mark.parametrize('inherited', [False, True])
+def test_native_lane_shares_host_budget_across_ready_ranges(tmp_path, monkeypatch, inherited):
+    from novel_manga.application.production import conductor_dispatch, conductor_workers, workspaces
+    key = {'name': 'h3', 'model': 'minimax-h3-ref2va-turbo', 'base_url': 'pool',
+           'key_var': '', 'clip_cap': 15, 'parallel': 2, 'inflight': {'max': 2}}
+    ranges = [{'a': n, 'b': n, 'plan_mode': 15, 'render_keys': ['h3']} for n in (1, 2, 3)]
+    c = SimpleNamespace(workspaces={str(n): {'episode': n} for n in (1, 2, 3)},
+        keys={'h3': key}, ranges=ranges, procs={}, cfg={}, novel_dir=tmp_path,
+        workspace_index=str(tmp_path/'index.json'),
+        lanes={'h3': {'range': [1, 1, 15], 'parked_until': 0.0, 'next_round_at': 0.0}})
+    monkeypatch.setattr(conductor_dispatch, 'range_finished', lambda *a: False)
+    monkeypatch.setattr(conductor_workers, 'alive', lambda *a: False)
+    monkeypatch.setattr(conductor_workers, 'external_running', lambda *a: False)
+    monkeypatch.setattr(workspaces, 'current', lambda row:
+        {'status': 'rendering'} if inherited and row['episode'] in {1, 2} else None)
+    spawned = []
+    monkeypatch.setattr(conductor_workers, 'spawn', lambda c, name, command, env: spawned.append(name))
+    stats = {id(r): {'renderable': [r['a']]} for r in ranges}
+    conductor_dispatch.tick_lanes(c, stats)
+    assert spawned == ([] if inherited else ['lane_h3_1', 'lane_h3_2'])
