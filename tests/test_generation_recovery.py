@@ -77,6 +77,28 @@ def test_a_gateway_error_after_the_request_went_through_is_held_not_sent_again(t
     assert json.loads((tmp_path / "clip.mp4.task.json").read_text(encoding="utf-8"))["submit_uncertain_at"]
 
 
+def test_uncertain_video_receipt_retains_gateway_evidence_without_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv('NOVEL_SHARED_QUOTA_DIR', str(tmp_path/'quota'))
+    key = 'sk-test-key-for-gateway-receipt'
+    calls = []
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(500, headers={'x-oneapi-request-id':'router-request-123'},
+            json={'error':{'message':f'upstream image fetch failed: https://assets.test/ref?token=private-token key={key}'}})
+    provider = provider_with(handle)
+    provider.video_headers = {'Authorization':'Bearer '+key}
+    output = tmp_path/'clip.mp4'
+    for _ in range(2):
+        with pytest.raises(SubmissionUncertain):
+            provider.create_video('Approved request.', None, output, duration=8)
+    receipt = json.loads(output.with_suffix('.mp4.task.json').read_text())
+    assert receipt['submission_error']['status'] == 500
+    assert receipt['submission_error']['request_id'] == 'router-request-123'
+    assert 'upstream image fetch failed' in receipt['submission_error']['detail']
+    assert key not in json.dumps(receipt) and 'private-token' not in json.dumps(receipt)
+    assert len(calls) == 1 and receipt['submit_uncertain_at'] and not receipt.get('task_id')
+
+
 def test_a_refusal_before_any_task_is_asked_again_and_ends_as_a_runtime_error(tmp_path):
     posts = []
 

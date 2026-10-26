@@ -140,7 +140,25 @@ def submit_recorded(submit, task_path: Path, record: dict, *, resource_model=Non
             raise
     try:
         return submit_once(checked_submit).json().get("task_id")
-    except SubmissionUncertain:
-        atomic_write_json(task_path, {**record, "submit_uncertain_at": time.time()})
+    except SubmissionUncertain as error:
+        receipt = {**record, "submit_uncertain_at": time.time()}
+        cause = error
+        while cause is not None:
+            response = getattr(cause, 'response', None)
+            if response is not None:
+                detail = response.text
+                for secret in (resource_key, response.request.headers.get('Authorization', '').removeprefix('Bearer ')):
+                    if secret:
+                        detail = detail.replace(secret, '[credential omitted]')
+                detail = re.sub(r'https?://[^\s"<>]+', '[URL omitted]', detail)
+                receipt['submission_error'] = {
+                    'status': response.status_code,
+                    'request_id': (response.headers.get('x-oneapi-request-id')
+                                   or response.headers.get('x-phanthy-request-id')
+                                   or response.headers.get('x-request-id')),
+                    'detail': detail.strip()[:1500]}
+                break
+            cause = cause.__cause__
+        atomic_write_json(task_path, receipt)
         raise
 
