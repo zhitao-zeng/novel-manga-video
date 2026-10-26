@@ -7,7 +7,8 @@ import time
 import novel_manga.application.production.conductor_state as conductor_state
 
 def compatible(conductor, key: dict, r: dict) -> bool:
-    return r["plan_mode"] == int(key["clip_cap"])
+    return (r["plan_mode"] == int(key["clip_cap"])
+            and (not r.get('render_keys') or key['name'] in r['render_keys']))
 
 
 def _initial_limit(conductor, key: dict) -> int:

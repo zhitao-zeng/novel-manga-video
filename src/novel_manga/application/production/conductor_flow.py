@@ -63,7 +63,8 @@ class Conductor:
     def _parse_range(r: dict) -> dict:
         a, b = (int(x) for x in str(r["chapters"]).split("-"))
         return {"a": a, "b": b, "plan_mode": int(r.get("plan_mode", 30)), "prepass_after_plan": False,
-                "min_seconds": float(r.get("min_seconds", 0))}
+                "min_seconds": float(r.get("min_seconds", 0)),
+                **({'render_keys': list(r['render_keys'])} if r.get('render_keys') else {})}
 
     def log(self, message: str) -> None:
         line = f"{datetime.now():%m-%d %H:%M:%S} {message}"

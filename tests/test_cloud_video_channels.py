@@ -28,7 +28,7 @@ def test_registered_cloud_resources_do_not_change_existing_novels(channel, model
     row = pipeline['resources']['video_keys'][channel]
     assert row['model'] == model and row['key_var'] == key_var
     assert not row.get('base_url') and row['clip_cap'] == 15
-    assert all(channel not in n['render_keys'] for n in pipeline['novels'])
+    assert all(channel not in n['render_keys'] for n in pipeline['novels'] if n['id'] != 'shiri')
 
 
 @pytest.mark.parametrize('channel,model,key_var', CHANNELS)

@@ -31,7 +31,13 @@ def channel_environment(root, name, *, episode_dir=None, model=None, persist=Tru
         plan = read_json(Path(episode_dir)/'clip_plan.json', {})
         too_long = [c['clip_id'] for c in plan.get('clips', []) if c.get('kind', 'video') == 'video'
                     and float(c.get('request_seconds') or 0) > float(resource['clip_cap'])]
-        if too_long:
+        from .production.artifacts import media_started
+        legacy_h3 = bool(saved and (resource['model'] == 'MiniMax-H3'
+                         or str(resource['model']).startswith('minimax-h3'))
+                         and media_started(Path(episode_dir)))
+        # Existing takes remain reviewable; unfinished long inputs use scoped repair.
+        # The provider still rejects every new request above its duration cap.
+        if too_long and not legacy_h3:
             raise ValueError(f"Channel {name} requires clips of at most {resource['clip_cap']} seconds; repack the original plan: {too_long}")
     if episode_dir and not saved:
         episode_dir = Path(episode_dir)
@@ -42,7 +48,7 @@ def channel_environment(root, name, *, episode_dir=None, model=None, persist=Tru
             if models != {resource['model']}:
                 raise ValueError('Existing media cannot be silently moved to a different video channel')
         # Only routing facts, never credential values or authenticated URLs.
-        fields = ('model', 'key_var', 'base_url', 'pool', 'clip_cap', 'inflight', 'inflight_dir')
+        fields = ('model', 'key_var', 'base_url', 'pool', 'clip_cap', 'inflight', 'inflight_dir', 'asset_publish_dir')
         record = {key: resource[key] for key in fields if key in resource}
         if persist:
             atomic_write_json(episode_dir/'video-channel.json', {'name': name, 'resource': record})
@@ -56,4 +62,6 @@ def channel_environment(root, name, *, episode_dir=None, model=None, persist=Tru
     if resource['model'] in CLOUD_MODELS:
         env.update(PHANROUTER_INLINE_REFERENCE_IMAGES='0',
                    PHANROUTER_REFERENCE_ASSETS='0' if resource['model'] == 'MiniMax-H3' else '1')
+    if resource.get('asset_publish_dir'):
+        env['NOVEL_ASSET_PUBLISH_DIR'] = str(resource['asset_publish_dir'])
     return env

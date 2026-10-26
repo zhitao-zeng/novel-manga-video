@@ -34,14 +34,12 @@ def video_payload(
                         or image_url is None or additional_image_urls or reference_audio_urls):
         raise ValueError("SD first-frame requests require Fast/Mini, one opening image and native audio")
     limits = VIDEO_MODEL_LIMITS.get(settings.video_model, {})
-    # SD2.5 durations come from the lane's own configuration; only the
-    # conservative Fast/Mini project cap applies when the caller sets no
-    # explicit cap of its own.
-    cap = duration_cap if duration_cap is not None else (
-        limits.get("max_duration") if settings.video_model in {"sd2.0-fast", "sd2.0-mini"} else None)
+    # SD2.5 durations come from the lane's configuration; H3 and Fast/Mini
+    # retain their supported/project cap when the caller supplies no override.
+    cap = duration_cap if duration_cap is not None else limits.get("max_duration")
     if cap is not None and duration > cap:
         if duration_cap is None:
-            raise ValueError("Fast/Mini currently require clips of at most 15 seconds; retain the source and prepare shorter groups")
+            raise ValueError(f"{settings.video_model} currently requires clips of at most {cap:g} seconds; retain the source and prepare shorter groups")
         raise ValueError(f"{settings.video_model} request exceeds its configured {cap:g}s clip limit")
     content = [{"type": "text", "text": prompt}]
     if image_url is not None:

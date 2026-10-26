@@ -131,7 +131,8 @@
           "start": 1
         },
         "parallel": 1,
-        "note": "Opt-in cloud channel; shared image-key quota, existing novels unchanged."
+        "note": "Opt-in cloud channel; shared image-key quota, existing novels unchanged.",
+        "asset_publish_dir": "/mnt/disk1/zengzhitao/novel/novel-manga-video/outputs/.published"
       },
       "sd20-fast": {
         "model": "sd2.0-fast",
@@ -384,8 +385,8 @@
       "stop_on_quota_exhausted": true,
       "tmp_dir": "/mnt/disk1/zengzhitao/tmp/conductor-shiri",
       "render_keys": [
-        "sd25",
-        "sd25-15"
+        "h3pool",
+        "h3cloud"
       ],
       "planning": {
         "phanthy-ds41": 3
@@ -394,59 +395,2404 @@
       "blocks_min": 1,
       "ranges": [
         {
-          "chapters": "1-16",
-          "plan_mode": 30,
-          "min_seconds": 100
+          "chapters": "1-1",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "2-2",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "3-3",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "4-4",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "5-5",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "6-6",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "7-7",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "8-8",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "9-9",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "10-10",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "11-11",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "12-12",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "13-13",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "14-14",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "15-15",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "16-16",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
         },
         {
           "chapters": "17-17",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
         },
         {
-          "chapters": "18-31",
-          "plan_mode": 30,
-          "min_seconds": 100
+          "chapters": "18-18",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "19-19",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "20-20",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "21-21",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "22-22",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "23-23",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "24-24",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "25-25",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "26-26",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "27-27",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "28-28",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "29-29",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "30-30",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "31-31",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
         },
         {
           "chapters": "32-32",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
         },
         {
-          "chapters": "33-34",
-          "plan_mode": 30,
-          "min_seconds": 100
-        },
-        {
-          "chapters": "35-67",
+          "chapters": "33-33",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
         },
         {
-          "chapters": "68-100",
+          "chapters": "34-34",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
         },
         {
-          "chapters": "101-163",
+          "chapters": "35-35",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
         },
         {
-          "chapters": "164-226",
+          "chapters": "36-36",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
         },
         {
-          "chapters": "227-289",
+          "chapters": "37-37",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
         },
         {
-          "chapters": "290-300",
+          "chapters": "38-38",
           "plan_mode": 15,
-          "min_seconds": 100
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "39-39",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "40-40",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "41-41",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "42-42",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "43-43",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "44-44",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "45-45",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "46-46",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "47-47",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "48-48",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "49-49",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "50-50",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "51-51",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "52-52",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "53-53",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "54-54",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "55-55",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "56-56",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "57-57",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "58-58",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "59-59",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "60-60",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "61-61",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "62-62",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "63-63",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "64-64",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "65-65",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "66-66",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "67-67",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "68-68",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "69-69",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "70-70",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "71-71",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "72-72",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "73-73",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "74-74",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "75-75",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "76-76",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "77-77",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "78-78",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "79-79",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "80-80",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "81-81",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "82-82",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "83-83",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "84-84",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "85-85",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "86-86",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "87-87",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "88-88",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "89-89",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "90-90",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "91-91",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "92-92",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "93-93",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "94-94",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "95-95",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "96-96",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "97-97",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "98-98",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "99-99",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "100-100",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "101-101",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "102-102",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "103-103",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "104-104",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "105-105",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "106-106",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "107-107",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "108-108",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "109-109",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "110-110",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "111-111",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "112-112",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "113-113",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "114-114",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "115-115",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "116-116",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "117-117",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "118-118",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "119-119",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "120-120",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "121-121",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "122-122",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "123-123",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "124-124",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "125-125",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "126-126",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "127-127",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "128-128",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "129-129",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "130-130",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "131-131",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "132-132",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "133-133",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "134-134",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "135-135",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "136-136",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "137-137",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "138-138",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "139-139",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "140-140",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "141-141",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "142-142",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "143-143",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "144-144",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "145-145",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "146-146",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "147-147",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "148-148",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "149-149",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "150-150",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "151-151",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "152-152",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "153-153",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "154-154",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "155-155",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "156-156",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "157-157",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "158-158",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "159-159",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "160-160",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "161-161",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "162-162",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "163-163",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "164-164",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "165-165",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "166-166",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "167-167",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "168-168",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "169-169",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "170-170",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "171-171",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "172-172",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "173-173",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "174-174",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "175-175",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "176-176",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "177-177",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "178-178",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "179-179",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "180-180",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "181-181",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "182-182",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "183-183",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "184-184",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "185-185",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "186-186",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "187-187",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "188-188",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "189-189",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "190-190",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "191-191",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "192-192",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "193-193",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "194-194",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "195-195",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "196-196",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "197-197",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "198-198",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "199-199",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "200-200",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "201-201",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "202-202",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "203-203",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "204-204",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "205-205",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "206-206",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "207-207",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "208-208",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "209-209",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "210-210",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "211-211",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "212-212",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "213-213",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "214-214",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "215-215",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "216-216",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "217-217",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "218-218",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "219-219",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "220-220",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "221-221",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "222-222",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "223-223",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "224-224",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "225-225",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "226-226",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "227-227",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "228-228",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "229-229",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "230-230",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "231-231",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "232-232",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "233-233",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "234-234",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "235-235",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "236-236",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "237-237",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "238-238",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "239-239",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "240-240",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "241-241",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "242-242",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "243-243",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "244-244",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "245-245",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "246-246",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "247-247",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "248-248",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "249-249",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "250-250",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "251-251",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "252-252",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "253-253",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "254-254",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "255-255",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "256-256",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "257-257",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "258-258",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "259-259",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "260-260",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "261-261",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "262-262",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "263-263",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "264-264",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "265-265",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "266-266",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "267-267",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "268-268",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "269-269",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "270-270",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "271-271",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "272-272",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "273-273",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "274-274",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "275-275",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "276-276",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "277-277",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "278-278",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "279-279",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "280-280",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "281-281",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "282-282",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "283-283",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "284-284",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "285-285",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "286-286",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "287-287",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "288-288",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
+        },
+        {
+          "chapters": "289-289",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "290-290",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "291-291",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "292-292",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "293-293",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "294-294",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "295-295",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "296-296",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "297-297",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "298-298",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "299-299",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3pool"
+          ]
+        },
+        {
+          "chapters": "300-300",
+          "plan_mode": 15,
+          "min_seconds": 100,
+          "render_keys": [
+            "h3cloud"
+          ]
         }
       ],
       "paused_keys": [
@@ -454,10 +2800,29 @@
         "h3a",
         "h3b",
         "h3c",
-        "h3d"
+        "h3d",
+        "sd25",
+        "sd25-15"
       ],
       "pending_render_keys": [],
-      "display_order": 3
+      "display_order": 3,
+      "workspace_index": "/mnt/disk3/zengzhitao/novel/shiri-h3-production-20261026/workspaces.json",
+      "review": {
+        "backend": "episode_agent",
+        "parallel": 3,
+        "reserved_review_hosts": 2
+      },
+      "agent": {
+        "config": "configs/agent_phanthy.json",
+        "input_mode": "script",
+        "parallel": 3,
+        "workers": 2,
+        "output_root": "/mnt/disk3/zengzhitao/novel/shiri-h3-production-20261026/episodes",
+        "retry_issues": false,
+        "task_pool_size": 100
+      },
+      "tick_seconds": 2,
+      "round_gap_seconds": 0
     }
   ]
 }

@@ -11,6 +11,18 @@
 同一在途锁目录和56个总上限；不会因增加15秒档而扩充视频额度。
 本地重组验证不代表成片验收，后续视频仍需走原质量门。
 
+2026-10-26后续双H3接续：用户要求完成现有1–300集。源目录保留；独立生产工作区
+登记于`/mnt/disk3/zengzhitao/novel/shiri-h3-production-20261026/workspaces.json`。
+采用main的standard准备/首拍和独立batch_review审修，按集固定`h3pool`或`h3cloud`，
+审修沿该集同一资源续接。旧片、回执与已消耗用量先导入；旧台账漏记的实际完成take
+只补已有证据，不从零重拍，不新增授权。未完成的长片段交原scoped repair处理，
+新云H3请求超过15秒在提交前失败，不截断对白。
+本地沿现有共享池限流，云端沿现有共享2在途上限；稳定参考图使用
+`NOVEL_ASSET_PUBLISH_DIR`，由已保存的资源配置恢复。仅本书使用2秒调度tick，
+其他书的周期保留。当前26部旧片的正式报告仍有重合成/审修工作，不能当作26集已验收。
+批次产物、逐集用量与归属保存在上述生产目录，接续计划见
+[实施计划](superpowers/plans/2026-10-26-shiri-h3-300.md)。
+
 ## 新书唯一入口是 setup_book_thin.py
 
 `build_bible_thin.py` 单独初始化不会产出 `reading_cast.json`。新书 profile 带 `props: true`，

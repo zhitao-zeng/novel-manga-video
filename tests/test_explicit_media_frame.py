@@ -49,7 +49,7 @@ def test_asset_kind_decides_request_frame_and_requests_are_isolated(tmp_path, mo
 def test_fixed_model_resolution_still_takes_precedence():
     provider = FramedPhanRouter(Settings(video_model='MiniMax-H3'), {'video_ratio': '16:9'}, resolution='480p')
     try:
-        payload = provider._video_payload('scene', None, 30)
+        payload = provider._video_payload('scene', None, 15)
         assert (payload['resolution'], payload['duration']) == ('768P', 15)
     finally:
         provider.client.close()

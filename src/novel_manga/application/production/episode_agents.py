@@ -24,7 +24,11 @@ def configure(conductor):
     for n in sorted({n for r in conductor.ranges for n in range(r['a'], r['b'] + 1)}):
         row = dict(previous.get(str(n), {}))
         row.update(episode=n, status=row.get('status', 'pending'), phase=row.get('phase', 'ready_agent'))
-        row.setdefault('key', list(conductor.keys)[(n - 1) % len(conductor.keys)])
+        assigned = next((r.get('render_keys') for r in conductor.ranges if r['a'] <= n <= r['b']), None)
+        keys = [name for name in conductor.keys if not assigned or name in assigned]
+        if not keys:
+            raise ValueError(f'chapter {n} has no assigned render resource')
+        row.setdefault('key', keys[(n - 1) % len(keys)])
         mode = row.get('input_mode', conductor.agent_settings['input_mode'])
         started = bool(row.get('run_dir') and any((Path(row['run_dir'])/name).exists()
             for name in ('agent-run.json', 'prepared.json', 'execution.json')))

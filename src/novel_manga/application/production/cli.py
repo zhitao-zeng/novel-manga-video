@@ -34,7 +34,10 @@ def validate(pipeline: dict) -> list[str]:
 
     for name, key in video.items():
         users = [n["title"] for n in active if name in n.get("render_keys", [])]
-        if len(users) > 1:
+        shared_local_pool = (key.get('base_url') == 'pool' and key.get('inflight_dir')
+                             and str(key.get('model', '')).startswith('minimax-h3'))
+        # The existing local pool admits work globally, across novels and consumers.
+        if len(users) > 1 and not shared_local_pool:
             problems.append(f"视频 key {name} 被 {len(users)} 本小说同时使用：{users}。"
                             "同一把 key 的并发池是共享的，两本一起渲会互相抢额度")
     for name, model in models.items():

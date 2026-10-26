@@ -29,7 +29,8 @@ from . import clip_analysis
 def approved_cached_take(ctx, clip: dict) -> dict | None:
     """Reuse proof from an existing take, never issue a new over-budget request."""
     from novel_manga.application.profiles import h3_prompt_outdated
-    if generation.h3_lane(ctx) and h3_prompt_outdated(clip, str(ctx.feedback.get(clip["clip_id"], ""))):
+    if (generation.h3_lane(ctx) and not clip.get('prompt_h3_skip')
+            and h3_prompt_outdated(clip, str(ctx.feedback.get(clip["clip_id"], "")))):
         return None
     for path in sorted((ctx.work / "clips" / clip["clip_id"]).glob("attempt_*/asr.json")):
         try:

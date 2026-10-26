@@ -69,6 +69,8 @@ def stop(conductor, name: str, why: str) -> None:
 
 def key_env(conductor, key: dict) -> dict:
     env = {"NOVEL_VIDEO_MODEL": key["model"], "PHANROUTER_VIDEO_KEY_VAR": key["key_var"]}
+    if key.get('asset_publish_dir'):
+        env['NOVEL_ASSET_PUBLISH_DIR'] = str(key['asset_publish_dir'])
     from novel_manga.application.video_channels import CLOUD_MODELS
     if key['model'] in CLOUD_MODELS:
         env.update(NOVEL_VIDEO_CHANNEL=key['name'], NOVEL_LOCAL_H3_URL='',

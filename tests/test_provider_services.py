@@ -58,7 +58,7 @@ def frozen_providers():
       if model in {'image','doubao-seedream-5.0-lite'}:
        p.create_image('角色画像',base/'image.jpeg',reference=reference)
       else:
-       for _ in range(2):p.create_video('角色开门',ImageResult(path=reference,public_url='http://reference.invalid/card.jpeg'),base/'video.mp4',22,reference_audios=(audio,))
+       for _ in range(2):p.create_video('角色开门',ImageResult(path=reference,public_url='http://reference.invalid/card.jpeg'),base/'video.mp4',15 if model=='MiniMax-H3' else 22,reference_audios=(audio,))
       records={f.name:json.loads(f.read_text()) for f in sorted(base.glob('*.json'))}
       results[model]={'requests':calls,'records':records}
       p.client.close()
