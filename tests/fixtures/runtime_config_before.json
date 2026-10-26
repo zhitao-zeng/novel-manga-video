@@ -203,42 +203,77 @@
           "start": 56
         },
         "parallel": 20
+      },
+      {
+        "name": "sd25-15",
+        "model": "sd2.5",
+        "key_var": "PHANROUTER_API_KEY",
+        "clip_cap": 15,
+        "pool": "",
+        "inflight_dir": "/mnt/disk1/zengzhitao/tmp/inflight/sd25",
+        "inflight": {
+          "min": 4,
+          "max": 56,
+          "start": 56
+        },
+        "parallel": 20,
+        "note": "SD2.5的15秒规划档，与sd25共用凭据、在途锁和总上限；已拍30秒计划继续使用sd25"
       }
     ],
     "ranges": [
       {
-        "chapters": "1-34",
+        "chapters": "1-16",
+        "plan_mode": 30,
+        "min_seconds": 100
+      },
+      {
+        "chapters": "17-17",
+        "plan_mode": 15,
+        "min_seconds": 100
+      },
+      {
+        "chapters": "18-31",
+        "plan_mode": 30,
+        "min_seconds": 100
+      },
+      {
+        "chapters": "32-32",
+        "plan_mode": 15,
+        "min_seconds": 100
+      },
+      {
+        "chapters": "33-34",
         "plan_mode": 30,
         "min_seconds": 100
       },
       {
         "chapters": "35-67",
-        "plan_mode": 30,
+        "plan_mode": 15,
         "min_seconds": 100
       },
       {
         "chapters": "68-100",
-        "plan_mode": 30,
+        "plan_mode": 15,
         "min_seconds": 100
       },
       {
         "chapters": "101-163",
-        "plan_mode": 30,
+        "plan_mode": 15,
         "min_seconds": 100
       },
       {
         "chapters": "164-226",
-        "plan_mode": 30,
+        "plan_mode": 15,
         "min_seconds": 100
       },
       {
         "chapters": "227-289",
-        "plan_mode": 30,
+        "plan_mode": 15,
         "min_seconds": 100
       },
       {
         "chapters": "290-300",
-        "plan_mode": 30,
+        "plan_mode": 15,
         "min_seconds": 100
       }
     ],
