@@ -12,6 +12,7 @@ from novel_manga.media.resources import acquire_inflight_slot, release_inflight_
 from novel_manga.media.policy import PRESCREEN_RISK, SUBMIT_BACKOFF_SECONDS
 from novel_manga.media import generation, cache
 from novel_manga.media.cache import CacheMiss
+from novel_manga.providers.phanrouter_references import H3ReferenceUnavailable
 from novel_manga.media.policy import resubmittable
 from novel_manga.util import atomic_write_json, media_duration, read_json
 
@@ -158,7 +159,8 @@ def generate_clip(ctx, clip: dict, attempt: int) -> Path:
             generation.submit(ctx, clip, request, output, references)
             break
         except RuntimeError as error:
-            repair_history.finish_scope_submission(episode_dir,output,outcome='not_accepted' if resubmittable(error) else 'unknown')
+            not_accepted=resubmittable(error) or (isinstance(error,H3ReferenceUnavailable) and not prior_task)
+            repair_history.finish_scope_submission(episode_dir,output,outcome='not_accepted' if not_accepted else 'unknown')
             # Throttled at submission (higher --parallel): wait and resubmit
             # instead of failing the clip; content errors propagate at once.
             # An unconfirmed submission may already be a paid task: never resent from here.

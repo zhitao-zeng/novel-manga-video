@@ -71,7 +71,11 @@ def test_cloud_request_resumes_the_existing_task_without_a_second_post(tmp_path,
     def handle(request):
         if request.method == 'POST':
             payload = json.loads(request.content)
-            assert payload['model'] == model and payload['generate_audio']
+            assert payload['model'] == model
+            if model == 'MiniMax-H3':
+                assert payload['aigc_watermark'] is False
+            else:
+                assert payload['generate_audio']
             calls.append(payload)
             return httpx.Response(200, json={'task_id': 'existing-cloud-job'})
         if request.url.host == 'cdn.invalid':

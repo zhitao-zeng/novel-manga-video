@@ -42,6 +42,33 @@ def test_pending_unknown_submission_stays_reserved(repacked_episode):
     assert history.source_budget(d,'clip_01')['remaining']==2
 
 
+@pytest.mark.parametrize('known_task',[False,True])
+def test_reference_failure_releases_only_a_new_unsubmitted_source_slot(repacked_episode,tmp_path,monkeypatch,known_task):
+    from support.generation import runner
+    from novel_manga.media import generation,cache
+    from novel_manga.providers.phanrouter_references import H3ReferenceUnavailable
+    d=repacked_episode;r=runner(tmp_path);ctx=r.context
+    ctx.work=d/'work';ctx.episode_dir=d;ctx.novel_dir=d.parent
+    ctx.settings=SimpleNamespace(local_h3_base_url=None,video_model='sd2.5')
+    ctx.clip_plan=read_json(d/'clip_plan.json');ctx.state.remaining={'clip_06':2}
+    request={'clip_id':'clip_06','attempt':1,'duration':4,'prompt':'approved input',
+             'references':[],'reference_sha256':[],'workflow':'test'}
+    p=output(d,'clip_06')
+    if known_task:
+        history.reserve_scope_submission(d,p,request)
+        atomic_write_json(p.with_suffix('.mp4.task.json'),{'task_id':'already-accepted'})
+    monkeypatch.setattr(generation,'build_request',lambda *a:(request,(),[],''))
+    monkeypatch.setattr(cache,'request_matches',lambda *a:True)
+    monkeypatch.setattr(generation,'submit',lambda *a:(_ for _ in ()).throw(
+        H3ReferenceUnavailable('image hosting failed before video submission')))
+    clip={'clip_id':'clip_06','request_seconds':4,'references':[]}
+    with pytest.raises(H3ReferenceUnavailable):r.generate_clip(clip,1)
+    budget=history.source_budget(d,'clip_06')['constraints']['clip_01']
+    assert budget['used']==1 and budget['pending']==int(known_task)
+    assert budget['remaining']==2-int(known_task)
+    if known_task:assert read_json(p.with_suffix('.mp4.task.json'))['task_id']=='already-accepted'
+
+
 def test_same_task_resume_spends_no_second_slot(repacked_episode):
     d=repacked_episode;p=output(d,'clip_06');request={'clip_id':'clip_06','prompt':'new'}
     first=history.reserve_scope_submission(d,p,request)

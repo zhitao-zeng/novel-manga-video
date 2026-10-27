@@ -139,7 +139,17 @@ def submit_recorded(submit, task_path: Path, record: dict, *, resource_model=Non
                 media_quota.remember(resource_model, resource_key, response.status_code, body)
             raise
     try:
-        return submit_once(checked_submit).json().get("task_id")
+        response=submit_once(checked_submit)
+        try:
+            payload=response.json()
+        except ValueError:
+            payload={}
+        task_id=(payload.get('task_id') or task_data(payload).get('task_id')) if isinstance(payload,dict) else None
+        if not task_id:
+            error=SubmissionUncertain('task submission returned no task ID; preserve the response and do not send again')
+            error.response=response
+            raise error
+        return task_id
     except SubmissionUncertain as error:
         receipt = {**record, "submit_uncertain_at": time.time()}
         cause = error

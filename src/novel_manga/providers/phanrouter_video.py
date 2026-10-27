@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import math
+import re
 import time
 from pathlib import Path
 import httpx
@@ -69,34 +70,41 @@ def video_payload(
         }
         for audio_url in reference_audio_urls
     )
-    return {
+    payload = {
         "model": settings.video_model,
         "content": content,
         "ratio": ratio,
         "resolution": limits.get("resolution", resolution),
         "duration": max(4, min(int(cap if cap is not None else limits.get("max_duration", 30)), math.ceil(duration))),
-        "generate_audio": True,
-        "watermark": False,
-        "output_format": "mp4",
     }
+    if settings.video_model == 'MiniMax-H3':
+        payload['aigc_watermark']=False
+    else:
+        payload.update(generate_audio=True,watermark=False,output_format='mp4')
+    return payload
 
 
 def generate_video(settings, client, video_headers, payload, output, additional_images=(), reference_audios=(), *, before_submit=None):
+    h3 = payload.get('model') == 'MiniMax-H3'
     request_sha256 = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode('utf-8')
     ).hexdigest()
 
     def submit() -> httpx.Response:
+        endpoint='/v2/video_generation' if h3 else '/api/v3/contents/generations/tasks'
         response = client.post(
-            f"{settings.phanrouter_base_url.rstrip('/')}/api/v3/contents/generations/tasks",
+            settings.phanrouter_base_url.rstrip('/')+endpoint,
             headers=video_headers, json=payload, timeout=min(settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
         )
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as error:
             detail = response.text.strip().replace("\n", " ")[:1000]
+            key=video_headers.get('Authorization','').removeprefix('Bearer ')
+            if key:detail=detail.replace(key,'[credential omitted]')
+            detail=re.sub(r'https?://[^\s"<>]+','[URL omitted]',detail)
             raise RuntimeError(
-                f"Seedance task submission returned HTTP {response.status_code}: {detail}"
+                f"{settings.video_model} task submission returned HTTP {response.status_code}: {detail}"
             ) from error
         return response
 
@@ -104,13 +112,18 @@ def generate_video(settings, client, video_headers, payload, output, additional_
     task_id = None
     if task_path.exists():
         cached = json.loads(task_path.read_text(encoding="utf-8"))
-        if cached.get("request_sha256") == request_sha256:
+        if h3 and unconfirmed(cached):
+            raise SubmissionUncertain(held_message(cached))
+        matches=cached.get('request_sha256')==request_sha256
+        if matches:
             task_id = cached.get("task_id")
             if unconfirmed(cached):
                 # Waiting a while and sending it again still made a second task whenever the first had been
                 # accepted.  With no way to ask the service, only someone who has seen the bill may resend it.
                 raise SubmissionUncertain(held_message(cached))
         else:
+            if h3 and cached.get('task_id') and not (output.is_file() and output.stat().st_size>0):
+                raise SubmissionUncertain('H3 inputs differ while the original task is pending; preserve its task ID')
             # The request changed since that task was created (re-plan,
             # sanitised line, send-time alias): the old task's video would
             # not be this clip.  Keep the record aside and submit afresh.
@@ -135,7 +148,7 @@ def generate_video(settings, client, video_headers, payload, output, additional_
                         hashlib.sha256(path.read_bytes()).hexdigest()
                         for path in additional_images
                     ],
-                    "generate_audio": bool(payload["generate_audio"]),
+                    "generate_audio": bool(payload.get("generate_audio",True)),
                     "reference_audio_sha256s": [
                         hashlib.sha256(path.read_bytes()).hexdigest()
                         for path in reference_audios

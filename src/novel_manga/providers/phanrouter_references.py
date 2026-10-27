@@ -16,42 +16,30 @@ from .phanrouter_tasks import task_data, SUBMIT_TIMEOUT_SECONDS
 
 ASSET_SIDECAR = '.asset.json'
 
+
+class H3ReferenceUnavailable(RuntimeError):
+    """Reference preparation failed before a video task was submitted."""
+
 class ReferenceMaterials:
     def __init__(self, settings, client, video_headers, image_headers):
         self.settings, self.client = settings, client
         self.video_headers, self.image_headers = video_headers, image_headers
 
     def _restore_image_url(self, image: ImageResult) -> str:
-        """The reference as the video request carries it: asset://id when the asset library is on, else the hosted URL."""
-        if (getattr(self.settings, 'video_model', '') == 'MiniMax-H3'
-                and getattr(self.settings, 'phanrouter_asset_public_base', None)
-                and not self.settings.inline_reference_images):
-            return self._published_image_url(image.path)
+        """Resolve local H3 references inline; retain the configured asset/URL route for SD."""
+        if getattr(self.settings, 'video_model', '') == 'MiniMax-H3':
+            # H3 accepts inline references; public/signed URLs can be rejected
+            # upstream even when our own GET succeeds. Keep the complete card.
+            try:
+                return self._inline_image_url(image.path)
+            except (OSError, ValueError) as error:
+                raise H3ReferenceUnavailable(
+                    f'{image.path.parent.name}/{image.path.name}: H3 reference encoding failed '
+                    f'({type(error).__name__}); check the local reference image') from None
         if getattr(self.settings, "reference_images_via_assets", False) and not self.settings.inline_reference_images:
             return self._asset_reference(image)
         return self._hosted_image_url(image)
 
-
-    def _published_image_url(self, path: Path) -> str:
-        """Cloud H3 needs HTTP references even for local cards/crops without image tasks."""
-        from urllib.parse import quote
-        from ..media.publish import publish_file, publish_root
-        root = publish_root(getattr(self.settings, 'output_root', None))
-        published = publish_file(path, root, reference=True)
-        # publish_file already computed the existing content-keyed layout.
-        # Build from its returned path rather than reading/hashing the card again.
-        relative = '/'.join(quote(part, safe='') for part in published.relative_to(root).parts)
-        url = self.settings.phanrouter_asset_public_base.rstrip('/') + '/' + relative
-        try:
-            probe = self.client.head(url, timeout=min(self.settings.request_timeout, SUBMIT_TIMEOUT_SECONDS),
-                                     headers={'ngrok-skip-browser-warning': '1'}, follow_redirects=True)
-        except httpx.HTTPError as error:
-            raise RuntimeError(f'{path.parent.name}/{path.name}: public reference probe failed '
-                               f'({type(error).__name__}); check PHANROUTER_ASSET_PUBLIC_BASE') from None
-        if probe.status_code != 200:
-            raise RuntimeError(f'{path.parent.name}/{path.name}: public reference probe HTTP {probe.status_code}; '
-                               'check PHANROUTER_ASSET_PUBLIC_BASE and its publish directory')
-        return url
 
     def public_card_url(self, path: Path, digest: str) -> str:
         """Where publish_cards.sh puts a copy of this card: <base>/<novel>/<asset>/<view>-<sha12><ext>."""
@@ -189,23 +177,7 @@ class ReferenceMaterials:
         if image.public_url:
             return image.public_url
         if self.settings.inline_reference_images:
-            if not image.path.is_file():
-                raise FileNotFoundError(image.path)
-            with Image.open(image.path) as source:
-                normalized = ImageOps.exif_transpose(source).convert("RGB")
-                # The whole card, long side 1280.  Fitting every reference to 720x1280 cut a 16:9 scene card
-                # down to its middle third - the buildings, doors and space either side went missing.
-                normalized = ImageOps.contain(
-                    normalized,
-                    (1280, 1280),
-                    method=Image.Resampling.LANCZOS,
-                )
-                encoded = io.BytesIO()
-                normalized.save(encoded, format="JPEG", quality=82, optimize=True)
-            payload = encoded.getvalue()
-            if len(payload) > 10 * 1024 * 1024:
-                raise ValueError("Seedance inline reference image exceeds 10 MiB")
-            return f"data:image/jpeg;base64,{base64.b64encode(payload).decode('ascii')}"
+            return self._inline_image_url(image.path)
         task_path = image.path.with_suffix(image.path.suffix + ".task.json")
         if not task_path.is_file():
             raise ValueError("PhanRouter image task metadata is missing; cannot restore provider reference")
@@ -215,3 +187,21 @@ class ReferenceMaterials:
         return poll_image_url(self.settings, self.client, self.image_headers, str(task_id))
 
 
+    def _inline_image_url(self, path: Path) -> str:
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        with Image.open(path) as source:
+            normalized = ImageOps.exif_transpose(source).convert("RGB")
+            # The whole card, long side 1280.  Fitting every reference to 720x1280 cut a 16:9 scene card
+            # down to its middle third - the buildings, doors and space either side went missing.
+            normalized = ImageOps.contain(
+                normalized,
+                (1280, 1280),
+                method=Image.Resampling.LANCZOS,
+            )
+            encoded = io.BytesIO()
+            normalized.save(encoded, format="JPEG", quality=82, optimize=True)
+        payload = encoded.getvalue()
+        if len(payload) > 10 * 1024 * 1024:
+            raise ValueError("Seedance inline reference image exceeds 10 MiB")
+        return f"data:image/jpeg;base64,{base64.b64encode(payload).decode('ascii')}"
