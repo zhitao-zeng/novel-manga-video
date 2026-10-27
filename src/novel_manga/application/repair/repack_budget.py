@@ -5,6 +5,12 @@ from novel_manga.util import read_json
 FIELD='_repack_budget'
 
 
+def archived_unknown_count(directory, cid):
+    """Each archived request is a prior unresolved attempt for this clip."""
+    folder=Path(directory)/'repair_history/unknown-retries'/cid
+    return sum(not path.name.endswith('.task.json') for path in folder.glob('*.json'))
+
+
 def group_for(directory, cid, record=None):
     record=read_json(Path(directory)/'repair_history/history.json',{}) if record is None else record
     for trial in reversed(record.get('trials',[])):
@@ -29,6 +35,16 @@ def balances(directory, cid, counts, grants, limits, *, preparation=False):
             request=read_json(path,{});reserved=request.get(FIELD)or{}
             if (root in reserved.get('roots',[]) and reserved.get('status') in {'reserved','unknown'}
                     and counts.get(request.get('clip_id'),0)<=int(reserved.get('before_count',0))):pending+=1
+        # An explicitly retried unknown remains a separate possible paid task.
+        # Its archived request survives completion of the newer generation.
+        for path in (Path(directory)/'repair_history/unknown-retries').glob('*/*.json'):
+            if path.name.endswith('.task.json'):continue
+            reserved=read_json(path,{}).get(FIELD)or{}
+            if reserved:
+                if root in reserved.get('roots',[]) and reserved.get('status') in {'reserved','unknown'}:pending+=1
+            elif path.parent.name==root:
+                # An ordinary unknown can predate this root's later recut.
+                pending+=1
         grant=grants.get(root,{})
         limit=limits[root] if grant.get('reason') and 'limit' in grant else min(int(original['limit']),limits[root])
         extra=grant.get('conditional_extra')or{}

@@ -31,6 +31,7 @@ def generation_limit(directory: Path, cid: str, *, grants: dict | None = None) -
 
 
 def conditional_extra(directory: Path, cid: str, *, grants=None) -> dict:
+    from .repack_budget import archived_unknown_count
     grants=read(directory/'repair_budget_grants.json',{}) if grants is None else grants
     scope=source_budget(directory,cid,preparation=True,grants=grants)
     if scope['roots']:
@@ -40,7 +41,8 @@ def conditional_extra(directory: Path, cid: str, *, grants=None) -> dict:
         root,extra=extras[0]
         prepared=all(cid in e.get('prepared_clips',[r] if e.get('prepared')else []) for r,e in extras)
         return {**copy.deepcopy(extra),'source_limit':extra['limit'],'scope_roots':[r for r,e in extras],
-                'prepared':prepared,'limit':generation_counts(directory).get(cid,0)+scope['remaining']}
+                'prepared':prepared,'limit':generation_counts(directory).get(cid,0)
+                +archived_unknown_count(directory,cid)+scope['remaining']}
     extra=grants.get(cid,{}).get('conditional_extra')or{}
     return extra if extra.get('authorization') and extra.get('reason') else {}
 
@@ -127,12 +129,15 @@ def mark_extra_prepared(directory: Path, cids):
 
 
 def extra_take_ready(directory: Path, cid: str) -> bool:
+    from .repack_budget import archived_unknown_count
     extra = conditional_extra(directory, cid)
-    return bool(extra.get('prepared') and generation_counts(directory).get(cid, 0) < int(extra['limit']))
+    unresolved = archived_unknown_count(directory,cid)
+    return bool(extra.get('prepared') and generation_counts(directory).get(cid, 0)+unresolved < int(extra['limit']))
 
 
 def activate_extra_take(directory: Path, cid: str) -> bool:
     """Called after the normal final-request/reference preflight, immediately before sampling."""
+    from .repack_budget import archived_unknown_count
     if source_budget(directory,cid)['roots']:
         return _activate_scope_extra(directory,cid)
     with (directory/'repair_budget_grants.lock').open('a') as lock:
@@ -140,7 +145,8 @@ def activate_extra_take(directory: Path, cid: str) -> bool:
         path = directory/'repair_budget_grants.json'
         grants = read(path, {})
         extra = conditional_extra(directory, cid, grants=grants)
-        if not extra.get('prepared') or generation_counts(directory).get(cid, 0) >= int(extra['limit']):
+        if (not extra.get('prepared') or generation_counts(directory).get(cid, 0)
+                + archived_unknown_count(directory,cid) >= int(extra['limit'])):
             return False
         if extra.get('activated'):
             return True
@@ -177,8 +183,9 @@ def source_budget(directory, cid, *, preparation=False, grants=None):
 
 
 def remaining_takes(directory, cid, *, preparation=False):
+    from .repack_budget import archived_unknown_count
     limit=preparation_limit(directory,cid) if preparation else generation_limit(directory,cid)
-    own=max(0,limit-generation_counts(directory).get(cid,0))
+    own=max(0,limit-generation_counts(directory).get(cid,0)-archived_unknown_count(directory,cid))
     budget=source_budget(directory,cid,preparation=preparation)
     return min(own,budget['remaining']) if budget['roots'] else own
 
@@ -230,12 +237,14 @@ def _grant_scope_extra(directory,cid,authorization,reason):
 
 
 def _activate_scope_extra(directory,cid):
+    from .repack_budget import archived_unknown_count
     with (directory/'repair_budget_grants.lock').open('a')as lock:
         fcntl.flock(lock,fcntl.LOCK_EX);path=directory/'repair_budget_grants.json';grants=read(path,{})
         view=conditional_extra(directory,cid,grants=grants)
-        if not view.get('prepared') or generation_counts(directory).get(cid,0)>=int(view['limit']):return False
+        clip_used=generation_counts(directory).get(cid,0)+archived_unknown_count(directory,cid)
+        if not view.get('prepared') or clip_used>=int(view['limit']):return False
         old_limits={c['clip_id']:generation_limit(directory,c['clip_id'],grants=grants)for c in read(directory/'clip_plan.json',{}).get('clips',[])}
-        needed=max([generation_counts(directory).get(cid,0)+1,*[int(grants[r]['conditional_extra']['limit'])for r in view['scope_roots']]])
+        needed=max([clip_used+1,*[int(grants[r]['conditional_extra']['limit'])for r in view['scope_roots']]])
         common=grants.get('*',{})
         if common.get('reason') and common.get('limit',needed)<needed:
             for child,limit in old_limits.items():grants.setdefault(child,{}).update(limit=limit,reason=grants.get(child,{}).get('reason')or'Preserve other clip allowance')
@@ -243,7 +252,7 @@ def _activate_scope_extra(directory,cid):
         for root in view['scope_roots']:
             extra=grants[root]['conditional_extra'];grants[root].update(limit=int(extra['limit']),reason=extra['reason'])
             extra.update(activated=True,activated_at=time.strftime('%F %T'),preflight='source-family request and references passed')
-        grants.setdefault(cid,{}).update(limit=max(int(grants.get(cid,{}).get('limit',0)),old_limits[cid],generation_counts(directory).get(cid,0)+1),reason=view['reason'])
+        grants.setdefault(cid,{}).update(limit=max(int(grants.get(cid,{}).get('limit',0)),old_limits[cid],clip_used+1),reason=view['reason'])
         atomic_write_json(path,grants);return True
 
 
