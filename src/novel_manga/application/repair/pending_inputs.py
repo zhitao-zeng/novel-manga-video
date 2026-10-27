@@ -16,15 +16,38 @@ def stage(directory, proposal, method, *, reason):
 
 
 def exhausted_scope(directory, cids, counts):
-    exhausted=[cid for cid in cids
-               if counts.get(cid,0)>=history.preparation_limit(directory,cid)]
-    required={};balances={}
+    from .repack_budget import archived_unknown_count, balances as source_balances, group_for, retry_available, retry_ledger
+    cids=list(dict.fromkeys(cids))
+    live=history.generation_counts(directory)
+    counts={cid:max(int(counts.get(cid,0)),int(live.get(cid,0))) for cid in counts.keys()|live.keys()}
+    supplied_newer=any(value>live.get(cid,0) for cid,value in counts.items())
+    exhausted=[]
+    required={};balances={};tickets={};ledger=retry_ledger(directory)
     for cid in cids:
         scope=history.source_budget(directory,cid,preparation=True)
+        if supplied_newer and scope['roots'] and (group:=group_for(directory,cid)):
+            grants=read_json(Path(directory)/'repair_budget_grants.json',{})
+            limits={root:history.generation_limit(directory,root,grants=grants)
+                    for root in group['source_budget']['roots']}
+            scope=source_balances(directory,cid,counts,grants,limits,preparation=True)
+        own=max(0,history.preparation_limit(directory,cid)-counts.get(cid,0)
+                -archived_unknown_count(directory,cid)
+                +int(retry_available(directory,cid,counts,scope['roots'])))
+        if not own or (scope['roots'] and not scope['remaining']):exhausted.append(cid)
         for root in scope['roots']:
             required[root]=required.get(root,0)+1
-            balances[root]=scope['constraints'][root]['remaining']
-    exhausted.extend(root for root,needed in required.items() if needed>balances[root])
+            constraint=scope['constraints'][root];remaining=constraint['remaining']
+            balances[root]=max(balances.get(root,0),remaining)
+            if remaining<=0 and cid not in exhausted:exhausted.append(cid)
+            policy=(ledger.get('roots') or {}).get(root) or {}
+            if (policy.get('base_limit')==constraint.get('limit')
+                    and cid in (policy.get('children') or {})
+                    and retry_available(directory,cid,counts,scope['roots'])):
+                tickets.setdefault(root,set()).add(cid)
+    # A per-clip balance already includes that clip's own ticket. Count only
+    # the additional distinct tickets, and count shared source room once.
+    exhausted.extend(root for root,needed in required.items()
+                     if needed>balances[root]+max(0,len(tickets.get(root,set()))-1))
     return exhausted
 
 

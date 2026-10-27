@@ -9,6 +9,7 @@ from novel_manga.repair.proposal import RepairProposal
 def test_pending_scope_is_atomic_when_one_clip_has_no_video_permission(tmp_path):
     d=tmp_path;plan={'clips':[{'clip_id':'a','prompt':'old'},{'clip_id':'b','prompt':'old'}]}
     atomic_write_json(d/'clip_plan.json',plan)
+    history.save(d,{'trials':[], 'prior_generation_counts':{'clips':{'a':0,'b':3}}})
     proposal=RepairProposal({'changed':['a','b']},script={'shots':[]},plan={'clips':[]},notes={})
     result=pending_inputs.prepare_publication(d,proposal,'agent_input',counts={'a':0,'b':3})
     assert not result['published'] and read_json(d/'clip_plan.json')==plan

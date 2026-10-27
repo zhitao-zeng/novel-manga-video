@@ -93,7 +93,8 @@ def balances(directory, cid, counts, grants, limits, *, preparation=False):
         if authorization and policy.get('base_limit')==limit:
             consumed={child:retry_consumed(directory,child,counts,authorization,entry['baseline_count'])
                       for child,entry in children_policy.items()}
-            effective_limit+=sum(consumed.values())+int(cid in consumed and not consumed[cid])
+            available=retry_available(directory,cid,counts,roots)
+            effective_limit+=sum(consumed.values())+int(cid in consumed and not consumed[cid] and available)
         constraints[root]={'limit':limit,'used':used,'pending':pending,'remaining':max(0,effective_limit-used-pending)}
     return {'roots':roots,'constraints':constraints,'remaining':min(c['remaining']for c in constraints.values())}
 
