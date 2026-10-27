@@ -183,15 +183,17 @@ def source_budget(directory, cid, *, preparation=False, grants=None):
 
 
 def remaining_takes(directory, cid, *, preparation=False):
-    from .repack_budget import archived_unknown_count
+    from .repack_budget import archived_unknown_count, retry_available
     limit=preparation_limit(directory,cid) if preparation else generation_limit(directory,cid)
-    own=max(0,limit-generation_counts(directory).get(cid,0)-archived_unknown_count(directory,cid))
+    counts=generation_counts(directory)
     budget=source_budget(directory,cid,preparation=preparation)
+    own=max(0,limit-counts.get(cid,0)-archived_unknown_count(directory,cid)
+            +int(retry_available(directory,cid,counts,budget['roots'])))
     return min(own,budget['remaining']) if budget['roots'] else own
 
 
 def reserve_scope_submission(directory, output, request):
-    from .repack_budget import FIELD
+    from .repack_budget import FIELD, RETRY_AUTHORIZATION, retry_authorization, retry_available
     budget=source_budget(directory,request['clip_id'])
     if not budget['roots']:return request
     with (directory/'repair_budget_grants.lock').open('a') as lock:
@@ -204,6 +206,9 @@ def reserve_scope_submission(directory, output, request):
             return {**request,FIELD:receipt}
         if remaining_takes(directory,request['clip_id'])<=0:raise ValueError('source range video budget used')
         receipt={'roots':budget['roots'],'before_count':generation_counts(directory).get(request['clip_id'],0),'status':'reserved'}
+        cid=request['clip_id']
+        if retry_available(directory,cid,generation_counts(directory),budget['roots']):
+            receipt[RETRY_AUTHORIZATION]=retry_authorization(directory,cid,budget['roots'])
         result={**request,FIELD:receipt};atomic_write_json(path,result);return result
 
 
