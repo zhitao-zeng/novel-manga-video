@@ -437,7 +437,7 @@ def resume_source_review(run_dir, episode_dir, saved):
     return resumed
 
 
-def resume_handoff(run_dir, episode_dir, saved):
+def resume_handoff(run_dir, episode_dir, saved, *, apply=True):
     """Reopen one stalled input repair with the producer's current per-clip blocks."""
     if (saved.get('status') != 'blocked' or saved.get('passed') or saved.get('handoff_recovery')
             or saved.get('pipeline_phase') != 'input_repair'
@@ -470,8 +470,9 @@ def resume_handoff(run_dir, episode_dir, saved):
                'no_progress': 0, 'fallback_invocations': 0, 'stop_detail': None, 'job': None,
                'remaining_seconds': seconds, 'deadline': time.time()+seconds,
                'updated_at': time.strftime('%F %T')}
-    atomic_write_json(run_dir/'handoff-recovery.json', {**marker, 'previous': saved})
-    atomic_write_json(run_dir/'agent-run.json', resumed)
+    if apply:
+        atomic_write_json(run_dir/'handoff-recovery.json', {**marker, 'previous': saved})
+        atomic_write_json(run_dir/'agent-run.json', resumed)
     return resumed
 
 
