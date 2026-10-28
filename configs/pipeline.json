@@ -2817,13 +2817,13 @@
       "workspace_index": "/mnt/disk3/zengzhitao/novel/shiri-h3-production-20261026/workspaces.json",
       "review": {
         "backend": "episode_agent",
-        "parallel": 3,
-        "reserved_review_hosts": 2
+        "parallel": 4,
+        "reserved_review_hosts": 1
       },
       "agent": {
         "config": "configs/agent_shiri_h3.json",
         "input_mode": "script",
-        "parallel": 3,
+        "parallel": 4,
         "workers": 2,
         "output_root": "/mnt/disk3/zengzhitao/novel/shiri-h3-production-20261026/episodes",
         "retry_issues": false,
