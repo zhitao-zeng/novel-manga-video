@@ -48,6 +48,27 @@ def conditional_extra(directory: Path, cid: str, *, grants=None) -> dict:
     return extra if extra.get('authorization') and extra.get('reason') else {}
 
 
+def extra_status(directory: Path, cid: str, *, counts=None, view=None) -> dict:
+    """Expose the source-family accounting behind a conditional extra, not only its view limit."""
+    row = conditional_extra(directory, cid) if view is None else view
+    if not row:
+        return {}
+    counts = generation_counts(directory) if counts is None else counts
+    payload = {'limit': int(row['limit']),
+               'remaining': max(0, int(row['limit'])-counts.get(cid, 0)),
+               'authorized_additional_takes': row.get('authorized_additional_takes'),
+               'prepared': bool(row.get('prepared')), 'activated': bool(row.get('activated'))}
+    roots = row.get('scope_roots') or []
+    if roots:
+        scope = source_budget(directory, cid, preparation=True)
+        constraints = scope.get('constraints') or {}
+        payload.update(source_limit=row.get('source_limit'), scope_roots=roots,
+                       source_used=sum(int((constraints.get(root) or {}).get('used', 0)) for root in roots),
+                       source_pending=sum(int((constraints.get(root) or {}).get('pending', 0)) for root in roots),
+                       source_remaining=scope.get('remaining'))
+    return payload
+
+
 def preparation_limit(directory: Path, cid: str, *, grants=None) -> int:
     """Preparation may use a pending approval; actual generation still may not."""
     grants = read(directory/'repair_budget_grants.json', {}) if grants is None else grants

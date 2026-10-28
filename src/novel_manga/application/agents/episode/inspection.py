@@ -118,9 +118,8 @@ class EpisodeInspection:
                 'publication_blockers': publication,
                 'remaining_input_attempts': input_left,
                 'remaining_rechecks': check_left,
-                'conditional_extra_takes': {cid: {'limit': int(row['limit']),
-                    'remaining': max(0, int(row['limit'])-counts.get(cid, 0)),
-                    'prepared': bool(row.get('prepared')), 'activated': bool(row.get('activated')),
+                'conditional_extra_takes': {cid: {**history.extra_status(
+                        self.ctx.episode_dir, cid, counts=counts, view=row),
                     'next': 'Review current evidence and submit a valid edit/input/retake; generation activates only after final input preflight.'}
                     for cid, row in extra.items() if row},
                 'input_repairs': input_states, 'input_operations': input_ops,
