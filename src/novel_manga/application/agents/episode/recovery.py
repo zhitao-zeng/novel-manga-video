@@ -26,6 +26,7 @@ LESSONS = {
     'conversion': 'The request never became a submittable current English request, so no take exists and no content judgment was made. Repair that clip through the normal input/edit preparation path; another render cannot fix preparation.',
     'request_conflict': 'The saved request contradicts its reference image. Correct the request wording or the source-backed reference choice named in the detail; an unchanged retry fails the same check.',
     'wear_risk': 'The current reference image does not show the required wearing. Correct the actual image or explicitly accept the offered risk; a registry entry alone is not image evidence.',
+    'exhausted': "The clip or its shared source range has used its take allowance. Do not retry the same operation or reword the request to dodge the receipt; record the concrete exhausted allowance and leave the clip unresolved unless a new authorization exists.",
 }
 
 
@@ -43,6 +44,9 @@ def block_kind(detail):
         return 'request_conflict'
     if text.startswith(('ValueError: risk:', 'risk:')):
         return 'wear_risk'
+    if any(marker in text for marker in ('budget used', 'allowance used', 'retake budget',
+                                         'requires a validated input change and existing authorization')):
+        return 'exhausted'
     return 'input'
 
 

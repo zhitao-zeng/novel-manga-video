@@ -49,6 +49,8 @@ def test_conversion_service_failure_is_not_a_content_conflict():
                                '(no English prompt yet); run scripts/build_h3_prompts.py for this chapter first') == 'conversion'
     assert recovery.block_kind('RequestCheckIncomplete: request conflict scope review is incomplete') == 'input'
     assert recovery.block_kind('ValueError: H3 request is missing or stale') == 'conversion'
+    assert recovery.block_kind('ValueError: effective clip retry budget used; requires a validated input '
+                               'change and existing authorization') == 'exhausted'
     assert recovery.block_kind('ValueError: risk: 齐夏穿着道：实际参考图与穿戴要求不同') == 'wear_risk'
 
 
