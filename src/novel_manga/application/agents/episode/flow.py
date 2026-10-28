@@ -186,14 +186,14 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                     if (begin_semantic_repair(ctx) if semantic else begin_review(ctx)):
                         no_progress=fallbacks=0
                         result.update(no_progress=0,fallback_invocations=0)
-                    prompt=semantic_prompt() if semantic else review_prompt()
+                    prompt=semantic_prompt(ctx) if semantic else review_prompt()
                     draft_exception=external_pipeline and semantic and not (ctx.episode_dir/'clip_plan.json').exists()
                     if draft_exception:
                         prompt=prompts.initial_prompt(ctx)+'\nThe standard planner already failed. Repair its existing draft and recorded errors; do not repeat completed book preparation.'
                     if first_pass_only:
                         missing = sorted(unfilmed_video_clips(ctx.episode_dir))
                         if not draft_exception:
-                            prompt = (semantic_prompt() if semantic else
+                            prompt = (semantic_prompt(ctx) if semantic else
                                 'Complete only the missing first video clips using the adopted screenplay and current input checks. '
                                 'Fix confirmed input issues through apply, then render. Existing videos wait for later review. ')
                         prompt += ('\nThis is first video production. Targets: '+json.dumps(missing)+'. '

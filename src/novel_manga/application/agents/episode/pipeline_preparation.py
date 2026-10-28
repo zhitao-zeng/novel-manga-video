@@ -188,11 +188,15 @@ def prepare(ctx, drafts, repairs):
         return save('blocked',ready=False,stage='preparation',error=f'{type(error).__name__}: {error}')
 
 
-def semantic_prompt():
+def semantic_prompt(ctx=None):
     from novel_manga.review.contracts import WATCHABLE_CRITERIA
+    evidence = ('Read input/latest-preparation.json, current source and only the affected shots/references. '
+                if ctx is not None and (ctx.work_dir/'input/latest-preparation.json').is_file() else
+                'Read input/current-task.json issues and their evidence files, current source and only the '
+                'affected shots/references. ')
     return ('The fixed production pipeline has an existing screenplay with a confirmed semantic '
         'or reference-content problem. You are its targeted repair Agent, not its initial writer. '
-        'Read input/latest-preparation.json, current source and only the affected shots/references. '
+        + evidence +
         'Correct meaning yourself: input shots[].turns may replace/delete/add source-backed turns, '
         'fix speaker_name and delivery_mode/inner_monologue while preserving cuts and duration. '
         'Keep essential facts, causality and who knows each fact. Ordinary H3 edit cannot change dialogue. '

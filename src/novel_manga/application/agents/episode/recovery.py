@@ -22,7 +22,50 @@ LESSONS = {
     'technical': 'Locate the actual failing time interval in the final timeline. end_seconds can be the measurement-window end, not the failed interval.',
     'arguments': 'Correct the tool fields/scope reported by check; repeating resume cannot fix malformed arguments.',
     'execution': 'The call or result protocol failed, so no content judgment was obtained. Preserve the candidate and use the current technical continuation; do not rewrite source content on this evidence.',
+    'missing_asset': 'A required source-backed reference image is absent. Create or repair that card through the current asset/input operation; do not reword the request to avoid the required image, and do not claim the clip is filmed.',
+    'conversion': 'The request never became a submittable current English request, so no take exists and no content judgment was made. Repair that clip through the normal input/edit preparation path; another render cannot fix preparation.',
+    'request_conflict': 'The saved request contradicts its reference image. Correct the request wording or the source-backed reference choice named in the detail; an unchanged retry fails the same check.',
+    'wear_risk': 'The current reference image does not show the required wearing. Correct the actual image or explicitly accept the offered risk; a registry entry alone is not image evidence.',
 }
+
+
+def block_kind(detail):
+    """Separate absent images, failed request preparation and real content conflicts."""
+    text = str(detail)
+    if 'missing required image' in text:
+        return 'missing_asset'
+    if (text.startswith(('H3 conversion did not produce', 'LLMFailure:', 'ConnectError:', 'ConnectTimeout:',
+                         'ReadTimeout:', 'ConnectionError:', 'TimeoutError:', 'JSONDecodeError:'))
+            or 'build_h3_prompts.py' in text or 'public reference probe failed' in text):
+        return 'conversion'
+    if 'H3 request/reference mismatch' in text or text.startswith('request: '):
+        return 'request_conflict'
+    if text.startswith(('ValueError: risk:', 'risk:')):
+        return 'wear_risk'
+    return 'input'
+
+
+def current_blocks(ctx):
+    """Producer block reasons for clips that still need their first video."""
+    plan = read_json(ctx.episode_dir/'clip_plan.json', {})
+    clips = {c['clip_id'] for c in plan.get('clips', []) if c.get('kind') != 'audio'}
+    if not clips:
+        return {}
+    blocks = {}
+    saved = read_json(ctx.episode_dir/'batch-production.json', {})
+    if saved.get('status') == 'blocked':
+        blocks = {cid:(list(v) if isinstance(v, list) else [v])
+                  for cid, v in (saved.get('blocked') or {}).items() if cid in clips}
+    if not blocks:
+        media = read_json(ctx.episode_dir/'thin_media_report.json', {})
+        blocks = {cid:(list(v) if isinstance(v, list) else [v])
+                  for cid, v in (media.get('blocked_clips') or {}).items() if cid in clips}
+    if not blocks:
+        return {}
+    from novel_manga.application.preparation.store import unfilmed_video_clips
+    remaining = unfilmed_video_clips(ctx.episode_dir, plan)
+    return {cid:[str(detail) for detail in details]
+            for cid, details in blocks.items() if cid in remaining}
 
 
 def diagnose(ctx, status):
@@ -32,6 +75,7 @@ def diagnose(ctx, status):
     current_review = read_json(ctx.episode_dir/'episode_review.json', {})
     current_media = read_json(ctx.episode_dir/'thin_media_report.json', {})
     selected = {r['clip_id']: r.get('selected') or {} for r in current_media.get('clips') or []}
+    blocks = current_blocks(ctx)
     issues = []
 
     def add(kind, ids, detail):
@@ -41,8 +85,9 @@ def diagnose(ctx, status):
                 r'^(?:RequestCheckIncomplete|SourceCheckIncomplete|LLMFailure|ConnectError|ConnectTimeout|ReadTimeout|ConnectionError|TimeoutError|JSONDecodeError):|'
                 r'^ValueError: (?:verification requires|verification flags require|count review)', str(detail)):
             kind = 'execution'
-        issues.append({'kind': kind, 'clips': list(ids), 'detail': str(detail)[:700],
-                       'next': LESSONS[kind]})
+        row = {'kind': kind, 'clips': list(ids), 'detail': str(detail)[:700], 'next': LESSONS[kind]}
+        if row not in issues:
+            issues.append(row)
 
     for target in evidence.get('targets') or []:
         current = target.get('clip') or {}
@@ -61,8 +106,15 @@ def diagnose(ctx, status):
             add('picture', [cid], verdict.get('feedback') or verdict.get('story_issue') or verdict.get('defect_issue'))
         block = ((current_media.get('blocked_clips') or {}).get(cid) if current_media
                  else target.get('input_block'))
-        if block:
-            add('input', [cid], block)
+        if block and cid not in blocks:
+            add(block_kind(block), [cid], block)
+    for cid, details in sorted(blocks.items()):
+        seen = set()
+        for detail in details:
+            if detail in seen:
+                continue
+            seen.add(detail)
+            add(block_kind(detail), [cid], detail)
     if not status.get('adopted') or current_media.get('status') == 'inputs_failed':
         exception = read_json(ctx.work_dir/'input/preparation/exception.json', {}).get('failure') or {}
         preparation = read_json(ctx.work_dir/'input/latest-preparation.json', {})
@@ -70,7 +122,8 @@ def diagnose(ctx, status):
         for error in current.get('issues') or []:
             add('input', [], error)
         for cid, error in (preparation.get('blocked') or {}).items():
-            add('input', [cid], error)
+            if cid not in blocks:
+                add('input', [cid], error)
         if not preparation and not current.get('issues') and exception.get('reason'):
             add('input', [], exception['reason'])
         draft = read_json(ctx.work_dir/'input/source-draft-check.json', {})
@@ -380,6 +433,44 @@ def resume_source_review(run_dir, episode_dir, saved):
                'remaining_seconds': remaining, 'deadline': time.time()+remaining,
                'updated_at': time.strftime('%F %T')}
     atomic_write_json(run_dir/'source-review-recovery.json', {**marker, 'previous': saved})
+    atomic_write_json(run_dir/'agent-run.json', resumed)
+    return resumed
+
+
+def resume_handoff(run_dir, episode_dir, saved):
+    """Reopen one stalled input repair with the producer's current per-clip blocks."""
+    if (saved.get('status') != 'blocked' or saved.get('passed') or saved.get('handoff_recovery')
+            or saved.get('pipeline_phase') != 'input_repair'
+            or saved.get('reason') not in {
+                'episode agent ended twice without operation or output progress',
+                'episode agent reached the bounded operation continuation limit'}
+            or remaining_at_stop(saved) <= 0
+            or (saved.get('job') or {}).get('status') in {'accepted', 'running'}):
+        return None
+    run_dir, episode_dir = Path(run_dir), Path(episode_dir)
+    if read_json(run_dir/'final-candidate/manifest.json', {}).get('passed') is True:
+        return None
+    plan = read_json(episode_dir/'clip_plan.json', {})
+    receipt = read_json(episode_dir/'batch-production.json', {})
+    from novel_manga.application.preparation.store import unfilmed_video_clips
+    remaining = unfilmed_video_clips(episode_dir, plan)
+    if receipt.get('status') != 'blocked':
+        return None
+    clips = {c['clip_id'] for c in plan.get('clips', []) if c.get('kind') != 'audio'}
+    blocks = {cid:(list(detail) if isinstance(detail, list) else [detail])
+              for cid, detail in (receipt.get('blocked') or {}).items()
+              if cid in clips and cid in remaining}
+    if not blocks:
+        return None
+    seconds = remaining_at_stop(saved)
+    marker = {'policy': 'producer-blocks-v1', 'clips': sorted(blocks),
+              'producer_at': receipt.get('at'), 'at': time.time()}
+    resumed = {**saved, 'handoff_recovery': marker, 'status': 'deferred', 'phase': 'ready_agent',
+               'reason': 'Producer blocks handed off with current per-clip evidence',
+               'no_progress': 0, 'fallback_invocations': 0, 'stop_detail': None, 'job': None,
+               'remaining_seconds': seconds, 'deadline': time.time()+seconds,
+               'updated_at': time.strftime('%F %T')}
+    atomic_write_json(run_dir/'handoff-recovery.json', {**marker, 'previous': saved})
     atomic_write_json(run_dir/'agent-run.json', resumed)
     return resumed
 
