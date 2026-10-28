@@ -33,6 +33,7 @@
 - `agent.parallel` 3→4，`review.parallel` 3→4，`reserved_review_hosts` 2→1，`7928aa7`。
 - 滚动重启：旧 `zzt-shiri-h3-production-tenretry2-20261027.service` 已停，新 `zzt-shiri-h3-production-parallel4-20261028.service` active；`launch.json` 已改指新 unit。
 - 实测 4 个 episode agent 并行；模型路由仍为 `official-ds41`（6 槽），未改 H3 云端 4 路上限或本地池。
+- 15:45 追加：观察到 5 个 Agent 的 `model_wait` 仅 0–42 秒、无 429，把 `review.parallel` 4→5（`48c006a`），保留 1 个槽给生产准备/翻译；新 unit `zzt-shiri-h3-production-parallel5-20261028.service` active，实测 5 个 episode agent 并行。没有继续加到 6，避免与生产准备抢满 6 个文本槽。
 
 ## 结果与边界
 
