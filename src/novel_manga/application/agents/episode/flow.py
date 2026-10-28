@@ -272,7 +272,11 @@ def _run_episode(ctx, *, config=None, timeout=None, retry_issues=False):
                         continue
                     timed_out = attempt.exit_code == 124 and session_timeout < remaining
                     if timed_out or attempt.record.get('turn_limit_reached'):
-                        no_progress = 0 if progress_rules.made_progress(ctx, before, before_status, status) else no_progress + 1
+                        # A killed turn that used tools was still working. Only a
+                        # truly idle turn counts toward the no-progress stop; the
+                        # activity budget remains the bound on a long investigation.
+                        active = progress_rules.attempt_tool_calls(attempt.directory) > 0
+                        no_progress = 0 if (active or progress_rules.made_progress(ctx, before, before_status, status)) else no_progress + 1
                         result['no_progress'] = no_progress
                         if no_progress >= 2:
                             result['reason'] = 'episode agent ended twice without operation or output progress'

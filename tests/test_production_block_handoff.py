@@ -1,4 +1,5 @@
 """Blocked first-pass clips reach the repair Agent with their current reasons."""
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -208,3 +209,14 @@ def test_review_recovery_leaves_spent_or_unrelated_stops_untouched(tmp_path, act
     assert recovery.resume_review(ctx.run_dir, ctx.episode_dir, saved) is None
     assert not (ctx.run_dir/'review-recovery.json').exists()
 
+
+
+def test_attempt_tool_calls_separates_active_from_idle_turns(tmp_path):
+    from novel_manga.application.agents.episode import progress
+    attempt = tmp_path/'attempt'; attempt.mkdir()
+    (attempt/'session.jsonl').write_text('\n'.join([
+        json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'thinking'}]}}),
+        json.dumps({'type': 'assistant', 'message': {'content': [{'type': 'tool_use', 'name': 'Bash'}]}}),
+        json.dumps({'type': 'user', 'message': {'content': [{'type': 'tool_result'}]}})]))
+    assert progress.attempt_tool_calls(attempt) == 1
+    assert progress.attempt_tool_calls(tmp_path/'missing') == 0

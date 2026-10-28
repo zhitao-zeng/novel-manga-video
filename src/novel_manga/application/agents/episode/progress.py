@@ -1,6 +1,29 @@
 """Run one episode agent while its existing host tools execute media operations."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+
+def attempt_tool_calls(directory):
+    """Count tool calls in a finished turn; a turn that used tools was not idle."""
+    path = Path(directory)/'session.jsonl'
+    count = 0
+    try:
+        for line in path.open():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get('type') != 'assistant':
+                continue
+            for item in (event.get('message') or {}).get('content') or []:
+                if isinstance(item, dict) and item.get('type') == 'tool_use':
+                    count += 1
+    except OSError:
+        return 0
+    return count
+
 
 def file_stamp(path):
     try:
