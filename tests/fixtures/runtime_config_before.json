@@ -2662,7 +2662,7 @@
       "park_seconds": 3600
     },
     "review": {
-      "parallel": 4,
+      "parallel": 5,
       "backend": "episode_agent",
       "reserved_review_hosts": 1
     },
