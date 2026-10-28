@@ -228,7 +228,10 @@ class MediaOperations:
         if local_inputs:
             stage(self.ctx)
         path = self.ctx.episode_dir/'clip_plan.json'
-        pending_script = self.ctx.input_mode == 'script' and not (self.ctx.run_dir/'prepared.json').is_file()
+        # A resumed batch may have paid media but no saved preparation marker.
+        # In that case render the existing plan; adopt would reject the media.
+        pending_script = (self.ctx.input_mode == 'script' and not (self.ctx.run_dir/'prepared.json').is_file()
+                          and not media_started(self.ctx.episode_dir))
         if not path.is_file() or payload.get('file') or pending_script:
             adopted = self.drafts.adopt(payload)
             if adopted.get('ok') is not True:

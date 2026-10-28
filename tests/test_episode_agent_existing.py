@@ -297,11 +297,23 @@ def test_existing_requests_reject_missing_clips_and_changed_frozen_bindings(tmp_
     assert not (ctx.episode_dir / 'repair_history').exists()
 
 
-def test_render_runs_independent_acceptance_and_delivers_its_current_evidence(tmp_path, monkeypatch):
+@pytest.mark.parametrize('existing_media', [False, True])
+def test_render_runs_independent_acceptance_and_delivers_its_current_evidence(tmp_path, monkeypatch, existing_media):
     from novel_manga.application.repair import agent
     from novel_manga.review.contracts import REVIEW_POLICY
     ctx, _, _ = prepared(tmp_path, monkeypatch)
     reviews = []
+    if existing_media:
+        # A resumed batch-review run can lack prepared.json after first-pass
+        # media was produced. Existing bytes and counts must survive render.
+        video = ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4'
+        video.parent.mkdir(parents=True)
+        video.write_bytes(b'current selected take')
+        history.save(ctx.episode_dir, {'trials': [],
+            'prior_generation_counts': {'clips': {'clip_01': 1}}})
+        atomic_write_json(ctx.work_dir/'input/manifest.json', {'production_mode': 'batch_review', 'agent_phase': 'review'})
+        monkeypatch.setattr('novel_manga.application.production.workspaces.pending_production', lambda ctx: False)
+        assert not (ctx.run_dir/'prepared.json').exists()
 
     def independent_review(directory, *, fresh):
         assert fresh is False
@@ -318,8 +330,9 @@ def test_render_runs_independent_acceptance_and_delivers_its_current_evidence(tm
         def run(self, *, assemble=True):
             from novel_manga.review.storage import take_identity
             video = ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4'
-            video.parent.mkdir(parents=True)
-            video.write_bytes(b'current selected take')
+            video.parent.mkdir(parents=True, exist_ok=True)
+            if not video.exists():
+                video.write_bytes(b'current selected take')
             atomic_write_json(video.parent/'asr_raw.json', {'hypothesis': '原始识别'})
             atomic_write_json(ctx.episode_dir/'episode_review.json', {
                 'policy': REVIEW_POLICY, 'review_mode':'classic', 'clips': {'clip_01': {'severity': 'fail',
@@ -353,6 +366,64 @@ def test_render_runs_independent_acceptance_and_delivers_its_current_evidence(tm
     assert target['frame_evidence']['frames'][0]['timestamp_seconds'] == 13.5
     assert read_json(ctx.work_dir/target['asr_files'][0])['hypothesis'] == '原始识别'
     assert read_json(ctx.work_dir/'input/latest-render.json')['quality_review']['passed'] is False
+    if existing_media:
+        assert video.read_bytes() == b'current selected take'
+        assert history.generation_counts(ctx.episode_dir)['clip_01'] == 1
+        assert not (ctx.run_dir/'prepared.json').exists()
+
+
+def test_resumed_batch_with_accepted_task_preserves_id_and_returns_to_producer(tmp_path, monkeypatch):
+    ctx, _, _ = prepared(tmp_path, monkeypatch)
+    task = ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4.task.json'
+    atomic_write_json(task, {'task_id': 'existing-paid-task'})
+    atomic_write_json(ctx.work_dir/'input/manifest.json', {'production_mode': 'batch_review', 'agent_phase': 'input_repair'})
+    before = task.read_bytes()
+    monkeypatch.setattr(MediaOperations, 'runner', lambda *a: pytest.fail('Agent started video before producer preparation'))
+    result = EpisodeTools(ctx).dispatch('render', {})
+    assert result['ok'] is True and result['pipeline_pending'] is True
+    assert task.read_bytes() == before
+    assert not (ctx.run_dir/'prepared.json').exists()
+    assert history.generation_counts(ctx.episode_dir) == {}
+
+
+@pytest.mark.parametrize('missing_plan,existing_media', [(False, False), (True, True)])
+def test_script_without_media_or_plan_still_requires_adoption(tmp_path, monkeypatch, missing_plan, existing_media):
+    ctx, _, _ = prepared(tmp_path, monkeypatch)
+    if missing_plan:
+        (ctx.episode_dir/'clip_plan.json').unlink()
+    if existing_media:
+        video = ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4'
+        video.parent.mkdir(parents=True)
+        video.write_bytes(b'existing take')
+    tools = EpisodeTools(ctx)
+    seen = []
+    monkeypatch.setattr(tools.drafts, 'adopt', lambda payload: seen.append(payload) or {'ok': False, 'valid': False})
+    assert tools.dispatch('render', {})['ok'] is False
+    assert seen == [{}]
+
+
+def test_explicit_file_with_existing_video_still_refuses_adoption_without_prepared(tmp_path, monkeypatch):
+    ctx, _, _ = prepared(tmp_path, monkeypatch)
+    video = ctx.episode_dir/'work/clips/clip_01/attempt_01/clip.mp4'
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b'existing take')
+    answer = EpisodeTools(ctx).dispatch('render', {'file': 'output/requests.json'})
+    assert answer['ok'] is False and 'main video has started' in answer['error']
+    assert video.read_bytes() == b'existing take'
+    assert history.generation_counts(ctx.episode_dir) == {}
+    assert not (ctx.run_dir/'prepared.json').exists()
+
+
+def test_unstarted_pipeline_review_still_requires_native_preparation(tmp_path, monkeypatch):
+    ctx, _, _ = prepared(tmp_path, monkeypatch)
+    atomic_write_json(ctx.work_dir/'input/manifest.json', {'production_mode': 'pipeline_review', 'agent_phase': 'review'})
+    tools = EpisodeTools(ctx)
+    seen = []
+    monkeypatch.setattr(tools.drafts, 'adopt', lambda payload: seen.append(payload) or {'ok': True})
+    monkeypatch.setattr(MediaOperations, 'runner', lambda *a: pytest.fail('unprepared inputs reached video rendering'))
+    answer = tools.dispatch('render', {})
+    assert seen == [{}]
+    assert answer['ok'] is False and answer['error'] == 'native_preparation_required'
 
 
 def test_existing_media_requires_protected_repair_and_preserves_budget(tmp_path, monkeypatch):
