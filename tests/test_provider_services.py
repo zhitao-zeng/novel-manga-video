@@ -145,3 +145,31 @@ def test_a_card_request_records_the_local_model_only_when_one_drew_it(tmp_path):
         hashes[label] = record['request_sha256']
         assert ('local_image_model' in record) == (label == 'local')
     assert hashes['remote'] != hashes['local'], 'switching backend must redraw, not reuse'
+
+
+def test_cached_image_task_without_a_result_url_is_resubmitted_once(tmp_path):
+    output = tmp_path / 'card.jpeg'
+    task = output.with_suffix(output.suffix + '.task.json')
+    task.write_text(json.dumps({'task_id': 'stale-task', 'kind': 'image'}))
+    calls = []
+    def handle(request):
+        calls.append((request.method, str(request.url)))
+        if request.url.host == 'cdn.invalid':
+            return httpx.Response(200, content=b'fresh card')
+        if request.method == 'POST':
+            return httpx.Response(200, json={'task_id': 'fresh-task'})
+        if 'stale-task' in str(request.url):
+            return httpx.Response(200, json={'data': {'status': 'succeeded'}})
+        return httpx.Response(200, json={'data': {'status': 'succeeded', 'url': 'http://cdn.invalid/card.jpeg'}})
+    settings = Settings(phanrouter_base_url='http://api.invalid', phanrouter_api_key='test-only', image_model='image-test')
+    provider = PhanRouterMediaProvider(settings)
+    provider.client.close()
+    provider.client = httpx.Client(transport=httpx.MockTransport(handle), trust_env=False)
+    try:
+        result = provider.create_image('a card', output)
+    finally:
+        provider.client.close()
+    assert output.read_bytes() == b'fresh card'
+    assert result.public_url == 'http://cdn.invalid/card.jpeg'
+    assert len([call for call in calls if call[0] == 'POST']) == 1
+    assert json.loads(task.read_text())['task_id'] == 'fresh-task'

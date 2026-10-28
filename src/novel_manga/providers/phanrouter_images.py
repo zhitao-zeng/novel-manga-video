@@ -20,6 +20,10 @@ from .phanrouter_tasks import (SUBMIT_TIMEOUT_SECONDS, PURGED_STATUSES, Submissi
 # before the model has seen the prompt.  These are the same two ratios at the smallest size
 # Seedream accepts, so a card drawn here still matches the rest of the series frame for frame.
 SEEDREAM_PIXEL_FLOOR = 3_686_400
+
+
+class EmptyImageResult(ValueError):
+    """A task reported success without a result URL; that receipt cannot be resumed."""
 SEEDREAM_DIMENSIONS = {"9:16": (1440, 2560), "16:9": (2560, 1440)}
 
 
@@ -52,7 +56,7 @@ def poll_image_url(settings, client, image_headers, task_id: str) -> str:
         if status in {"succeeded", "success"}:
             url = data.get("url")
             if not url:
-                raise ValueError("successful image task returned no URL")
+                raise EmptyImageResult("successful image task returned no URL")
             return str(url)
         if status in {"failed", "failure", "cancelled"}:
             raise RuntimeError(f"image generation failed: {data}")
@@ -113,6 +117,20 @@ def create_image(
     if not task_id:
         raise ValueError("image API returned no task_id")
     try:
+        url = poll_image_url(settings, client, image_headers, str(task_id))
+        download_file(client, url, output, max_bytes=64 * 1024 * 1024)
+    except EmptyImageResult:
+        if not cached:
+            raise
+        # An old receipt's result URL is gone while its status still says
+        # succeeded. That task cannot be resumed, so pay for this card once
+        # more instead of failing every future build on the same receipt.
+        task_path.unlink(missing_ok=True)
+        task_id = submit_recorded(submit, task_path, {"kind": "image"}, resource_model=settings.image_model,
+                                  resource_key=image_headers.get('Authorization', '').removeprefix('Bearer '))
+        if not task_id:
+            raise
+        atomic_write_json(task_path, {"task_id": task_id, "kind": "image"})
         url = poll_image_url(settings, client, image_headers, str(task_id))
         download_file(client, url, output, max_bytes=64 * 1024 * 1024)
     except (RuntimeError, httpx.HTTPStatusError) as error:
