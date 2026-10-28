@@ -36,6 +36,7 @@ def block_kind(detail):
         return 'missing_asset'
     if (text.startswith(('H3 conversion did not produce', 'LLMFailure:', 'ConnectError:', 'ConnectTimeout:',
                          'ReadTimeout:', 'ConnectionError:', 'TimeoutError:', 'JSONDecodeError:'))
+            or 'H3 request is missing or stale' in text
             or 'build_h3_prompts.py' in text or 'public reference probe failed' in text):
         return 'conversion'
     if 'H3 request/reference mismatch' in text or text.startswith('request: '):
@@ -460,6 +461,20 @@ def resume_handoff(run_dir, episode_dir, saved, *, apply=True):
     blocks = {cid:(list(detail) if isinstance(detail, list) else [detail])
               for cid, detail in (receipt.get('blocked') or {}).items()
               if cid in clips and cid in remaining}
+    if not blocks:
+        return None
+    status = read_json(run_dir/'sandbox/input/current-status.json', {})
+    if status:
+        actions = status.get('repair_actions') or {}
+        takes = status.get('remaining_takes') or {}
+        attempts = status.get('remaining_input_attempts') or {}
+        def actionable(cid, details):
+            allowed = set(actions.get(cid) or [])
+            if block_kind(details[0] if details else '') == 'missing_asset':
+                return 'repair_assets' in allowed
+            return bool(allowed & {'edit', 'retake', 'input'}) and (
+                (takes.get(cid) or 0) > 0 or (attempts.get(cid) or 0) > 0)
+        blocks = {cid: details for cid, details in blocks.items() if actionable(cid, details)}
     if not blocks:
         return None
     seconds = remaining_at_stop(saved)

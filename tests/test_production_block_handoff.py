@@ -48,6 +48,7 @@ def test_conversion_service_failure_is_not_a_content_conflict():
     assert recovery.block_kind('RuntimeError: clip_08: H3 lane cannot submit a new request from stale words '
                                '(no English prompt yet); run scripts/build_h3_prompts.py for this chapter first') == 'conversion'
     assert recovery.block_kind('RequestCheckIncomplete: request conflict scope review is incomplete') == 'input'
+    assert recovery.block_kind('ValueError: H3 request is missing or stale') == 'conversion'
     assert recovery.block_kind('ValueError: risk: 齐夏穿着道：实际参考图与穿戴要求不同') == 'wear_risk'
 
 
@@ -141,6 +142,28 @@ def test_handoff_recovery_requires_current_unfilmed_blocks(tmp_path):
     video.unlink()
     producer(ctx, {})
     assert recovery.resume_handoff(ctx.run_dir, ctx.episode_dir, saved) is None
+
+
+@pytest.mark.parametrize('detail,actions,takes,attempts,opened', [
+    ('ValueError: asset: missing required image a.jpeg', ['repair_assets'], 0, 0, True),
+    ('H3 conversion did not produce a valid current request', ['repair_assets'], 0, 0, False),
+    ('H3 conversion did not produce a valid current request', ['edit', 'retake'], 0, 0, False),
+    ('H3 conversion did not produce a valid current request', ['edit', 'retake'], 1, 0, True),
+    ('H3 conversion did not produce a valid current request', ['input'], 0, 1, True)])
+def test_handoff_recovery_needs_a_legal_path_for_the_recorded_block(
+        tmp_path, detail, actions, takes, attempts, opened):
+    ctx = context(tmp_path)
+    plan(ctx)
+    producer(ctx, {'clip_01': [detail]})
+    atomic_write_json(ctx.work_dir/'input/current-status.json', {
+        'repair_actions': {'clip_01': actions}, 'remaining_takes': {'clip_01': takes},
+        'remaining_input_attempts': {'clip_01': attempts}})
+    saved = {'status': 'blocked', 'pipeline_phase': 'input_repair',
+             'reason': 'episode agent ended twice without operation or output progress',
+             'remaining_seconds': 300, 'no_progress': 2}
+    resumed = recovery.resume_handoff(ctx.run_dir, ctx.episode_dir, saved)
+    assert (resumed is not None) is opened
+
 
 
 def test_semantic_prompt_cites_only_existing_preparation_evidence(tmp_path):
