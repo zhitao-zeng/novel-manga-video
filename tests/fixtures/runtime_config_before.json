@@ -2662,9 +2662,9 @@
       "park_seconds": 3600
     },
     "review": {
-      "parallel": 3,
+      "parallel": 4,
       "backend": "episode_agent",
-      "reserved_review_hosts": 2
+      "reserved_review_hosts": 1
     },
     "render": {
       "prescreen": true

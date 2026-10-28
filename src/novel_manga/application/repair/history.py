@@ -36,7 +36,8 @@ def conditional_extra(directory: Path, cid: str, *, grants=None) -> dict:
     scope=source_budget(directory,cid,preparation=True,grants=grants)
     if scope['roots']:
         extras=[(root,grants.get(root,{}).get('conditional_extra')or{})for root in scope['roots']]
-        extras=[(root,e)for root,e in extras if e.get('authorization') and e.get('reason')]
+        extras=[(root,e)for root,e in extras if e.get('authorization') and e.get('reason')
+                and (not e.get('allowed_clips') or cid in e['allowed_clips'])]
         if not extras:return {}
         root,extra=extras[0]
         prepared=all(cid in e.get('prepared_clips',[r] if e.get('prepared')else []) for r,e in extras)
@@ -56,6 +57,7 @@ def preparation_limit(directory: Path, cid: str, *, grants=None) -> int:
 
 def grant_conditional_extra(directory: Path, cid: str, *, authorization: str, reason: str) -> dict:
     """Register one explicitly authorized recovery round; never replenish it on restart."""
+    from .repack_budget import archived_unknown_count
     directory = Path(directory)
     if not authorization.strip() or not reason.strip():
         raise ValueError('conditional take requires an explicit authorization and reason')
@@ -75,16 +77,18 @@ def grant_conditional_extra(directory: Path, cid: str, *, authorization: str, re
             if recorded.get('authorization') == authorization:
                 return copy.deepcopy(recorded)
         count = generation_counts(directory).get(cid, 0)
+        unknown = archived_unknown_count(directory, cid)
         available = preparation_limit(directory, cid, grants=grants)
-        if count < available:
+        if count + unknown < available:
             return copy.deepcopy(current or {'limit': available, 'reason': 'existing unspent allowance'})
         entry = grants.setdefault(cid, {})
         if current:
             entry.setdefault('previous_conditional_extras', []).append(copy.deepcopy(current))
         used_inputs = sum(read(p, {}).get('operation')!='upstream_asset' and read(p, {}).get('status') != 'tool_error'
                           for p in (directory/'work/input_repairs').glob(f'{cid}-*.json'))
-        extra = {'authorization': authorization, 'reason': reason, 'limit': count+1,
+        extra = {'authorization': authorization, 'reason': reason, 'limit': count+unknown+1,
                  'baseline_count': count, 'baseline_limit': generation_limit(directory, cid, grants=grants),
+                 'unknown_held': unknown, 'allowed_clips': [cid],
                  'input_limit': max(2, used_inputs+1),
                  'recheck_limit': int(recheck_limit(directory, cid, grants=grants) or 0)+1,
                  'prepared': False, 'activated': False, 'authorized_at': time.strftime('%F %T')}
@@ -235,6 +239,7 @@ def _grant_scope_extra(directory,cid,authorization,reason):
             if constraint['remaining']>0:continue
             extra={'authorization':authorization,'reason':reason,'limit':constraint['used']+constraint['pending']+1,
                    'baseline_count':constraint['used'],'baseline_limit':constraint['limit'],'prepared':False,'activated':False,
+                   'allowed_clips':[cid],
                    'input_limit':max(2,used_inputs+1),'recheck_limit':int(recheck_limit(directory,cid,grants=grants)or 0)+1,
                    'authorized_at':time.strftime('%F %T'),'prepared_clips':[],'source_scope':root}
             grants.setdefault(root,{})['conditional_extra']=extra

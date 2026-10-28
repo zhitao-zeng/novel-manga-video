@@ -86,7 +86,9 @@ def balances(directory, cid, counts, grants, limits, *, preparation=False):
         grant=grants.get(root,{})
         limit=limits[root] if grant.get('reason') and 'limit' in grant else min(int(original['limit']),limits[root])
         extra=grant.get('conditional_extra')or{}
-        if preparation and extra.get('authorization') and extra.get('reason'):limit=max(limit,int(extra['limit']))
+        if (preparation and extra.get('authorization') and extra.get('reason')
+                and (not extra.get('allowed_clips') or cid in extra['allowed_clips'])):
+            limit=max(limit,int(extra['limit']))
         effective_limit=limit
         policy=(ledger.get('roots') or {}).get(root) or {}
         children_policy=policy.get('children') or {}
