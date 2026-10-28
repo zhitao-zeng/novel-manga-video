@@ -476,6 +476,39 @@ def resume_handoff(run_dir, episode_dir, saved, *, apply=True):
     return resumed
 
 
+def resume_review(run_dir, episode_dir, saved, *, apply=True):
+    """Continue a review stop only while the episode's own takes allow a real repair."""
+    if (saved.get('status') != 'finished_with_issues' or saved.get('passed')
+            or saved.get('review_recovery') or saved.get('pipeline_phase') != 'review'
+            or remaining_at_stop(saved) <= 0
+            or (saved.get('job') or {}).get('status') in {'accepted', 'running'}):
+        return None
+    run_dir = Path(run_dir)
+    result = (saved.get('job') or {}).get('result') or {}
+    quality = result.get('quality_review') or {}
+    remaining = list(quality.get('remaining') or result.get('remaining') or [])
+    if not remaining:
+        return None
+    status = read_json(run_dir/'sandbox/input/current-status.json', {})
+    actions = status.get('repair_actions') or {}
+    takes = status.get('remaining_takes') or {}
+    qualified = [cid for cid in remaining
+                 if set(actions.get(cid) or []) & {'edit', 'retake', 'input'} and (takes.get(cid) or 0) > 0]
+    if not qualified:
+        return None
+    seconds = remaining_at_stop(saved)
+    marker = {'policy': 'review-remaining-takes-v1', 'clips': qualified, 'at': time.time()}
+    resumed = {**saved, 'review_recovery': marker, 'status': 'deferred', 'phase': 'ready_agent',
+               'reason': "Continue the remaining review repair with this episode's own take allowance",
+               'no_progress': 0, 'fallback_invocations': 0, 'stop_detail': None, 'job': None,
+               'remaining_seconds': seconds, 'deadline': time.time()+seconds,
+               'updated_at': time.strftime('%F %T')}
+    if apply:
+        atomic_write_json(run_dir/'review-recovery.json', {**marker, 'previous': saved})
+        atomic_write_json(run_dir/'agent-run.json', resumed)
+    return resumed
+
+
 def blocked_summary_loop(run):
     saved = read_json(Path(run)/'agent-run.json', {})
     attempts = saved.get('attempts') or []

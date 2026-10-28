@@ -230,6 +230,7 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         from .input_repair import repair as validate_input
         saved = recovery.resume_protocol(ctx.run_dir,ctx.episode_dir,saved,validate_input=validate_input) or saved
         saved = recovery.resume_handoff(ctx.run_dir, ctx.episode_dir, saved) or saved
+        saved = recovery.resume_review(ctx.run_dir, ctx.episode_dir, saved) or saved
         config,saved=recovery.protocol_fallback(ctx,config,saved)
     stale_completed=False
     if saved.get('status')=='finished' and saved.get('passed')is True:
@@ -338,6 +339,8 @@ def start_run(ctx, *, config=None, timeout=None, retry_issues=False, tools_facto
         result['protocol_recovery']=saved['protocol_recovery']
     if saved.get('handoff_recovery'):
         result['handoff_recovery']=saved['handoff_recovery']
+    if saved.get('review_recovery'):
+        result['review_recovery']=saved['review_recovery']
     for key in ('model_switch_history', 'invocation_retry_history', 'summary_context_recovery', 'upstream_recovery_history'):
         if key in saved:
             result[key] = saved[key]

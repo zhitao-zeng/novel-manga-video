@@ -18,7 +18,8 @@
 - `diagnose`：把上述逐片原因写入当前任务 `issues`，与既有审看/语音/发布阻塞并列；已拍摄片段和已完成生产者回执不下发，相同文本去重。
 - `semantic_prompt(ctx)`：仅当 `latest-preparation.json` 实际存在时才要求读取；否则指向 `current-task.json` 的问题与证据文件。
 - `resume_handoff`：仅对状态 `blocked`、阶段 `input_repair`、原因为上述无进展停止、仍有剩余时间、无在途任务、且生产者回执有当前未拍摄阻塞的 episode 恢复一次。恢复沿用原活动、已用次数、`remaining_seconds` 和会话记录，写入 `handoff-recovery.json` 备份，不清空阻塞、不新增拍摄次数；同一 run 只会自动恢复一次。
-- 调度器 `_observe` 与单集入口 `start_run` 都接入该恢复；`handoff_recovery` 随结果保存，供后续审计。
+- `resume_review`：审看阶段 `finished_with_issues` 且最后一次 finish 仍列出未通过片段时，只有这些片段实际允许 `edit`/`retake`/`input` 且还有剩余拍摄次数才继续一次；已用尽次数或只剩 `crop`/`keep` 的不重开。同样保留原活动、计数和余时，并写入 `review-recovery.json`。第 25 集属于该情形：修复提示词已进入当前计划，但新一轮 take 尚未渲染。
+- 调度器 `_observe` 与单集入口 `start_run` 都接入这两种恢复；标记随结果保存，供后续审计。
 
 ## 验证
 

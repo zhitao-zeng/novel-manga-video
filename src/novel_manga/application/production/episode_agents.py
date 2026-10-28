@@ -148,12 +148,14 @@ def _observe(conductor, row, processes):
         return
     if result.get('status') in TERMINAL | {'paused', 'deferred'}:
         if not conductor.agent_pause.is_file() and row.get('source_episode'):
-            from novel_manga.application.agents.episode.recovery import resume_source_review,resume_protocol,resume_handoff
+            from novel_manga.application.agents.episode.recovery import (
+                resume_source_review,resume_protocol,resume_handoff,resume_review)
             from novel_manga.application.agents.episode.input_repair import repair as validate_input
             episode_dir = Path(row['run_dir'])/conductor.novel_dir.name/Path(row['source_episode']).name
             result = resume_source_review(row['run_dir'], episode_dir, result) or result
             result = resume_protocol(row['run_dir'], episode_dir, result,validate_input=validate_input) or result
             result = resume_handoff(row['run_dir'], episode_dir, result) or result
+            result = resume_review(row['run_dir'], episode_dir, result) or result
         reason = result.get('reason') or ''
         if result['status'] == 'finished_with_issues' and not reason:
             quality = (result.get('finish') or {}).get('quality_review') or {}

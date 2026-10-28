@@ -1,6 +1,8 @@
 """Blocked first-pass clips reach the repair Agent with their current reasons."""
 from types import SimpleNamespace
 
+import pytest
+
 from novel_manga.application.agents.episode import recovery
 from novel_manga.util import atomic_write_json, read_json
 
@@ -148,3 +150,36 @@ def test_semantic_prompt_cites_only_existing_preparation_evidence(tmp_path):
     assert 'current-task.json' in semantic_prompt(ctx)
     atomic_write_json(ctx.work_dir/'input/latest-preparation.json', {'blocked': {}})
     assert 'latest-preparation.json' in semantic_prompt(ctx)
+
+
+def test_review_recovery_continues_only_an_affordable_real_repair(tmp_path):
+    ctx = context(tmp_path)
+    atomic_write_json(ctx.work_dir/'input/current-status.json', {
+        'repair_actions': {'clip_03': ['crop', 'edit', 'retake', 'keep', 'input']},
+        'remaining_takes': {'clip_03': 2}})
+    saved = {'status': 'finished_with_issues', 'pipeline_phase': 'review',
+             'remaining_seconds': 900, 'attempts': ['old'], 'agent_seconds': 70,
+             'job': {'id': 'job-1', 'action': 'finish', 'status': 'completed',
+                     'result': {'passed': False, 'quality_review': {'remaining': ['clip_03']}}}}
+    atomic_write_json(ctx.run_dir/'agent-run.json', saved)
+    resumed = recovery.resume_review(ctx.run_dir, ctx.episode_dir, saved)
+    assert resumed['status'] == 'deferred' and resumed['remaining_seconds'] == 900
+    assert resumed['attempts'] == ['old'] and resumed['agent_seconds'] == 70
+    assert resumed['job'] is None and resumed['review_recovery']['clips'] == ['clip_03']
+    assert read_json(ctx.run_dir/'review-recovery.json')['previous'] == saved
+    assert recovery.resume_review(ctx.run_dir, ctx.episode_dir, {**resumed, 'status': 'finished_with_issues'}) is None
+
+
+@pytest.mark.parametrize('actions,takes,remaining', [
+    (['crop', 'keep'], 2, ['clip_03']), (['edit', 'retake'], 0, ['clip_03']),
+    (['edit', 'retake'], 2, []), (['edit', 'retake'], 2, ['clip_09'])])
+def test_review_recovery_leaves_spent_or_unrelated_stops_untouched(tmp_path, actions, takes, remaining):
+    ctx = context(tmp_path)
+    atomic_write_json(ctx.work_dir/'input/current-status.json', {
+        'repair_actions': {'clip_03': actions}, 'remaining_takes': {'clip_03': takes}})
+    saved = {'status': 'finished_with_issues', 'pipeline_phase': 'review', 'remaining_seconds': 900,
+             'job': {'action': 'finish', 'status': 'completed',
+                     'result': {'quality_review': {'remaining': remaining}}}}
+    assert recovery.resume_review(ctx.run_dir, ctx.episode_dir, saved) is None
+    assert not (ctx.run_dir/'review-recovery.json').exists()
+
