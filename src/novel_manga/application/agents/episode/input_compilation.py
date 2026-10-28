@@ -39,7 +39,7 @@ def compile_input(case: InputCompilation, receipt, record, progress) -> Compiled
     from novel_manga.application.repair.flow import rebuild_clips
     from novel_manga.application.rendering.h3 import convert
     from novel_manga.application.preparation.request_check import request_consistency, current_request, POLICY as REQUEST_CHECK_POLICY
-    from novel_manga.application.preparation.readiness import render_risks, worn_reference_pairs
+    from novel_manga.application.preparation.readiness import render_risks, risk_acceptances, worn_reference_pairs
     from novel_manga.application.preparation.wearer_cards import check_references
     from novel_manga.story.h3 import request_issues
     ctx = case.ctx
@@ -68,7 +68,8 @@ def compile_input(case: InputCompilation, receipt, record, progress) -> Compiled
         if phases or locations or candidate_script != script:
             raise ValueError('input correction did not reach the compiled request')
         check_references(ctx.novel_dir, worn_reference_pairs({'clips': [target]}))
-        remaining, _ = render_risks(target, ctx.novel_dir)
+        accepted = risk_acceptances(directory, {'clips': [target]}).get(cid) or {}
+        remaining, _ = render_risks(target, ctx.novel_dir, accepted)
         checked = request_consistency(target, ctx.novel_dir)
         if remaining or checked.get('consistent') is not True or checked.get('problems'):
             raise ValueError('existing inputs remain blocked: ' + '; '.join(remaining + (checked.get('problems') or [])))
